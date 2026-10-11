@@ -1,0 +1,39 @@
+.runview { height: 100%; overflow: auto; }
+.runview-inner { width: min(820px, 100%); padding: 14px 24px 64px; }
+.runview-head { padding: 0 0 16px; border-bottom: 1px solid var(--line); }
+.runview-back { margin-left: -8px; margin-bottom: 10px; color: var(--muted); }
+.runview-title { display: flex; align-items: center; gap: 14px; }
+.runview-who { font-size: var(--t-base); }
+.runview-label { margin-top: 1px; }
+.runview-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; font-size: var(--t-sm); color: var(--muted); padding-left: 54px; }
+.runview-body { padding-top: 24px; }
+.runview-parent { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-ui); font-size: 13px; color: var(--ink-2); }
+.runview-parent:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+.runview-missing { padding-top: 72px; }
+.rv-prompt { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-card); background: var(--sunken); margin-bottom: 22px; }
+.rv-prompt-label { font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
+.rv-section-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.rv-prompt p { color: var(--ink); line-height: 1.55; }
+.runview-body > .sa { margin-bottom: 22px; }
+.rv-events { display: flex; flex-direction: column; gap: 14px; }
+.rv-init { display: flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--faint); }
+.rv-stderr { font-size: var(--t-xs); color: var(--muted); background: var(--sunken); padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; margin: 0; }
+.rv-result { margin-top: 24px; padding: 16px 18px; border-radius: var(--r-card); border: 1px solid var(--line); background: var(--surface); }
+.rv-result-err { border-color: color-mix(in oklab, var(--err) 30%, var(--line)); }
+.rv-result-head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 12px; color: var(--ink); }
+.rv-result-head > svg { color: var(--ok); }
+.rv-result-err .rv-result-head > svg { color: var(--err); }
+.rv-result-head .faint { font-weight: 400; font-size: var(--t-xs); }
+.rv-grew { display: flex; align-items: center; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: var(--t-sm); color: var(--ok-text); }
+.rv-denials { margin-top: 24px; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: var(--r-card); background: var(--warn-soft); }
+.rv-denials-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink); }
+.rv-denials-head svg { color: var(--warn); }
+.rv-denial-what { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.rv-denial-what .pill { height: 18px; font-size: 10.5px; }
+.rv-denial { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
+.rv-denial-brief { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-denial-brief b { font-weight: 600; }
+.rv-children { margin-top: 24px; display: flex; flex-direction: column; gap: 6px; }
+.rv-child { display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: var(--t-base); }
+.rv-child:hover { border-color: var(--line-strong); }
+.rv-child .grow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -1,0 +1,120 @@
+.chat { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.chat-drop {
+  position: absolute; inset: 8px; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none;
+  border: 1.5px dashed var(--line-strong); border-radius: 14px; background: color-mix(in oklab, var(--surface) 88%, transparent);
+  color: var(--ink-2); font-weight: 500;
+}
+.chat-scroll { flex: 1; min-height: 0; overflow: auto; }
+.chat-inner { display: flex; flex-direction: column; gap: 22px; padding: 20px 20px 12px; }
+.turn { display: flex; flex-direction: column; gap: 14px; animation: riseIn var(--d-ui) var(--ease); }
+.msg-ceo {
+  align-self: flex-end; max-width: 82%; padding: 9px 13px; border-radius: 14px 14px 4px 14px; background: var(--sunken);
+  border: 1px solid var(--line); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
+}
+.msg-emp { display: flex; gap: 10px; align-items: flex-start; }
+.msg-av { margin-top: 1px; }
+.msg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding-left: 12px; margin-left: -2px; border-left: 2px solid var(--line); }
+.md-live > :last-child::after { content: ""; display: inline-block; width: 7px; height: 14px; margin-left: 2px; vertical-align: -2px; border-radius: 2px; background: var(--ink); animation: pulseDot 1s ease-in-out infinite; }
+.msg-failed { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--warn); }
+.thinking { display: inline-flex; gap: 4px; padding: 8px 0; }
+.thinking span { width: 6px; height: 6px; border-radius: 50%; background: var(--live); opacity: 0.35; animation: pulseDot 1.4s ease-in-out infinite; }
+.thinking span:nth-child(2) { animation-delay: 0.18s; }
+.thinking span:nth-child(3) { animation-delay: 0.36s; }
+
+.chat-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 48px 36px 24px; animation: riseIn 320ms var(--ease); }
+.chat-empty p { max-width: 360px; line-height: 1.55; margin-bottom: 6px; }
+.chat-suggest { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 400px; margin-top: 18px; }
+.chat-suggestion { text-align: left; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-size: var(--t-base); transition: all var(--d-ui) var(--ease); }
+.chat-suggestion:hover { border-color: var(--line-strong); color: var(--ink); background: var(--raised); }
+
+.composer-wrap { flex: none; padding: 8px 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+.composer {
+  border: 1px solid var(--line-strong); border-radius: 14px; background: var(--surface); transition: border-color var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease);
+}
+.composer:focus-within { border-color: var(--line-strong); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ink) 6%, transparent), var(--shadow-card); }
+.composer-busy { background: var(--raised); }
+.composer-input { display: block; width: 100%; resize: none; border: 0; background: transparent; padding: 12px 14px 4px; outline: none; line-height: 1.5; font-size: var(--t-base); }
+.composer-input::placeholder { color: var(--faint); }
+.composer-input:focus-visible { box-shadow: none; }
+.composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px 6px 6px 6px; }
+.composer-hint { font-size: var(--t-xs); margin-right: 8px; }
+.composer-send { border-radius: 8px; }
+.composer-send.btn-sm { width: 32px; height: 32px; }
+
+.composer-files { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 10px 0; }
+.attach {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 220px; height: 30px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); color: var(--ink-2); font-size: var(--t-sm);
+}
+.attach-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-image { width: 56px; height: 56px; padding: 0; overflow: hidden; }
+.attach-image img { width: 100%; height: 100%; object-fit: cover; }
+.attach-remove {
+  position: absolute; top: -6px; right: -6px; display: none; width: 18px; height: 18px; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--ink); color: var(--canvas);
+}
+.attach:hover .attach-remove, .attach-remove:focus-visible { display: inline-flex; }
+.attach-image .attach-remove { top: 3px; right: 3px; }
+.composer-files .attach:not(.attach-image) { padding-right: 14px; }
+.msg-files { align-self: flex-end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 82%; }
+.msg-files + .msg-ceo { margin-top: -8px; }
+.attach-sent { transition: border-color var(--d-ui) var(--ease), color var(--d-ui) var(--ease); }
+.attach-sent:hover { border-color: var(--line-strong); color: var(--ink); }
+
+/* ------------------------------------------------ threads beside the ongoing chat */
+.chat-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* With many tasks the chips stop at about three rows and the rest scroll, so the conversation keeps its room. */
+.thread-switch { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 12px 20px 2px; max-height: 115px; overflow-y: auto; }
+.thread-chip { max-width: 240px; }
+.thread-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.thread-chip-n { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 999px; background: var(--sunken); color: var(--muted); font-size: 10.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.chip[aria-pressed="true"] .thread-chip-n { background: color-mix(in oklab, var(--canvas) 18%, transparent); color: var(--canvas); }
+.thread-chip-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--live); flex: none; }
+.thread-chip-dot-live { animation: pulseDot 1.6s ease-in-out infinite; }
+.thread { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.thread-anchor { flex: none; display: flex; align-items: center; gap: 10px; margin: 10px 20px 0; padding: 8px 10px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); }
+.thread-anchor-icon { width: 28px; height: 28px; flex: none; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: var(--surface); border: 1px solid var(--line); color: var(--muted); }
+.thread-anchor-title { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread-anchor-sub { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread-time { font-size: var(--t-xs); white-space: nowrap; }
+.thread-needs { margin: 0; }
+.thread-brief-opt { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); font-size: 13px; }
+.thread-brief-opt .switch { margin-top: 2px; }
+.thread-brief-opt .muted { font-size: var(--t-sm); line-height: 1.45; }
+
+/* ------------------------------------------------ a thread you archived, in the ongoing chat */
+.brief { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); animation: riseIn var(--d-ui) var(--ease); }
+.brief-top { display: flex; align-items: center; gap: 7px; font-size: var(--t-sm); color: var(--muted); min-width: 0; }
+.brief-top > svg { flex: none; }
+.brief-top b { color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brief-time { font-size: var(--t-xs); white-space: nowrap; }
+.brief-excerpt { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.brief-note { font-size: 11.5px; }
+
+/* ------------------------------------------------ tasks beside the ongoing chat */
+.chip-new { width: 28px; padding: 0; justify-content: center; color: var(--muted); }
+.task-chip-wait { border-style: dashed; }
+.task-chip-wait:not([aria-pressed="true"]) { color: var(--muted); }
+.task-chip-wait .thread-chip-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--live); }
+
+/* While a turn is in flight the composer stays open, and its send button says a task will start. */
+.composer-send.composer-send-task { width: auto; height: 32px; padding: 0 12px 0 10px; gap: 6px; }
+.composer-fork { display: inline-flex; align-items: center; gap: 5px; margin-right: 6px; font-size: var(--t-xs); color: var(--muted); white-space: nowrap; }
+.composer-fork svg { flex: none; color: var(--faint); }
+
+/* A turn waiting for a free slot. */
+.task-wait {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; color: var(--ink-2);
+  border: 1px dashed color-mix(in oklab, var(--live) 45%, var(--line-strong)); background: var(--raised);
+}
+.task-wait > svg { flex: none; margin-top: 2px; color: var(--live-text); }
+.task-wait b { font-weight: 600; color: var(--ink); }
+.task-wait-link { margin: 4px 0 0 -8px; }
+
+/* A task before its first message. */
+.task-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 56px 36px 24px; animation: riseIn 320ms var(--ease); }
+.task-empty p { max-width: 380px; line-height: 1.55; }
+.task-empty-icon {
+  width: 48px; height: 48px; margin-bottom: 4px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--raised); border: 1px solid var(--line); color: var(--ink-2);
+}

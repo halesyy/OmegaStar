@@ -1,0 +1,41 @@
+.orgscroll { position: absolute; inset: 0; overflow: auto; }
+.orgcanvas-wrap { min-width: 100%; width: max-content; min-height: 100%; display: flex; justify-content: center; align-items: center; padding: 24px 32px 64px; }
+.orgcanvas { position: relative; flex: none; }
+.org-edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.org-edges path { fill: none; stroke: var(--line-strong); stroke-width: 1; transition: d var(--d-panel) var(--ease); }
+.org-node { position: absolute; top: 0; left: 0; transition: transform var(--d-panel) var(--ease); }
+.org-node-enter { animation: cardIn 320ms var(--ease) both; }
+@keyframes cardIn { from { opacity: 0; scale: 0.97; } to { opacity: 1; scale: 1; } }
+
+.ceo-av {
+  width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  background: var(--ink); color: var(--canvas); font-size: 11.5px; font-weight: 600; letter-spacing: -0.01em;
+}
+.card-name { font-size: var(--t-base); font-weight: 600; letter-spacing: -0.008em; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-title { font-size: var(--t-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+
+/* A member on the chart: avatar, name, title and one status line. Flat: a border, no lift, no shadow. */
+.mcard {
+  width: 100%; height: 100%; display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; text-align: left; border-radius: var(--r-card);
+  background: var(--surface); border: 1px solid var(--line); overflow: hidden;
+  transition: border-color var(--d-ui) var(--ease), background var(--d-ui) var(--ease);
+}
+.mcard:hover { border-color: var(--line-strong); }
+.mcard:focus-visible { box-shadow: var(--focus); border-radius: var(--r-card); }
+.mcard-selected, .mcard-selected:hover { border-color: var(--ink); }
+.mcard-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mcard-status { display: flex; align-items: center; gap: 6px; margin-top: 5px; min-width: 0; font-size: 11.5px; color: var(--ink-2); }
+.mcard-status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mcard-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--line-strong); }
+.mcard-dot-pulse { animation: pulseDot 2.4s ease-in-out infinite; }
+.mcard-status-live { color: var(--live-text); }
+.mcard-status-live .mcard-dot { background: var(--live); }
+.mcard-status-err { color: var(--err-text); }
+.mcard-status-err .mcard-dot { background: var(--err); }
+.mcard-status-warn { color: var(--ink-2); }
+.mcard-status-warn .mcard-dot { background: var(--warn); }
+.mcard-status-faint { color: var(--faint); }
+
+/* The previews in the hire and add-person sheets reuse the card head. */
+.mcard-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mcard-kind { align-self: flex-start; display: inline-flex; align-items: center; gap: 3px; font-size: var(--t-xs); font-weight: 500; color: var(--faint); }

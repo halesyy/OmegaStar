@@ -1,0 +1,30 @@
+/* A request or proposal in a list: flat, no box. The list draws the hairlines between them. */
+.req { display: flex; flex-direction: column; gap: 6px; padding: 14px 0; animation: riseIn var(--d-ui) var(--ease); }
+.req-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.req-who { flex: 1; min-width: 0; font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.req-name { font-weight: 600; color: var(--ink); font-size: var(--t-sm); }
+.req-name:hover { text-decoration: underline; text-underline-offset: 2px; }
+.req-due { flex: none; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; }
+.req-due-soon { color: var(--warn); }
+.req-due-late { color: var(--err-text); }
+.req-msg { font-size: var(--t-base); color: var(--ink); line-height: 1.55; }
+.req-closed .req-msg { color: var(--ink-2); }
+.req-status { font-size: var(--t-sm); color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.req-heard { font-size: var(--t-sm); color: var(--ink-2); line-height: 1.5; overflow-wrap: anywhere; }
+.req-heard b { font-weight: 600; color: var(--ink); }
+.req-tag { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 999px; background: var(--sunken); color: var(--muted); font-size: var(--t-xs); line-height: 18px; white-space: nowrap; }
+.req-warn { font-size: var(--t-sm); color: var(--warn); line-height: 1.5; overflow-wrap: anywhere; }
+.req-warn svg { vertical-align: -2px; margin-right: 5px; }
+.req-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 4px; }
+.req-reply { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; animation: riseIn var(--d-ui) var(--ease); }
+.req-resolved { display: flex; align-items: baseline; gap: 8px; font-size: var(--t-sm); padding-top: 2px; }
+.req-resolved .pill { height: 20px; font-size: var(--t-xs); flex: none; align-self: center; }
+.req-response { color: var(--ink-2); }
+.req-link { color: var(--muted); font-size: var(--t-sm); display: inline-flex; align-items: center; gap: 4px; }
+.req-link:hover { color: var(--ink); }
+
+.prop-hire { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 2px 0; }
+.prop-name { font-weight: 600; color: var(--ink); font-size: var(--t-base); }
+.prop-sub { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prop-missing { display: flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--warn); }
+.prop-missing svg { flex: none; }

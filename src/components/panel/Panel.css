@@ -1,0 +1,42 @@
+.panel-head { flex: none; display: flex; gap: 14px; align-items: center; padding: 18px 16px 14px 20px; }
+.panel-name { line-height: 1.2; }
+.panel-sub { font-size: var(--t-base); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel-presence { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--muted); margin-top: 4px; border-radius: 6px; }
+.panel-presence-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
+.panel-presence-accent { color: var(--live-text); }
+.panel-presence-accent .panel-presence-dot { background: var(--live); animation: pulseDot 2.4s ease-in-out infinite; }
+.panel-presence-warn { color: var(--err-text); }
+.panel-presence-warn .panel-presence-dot { background: var(--err); }
+.panel-presence-link { display: inline-flex; align-items: center; gap: 3px; font-weight: 500; }
+button.panel-presence:hover .panel-presence-link { text-decoration: underline; text-underline-offset: 2px; }
+.panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.panel-body-ruled { border-top: 1px solid var(--line); }
+.tab-scroll { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 32px; }
+.tab-scroll .psec + .psec { margin-top: 28px; }
+.psec.tab-form { gap: 16px; }
+.section-note { font-size: var(--t-sm); color: var(--faint); }
+button.section-note { color: var(--muted); font-weight: 500; }
+button.section-note:hover:not(:disabled) { color: var(--ink); text-decoration: none; }
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--muted); margin-bottom: 12px; min-width: 0; }
+.crumbs button { color: var(--muted); border-radius: 5px; padding: 0 2px; }
+.crumbs button:hover { color: var(--ink); }
+.crumbs .crumb-here { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumbs svg { color: var(--faint); flex: none; }
+.savebar {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-top: 1px solid var(--line); background: var(--raised);
+  animation: riseIn var(--d-ui) var(--ease);
+}
+.rules { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px; }
+.rule { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 9px; border-radius: 7px; background: var(--sunken); border: 1px solid var(--line); font-size: 11.5px; color: var(--ink-2); }
+.rule button { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.rule button:hover { background: var(--line); color: var(--ink); }
+.danger { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: var(--r-card); border: 1px solid color-mix(in oklab, var(--err) 25%, var(--line)); background: color-mix(in oklab, var(--err-soft) 55%, var(--surface)); margin-top: 8px; }
+.danger-title { font-weight: 600; }
+.danger-desc { font-size: var(--t-sm); color: var(--muted); }
+.person-waiting { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); font-size: var(--t-sm); color: var(--ink-2); }
+.person-waiting > svg { flex: none; color: var(--warn); }
+.person-waiting .btn { flex: none; margin-left: auto; }
+.you-av { width: 44px; height: 44px; font-size: var(--t-md); }
+.you-line { font-size: var(--t-sm); color: var(--faint); margin-top: 2px; }
+.you-effect { display: inline-flex; align-items: flex-start; gap: 6px; color: var(--ink-2); }
+.you-effect svg { flex: none; margin-top: 2px; color: var(--muted); }

@@ -1,0 +1,110 @@
+/* ------------------------------------------------ avatar */
+.av {
+  --h: 250;
+  position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; font-weight: 600; letter-spacing: -0.01em; user-select: none;
+  background: oklch(var(--av-bg-l) var(--av-bg-c) var(--h));
+  color: oklch(var(--av-fg-l) var(--av-fg-c) var(--h));
+}
+.av-person {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px oklch(calc(var(--av-fg-l) + 0.08) calc(var(--av-fg-c) * 0.8) var(--h));
+}
+.av-working { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px color-mix(in oklab, var(--live) 75%, transparent); }
+.av-queued { outline: 1.5px dashed color-mix(in oklab, var(--live) 70%, transparent); outline-offset: 2px; }
+.av-flag {
+  position: absolute; right: -1px; bottom: -1px; width: 28%; height: 28%; min-width: 8px; min-height: 8px;
+  border-radius: 50%; background: var(--err); box-shadow: 0 0 0 2px var(--surface);
+}
+
+.state-pill { gap: 6px; }
+.state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.state-dot-pulse { animation: pulseDot 2.4s ease-in-out infinite; }
+
+/* ------------------------------------------------ slide-over */
+.scrim { position: fixed; inset: 0; background: var(--scrim); opacity: 0; transition: opacity var(--d-panel) var(--ease); z-index: 30; }
+.scrim-on { opacity: 1; }
+.slideover {
+  position: fixed; top: 16px; right: 16px; bottom: 16px; z-index: 20; max-width: calc(100vw - 88px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-float);
+  display: flex; flex-direction: column; outline: none;
+  transform: translateX(24px); opacity: 0; transition: transform var(--d-panel) var(--ease), opacity var(--d-panel) var(--ease);
+}
+.slideover-on { transform: none; opacity: 1; }
+.slideover-modal { z-index: 31; top: 8px; right: 8px; bottom: 8px; max-width: calc(100vw - 120px); }
+.slideover-edge { position: absolute; top: 0; bottom: 0; left: 0; width: 8px; z-index: 2; cursor: col-resize; touch-action: none; }
+.slideover-edge::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--line-strong);
+  opacity: 0; transition: opacity var(--d-ui) var(--ease);
+}
+.slideover-edge:hover::before { opacity: 1; transition-delay: 120ms; }
+.slideover-edge:focus-visible { box-shadow: none; }
+.slideover-edge:focus-visible::before, :root[data-resizing] .slideover-edge::before { opacity: 1; background: var(--muted); transition-delay: 0s; }
+/* While the edge is dragged, the whole window shows the resize cursor and no text gets selected. */
+:root[data-resizing], :root[data-resizing] * { cursor: col-resize !important; user-select: none; }
+
+/* ------------------------------------------------ confirm */
+.confirm { display: inline-flex; align-items: center; gap: 6px; animation: riseIn var(--d-ui) var(--ease); }
+.confirm-q { font-size: var(--t-sm); color: var(--ink-2); margin-right: 4px; }
+
+/* ------------------------------------------------ popover */
+.popover {
+  position: fixed; z-index: 60; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card);
+  box-shadow: var(--shadow-float); padding: 12px; animation: riseIn var(--d-ui) var(--ease);
+}
+
+/* ------------------------------------------------ toasts */
+.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 80; pointer-events: none; }
+.toast {
+  pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 12px; border-radius: 10px;
+  background: var(--ink); color: var(--bg); font-size: var(--t-base); font-weight: 500; box-shadow: var(--shadow-float);
+  animation: riseIn var(--d-ui) var(--ease); max-width: 480px;
+}
+.toast-ok svg { color: color-mix(in oklab, var(--ok) 60%, var(--bg)); }
+.toast-err svg { color: color-mix(in oklab, var(--err) 60%, var(--bg)); }
+.toast-action { color: var(--bg); text-decoration: underline; text-underline-offset: 2px; font-weight: 600; margin-left: 4px; }
+
+/* ------------------------------------------------ tabs */
+.tabs { position: relative; display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding: 0 20px; }
+.tab {
+  position: relative; height: 38px; padding: 0 10px; font-size: var(--t-base); font-weight: 500; color: var(--muted);
+  display: inline-flex; align-items: center; gap: 6px; border-radius: 6px 6px 0 0; transition: color var(--d-ui) var(--ease);
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); }
+.tab-badge { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 999px; background: var(--err-soft); color: var(--err-text); font-size: 10.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+.tabs-bar { position: absolute; bottom: -1px; left: 0; height: 2px; border-radius: 2px; background: var(--ink); transition: transform var(--d-ui) var(--ease), width var(--d-ui) var(--ease); }
+
+/* ------------------------------------------------ page header, page column, plain sections */
+.pagehead { flex: none; display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 10px 24px; }
+.pagehead-title { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pagehead-actions { flex: none; display: flex; align-items: center; gap: 8px; }
+.pagecol { height: 100%; display: flex; flex-direction: column; }
+.pagecol-scroll { flex: 1; min-height: 0; overflow: auto; }
+.pagecol-inner { width: min(820px, 100%); padding: 4px 24px 64px; display: flex; flex-direction: column; gap: 36px; }
+
+.psec { display: flex; flex-direction: column; gap: 10px; }
+.psec-head { display: flex; align-items: center; gap: 12px; min-height: 28px; }
+.psec-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.psec-count { font-size: var(--t-sm); font-weight: 500; color: var(--faint); }
+.psec-action { flex: none; display: flex; align-items: center; gap: 8px; }
+/* A list of rows inside a section: hairlines between rows, none around them. */
+.plist { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.plist > * { border-bottom: 1px solid var(--line); }
+
+/* ------------------------------------------------ menu (inside a popover) */
+.popover:has(> .menu) { padding: 4px; }
+.menu { display: flex; flex-direction: column; gap: 1px; }
+.menu-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 5px 8px; border-radius: 6px; font-size: var(--t-base); color: var(--ink-2); text-align: left; }
+.menu-item svg { flex: none; color: var(--muted); }
+.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--sunken); color: var(--ink); box-shadow: none; }
+.menu-item:disabled { opacity: 0.45; }
+.menu-item-danger { color: var(--err-text); }
+.menu-item-danger svg { color: var(--err); }
+
+/* ------------------------------------------------ error */
+.error-note {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-input);
+  background: var(--err-soft); color: var(--err); font-size: var(--t-sm); animation: riseIn var(--d-ui) var(--ease);
+}
+

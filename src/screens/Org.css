@@ -1,0 +1,29 @@
+.org { height: 100%; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; transition: padding-right var(--d-panel) var(--ease); }
+/* An open panel (fixed, 16px from the window edge) takes the right of the page: the chart re-fits to what is left. */
+.org-panel { padding-right: calc(var(--panel-w) + 20px); }
+/* Dragging the panel's edge: the page follows the pointer instead of easing behind it. */
+:root[data-resizing] .org { transition: none; }
+.org-loading { padding: 4px 24px 24px; }
+
+/* The chart is the page: no card around it, no dotted grid behind it. */
+.org-canvas { position: relative; flex: 1; min-height: 0; }
+.org-controls { position: absolute; left: 20px; bottom: 18px; z-index: 2; display: flex; align-items: center; gap: 6px; }
+.org-controls .seg { background: var(--canvas); }
+.org-fit.btn { width: 32px; height: 32px; border-color: var(--line); color: var(--muted); }
+.org-fit.btn:hover:not(:disabled) { color: var(--ink); }
+/* Beside an open panel there is only room for the chart: the header buttons keep their icons. */
+@container (max-width: 560px) {
+  .org-btn-label { display: none; }
+  .org .pagehead-actions .btn { width: 32px; padding: 0; }
+}
+
+.org-empty { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 48px 24px 40px; }
+.org-empty-you { width: 236px; height: 76px; flex: none; }
+.org-empty-line { flex: none; }
+.org-empty-line path { stroke: var(--line-strong); stroke-width: 1; fill: none; }
+.org-empty-card {
+  width: min(460px, 100%); display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+  padding: 28px 28px 24px; border-radius: var(--r-card); border: 1px dashed var(--line-strong); background: var(--surface);
+}
+.org-empty-card p { max-width: 380px; line-height: 1.55; font-size: 13px; }
+.org-empty-templates { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 6px 0 8px; }

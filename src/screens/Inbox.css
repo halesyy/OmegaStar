@@ -1,0 +1,81 @@
+.inbox-list { margin: 0 -12px; }
+.inbox-day { padding: 14px 12px 6px; font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
+.inbox-group:first-child .inbox-day { padding-top: 2px; }
+
+.item { border-radius: 10px; }
+/* A hairline between rows, inset to the row's padding, so hover and open fills stay clean. */
+.item + .item::before { content: ""; display: block; height: 1px; margin: 0 12px; background: var(--line); }
+.item-open::before, .item-open + .item::before { background: transparent; }
+.item-head { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 11px 12px; border-radius: 10px; cursor: pointer; outline: none; transition: background var(--d-ui) var(--ease); }
+.item-head:hover, .item-open .item-head { background: var(--sunken); }
+.item-open { background: var(--sunken); }
+.item-open .item-head { border-radius: 10px 10px 0 0; }
+.item-head:focus-visible { box-shadow: var(--focus); }
+.item-noav { width: 30px; height: 30px; flex: none; }
+.item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.item-context { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-context b { font-weight: 600; }
+.item-title { display: flex; align-items: center; gap: 6px; font-size: var(--t-base); font-weight: 500; color: var(--ink); min-width: 0; }
+.item-title > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-open .item-title > span { white-space: normal; }
+.item-unread .item-title { font-weight: 650; }
+.item-bell { flex: none; color: var(--warn); }
+.item-failed { flex: none; color: var(--err); }
+.item-preview { font-size: var(--t-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-tags { display: flex; flex-wrap: wrap; align-items: center; margin-top: 3px; font-size: var(--t-sm); color: var(--muted); }
+.item-tags > * { display: inline-flex; align-items: center; gap: 4px; }
+.item-tags > * + *::before { content: "·"; margin: 0 6px; color: var(--faint); }
+.item-tag-live { color: var(--live-text); }
+.item-tag-warn { color: var(--warn); }
+.item-tag-err { color: var(--err-text); }
+.item-side { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 2px; }
+.item-when { font-size: var(--t-sm); white-space: nowrap; }
+.item-actions { position: absolute; top: 8px; right: 12px; display: flex; gap: 2px; padding: 2px; border-radius: 9px; border: 1px solid var(--line-card); background: var(--surface); box-shadow: var(--shadow-float); opacity: 0; pointer-events: none; transition: opacity var(--d-ui) var(--ease); }
+.item-head:hover .item-actions, .item-head:focus-within .item-actions { opacity: 1; pointer-events: auto; }
+.item-detail { padding: 4px 14px 14px 54px; border-radius: 0 0 10px 10px; }
+.item-meta { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.item-meta .pill { height: 20px; font-size: var(--t-xs); }
+.item-reply { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.item-reply .textarea { min-height: 56px; background: var(--surface); }
+.item-hint { font-size: var(--t-sm); }
+
+.report-new { width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+.report-body { position: relative; font-size: var(--t-base); }
+.report-body .md { font-size: var(--t-base); line-height: 1.65; }
+.report-grew { display: inline-flex; align-items: center; gap: 5px; font-size: var(--t-sm); color: var(--ok-text); }
+.report-needs { list-style: none; margin: 4px 0 12px; padding: 9px 12px; display: flex; flex-direction: column; gap: 6px; border-radius: 10px; background: var(--warn-soft); }
+.report-needs li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.5; }
+.report-needs svg { flex: none; margin-top: 3px; color: var(--warn); }
+@media (max-width: 560px) { .item-detail { padding-left: 14px; } }
+
+/* ------------------------------------------------ the thread under a report */
+.thread-strip { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.thread-strip-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }
+.thread-strip-head > svg { color: var(--muted); flex: none; }
+.thread-strip-title { font-weight: 600; color: var(--ink); }
+.thread-strip-toggle { margin-left: 4px; height: 22px; padding: 0 6px; color: var(--muted); }
+.thread-reply { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; }
+.thread-reply + .thread-reply { border-top: 1px solid var(--line); }
+.thread-reply-you { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.thread-reply-text { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.thread-reply-them { display: flex; gap: 8px; align-items: flex-start; }
+.thread-reply-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.thread-reply-who { font-weight: 600; font-size: var(--t-sm); color: var(--ink); flex: none; }
+.thread-reply-when { font-size: var(--t-xs); white-space: nowrap; }
+.thread-reply-md.md { font-size: 13px; line-height: 1.55; }
+.thread-reply-live { align-self: flex-start; height: 20px; font-size: var(--t-xs); }
+
+/* ------------------------------------------------ a row's other runs: a hand-off, or failures in a row */
+.item-avs { position: relative; width: 30px; height: 30px; flex: none; }
+.item-avs > .av:first-child { position: absolute; left: 0; top: 0; }
+.item-avs > .item-av2 { position: absolute; right: -2px; bottom: -2px; box-shadow: 0 0 0 2px var(--surface); }
+.row-run { display: flex; align-items: flex-start; gap: 10px; padding: 8px 8px 8px 12px; }
+.row-run + .row-run { border-top: 1px solid var(--line); }
+.row-run-lead { background: var(--raised); }
+.row-run-noav { width: 20px; flex: none; }
+.row-run-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.row-run-head { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-run-head b { font-weight: 600; }
+.row-run-text { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); min-width: 0; }
+.row-run-text > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-run-when { font-size: var(--t-xs); white-space: nowrap; padding-top: 3px; }

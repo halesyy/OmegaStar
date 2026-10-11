@@ -1,0 +1,45 @@
+.tools { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--raised); overflow: hidden; }
+.tool + .tool { border-top: 1px solid var(--line); }
+.tool-row { width: 100%; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; text-align: left; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); transition: background var(--d-ui) var(--ease); }
+.tool-row:hover { background: var(--sunken); }
+.tool-icon { color: var(--faint); flex: none; }
+.tool-name { color: var(--ink); font-weight: 500; flex: none; }
+.tool-brief { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.tool-status { flex: none; width: 14px; display: inline-flex; justify-content: center; }
+.tool-ok { color: var(--ok); }
+.tool-err { color: var(--err); }
+.tool-pending { width: 6px; height: 6px; border-radius: 50%; background: var(--live); animation: pulseDot 1.6s ease-in-out infinite; }
+.tool-stopped { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+.tool-detail { padding: 6px 10px 10px 31px; font-size: 11.5px; color: var(--ink-2); line-height: 1.6; overflow-wrap: anywhere; animation: fadeIn var(--d-ui) var(--ease); }
+.tool-more { width: 100%; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; font-size: var(--t-sm); color: var(--muted); border-bottom: 1px solid var(--line); }
+.tool-more:hover { color: var(--ink); background: var(--sunken); }
+.tools-compact .tool-row { height: 28px; }
+
+.skill-chip {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 9px; border-radius: 999px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); font-size: var(--t-sm); box-shadow: var(--shadow-card);
+  transition: transform var(--d-ui) var(--ease), background var(--d-ui) var(--ease); animation: chipIn 520ms var(--ease) both;
+}
+.skill-chip:hover:not(:disabled) { background: var(--raised); border-color: var(--muted); }
+.skill-chip > svg:first-child { color: var(--ok); }
+.skill-chip-verb { font-weight: 600; }
+.skill-chip-name { font-size: 11.5px; opacity: 0.9; }
+.skill-chip-go { opacity: 0.7; transition: transform var(--d-ui) var(--ease); }
+.skill-chip:hover .skill-chip-go { transform: translateX(2px); }
+@keyframes chipIn { 0% { opacity: 0; transform: scale(0.92); } 60% { opacity: 1; transform: scale(1.03); } 100% { transform: none; } }
+
+.delegated {
+  display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); transition: border-color var(--d-ui) var(--ease);
+}
+.delegated:hover { border-color: var(--line-strong); }
+.delegated-top { display: flex; align-items: center; gap: 7px; font-size: var(--t-sm); color: var(--muted); }
+.delegated-top b { color: var(--ink); font-weight: 600; }
+.delegated-task { font-size: var(--t-base); color: var(--ink-2); padding-left: 20px; }
+
+.requested { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; border: 1px dashed var(--line-strong); background: var(--surface); }
+.requested-icon { color: var(--muted); flex: none; margin-top: 2px; }
+.requested-head { font-size: var(--t-sm); color: var(--muted); }
+.requested-head b { color: var(--ink); font-weight: 600; }
+.requested-msg { font-size: var(--t-base); color: var(--ink-2); margin-top: 2px; }
+.requested-reply { font-size: var(--t-sm); color: var(--ink-2); margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--ok); }

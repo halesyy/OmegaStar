@@ -1,0 +1,27 @@
+/* Usage limits: two thin meters under Settings, no box. The reset time shows once a window runs high. */
+.usage { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding: 10px 10px 4px; border-top: 1px solid var(--line); }
+.usage-head { display: flex; align-items: center; justify-content: space-between; height: 18px; font-size: var(--t-sm); font-weight: 500; color: var(--faint); }
+.usage-refresh { width: 20px; height: 20px; margin-right: -4px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--faint); opacity: 0; transition: opacity var(--d-ui) var(--ease), background var(--d-ui) var(--ease), color var(--d-ui) var(--ease); }
+.usage:hover .usage-refresh, .usage-refresh:focus-visible, .usage-refreshing { opacity: 1; }
+.usage-refresh:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.usage-refreshing svg { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.usage-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 34px; align-items: center; column-gap: 8px; row-gap: 2px; font-size: var(--t-sm); color: var(--muted); }
+.usage-row .mono { font-size: 11.5px; color: var(--ink-2); text-align: right; }
+.usage-bar { height: 4px; border-radius: 999px; background: var(--sunken); overflow: hidden; }
+.usage-bar span, .usage-mini-bar span { display: block; height: 100%; border-radius: inherit; background: var(--muted); transition: width var(--d-panel) var(--ease); }
+.usage-sub { grid-column: 2 / -1; font-size: var(--t-xs); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.usage-warn .usage-bar span, .usage-mini-bar.usage-warn span { background: var(--warn); }
+.usage-warn .mono { color: var(--warn); }
+.usage-err .usage-bar span, .usage-mini-bar.usage-err span { background: var(--err); }
+.usage-err .mono { color: var(--err-text); }
+.usage-mini { display: none; }
+.usage-mini-bar { display: block; height: 3px; border-radius: 999px; background: var(--sunken); overflow: hidden; }
+.usage-mini-cost { font-size: 10px; color: var(--ink-2); text-align: center; }
+
+/* The collapsed sidebar shows a mini meter instead. */
+.shell-collapsed .usage { display: none; }
+.shell-collapsed .usage-mini {
+  display: flex; flex-direction: column; justify-content: center; gap: 4px; align-self: center; width: 36px; height: 30px; margin-top: 8px; padding: 0 7px;
+  border-radius: 8px; border: 1px solid var(--line);
+}

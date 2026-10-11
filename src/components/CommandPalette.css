@@ -1,0 +1,21 @@
+.palette-scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 70; animation: fadeIn var(--d-ui) var(--ease); }
+.palette {
+  position: fixed; left: 50%; top: 14vh; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); z-index: 71;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-float); overflow: hidden;
+  animation: riseIn var(--d-ui) var(--ease);
+}
+.palette-input { display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 52px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.palette-input input { flex: 1; border: 0; background: transparent; font-size: var(--t-md); color: var(--ink); outline: none; }
+.palette-input input:focus-visible { box-shadow: none; }
+.palette-input input::placeholder { color: var(--faint); }
+.palette-list { max-height: 360px; overflow: auto; padding: 6px; }
+.palette-group { padding: 8px 10px 4px; font-size: var(--t-sm); font-weight: 500; color: var(--faint); }
+.palette-item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 0 10px; height: 36px; border-radius: 8px; font-size: var(--t-base); color: var(--ink-2); text-align: left; min-width: 0; }
+.palette-item[aria-selected="true"] { background: var(--sunken); color: var(--ink); }
+.palette-item .pi-icon { width: 20px; flex: none; display: inline-flex; justify-content: center; color: var(--muted); }
+.palette-item .pi-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.palette-item .pi-label.mono { font-size: 12.5px; }
+.palette-item .pi-hint { margin-left: auto; padding-left: 12px; flex: none; max-width: 45%; font-size: var(--t-sm); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.palette-empty { padding: 24px; text-align: center; color: var(--muted); }
+.palette-foot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: var(--t-xs); color: var(--faint); background: var(--raised); }
+.palette-foot span { display: inline-flex; align-items: center; gap: 5px; }

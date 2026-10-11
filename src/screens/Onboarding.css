@@ -1,0 +1,26 @@
+.ob {
+  height: 100%; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 40px 24px;
+  background:
+    radial-gradient(circle, var(--grid-dot-strong) 1px, transparent 1.4px) 0 0 / 22px 22px,
+    var(--canvas);
+}
+.ob-card { width: min(560px, 100%); display: flex; flex-direction: column; gap: 24px; animation: riseIn 480ms var(--ease) both; }
+.ob-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; }
+.ob-head svg { margin-bottom: 6px; filter: drop-shadow(0 6px 16px rgb(0 0 0 / 0.14)); }
+.ob-head p { max-width: 420px; line-height: 1.55; }
+.ob-steps { list-style: none; margin: 0; padding: 6px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.ob-step { display: flex; gap: 14px; padding: 14px 18px; }
+.ob-step + .ob-step { border-top: 1px solid var(--line); }
+.ob-mark {
+  flex: none; width: 22px; height: 22px; margin-top: -1px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: var(--t-xs); font-weight: 600; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--line-strong); transition: all var(--d-panel) var(--ease);
+}
+.ob-step-filled .ob-mark { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.ob-step-done .ob-mark { background: var(--ok); color: #fff; box-shadow: none; animation: chipIn 420ms var(--ease); }
+.ob-title { font-weight: 600; }
+.ob-detail { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--t-sm); color: var(--muted); }
+.ob-detail .mono { font-size: 11.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+.ob-detail .pill { height: 20px; font-size: var(--t-xs); }
+.ob-names { margin-top: 2px; }
+.ob-bg { display: flex; align-items: center; gap: 16px; }
+.ob-go { align-self: center; min-width: 220px; }

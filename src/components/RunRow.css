@@ -1,0 +1,17 @@
+.runrow {
+  width: 100%; display: flex; align-items: center; gap: 12px; padding: 10px 12px; text-align: left; border-radius: 10px;
+  transition: background var(--d-ui) var(--ease);
+}
+.runrow:hover { background: var(--sunken); }
+.runrow-icon { width: 28px; height: 28px; flex: none; display: inline-flex; align-items: center; justify-content: center; color: var(--faint); }
+.runrow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.runrow-title { display: flex; gap: 6px; font-weight: 500; font-size: var(--t-base); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.runrow-title b { font-weight: 600; }
+.runrow-detail { font-size: var(--t-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.runrow-meta { flex: none; display: flex; align-items: center; }
+.runrow-when { display: flex; align-items: center; gap: 8px; font-size: var(--t-sm); }
+.runrow-when .pill { height: 18px; font-size: var(--t-xs); padding: 0 7px; }
+.daygroup { display: flex; flex-direction: column; gap: 2px; }
+.daygroup + .daygroup { margin-top: 18px; }
+.daygroup-title { font-size: var(--t-sm); font-weight: 500; color: var(--muted); padding: 0 12px 4px; display: flex; justify-content: space-between; }
+.daygroup-title span { font-weight: 400; color: var(--muted); }

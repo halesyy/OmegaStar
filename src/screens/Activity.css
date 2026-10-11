@@ -1,0 +1,6 @@
+.activity-who { width: auto; min-width: 150px; height: 30px; font-size: var(--t-sm); }
+.activity-list { margin: 0 -12px; }
+.change-skill { font-size: var(--t-sm); color: var(--ink); }
+.change-lines { display: inline-flex; gap: 6px; font-size: var(--t-xs); }
+.tl-add { color: var(--ok); }
+.tl-del { color: var(--err); }
