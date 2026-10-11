@@ -20,6 +20,10 @@
   <img alt="Requires Claude Code" src="https://img.shields.io/badge/requires-Claude%20Code-555555?style=flat-square">
 </p>
 
+<p align="center">
+  <sub>Proudly sponsored by <a href="https://vibetyper.com"><img src="https://vibetyper.com/images/vibe-typer-logo.png" alt="" width="16" height="16" align="absmiddle"> <strong>Vibe Typer</strong></a></sub>
+</p>
+
 **Keep the agent you trust. Omega Star adds the company around it.**
 
 Omega Star is not another agent. Every AI employee (an autonomous Claude Code agent) is your own Claude Code, running headless (`claude -p`) under your login, with the CLI tools, logins and skills you've already set up. Omega Star adds what turns them into a team: roles, an org chart that includes real people, schedules, managers, and skills that grow as you teach. Use it to run your team, your project or your business.
@@ -99,32 +103,30 @@ You teach an employee by talking to them, the way you'd teach a new hire. Each l
 
 ## Quickstart
 
-**You need:** Claude Code installed and signed in (`claude auth status` shows `loggedIn: true`). To build: Rust (stable), Node.js 20.19+ or 22.13+, the Xcode Command Line Tools on macOS, and on Windows the MSVC C++ Build Tools with a Windows SDK.
+**You need:** Claude Code installed and signed in (`claude auth status` shows `loggedIn: true`).
 
-1. **Build and run.** The first build takes a few minutes.
-
-   ```
-   git clone https://github.com/itsfutsy/Omegastar.git
-   cd Omegastar
-   npm install
-   npm run tauri dev
-   ```
-
-   On Windows, run cargo and the Tauri CLI from PowerShell or cmd. Git Bash puts its own `link` ahead of the MSVC linker and the build fails.
-
+1. **Download and install** the app for your computer from the [latest release](https://github.com/itsfutsy/Omegastar/releases/latest):
+   - **macOS:** the `.dmg` (`aarch64` for Apple Silicon, `x64` for Intel). The first time you open it, go to System Settings > Privacy & Security and click **Open Anyway**.
+   - **Windows:** the `-setup.exe`. If SmartScreen appears, click **More info**, then **Run anyway**.
+   - **Linux:** the `.AppImage`, `.deb` or `.rpm` (untested).
 2. **Open your office.** Setup checks Claude Code and asks for your company, name and title. Turn on "Keep Omega Star running in the background" so it starts at login. Closing the window leaves it in the tray, where schedules keep running.
 3. **Hire your first employee** from a template, such as Chief of Staff. Their chat opens with a first lesson already written. Send it, and they'll interview you and write their first skill.
 
 **Tip:** start with one employee and one job, and expect a short training period while you allow the commands and tools they need.
 
 <details>
-<summary>Build installers</summary>
+<summary>Build it yourself</summary>
+
+You need Rust (stable), Node.js 20.19+ or 22.13+, the Xcode Command Line Tools on macOS, and on Windows the MSVC C++ Build Tools with a Windows SDK.
 
 ```
-npm run tauri build
+git clone https://github.com/itsfutsy/Omegastar.git
+cd Omegastar
+npm install
+npm run tauri dev
 ```
 
-Each platform builds its own installers: Windows `.msi` and `-setup.exe`, macOS `.dmg`, and Linux AppImage, `.deb` and `.rpm` (Linux is untested).
+`npm run tauri build` makes installers for the platform you're on. On Windows, use PowerShell or cmd rather than Git Bash, or the build fails.
 
 </details>
 
