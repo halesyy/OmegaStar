@@ -55,6 +55,9 @@
     "publisher": "Abram Industries Pty Ltd",
     "copyright": "Copyright (C) 2026 Abram Industries Pty Ltd",
     "targets": "all",
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

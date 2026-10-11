@@ -20,9 +20,6 @@
   <img alt="Requires Claude Code" src="https://img.shields.io/badge/requires-Claude%20Code-555555?style=flat-square">
 </p>
 
-> [!IMPORTANT]
-> Early alpha (v0.1): no prebuilt downloads yet, so you [build it from source](#quickstart). Runs on macOS and Windows; Linux may build but is untested. Not a developer? Watch this repo for releases.
-
 **Keep the agent you trust. Omega Star adds the company around it.**
 
 Omega Star is not another agent. Every AI employee (an autonomous Claude Code agent) is your own Claude Code, running headless (`claude -p`) under your login, with the CLI tools, logins and skills you've already set up. Omega Star adds what turns them into a team: roles, an org chart that includes real people, schedules, managers, and skills that grow as you teach. Use it to run your team, your project or your business.
