@@ -142,7 +142,10 @@ export function SettingsScreen() {
 
             <SettingsGroup title="About">
               <Row title="Omega Star" desc={aboutDesc(st)}>
-                <span className="pill">{CHANNELS[st.build.channel]}</span>
+                <div className="row">
+                  <span className="pill num">v{st.build.version}</span>
+                  <span className="pill">{CHANNELS[st.build.channel]}</span>
+                </div>
               </Row>
             </SettingsGroup>
           </>
@@ -153,9 +156,9 @@ export function SettingsScreen() {
 
 const CHANNELS: Record<BuildChannel, string> = { release: "Release", dogfood: "Test build", dev: "Developer build" };
 
-/** This build, then the Claude Code version and organisation the same status found, when known. */
+/** This build's commit, then the Claude Code version and organisation the same status found, when known. */
 function aboutDesc(st: SetupStatus): string {
-  const app = `Version ${st.build.version}, built from ${st.build.commit}.`;
+  const app = `Built from ${st.build.commit}.`;
   const version = st.claude.version;
   const org = st.account?.orgName ?? null;
   if (version && org) return `${app} Claude Code ${version}, signed in to ${org}.`;
