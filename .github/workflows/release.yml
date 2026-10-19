@@ -2,6 +2,7 @@ name: Release
 
 # Push a version tag (e.g. v0.2.0) to build installers for every platform.
 # They upload to a draft release, which is published once all builds succeed.
+# Then run scripts/publish-release.sh <tag> to copy it to the public repo installs update from.
 on:
   push:
     tags:

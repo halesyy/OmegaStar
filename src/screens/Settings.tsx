@@ -9,6 +9,7 @@ import { CopyCommand } from "../components/CopyCommand";
 import { Icon } from "../components/Icon";
 import { ErrorNote, PageColumn, Section, Skeleton, Switch } from "../components/ui";
 import { openHelp } from "../lib/help";
+import { checkForUpdate, useUpdateCheck } from "../lib/update";
 import "./Settings.css";
 
 function Row({ title, desc, children }: { title: string; desc?: ReactNode; children: ReactNode }) {
@@ -147,6 +148,7 @@ export function SettingsScreen() {
                   <span className="pill">{CHANNELS[st.build.channel]}</span>
                 </div>
               </Row>
+              <UpdateRow channel={st.build.channel} />
             </SettingsGroup>
           </>
         )}
@@ -155,6 +157,23 @@ export function SettingsScreen() {
 }
 
 const CHANNELS: Record<BuildChannel, string> = { release: "Release", dogfood: "Test build", dev: "Developer build" };
+
+/** Whether a newer version is out, and why not when the check failed, with a way to check now. */
+function UpdateRow({ channel }: { channel: BuildChannel }) {
+  const { checking, version, error, at } = useUpdateCheck();
+  const desc =
+    channel === "dev" ? "Developer builds don't update themselves."
+    : checking ? "Checking…"
+    : error ? <span className="set-err">{error}</span>
+    : version ? `Omega Star ${version} is ready. Use Restart to update in the sidebar.`
+    : at ? `Up to date. Checked ${relTime(new Date(at).toISOString())}.`
+    : "Checks when Omega Star opens, then every hour.";
+  return (
+    <Row title="Updates" desc={desc}>
+      <button className="btn btn-sm" disabled={checking || channel === "dev"} onClick={checkForUpdate}>Check now</button>
+    </Row>
+  );
+}
 
 /** This build's commit, then the Claude Code version and organisation the same status found, when known. */
 function aboutDesc(st: SetupStatus): string {

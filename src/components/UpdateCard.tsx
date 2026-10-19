@@ -1,38 +1,32 @@
 import { useEffect, useState } from "react";
 import { call, errorMessage } from "../api/client";
 import { useOrg } from "../lib/hooks";
+import { checkForUpdate, useUpdateCheck } from "../lib/update";
 import { Icon } from "./Icon";
 import "./UpdateCard.css";
 
-type Update =
-  | { kind: "none" }
-  | { kind: "available"; version: string }
-  | { kind: "installing"; version: string }
-  | { kind: "failed"; version: string; message: string };
+type Install = { kind: "installing" } | { kind: "failed"; message: string };
 
-const DAY = 86_400_000;
+const HOUR = 3_600_000;
 
+/** The sidebar's offer of a newer version, once a check finds one. This is what checks: now, then hourly. */
 export function UpdateCard() {
-  const [update, setUpdate] = useState<Update>({ kind: "none" });
+  const { version } = useUpdateCheck();
+  const [update, setUpdate] = useState<Install | null>(null);
   const { snap } = useOrg();
 
   useEffect(() => {
-    const showResult = (version: string | null) =>
-      setUpdate((u) => (u.kind === "installing" || u.kind === "failed" ? u : version ? { kind: "available", version } : { kind: "none" }));
-    const keepCardWhenOffline = () => {};
-    const check = () => call("check_update").then(showResult, keepCardWhenOffline);
-    void check();
-    const timer = setInterval(check, DAY);
+    checkForUpdate();
+    const timer = setInterval(checkForUpdate, HOUR);
     return () => clearInterval(timer);
   }, []);
 
-  if (update.kind === "none") return null;
-  const { version } = update;
-  const installing = update.kind === "installing";
+  if (!version) return null;
+  const installing = update?.kind === "installing";
   const working = (snap?.employees ?? []).some((e) => e.working > 0 || e.presence === "working");
   const install = () => {
-    setUpdate({ kind: "installing", version });
-    call("install_update").catch((e) => setUpdate({ kind: "failed", version, message: errorMessage(e) }));
+    setUpdate({ kind: "installing" });
+    call("install_update").catch((e) => setUpdate({ kind: "failed", message: errorMessage(e) }));
   };
 
   return (
@@ -41,9 +35,9 @@ export function UpdateCard() {
         <div className="update-title">Update available</div>
         <div className="update-sub">Omega Star {version}</div>
         {working ? <div className="update-sub">Restarting stops work in progress.</div> : null}
-        {update.kind === "failed" ? <div className="update-err">{update.message}</div> : null}
+        {update?.kind === "failed" ? <div className="update-err">{update.message}</div> : null}
         <button className="btn btn-primary btn-sm update-btn" onClick={install} disabled={installing}>
-          {installing ? "Updating…" : update.kind === "failed" ? "Try again" : "Restart to update"}
+          {installing ? "Updating…" : update?.kind === "failed" ? "Try again" : "Restart to update"}
         </button>
       </div>
       <button className="update-mini" onClick={install} disabled={installing} data-tip={installing ? "Updating…" : `Update to ${version}`} aria-label={`Update Omega Star to ${version}`}>
