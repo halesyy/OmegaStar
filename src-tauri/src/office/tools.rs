@@ -3,6 +3,8 @@
 use super::*;
 use crate::cards;
 
+/// How many cards one run may have waiting on you.
+const CARDS_PER_RUN: usize = 5;
 /// Longest chain of runs (delegations and questions) a new question may extend.
 const ASK_DEPTH: usize = 6;
 /// Under Claude Code's 300 s idle abort, so a wait never races it.
@@ -474,101 +476,62 @@ impl Office {
         Ok(json!({ "deleted": s.id }))
     }
 
-    /// Flags the calling run for you: a desktop notification now, and its report in the Inbox. With choices,
-    /// items or a chore the flag is a card with the answer built in.
+    /// Puts a decision in front of you as a card on the calling run: a desktop notification now, and an item in
+    /// your Inbox with the answer built in. A question someone already asked you (same key, or the same chore)
+    /// joins that item and notifies nobody again.
     pub fn notify_tool(&self, caller_run: &str, caller: &Employee, args: &Value) -> Result<Value> {
-        let message = args.get("message").and_then(|v| v.as_str()).map(str::trim).unwrap_or("");
-        if message.is_empty() {
-            return Err(AppError::invalid("message is empty"));
-        }
-        let ask = cards::ask(args)?;
+        let card = cards::card(args)?;
         let ceo = {
             let db = self.db();
-            if ask.is_some() && db.run(caller_run)?.map(|r| r.run.kind.lane()) == Some(Lane::Chat) {
+            if db.run(caller_run)?.map(|r| r.run.kind.lane()) == Some(Lane::Chat) {
                 return Err(AppError::invalid(format!("In the ongoing chat, ask {} in your reply: cards are for work they are not watching.", ceo_of(&db)?)));
             }
             ceo_of(&db)?
         };
-        match ask {
-            Some(CardAsk::Chore { subject }) => {
-                let first = self.raise_chore(caller_run, &subject, message)?;
-                let note = if first {
-                    format!("Recorded. {ceo} has been asked. When they press Done, this conversation carries on with a short message. Carry on without it now, or finish.")
-                } else {
-                    format!("{ceo} has already been asked to do this for another run. When they press Done, this conversation carries on too. Carry on without it now, or finish.")
-                };
-                Ok(json!({ "notified": first, "note": note }))
-            }
-            Some(ask) => {
-                self.raise_card(caller_run, message, ask)?;
-                self.sink().notify(&format!("{} needs you", caller.name), message);
-                let note = "Recorded. They answer on the card, and their answer comes back to you in this conversation as a short message. Finish this run now; do not wait for it.";
-                Ok(json!({ "notified": true, "note": note }))
-            }
-            None => {
-                let mut active = lock(&self.0.active);
-                let a = active.get_mut(caller_run).ok_or_else(|| AppError::invalid("this run has ended"))?;
-                a.needs_you.push(message.to_string());
-                drop(active);
-                self.sink().notify(&format!("{} needs you", caller.name), message);
-                Ok(json!({ "notified": true }))
-            }
-        }
-    }
-
-    /// Puts a card on a run: a live run carries it until it ends, a finished one shows it in the Inbox again.
-    /// Its message is the run's headline too. Refused while the run holds a card still waiting on you. No
-    /// desktop notification.
-    pub(super) fn raise_card(&self, run_id: &str, message: &str, ask: CardAsk) -> Result<()> {
-        self.put_headline(run_id, message, Some(Card { message: message.to_string(), ask, answer: None }))
-    }
-
-    /// Asks you for a chore on a run (`chrome` or `sign-in:<site>`). Only the first run to ask for it sends a
-    /// desktop notification; the rest wait on the same Done. A run that already holds another card gets the
-    /// message as a headline only. Returns whether this was the first ask.
-    pub(super) fn raise_chore(&self, run_id: &str, subject: &str, message: &str) -> Result<bool> {
-        let subject = cards::chore_subject(subject)?;
-        let is_chore = |c: &Card| c.is_open() && matches!(&c.ask, CardAsk::Chore { subject: s } if *s == subject);
-        let (waiting, stored, name) = {
-            let db = self.db();
-            let waiting = db.open_chore_runs(&subject)?.iter().any(|r| r.id != run_id);
-            let run = db.run(run_id)?.map(|r| r.run);
-            let name = run.as_ref().and_then(|r| db.employee(&r.employee_id).ok().flatten()).map(|e| e.name).unwrap_or_default();
-            (waiting, run.and_then(|r| r.card).filter(Card::is_open), name)
-        };
-        let (live, asking) = {
-            let active = lock(&self.0.active);
-            let asking = active.iter().any(|(id, a)| id != run_id && a.card.as_ref().is_some_and(is_chore));
-            (active.get(run_id).map(|a| a.card.clone().filter(Card::is_open)), asking)
-        };
-        let first = !waiting && !asking;
-        let held = live.unwrap_or(stored);
-        match &held {
-            Some(c) if is_chore(c) => return Ok(false),
-            Some(_) => self.put_headline(run_id, message, None)?,
-            None => self.raise_card(run_id, message, CardAsk::Chore { subject })?,
-        }
+        let first = self.raise_card(caller_run, card.clone())?;
         if first {
-            self.sink().notify(&format!("{name} needs you"), message);
+            self.sink().notify(&format!("{} needs you", caller.name), &card.message);
         }
-        Ok(first)
+        let note = match (&card.ask, first) {
+            (CardAsk::Chore { .. }, true) => format!("Recorded. {ceo} has been asked. When they press Done, this conversation carries on with a short message. Carry on without it now, or finish."),
+            (CardAsk::Chore { .. }, false) => format!("{ceo} has already been asked to do this for another run. When they press Done, this conversation carries on too. Carry on without it now, or finish."),
+            (_, true) => "Recorded. They answer on the card, and their answer comes back to you in this conversation as a short message. Finish this run now; do not wait for it.".to_string(),
+            (_, false) => format!("{ceo} already has this question from another run, so it is one item in their Inbox and their answer comes back to you too. Finish this run now; do not wait for it."),
+        };
+        Ok(json!({ "notified": first, "note": note }))
     }
 
-    /// Adds `message` to a run's headlines, with `card` when given: on the live run while it works, else on the
-    /// finished run, which comes back to the Inbox.
-    fn put_headline(&self, run_id: &str, message: &str, card: Option<Card>) -> Result<()> {
-        const ONE_CARD: &str = "This run already has a card waiting on an answer. Put everything that needs them in that one.";
+    /// Puts `card` on a run: a live run carries it until it ends, a finished one shows it in the Inbox again. A
+    /// card about the same thing as one the run already has replaces it. Returns whether nobody else is waiting
+    /// on the same thing, so this is the first time you are asked. No desktop notification.
+    pub(super) fn raise_card(&self, run_id: &str, card: Card) -> Result<bool> {
+        let topic = card.topic();
+        let same = |c: &Card| c.is_open() && topic.is_some() && c.topic() == topic;
+        let waiting = match &topic {
+            Some(t) => self.db().open_topic_runs(t)?.iter().any(|r| r.id != run_id),
+            None => false,
+        };
+        let asking = lock(&self.0.active).iter().any(|(id, a)| id != run_id && a.cards.iter().any(&same));
+        let first = !waiting && !asking;
+        let put = |cards: &mut Vec<Card>, needs_you: &mut Vec<String>| -> Result<()> {
+            if let Some(old) = cards.iter_mut().find(|c| same(c)) {
+                needs_you.retain(|m| *m != old.message);
+                *old = card.clone();
+            } else if cards.iter().filter(|c| c.is_open()).count() >= CARDS_PER_RUN {
+                return Err(AppError::conflict(format!("This run already has {CARDS_PER_RUN} cards waiting. Put the rest in your report.")));
+            } else {
+                cards.push(card.clone());
+            }
+            needs_you.push(card.message.clone());
+            Ok(())
+        };
         {
             let mut active = lock(&self.0.active);
             if let Some(a) = active.get_mut(run_id) {
-                if card.is_some() && a.card.as_ref().is_some_and(Card::is_open) {
-                    return Err(AppError::conflict(ONE_CARD));
-                }
-                a.needs_you.push(message.to_string());
-                if card.is_some() {
-                    a.card = card;
-                }
-                return Ok(());
+                let (mut cards, mut needs_you) = (std::mem::take(&mut a.cards), std::mem::take(&mut a.needs_you));
+                let done = put(&mut cards, &mut needs_you);
+                (a.cards, a.needs_you) = (cards, needs_you);
+                return done.map(|_| first);
             }
         }
         let run = {
@@ -577,19 +540,98 @@ impl Office {
             if !run.state.is_finished() {
                 return Err(AppError::conflict("that run has not finished yet"));
             }
-            if card.is_some() && run.card.as_ref().is_some_and(Card::is_open) {
-                return Err(AppError::conflict(ONE_CARD));
-            }
-            run.needs_you.push(message.to_string());
-            if card.is_some() {
-                run.card = card;
-            }
+            put(&mut run.cards, &mut run.needs_you)?;
             run.archived_at = None;
             db.save_run(&run)?;
             run
         };
         self.sink().run_updated(&run);
-        Ok(())
+        Ok(first)
+    }
+
+    /// Asks you for a chore on a run (`chrome` or `sign-in:<site>`) with `why` under it. Only the first run to
+    /// ask for it sends a desktop notification; the rest wait on the same Done. Returns whether this was the
+    /// first ask.
+    pub(super) fn raise_chore(&self, run_id: &str, subject: &str, message: &str, why: &str) -> Result<bool> {
+        let subject = cards::chore_subject(subject)?;
+        let name = {
+            let db = self.db();
+            let run = db.run(run_id)?.map(|r| r.run);
+            run.and_then(|r| db.employee(&r.employee_id).ok().flatten()).map(|e| e.name).unwrap_or_default()
+        };
+        let first = self.raise_card(run_id, Card::new(message, Some(why.to_string()), None, CardAsk::Chore { subject }))?;
+        if first {
+            self.sink().notify(&format!("{name} needs you"), message);
+        }
+        Ok(first)
+    }
+
+    /// Closes the caller's open cards about `key`: it was settled without you. Rows left with nothing open
+    /// leave your Inbox.
+    pub fn close_ask_tool(&self, caller: &Employee, key: &str, reason: &str) -> Result<Value> {
+        let topic = cards::ask_key(key)?;
+        let answer = CardAnswer { at: now(), how: AnswerHow::Withdrawn, text: claude::clip(&claude::one_line(reason), 300) };
+        let mut closed = 0;
+        for a in lock(&self.0.active).values_mut() {
+            for c in a.cards.iter_mut().filter(|c| c.is_open() && c.topic().as_deref() == Some(topic.as_str())) {
+                c.answer = Some(answer.clone());
+                closed += 1;
+            }
+        }
+        let runs = {
+            let db = self.db();
+            let mut runs: Vec<Run> = db.open_topic_runs(&topic)?.into_iter().filter(|r| r.employee_id == caller.id).collect();
+            db.tx(|| {
+                for r in &mut runs {
+                    for c in r.cards.iter_mut().filter(|c| c.is_open() && c.topic().as_deref() == Some(topic.as_str())) {
+                        c.answer = Some(answer.clone());
+                        closed += 1;
+                    }
+                    db.save_run(r)?;
+                }
+                Ok(())
+            })?;
+            runs
+        };
+        for r in &runs {
+            self.sink().run_updated(r);
+            if r.state.is_finished() {
+                match self.set_archived(&r.id, true) {
+                    Err(e) if e.code != crate::error::ErrorCode::Conflict => log!("archiving run {} after closing its card failed: {e}", r.id),
+                    _ => {}
+                }
+            }
+        }
+        if closed == 0 {
+            let open: Vec<String> = self.db().open_cards(&caller.id)?.iter().flat_map(|r| r.open_cards().filter_map(|c| c.key.clone()).collect::<Vec<_>>()).collect();
+            let open: Vec<&str> = open.iter().map(|k| cards::key_label(k)).collect();
+            let list = if open.is_empty() { "none".to_string() } else { open.join(", ") };
+            return Err(AppError::invalid(format!("You have no open card about '{key}'. Your open cards: {list}.")));
+        }
+        Ok(json!({ "closed": closed }))
+    }
+
+    /// Records the number the caller's weekly review measured, for your team's scoreboard. Only in a weekly review.
+    pub fn report_number_tool(&self, caller_run: &str, args: &Value) -> Result<Value> {
+        let text = |k: &str, max: usize| -> Result<String> {
+            let v = args.get(k).and_then(Value::as_str).map(str::trim).unwrap_or("");
+            if v.chars().count() > max {
+                return Err(AppError::invalid(format!("{k} is at most {max} characters.")));
+            }
+            Ok(claude::one_line(v))
+        };
+        let score = Score { metric: text("metric", 40)?, value: text("value", 20)?, change: text("change", 30)?, note: text("note", 100)? };
+        if score.metric.is_empty() || score.value.is_empty() {
+            return Err(AppError::invalid("Give the metric and its value, e.g. metric 'Open support tickets', value '0'."));
+        }
+        let review = self.db().run(caller_run)?.is_some_and(|r| matches!(r.run.kind, RunKind::Scheduled { review: true, .. }));
+        if !review {
+            return Err(AppError::invalid("report_number is for your weekly review."));
+        }
+        let mut active = lock(&self.0.active);
+        let a = active.get_mut(caller_run).ok_or_else(|| AppError::invalid("this run has ended"))?;
+        a.score = Some(score);
+        Ok(json!({ "recorded": true }))
     }
 
     /// Your Claude Code skill catalog, for choosing the skills a proposed hire needs.
@@ -760,7 +802,7 @@ pub(super) fn due_answers(db: &Store, ended: &Run) -> Result<Vec<(Run, String)>>
             };
             if let (Some(task), Some(parent)) = (task, parent) {
                 let from = db.employee(&root.employee_id)?.map(|e| e.name).unwrap_or_else(|| "A former colleague".into());
-                let answer = root.card.as_ref().and_then(|c| c.answer.as_ref()).map(|a| format!(" ({})", a.text)).unwrap_or_default();
+                let answer = root.cards.iter().rev().find_map(|c| c.answer.as_ref()).map(|a| format!(" ({})", a.text)).unwrap_or_default();
                 let note = format!("{ceo} answered {from}'s card{answer} and {from} carried on.");
                 if let Some(d) = answered_run(db, &ceo, &root, &parent, task, &report_of(ended), Some(&note))? {
                     due.push(d);
@@ -1159,7 +1201,7 @@ mod tests {
         assert!(o.db.insert_run(a, session).unwrap());
         assert!(o.db.chat_runs(&ada.id, &ada.chat_session).unwrap().iter().any(|r| r.id == a.id));
         assert!(!o.db.conversation_runs().unwrap().iter().any(|r| r.id == a.id));
-        let rows = Office::rows(&o.db, false).unwrap();
+        let rows = Office::rows(&o.db, crate::threads::View::Inbox).unwrap();
         let filed: Vec<&str> = rows.iter().flat_map(|t| std::iter::once(t).chain(&t.related)).map(|t| t.root.id.as_str()).collect();
         assert!(filed.contains(&child.id.as_str()), "the flagged answer has its row: {filed:?}");
         assert!(!filed.contains(&a.id.as_str()), "the chat turn is in no row");
@@ -1201,7 +1243,9 @@ mod tests {
         o.db.mark_inited(&parent.id).unwrap();
         let mut child = run(&o.db, &bo, delegated(&parent), "Boost the post.", RunState::Succeeded, 20, None);
         let answer = CardAnswer { at: now(), how: AnswerHow::Tapped, text: "Chose: Not now.".into() };
-        child.card = Some(Card { message: "Boost it?".into(), ask: CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 }, answer: Some(answer) });
+        let mut card = Card::new("Boost it?", None, Some("ask:boost".into()), CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 });
+        card.answer = Some(answer);
+        child.cards = vec![card];
         o.db.save_run(&child).unwrap();
         assert_eq!(due_answers(&o.db, &child).unwrap().len(), 1, "the first report");
 

@@ -1,7 +1,7 @@
 // A thread is a report and the replies you exchanged on it (`Thread { root, replies }`). A task is a thread
 // too, whose root is your first message. These helpers read one the same way everywhere: the Inbox and its
 // Archive, the panel's chips, and the conversation screen.
-import type { Run, Thread } from "../api/types";
+import type { Card, Run, Thread } from "../api/types";
 
 export const isLive = (r: Run): boolean => r.state === "running" || r.state === "queued";
 export const didNotFinish = (r: Run): boolean => r.state === "failed" || r.state === "lost" || r.state === "cancelled";
@@ -55,17 +55,35 @@ export function isTeamWeek(t: Thread): boolean {
   return k.type === "scheduled" && !!k.review && !choreOpen(t);
 }
 
-/** The run in a thread whose card waits on your answer, newest first. */
-export function openCard(t: Thread): Run | undefined {
-  return [...t.replies].reverse().concat(t.root).find((r) => r.card && !r.card.answer);
-}
+/** A card waiting on your answer: the run that asked it and its index in the run's `cards`. */
+export type OpenCard = { run: Run; index: number; card: Card };
+
+/** The cards in a thread waiting on your answer, newest run first. */
+export const openCards = (t: Thread): OpenCard[] =>
+  [...t.replies].reverse().concat(t.root).flatMap((run) => run.cards.flatMap((card, index) => (card.answer ? [] : [{ run, index, card }])));
 
 /** Some thread in an Inbox row has a card waiting on you, so the row cannot be marked done yet. */
-export const rowCardOpen = (t: Thread): boolean => rowThreads(t).some((x) => !!openCard(x));
+export const rowCardOpen = (t: Thread): boolean => rowThreads(t).some((x) => openCards(x).length > 0);
+
+/** What a card is about, so the same question from anyone is one decision: its key, or for a chore asked
+ *  before keys, `chore:<subject>`. Mirrors Rust `Card::topic`. */
+export const topic = (c: Card): string | null => c.key ?? (c.ask.type === "chore" ? `chore:${c.ask.subject}` : null);
+
+/** What needs you in a run that is not a card: flags Omega Star raised. Mirrors Rust `Run::flags`. */
+export const flags = (r: Run): string[] => r.needsYou.filter((m) => !r.cards.some((c) => c.message === m));
+
+/** Blocked on a tool you could allow (a tidy trying a command it may not run is not). */
+export const blocked = (r: Run): boolean => r.denials.length > 0 && r.kind.type !== "tidy";
+
+/** Broke for a reason you can act on: not the usage limit, which Omega Star waits out and retries itself. */
+export const broken = (r: Run): boolean => (r.state === "failed" || r.state === "lost") && !r.limited;
+
+/** A schedule's failures in a row before they need you. Mirrors Rust `threads::STREAK`. */
+export const STREAK = 3;
 
 /** Some run in an Inbox row has a chore waiting on you. */
 const choreOpen = (t: Thread): boolean =>
-  rowThreads(t).some((x) => [x.root, ...x.replies].some((r) => r.card?.ask.type === "chore" && !r.card.answer));
+  rowThreads(t).some((x) => openCards(x).some((c) => c.card.ask.type === "chore"));
 
 /** An Inbox row that is everyone waiting on the same chore. */
 export const isChoreRow = (t: Thread): boolean => t.related.length > 0 && choreOpen(t);

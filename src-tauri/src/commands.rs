@@ -211,6 +211,11 @@ pub async fn archived(office: O<'_>) -> Result<Vec<Thread>> {
 }
 
 #[tauri::command]
+pub async fn updates(office: O<'_>) -> Result<Vec<Thread>> {
+    office.updates()
+}
+
+#[tauri::command]
 pub async fn conversations(office: O<'_>) -> Result<Conversations> {
     office.conversations()
 }
@@ -236,8 +241,8 @@ pub async fn approve_blocked(office: O<'_>, run_id: String, rules: Vec<String>, 
 }
 
 #[tauri::command]
-pub async fn answer_card(office: O<'_>, run_id: String, answer: CardReply) -> Result<Vec<Run>> {
-    office.answer_card(&run_id, answer)
+pub async fn answer_card(office: O<'_>, run_id: String, card: usize, answer: CardReply) -> Result<Vec<Run>> {
+    office.answer_card(&run_id, card, answer)
 }
 
 #[tauri::command]

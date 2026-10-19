@@ -59,11 +59,22 @@ impl Office {
         Ok(())
     }
 
-    /// Gives every employee the weekly review, once per office: a review someone deletes never returns.
+    /// Gives every employee the weekly review, once per office: a review someone deletes never returns. A
+    /// review still as first seeded gets today's instruction.
     pub(super) fn seed_reviews(&self) -> Result<()> {
         let db = self.db();
         if db.reviews_seeded()? {
-            return Ok(());
+            let ceo = ceo_of(&db)?;
+            let (old, new) = (first_review_instruction(&ceo), review_instruction(&ceo));
+            return db.tx(|| {
+                for (mut s, last) in db.all_schedules()? {
+                    if s.review && s.instruction == old {
+                        s.instruction = new.clone();
+                        db.save_schedule(&s, last)?;
+                    }
+                }
+                Ok(())
+            });
         }
         let ceo = ceo_of(&db)?;
         db.tx(|| {
@@ -294,6 +305,22 @@ can decide. If it cannot be settled yet, close it saying why and set a new check
 fn review_instruction(ceo: &str) -> String {
     format!(
         "Your weekly review. Omega Star adds what it counted this week below.
+1. Measure your number with a command you can rerun, compare it with last week, and record it with report_number. If you have no number yet, pick one that shows your objective moving.
+2. For each routine, decide to keep it, reshape it or stop it, and change your own schedules to match.
+3. Act on the biggest lever your remit allows. Put each decision only {ceo} can make on a card of its own, with your recommendation.
+4. Close every check that is due or overdue with check_done, or close it and set a new check_later for the day it can be settled. Leave checks that are not due yet.
+5. Remove each blocker you hit twice: fix it, hand it to a colleague, or raise one chore card.
+6. Check your skills and routing rules against the current team, and remove any rule your runs wrote this week that a run next month would not need. Leave every rule {ceo} taught you (marked taught or confirmed) as it is: to merge or drop one, put it to {ceo} on a card with your recommendation.
+7. Read what-you-own.md in your folder. If it is empty or out of date, write the version you propose there: the number you answer for, your limits, and what you decide alone. Omega Star puts the file back and shows {ceo} your version: only they set it.
+Your report is one sentence on what you changed this week. Your number and your cards already reach {ceo}: do not repeat them."
+    )
+}
+
+/// The weekly review's instruction as Omega Star seeded it before reviews recorded a number, so a review
+/// nobody edited can be brought up to date.
+fn first_review_instruction(ceo: &str) -> String {
+    format!(
+        "Your weekly review. Omega Star adds what it counted this week below.
 1. Measure your number with a command you can rerun, and compare it with last week. If you have no number yet, pick one that shows your objective moving.
 2. For each routine, decide to keep it, reshape it or stop it, and change your own schedules to match.
 3. Act on the biggest lever your remit allows, or put the decision to {ceo} as a card with your recommendation.
@@ -359,9 +386,9 @@ fn review_brief(db: &Store, e: &Employee, ceo: &str, since: Ts) -> Result<String
     let cards: Vec<String> = db
         .open_cards(&e.id)?
         .into_iter()
-        .filter_map(|r| {
+        .flat_map(|r| {
             let at = r.ended_at.unwrap_or(r.created_at);
-            r.card.map(|c| format!("- \"{}\": raised {}", quote(&c.message), ago(at)))
+            r.cards.into_iter().filter(Card::is_open).map(move |c| format!("- \"{}\": raised {}", quote(&c.message), ago(at))).collect::<Vec<_>>()
         })
         .collect();
     if !cards.is_empty() {
@@ -485,7 +512,7 @@ mod tests {
     #[test]
     fn the_review_instruction_names_the_ceo_without_dashes() {
         let text = review_instruction("Pat");
-        assert!(text.contains("put the decision to Pat as a card"));
+        assert!(text.contains("Put each decision only Pat can make on a card of its own"));
         assert!(!text.contains('\u{2014}') && !check_prompt(&check("ada", "x", now()), "Pat").contains('\u{2014}'));
     }
 
@@ -554,7 +581,7 @@ mod tests {
         assert!(db.insert_run(&routine, &routine.id).unwrap());
         let mut carded = finished(&ada, sweep(50), 50);
         carded.needs_you = vec!["Boost the post?".into()];
-        carded.card = Some(Card { message: "Boost the post?".into(), ask: CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 }, answer: None });
+        carded.cards = vec![Card::new("Boost the post?", None, Some("ask:boost".into()), CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 })];
         assert!(db.insert_run(&carded, &carded.id).unwrap());
         let mut c = check(&ada.id, "Did the fix hold", t + chrono::Duration::days(2));
         c.created_at = t - chrono::Duration::days(3);

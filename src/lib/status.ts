@@ -3,7 +3,7 @@
 import type { ChatHead, Thread } from "../api/types";
 import { chatKey, type Mark, type Marks } from "./marks";
 import { toolName } from "./rules";
-import { activityAt, isLive, lastReply, latestFinished, threadBusy } from "./threads";
+import { activityAt, blocked, broken, flags, isLive, lastReply, latestFinished, openCards, threadBusy } from "./threads";
 
 /** What a conversation is waiting on: you, the employee (working, or queued for a free slot), a time (snoozed),
  *  nothing ever again (done), or nothing right now (idle). */
@@ -39,7 +39,7 @@ type Facts = {
   /** It is yours to act on until you mark it done: an Inbox row, an answered thread, or an ongoing chat. */
   waiting: boolean;
   unread: boolean;
-  /** It raised something: notify, a blocked tool, or a run that broke. */
+  /** It asks you something: a card, a flag, a blocked tool, or a run that broke. */
   flagged: boolean;
 };
 
@@ -61,11 +61,11 @@ export function lastSpeaker(t: Thread): "you" | "them" {
   return (lastReply(t) ?? t.root).endedAt ? "them" : "you";
 }
 
-/** The thread's newest finished run raised something: it called notify, was blocked, or broke. Mirrors Rust
- *  `threads::flagged` and `threads::broke`. */
+/** The thread asks you something: a card anywhere in it, or its newest finished run flagged something, was blocked
+ *  or broke (not on the usage limit). Mirrors Rust `threads::asks_you` and `threads::broken`. */
 function flagged(t: Thread): boolean {
   const r = latestFinished(t);
-  return r.needsYou.length > 0 || (r.denials.length > 0 && r.kind.type !== "tidy") || r.state === "failed" || r.state === "lost";
+  return openCards(t).length > 0 || flags(r).length > 0 || blocked(r) || broken(r);
 }
 
 /** A snooze that has ended and you have not looked at since: snoozing means "remind me". */
@@ -79,9 +79,12 @@ const seenFloor = (mark: Mark, since: string): number => Math.max(ms(mark.seenAt
 /** Why a thread needs you, as one line. */
 function threadReason(t: Thread, mark: Mark, now: number): string {
   const r = latestFinished(t);
-  if (r.needsYou.length) return r.needsYou[0];
-  if (r.denials.length && r.kind.type !== "tidy") return `Blocked on ${toolName(r.denials[0].tool)}`;
-  if (r.state === "failed" || r.state === "lost") return "Didn't finish";
+  const card = openCards(t)[0];
+  if (card) return card.card.message;
+  const flag = flags(r)[0];
+  if (flag) return flag;
+  if (blocked(r)) return `Blocked on ${toolName(r.denials[0].tool)}`;
+  if (broken(r)) return "Didn't finish";
   if (woke(mark, now)) return "Snooze ended";
   return t.replies.length || t.root.kind.type === "task" ? "New reply" : "New report";
 }

@@ -88,10 +88,12 @@ struct Active {
     token: String,
     pid: Option<u32>,
     cancelled: bool,
-    /// Flags raised with `notify`, copied onto the run when it ends.
+    /// What needs you from it (each card's message, and flags Omega Star raised), copied onto the run when it ends.
     needs_you: Vec<String>,
-    /// The card it raised with `notify`, copied onto the run when it ends.
-    card: Option<Card>,
+    /// The cards it raised with `notify`, copied onto the run when it ends.
+    cards: Vec<Card>,
+    /// For a weekly review: the number it recorded with `report_number`.
+    score: Option<Score>,
     /// For a Tidy run: the bigger changes it proposed with `propose_changes`.
     proposed: Option<String>,
     /// For a reply check or nudge: it recorded its finding with `check_result`.
@@ -405,7 +407,20 @@ fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<own_skills::File
             run.summary = Some(o.text).filter(|t| !t.trim().is_empty());
             run.denials = if left.supervised { o.denials.into_iter().map(|d| d.denial).collect() } else { vec![] };
             let text = |call: &Value, key: &str| call[key].as_str().map(str::trim).filter(|t| !t.is_empty()).map(String::from);
-            run.needs_you = claude::office_calls(left.transcript, "mcp__omega__notify").iter().filter_map(|c| text(c, "message")).collect();
+            // The cards it raised, as `notify` took them: a later card about the same thing replaces an earlier one.
+            let mut cards: Vec<Card> = vec![];
+            for call in claude::office_calls(left.transcript, "mcp__omega__notify") {
+                let Ok(card) = crate::cards::card(&call) else { continue };
+                cards.retain(|c| c.topic().is_none() || c.topic() != card.topic());
+                cards.push(card);
+            }
+            run.needs_you = cards.iter().map(|c| c.message.clone()).collect();
+            run.cards = cards;
+            if matches!(run.kind, RunKind::Scheduled { review: true, .. }) {
+                run.score = claude::office_calls(left.transcript, "mcp__omega__report_number").last().and_then(|c| {
+                    Some(Score { metric: text(c, "metric")?, value: text(c, "value")?, change: text(c, "change").unwrap_or_default(), note: text(c, "note").unwrap_or_default() })
+                });
+            }
             run.proposed = claude::office_calls(left.transcript, "mcp__omega__propose_changes").last().and_then(|c| text(c, "plan"));
         }
         None => {
@@ -463,8 +478,8 @@ mod tests {
         json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "model": "claude-sonnet-4-5", "content": [{ "type": "text", "text": text }] } }).to_string()
     }
 
-    fn notify(id: &str, message: &str) -> String {
-        json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "model": "claude-sonnet-4-5", "content": [{ "type": "tool_use", "id": id, "name": "mcp__omega__notify", "input": { "message": message } }] } }).to_string()
+    fn notify(id: &str, input: Value) -> String {
+        json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "model": "claude-sonnet-4-5", "content": [{ "type": "tool_use", "id": id, "name": "mcp__omega__notify", "input": input }] } }).to_string()
     }
 
     fn result(text: &str, turns: u32) -> String {
@@ -495,13 +510,23 @@ mod tests {
 
     #[test]
     fn a_transcript_that_ended_finishes_the_run() {
-        let transcript = [assistant("Reading."), result("Line one.\nLine two.", 3), notify("t1", "Please check the totals."), result("Done.", 2)].join("\n");
+        let ask = |message: &str| json!({ "message": message, "key": "totals", "choices": [{ "label": "Recheck", "recommended": true }, { "label": "Leave it" }] });
+        let transcript = [
+            assistant("Reading."),
+            result("Line one.\nLine two.", 3),
+            notify("t1", ask("Check the totals?")),
+            notify("t2", json!({ "message": "FYI, totals are in." })),
+            notify("t3", ask("Recheck the totals?")),
+            result("Done.", 2),
+        ]
+        .join("\n");
         let mut r = running();
         assert!(settle(&mut r, left(&transcript, None), LOST).is_empty());
         assert_eq!(r.state, RunState::Succeeded);
         assert_eq!(r.summary.as_deref(), Some("Line one.\nLine two.\n\nDone."));
         assert_eq!(r.turns, Some(5));
-        assert_eq!(r.needs_you, vec!["Please check the totals.".to_string()]);
+        assert_eq!(r.needs_you, vec!["Recheck the totals?".to_string()], "the card notify took, the later one about the same thing");
+        assert_eq!(r.cards.iter().map(|c| c.message.as_str()).collect::<Vec<_>>(), vec!["Recheck the totals?"]);
         assert_eq!(r.duration_ms, Some(8 * 60 * 1000));
         assert_eq!(r.error, None);
     }

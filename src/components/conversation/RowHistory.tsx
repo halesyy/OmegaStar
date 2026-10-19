@@ -3,8 +3,8 @@ import type { EmployeeView, PersonView, Thread } from "../../api/types";
 import { dateLong, firstName, relTime, runKindLabel } from "../../lib/format";
 import { openRun } from "../../lib/router";
 import { toolName } from "../../lib/rules";
-import { didNotFinish, isChoreRow, isLive, isStreak, isTeamWeek, openCard, rowThreads } from "../../lib/threads";
-import { answerCard, CardView } from "./CardView";
+import { blocked, didNotFinish, isChoreRow, isLive, isStreak, isTeamWeek, openCards, rowThreads } from "../../lib/threads";
+import { RunCards } from "./CardView";
 import { kindNames } from "../RunRow";
 import { Icon } from "../Icon";
 import { Avatar } from "../ui";
@@ -46,15 +46,15 @@ export function RowHistory({ t, employees, people }: { t: Thread; employees: Emp
   );
 }
 
-/** One run in the row's history: who, what it was, what it said, and a way to open it. Below it, a card it raised that
- *  waits on you, answered here; the thread shown below has its own, and a chore is answered once for everyone. */
+/** One run in the row's history: who, what it was, what it said, and a way to open it. Below it, the cards it raised
+ *  that wait on you, answered here; the thread shown below has its own, and a chore is answered once for everyone. */
 function HistoryRow({ x, lead, employees, people }: { x: Thread; lead: boolean; employees: EmployeeView[]; people: PersonView[] }) {
   const r = x.root;
   const e = employees.find((m) => m.id === r.employeeId);
-  const card = lead ? undefined : openCard(x);
+  const asking = lead ? [] : [...new Set(openCards(x).filter((c) => c.card.ask.type !== "chore").map((c) => c.run))];
   const failed = didNotFinish(r);
   const text = r.needsYou[0]
-    ?? (r.denials.length ? `Blocked on ${toolName(r.denials[0].tool)}` : null)
+    ?? (blocked(r) ? `Blocked on ${toolName(r.denials[0].tool)}` : null)
     ?? lines(r.summary)[0]
     ?? (isLive(r) ? "Working…" : failed ? r.error ?? "This run didn't finish" : "No report");
   return (
@@ -69,15 +69,11 @@ function HistoryRow({ x, lead, employees, people }: { x: Thread; lead: boolean; 
         </span>
         <span className="row-run-text">
           {r.needsYou.length ? <Icon name="bell" size={12} className="item-bell" /> : null}
-          {r.denials.length && !r.needsYou.length ? <Icon name="shield" size={12} className="item-bell" /> : null}
+          {blocked(r) && !r.needsYou.length ? <Icon name="shield" size={12} className="item-bell" /> : null}
           {failed ? <Icon name="alert" size={12} className="item-failed" /> : null}
           <span>{text}</span>
         </span>
-        {card && e && card.card?.ask.type !== "chore" ? (
-          <div className="item-card">
-            <CardView run={card} e={e} onAnswer={async (reply) => { await answerCard(card, reply, firstName(e.name)); }} />
-          </div>
-        ) : null}
+        {e ? asking.map((run) => <div key={run.id} className="item-card"><RunCards run={run} e={e} /></div>) : null}
       </div>
       <span className="faint row-run-when" title={dateLong(r.endedAt ?? r.createdAt)}>{relTime(r.endedAt ?? r.createdAt)}</span>
       <button className="btn btn-ghost btn-sm btn-icon" title="Open run" aria-label="Open run" onClick={() => openRun(r.id)}><Icon name="arrowRight" size={13} /></button>

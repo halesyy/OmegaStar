@@ -973,21 +973,75 @@ pub struct RunBuild {
     pub org: Option<String>,
 }
 
-/// Something a run asks you with the answer built in: a decision, a list to approve, or a chore only you
-/// can do (`notify` with choices, items or chore). One per run.
+/// One decision a run asks you with the answer built in: a choice, a list to approve, or a chore only you
+/// can do (`notify` with choices, items or chore). A run can ask several.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Card {
+    /// The question, as the Inbox item's title.
     pub message: String,
+    /// One line on why it matters, under the question.
+    #[serde(default)]
+    pub why: Option<String>,
+    /// What it is about, so the same question from anyone is one Inbox item and asking again replaces it:
+    /// `ask:<what the employee named it>`, or `chore:<subject>`. None on cards asked before keys.
+    #[serde(default)]
+    pub key: Option<String>,
     pub ask: CardAsk,
     #[serde(default)]
     pub answer: Option<CardAnswer>,
 }
 
 impl Card {
+    pub fn new(message: &str, why: Option<String>, key: Option<String>, ask: CardAsk) -> Card {
+        let key = match &ask {
+            CardAsk::Chore { subject } => Some(format!("chore:{subject}")),
+            _ => key,
+        };
+        Card { message: message.to_string(), why, key, ask, answer: None }
+    }
+
     pub fn is_open(&self) -> bool {
         self.answer.is_none()
     }
+
+    /// What the card is about: its key, or for a chore asked before keys `chore:<subject>`.
+    pub fn topic(&self) -> Option<String> {
+        match (&self.key, &self.ask) {
+            (Some(k), _) => Some(k.clone()),
+            (None, CardAsk::Chore { subject }) => Some(format!("chore:{subject}")),
+            _ => None,
+        }
+    }
+}
+
+/// A run's cards as stored: a list, or one card (or none) as a run saved before a run could ask several.
+fn cards_compat<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Vec<Card>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Stored {
+        Many(Vec<Card>),
+        One(Card),
+    }
+    Ok(match Option::<Stored>::deserialize(d)? {
+        None => vec![],
+        Some(Stored::Many(v)) => v,
+        Some(Stored::One(c)) => vec![c],
+    })
+}
+
+/// The number an employee answers for, as their weekly review measured it (`report_number`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Score {
+    /// What is counted, e.g. "Open support tickets".
+    pub metric: String,
+    /// This week's value, e.g. "0" or "12".
+    pub value: String,
+    /// Against last week, e.g. "+3%", "down 1", "first count".
+    pub change: String,
+    #[serde(default)]
+    pub note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1027,8 +1081,10 @@ pub enum AnswerHow {
     /// You replied in the thread instead.
     Typed,
     Dismissed,
-    /// A newer card from the same routine or thread took its place.
+    /// A newer card from the same routine or thread, or about the same thing, took its place.
     Replaced,
+    /// The employee closed it: it was settled without you.
+    Withdrawn,
 }
 
 /// Your answer to a card, from the Inbox.
@@ -1073,12 +1129,12 @@ pub struct Run {
     pub denials: Vec<Denial>,
     #[serde(default)]
     pub skill_changes: Vec<SkillChange>,
-    /// What the employee flagged for you with `notify` during the run.
+    /// What needs you from this run: each card's message, and flags Omega Star raised.
     #[serde(default)]
     pub needs_you: Vec<String>,
-    /// What the run asked you with a card, and your answer. Its message is also in `needs_you`.
-    #[serde(default)]
-    pub card: Option<Card>,
+    /// The decisions the run asked you with cards, and your answers. Each message is also in `needs_you`.
+    #[serde(default, alias = "card", deserialize_with = "cards_compat")]
+    pub cards: Vec<Card>,
     /// When you archived this report: it leaves the Inbox for the Archive.
     #[serde(default)]
     pub archived_at: Option<Ts>,
@@ -1105,6 +1161,12 @@ pub struct Run {
     /// Times the run went back to the queue because the usage limit stopped it.
     #[serde(default)]
     pub limit_retries: u32,
+    /// It failed because the usage limit stopped it once too often: nothing you can do, so it never needs you.
+    #[serde(default)]
+    pub limited: bool,
+    /// For a weekly review: the number it measured, for the team's scoreboard.
+    #[serde(default)]
+    pub score: Option<Score>,
     /// The context size in tokens after its last top-level message.
     #[serde(default)]
     pub context_tokens: Option<u64>,
@@ -1129,7 +1191,7 @@ impl Run {
             denials: vec![],
             skill_changes: vec![],
             needs_you: vec![],
-            card: None,
+            cards: vec![],
             archived_at: None,
             replied_at: None,
             delivered_at: None,
@@ -1138,8 +1200,24 @@ impl Run {
             attachments: vec![],
             build: None,
             limit_retries: 0,
+            limited: false,
+            score: None,
             context_tokens: None,
         }
+    }
+
+    /// The cards still waiting on your answer.
+    pub fn open_cards(&self) -> impl Iterator<Item = &Card> {
+        self.cards.iter().filter(|c| c.is_open())
+    }
+
+    pub fn has_open_card(&self) -> bool {
+        self.open_cards().next().is_some()
+    }
+
+    /// What needs you that is not a card: flags Omega Star raised, and `notify` messages from before cards.
+    pub fn flags(&self) -> impl Iterator<Item = &String> {
+        self.needs_you.iter().filter(|m| !self.cards.iter().any(|c| c.message == **m))
     }
 
     pub fn parent_run_id(&self) -> Option<&str> {
@@ -1657,19 +1735,36 @@ mod tests {
     #[test]
     fn a_run_saved_before_cards_loads() {
         let mut run = serde_json::to_value(Run::new("e1", RunKind::Reply { to_run_id: "r1".into(), label: "Sweep".into(), task: false, card: true }, "Chose: Not now.".into(), Utc::now())).unwrap();
-        run.as_object_mut().unwrap().remove("card");
+        run.as_object_mut().unwrap().remove("cards");
         run["kind"].as_object_mut().unwrap().remove("card");
         let run: Run = serde_json::from_value(run).unwrap();
-        assert_eq!(run.card, None);
+        assert!(run.cards.is_empty());
         assert_eq!(run.kind, RunKind::Reply { to_run_id: "r1".into(), label: "Sweep".into(), task: false, card: false });
     }
 
     #[test]
+    fn a_run_saved_with_one_card_loads_it_as_its_cards() {
+        let mut run = serde_json::to_value(Run::new("e1", RunKind::Manual, "Go".into(), Utc::now())).unwrap();
+        let o = run.as_object_mut().unwrap();
+        o.remove("cards");
+        o.insert("card".into(), json!({ "message": "Open Chrome.", "ask": { "type": "chore", "subject": "chrome" }, "answer": null }));
+        let loaded: Run = serde_json::from_value(run.clone()).unwrap();
+        assert_eq!(loaded.cards.len(), 1);
+        assert_eq!(loaded.cards[0].topic().as_deref(), Some("chore:chrome"), "a chore asked before keys still has its topic");
+        run["card"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<Run>(run).unwrap().cards.is_empty());
+    }
+
+    #[test]
     fn a_card_reads_its_own_shapes() {
-        let card = Card { message: "Boost it?".into(), ask: CardAsk::Choices { choices: vec!["Not now".into(), "Try it".into()], recommended: 0 }, answer: None };
+        let card = Card::new("Boost it?", None, None, CardAsk::Choices { choices: vec!["Not now".into(), "Try it".into()], recommended: 0 });
         let v = serde_json::to_value(&card).unwrap();
-        assert_eq!(v, json!({ "message": "Boost it?", "ask": { "type": "choices", "choices": ["Not now", "Try it"], "recommended": 0 }, "answer": null }));
+        assert_eq!(
+            v,
+            json!({ "message": "Boost it?", "why": null, "key": null, "ask": { "type": "choices", "choices": ["Not now", "Try it"], "recommended": 0 }, "answer": null })
+        );
         assert_eq!(serde_json::from_value::<Card>(v).unwrap(), card);
+        assert_eq!(Card::new("Open Chrome.", None, Some("ignored".into()), CardAsk::Chore { subject: "chrome".into() }).key.as_deref(), Some("chore:chrome"));
         let reply: CardReply = serde_json::from_value(json!({ "type": "items", "picks": [{ "id": "d1", "tick": true }] })).unwrap();
         assert_eq!(reply, CardReply::Items { picks: vec![ItemPick { id: "d1".into(), tick: true, note: None }] });
         assert_eq!(serde_json::from_value::<CardReply>(json!({ "type": "done" })).unwrap(), CardReply::Done);

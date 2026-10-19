@@ -161,15 +161,19 @@ export type RunState = "queued" | "running" | "succeeded" | "failed" | "cancelle
 export type Denial = { tool: string; brief: string; suggestedRule: string };
 export type SkillChangeKind = "added" | "modified" | "removed";
 export type SkillChange = { skill: string; file: string; change: SkillChangeKind };
-/** What a run asks you with the answer built in. One per run; its message is also in needsYou. */
+/** What a run asks you with the answer built in. A run can ask several; each message is also in needsYou. */
 export type CardItem = { id: string; text: string; recommended: boolean };
 export type CardAsk =
   | { type: "choices"; choices: string[]; recommended: number }   // recommended: the index of the one they recommend
   | { type: "items"; verb: string; items: CardItem[] }            // verb: what a tick means, e.g. "Post"
   | { type: "chore"; subject: string };                           // "chrome" or "sign-in:<site>"
-export type AnswerHow = "tapped" | "typed" | "dismissed" | "replaced";
+export type AnswerHow = "tapped" | "typed" | "dismissed" | "replaced" | "withdrawn";
 export type CardAnswer = { at: string; how: AnswerHow; text: string };   // text: the fixed answer sent, empty when nothing was
-export type Card = { message: string; ask: CardAsk; answer: CardAnswer | null };
+/** message: the question. why: one line on why it matters. key: what it is about (`ask:<name>` or `chore:<subject>`),
+ *  so the same question from anyone is one Inbox item; null on cards asked before keys. */
+export type Card = { message: string; why: string | null; key: string | null; ask: CardAsk; answer: CardAnswer | null };
+/** A weekly review's one number, for the Updates scoreboard. */
+export type Score = { metric: string; value: string; change: string; note: string };
 /** Your answer on a card. */
 export type ItemPick = { id: string; tick: boolean; note?: string | null };
 export type CardReply = { type: "choice"; index: number } | { type: "items"; picks: ItemPick[] } | { type: "done" } | { type: "dismiss" };
@@ -181,8 +185,9 @@ export type Run = {
   turns: number | null; durationMs: number | null;
   summary: string | null; error: string | null; denials: Denial[];
   skillChanges: SkillChange[];
-  needsYou: string[];          // what the employee flagged with notify during the run
-  card: Card | null;           // what the run asked you with a card, and your answer
+  needsYou: string[];          // every card's question, and what Omega Star flagged
+  cards: Card[];               // what the run asked you, each with your answer
+  score: Score | null;         // a weekly review's number, from report_number
   archivedAt: string | null;   // archived reports leave the Inbox for the Archive
   repliedAt: string | null;    // when you last replied to this report
   deliveredAt: string | null;  // asked and delegated runs: when the answer or report reached whoever handed it over
@@ -191,6 +196,7 @@ export type Run = {
   attachments: string[];       // file names you attached to a chat message
   build: RunBuild | null;      // the build that ran it, and the Claude Code organisation around it
   limitRetries: number;        // times it went back to the queue after the usage limit
+  limited: boolean;            // it failed on the usage limit, which Omega Star waits out itself
   contextTokens: number | null; // the context size after its last top-level message
 };
 export type NewAttachment = { name: string; data: string /* base64 */ };
@@ -209,7 +215,7 @@ export type ChatHead = {
 /** Every conversation across the office, for the Inbox and each employee's chips. */
 export type Conversations = {
   threads: Thread[];           // open threads of every employee, one per root, most recently active first
-  inbox: string[];             // root ids of the threads that lead an Inbox row: reports that reached you
+  inbox: string[];             // root ids of the threads that lead an Inbox row: what needs you
   chats: ChatHead[];           // one per current employee
 };
 export type OwnSkill = {
@@ -331,6 +337,8 @@ export type Commands = {
   runs: { args: { employeeId: string | null; limit: number }; ret: Run[] };
   run_detail: { args: { runId: string }; ret: RunDetail };
   archived: { args: Record<string, never>; ret: Thread[] };
+  /** Every row that reached you in the last week, whether or not it needs you. */
+  updates: { args: Record<string, never>; ret: Thread[] };
   /** Every open thread, which of them lead an Inbox row, and each employee's ongoing chat. */
   conversations: { args: Record<string, never>; ret: Conversations };
   /** The thread any of its runs belongs to. */
@@ -343,8 +351,8 @@ export type Commands = {
    *  (a denial's suggestedRule, or `mcp__<server>__*` for an MCP tool). `always` saves them to the employee;
    *  otherwise they apply to the retry only. Archives the blocked report. Returns the retry run. */
   approve_blocked: { args: { runId: string; rules: string[]; always: boolean }; ret: Run };
-  /** Your answer on a run's card: it goes to the run, and for a chore's Done to every run waiting on it. Returns the replies it started. */
-  answer_card: { args: { runId: string; answer: CardReply }; ret: Run[] };
+  /** Your answer on a run's card (`card`: its index in `cards`). It goes to every run asking the same thing. Returns the replies it started. */
+  answer_card: { args: { runId: string; card: number; answer: CardReply }; ret: Run[] };
   /** Colleague asks still in flight (queued, running, or answered and not yet collected), oldest first. */
   open_asks: { args: Record<string, never>; ret: Run[] };
   employee_skills: { args: { employeeId: string }; ret: OwnSkill[] };

@@ -2,9 +2,12 @@
 
 use super::*;
 use crate::cards;
+use crate::threads::View;
 
 /// How many archived reports the Archive reads, most recently archived first.
 const ARCHIVE_ROWS: u32 = 200;
+/// How far back Updates reads.
+const UPDATES_DAYS: i64 = 7;
 
 /// Who wrote a reply: you, or Omega Star from something you did in the app (an approval, or your answer
 /// on a card).
@@ -23,7 +26,13 @@ impl Office {
 
     /// The Archive: rows you archived, most recently archived first.
     pub fn archived(&self) -> Result<Vec<Thread>> {
-        Self::rows(&self.db(), true)
+        Self::rows(&self.db(), View::Archive)
+    }
+
+    /// Updates: every row that reached you in the last week, most recently active first, whether or not it
+    /// needs you. Nothing here asks anything.
+    pub fn updates(&self) -> Result<Vec<Thread>> {
+        Self::rows(&self.db(), View::Updates)
     }
 
     /// The employees who report to you.
@@ -44,19 +53,23 @@ impl Office {
         Some(format!("{schedule_id}@{since}"))
     }
 
-    /// The Inbox, or with `archive` the Archive, as rows (`threads::file`): one row per piece of work, most
+    /// The Inbox, Updates or the Archive (`view`) as rows (`threads::file`): one row per piece of work, most
     /// recently active (or archived) first. A row is a thread (a report and your exchange on it) with the
-    /// threads that belong with it in `related`: everything a hand-off between employees set off, or a
-    /// schedule's earlier failures in a row.
-    pub(super) fn rows(db: &Store, archive: bool) -> Result<Vec<Thread>> {
+    /// threads that belong with it in `related`: everything a hand-off between employees set off, a schedule's
+    /// earlier failures in a row, or the team's other reviews that week. The Inbox reads only runs that might
+    /// need you; Updates reads the last week of everything that reached you.
+    pub(super) fn rows(db: &Store, view: View) -> Result<Vec<Thread>> {
         let employees = db.employees()?;
         let top = Self::top_ids(&employees);
         let all: Vec<String> = employees.into_iter().map(|e| e.id).collect();
         let roots: Vec<String> = top.iter().cloned().collect();
-        // The Archive reads open runs too, so a row with anything still open stays out of it.
-        let mut starts = db.finished_root_runs(&roots, &all)?;
+        let mut starts = match view {
+            View::Updates => db.recent_root_runs(&roots, &all, now() - chrono::Duration::days(UPDATES_DAYS))?,
+            // The Archive reads open runs too, so a row with anything still open stays out of it.
+            View::Inbox | View::Archive => db.finished_root_runs(&roots, &all)?,
+        };
         starts.retain(|r| threads::reaches_you(r, false, top.contains(&r.employee_id)));
-        if archive {
+        if view == View::Archive {
             let mut archived = db.archived_root_runs(&all, ARCHIVE_ROWS)?;
             archived.retain(|r| threads::reaches_you(r, false, true));
             starts.extend(archived);
@@ -64,8 +77,8 @@ impl Office {
         let rows = threads::file(&starts, db.conversation_runs()?, |id| run_of(db, id), &top);
         let cache = std::cell::RefCell::new(HashMap::new());
         let rows = threads::merge_rows(rows, |row| Self::row_key(db, &cache, row));
-        let mut out: Vec<Thread> = rows.into_iter().filter_map(|r| threads::present(r, archive)).collect();
-        if archive {
+        let mut out: Vec<Thread> = rows.into_iter().filter_map(|r| threads::present(r, view)).collect();
+        if view == View::Archive {
             out.sort_by_key(|t| std::cmp::Reverse(threads::row_archived_at(t)));
         } else {
             out.sort_by_key(|t| std::cmp::Reverse(threads::activity_at(&t.root, &t.replies)));
@@ -198,15 +211,15 @@ impl Office {
         Ok(reply)
     }
 
-    /// Your answer on a card. It goes to the run as a fixed message through `reply_with` and archives its row;
-    /// Done on a chore goes to every run waiting on it, and those still working hear it straight away. Returns
-    /// the reply runs it started.
-    pub fn answer_card(&self, run_id: &str, reply: CardReply) -> Result<Vec<Run>> {
+    /// Your answer on card `index` of a run. It goes to the run as a fixed message through `reply_with` and
+    /// archives its row. Everyone waiting on the same thing (a chore, or a decision with the same key) hears
+    /// the same answer, and those still working hear it straight away. Returns the reply runs it started.
+    pub fn answer_card(&self, run_id: &str, index: usize, reply: CardReply) -> Result<Vec<Run>> {
         let at = now();
-        let (ask, text, targets) = {
+        let (card, answer, targets) = {
             let db = self.db();
             let run = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
-            let card = run.card.clone().ok_or_else(|| AppError::invalid("That run has no card."))?;
+            let card = run.cards.get(index).cloned().ok_or_else(|| AppError::invalid("That run has no such card."))?;
             if !card.is_open() {
                 return Err(AppError::conflict("That card was already answered."));
             }
@@ -215,46 +228,49 @@ impl Office {
             }
             let text = cards::answer_text(&card.ask, &reply, &ceo_of(&db)?)?;
             let how = if reply == CardReply::Dismiss { AnswerHow::Dismissed } else { AnswerHow::Tapped };
+            let answer = CardAnswer { at, how, text: text.unwrap_or_default() };
             let mut targets = vec![run];
-            if let (CardAsk::Chore { subject }, CardReply::Done) = (&card.ask, &reply) {
-                targets.extend(db.open_chore_runs(subject)?.into_iter().filter(|r| r.id != run_id));
+            if let Some(topic) = card.topic() {
+                targets.extend(db.open_topic_runs(&topic)?.into_iter().filter(|r| r.id != run_id));
             }
-            let answer = CardAnswer { at, how, text: text.clone().unwrap_or_default() };
-            db.tx(|| answer_cards(&db, &mut targets, &answer))?;
-            (card.ask, text, targets)
+            db.tx(|| answer_cards(&db, &mut targets, Some(index), card.topic().as_deref(), &answer))?;
+            (card, answer, targets)
         };
-        let mut replies = self.send_card_answers(&targets, &ask, text.as_deref());
-        if let (CardAsk::Chore { subject }, Some(text)) = (&ask, &text) {
-            let is_chore = |c: &Card| c.is_open() && matches!(&c.ask, CardAsk::Chore { subject: s } if s == subject);
-            let answer = CardAnswer { at, how: AnswerHow::Tapped, text: text.clone() };
-            // Runs still working on the same chore hear it now, in the turn they are in. Told and marked under one
+        let text = Some(answer.text.as_str()).filter(|t| !t.is_empty());
+        let mut replies = self.send_card_answers(&targets, &card, text);
+        if let Some(topic) = card.topic() {
+            // Runs still working on the same thing hear it now, in the turn they are in. Told and marked under one
             // lock, so a run ending meanwhile either keeps the answer or is found by the read below.
             for a in lock(&self.0.active).values_mut() {
-                let Some(c) = a.card.as_mut().filter(|c| is_chore(c)) else { continue };
-                if a.input.as_ref().is_some_and(|i| i.send(claude::user_line(text)).is_ok()) {
-                    c.answer = Some(answer.clone());
-                    // Done, so it no longer needs you for it: the run ends unflagged unless something else does.
-                    let message = c.message.clone();
+                let Some(i) = a.cards.iter().position(|c| c.is_open() && c.topic().as_deref() == Some(topic.as_str())) else { continue };
+                let told = match text {
+                    Some(t) => a.input.as_ref().is_some_and(|input| input.send(claude::user_line(&card_reply_text(&a.cards[i], t))).is_ok()),
+                    None => true,
+                };
+                if told {
+                    a.cards[i].answer = Some(answer.clone());
+                    // Answered, so it no longer needs you for it: the run ends unflagged unless something else does.
+                    let message = a.cards[i].message.clone();
                     a.needs_you.retain(|m| *m != message);
                 }
             }
             // A run that finished while the answers above went out was in neither pass.
             let late = {
                 let db = self.db();
-                db.open_chore_runs(subject).and_then(|mut late| db.tx(|| answer_cards(&db, &mut late, &answer)).map(|_| late))
+                db.open_topic_runs(&topic).and_then(|mut late| db.tx(|| answer_cards(&db, &mut late, None, Some(&topic), &answer)).map(|_| late))
             };
             match late {
-                Ok(late) => replies.extend(self.send_card_answers(&late, &ask, Some(text))),
-                Err(e) => log!("answering the runs that finished waiting on the chore failed: {e}"),
+                Ok(late) => replies.extend(self.send_card_answers(&late, &card, text)),
+                Err(e) => log!("answering the runs that finished waiting on {topic} failed: {e}"),
             }
         }
         Ok(replies)
     }
 
-    /// Sends each answered card's `text` to its run and archives its row, carrying on past a run that fails.
-    /// A run back in the queue after the usage limit only keeps its answered card: its retry carries on anyway.
-    /// Returns the reply runs it started.
-    fn send_card_answers(&self, targets: &[Run], ask: &CardAsk, text: Option<&str>) -> Vec<Run> {
+    /// Sends your answer `text` on `card` to each run and archives its row, carrying on past a run that fails.
+    /// Each run hears it under its own card about the same thing. A run back in the queue after the usage
+    /// limit only keeps its answered card: its retry carries on anyway. Returns the reply runs it started.
+    fn send_card_answers(&self, targets: &[Run], card: &Card, text: Option<&str>) -> Vec<Run> {
         let mut replies = vec![];
         for t in targets {
             self.sink().run_updated(t);
@@ -262,11 +278,8 @@ impl Office {
                 continue;
             }
             if let Some(text) = text {
-                let sent = match (ask, &t.card) {
-                    (CardAsk::Chore { .. }, _) | (_, None) => text.to_string(),
-                    (_, Some(c)) => format!("Your card: \"{}\"\n{text}", claude::clip(&c.message, 300)),
-                };
-                match self.reply_with(&t.id, &sent, false, vec![], vec![], ReplyBy::Card) {
+                let own = card.topic().and_then(|k| t.cards.iter().find(|c| c.topic().as_deref() == Some(k.as_str()))).unwrap_or(card);
+                match self.reply_with(&t.id, &card_reply_text(own, text), false, vec![], vec![], ReplyBy::Card) {
                     Ok(r) => replies.push(r),
                     Err(e) => {
                         log!("sending your answer on the card of run {} failed: {e}", t.id);
@@ -322,7 +335,9 @@ impl Office {
 Approval covers only what is listed, so if something else is blocked, stop and say what.",
             rules.join(", ")
         );
-        self.reply_with(run_id, &text, false, rules, vec![], ReplyBy::App)
+        // Decided, so it leaves the Inbox: the retry comes back only if it needs you again.
+        let reply = self.reply_with(run_id, &text, true, rules, vec![], ReplyBy::App)?;
+        Ok(reply)
     }
 
     /// `run_id` may be any run in the thread. The reply answers the thread's root and resumes the
@@ -390,26 +405,40 @@ fn answer_typed(db: &Store, run_id: &str, text: &str, at: Ts) -> Result<Vec<Run>
     let t = Office::thread_in(db, run_id)?;
     let mut out = vec![];
     for mut r in std::iter::once(t.root).chain(t.replies) {
-        if !r.state.is_finished() {
+        if !r.state.is_finished() || !r.has_open_card() {
             continue;
         }
-        let Some(c) = r.card.as_mut().filter(|c| c.is_open()) else { continue };
-        c.answer = Some(CardAnswer { at, how: AnswerHow::Typed, text: claude::clip(text, 300) });
+        for c in r.cards.iter_mut().filter(|c| c.is_open()) {
+            c.answer = Some(CardAnswer { at, how: AnswerHow::Typed, text: claude::clip(text, 300) });
+        }
         db.save_run(&r)?;
         out.push(r);
     }
     Ok(out)
 }
 
-/// Puts `answer` on each run's card and saves them. Call inside a transaction.
-fn answer_cards(db: &Store, runs: &mut [Run], answer: &CardAnswer) -> Result<()> {
-    for r in runs {
-        if let Some(c) = r.card.as_mut() {
-            c.answer = Some(answer.clone());
+/// Puts `answer` on card `index` of the first run, and on every open card about `topic` in all of them, and
+/// saves them. Call inside a transaction.
+fn answer_cards(db: &Store, runs: &mut [Run], index: Option<usize>, topic: Option<&str>, answer: &CardAnswer) -> Result<()> {
+    for (n, r) in runs.iter_mut().enumerate() {
+        for (i, c) in r.cards.iter_mut().enumerate() {
+            let same = topic.is_some() && c.is_open() && c.topic().as_deref() == topic;
+            if same || (n == 0 && Some(i) == index) {
+                c.answer = Some(answer.clone());
+            }
         }
         db.save_run(r)?;
     }
     Ok(())
+}
+
+/// What your answer on `card` says to the run that raised it: a chore's answer as it is, a decision's
+/// under the question it answers.
+fn card_reply_text(card: &Card, text: &str) -> String {
+    match card.ask {
+        CardAsk::Chore { .. } => text.to_string(),
+        _ => format!("Your card: \"{}\"\n{text}", claude::clip(&card.message, 300)),
+    }
 }
 
 /// A run by id while walking threads. A store error is logged and the run treated as missing, since
@@ -465,7 +494,7 @@ mod tests {
         r.state = RunState::Succeeded;
         r.ended_at = Some(now());
         r.needs_you = vec!["Boost the post?".into()];
-        r.card = Some(Card { message: "Boost the post?".into(), ask: CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 }, answer: None });
+        r.cards = vec![Card::new("Boost the post?", None, Some("ask:boost".into()), CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 })];
         r
     }
 
@@ -486,10 +515,10 @@ mod tests {
         let long = format!("Not now. {}", "x".repeat(400));
         let typed = db.tx(|| answer_typed(&db, &working.id, &long, now())).unwrap();
         assert_eq!(typed.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![report.id.as_str()]);
-        let answer = db.run(&report.id).unwrap().unwrap().run.card.unwrap().answer.unwrap();
+        let answer = db.run(&report.id).unwrap().unwrap().run.cards.remove(0).answer.unwrap();
         assert_eq!(answer.how, AnswerHow::Typed);
         assert_eq!(answer.text, claude::clip(&long, 300));
-        assert!(db.run(&working.id).unwrap().unwrap().run.card.unwrap().is_open(), "a run still working keeps its card");
+        assert!(db.run(&working.id).unwrap().unwrap().run.has_open_card(), "a run still working keeps its card");
         assert!(db.tx(|| answer_typed(&db, &report.id, "Again.", now())).unwrap().is_empty());
         drop(db);
         let _ = fs::remove_dir_all(&dir);
@@ -527,16 +556,18 @@ mod tests {
         let dee = hire("dee", None);
         let mut d = review(&dee, "2026-10-08T12:00:00Z".parse::<Ts>().unwrap(), RunState::Succeeded);
         d.needs_you = vec!["Open Chrome.".into()];
-        d.card = Some(Card { message: "Open Chrome.".into(), ask: CardAsk::Chore { subject: "chrome".into() }, answer: None });
+        d.cards = vec![Card::new("Open Chrome.", None, None, CardAsk::Chore { subject: "chrome".into() })];
         db.save_run(&d).unwrap();
 
         let ids = |t: &Thread| -> HashSet<String> { std::iter::once(t).chain(&t.related).map(|x| x.root.id.clone()).collect() };
         let week: HashSet<String> = [&a, &b, &c].iter().map(|r| r.id.clone()).collect();
-        let rows = Office::rows(&db, false).unwrap();
-        assert_eq!(rows.len(), 3, "the second week is a row of its own");
-        assert_eq!(ids(&rows[0]), HashSet::from([later.id.clone()]));
-        assert_eq!(ids(&rows[1]), HashSet::from([d.id.clone()]));
-        assert_eq!(ids(&rows[2]), week, "the failed review is in the team's row, not a streak");
+        let rows = Office::rows(&db, View::Inbox).unwrap();
+        assert_eq!(
+            rows.iter().map(ids).collect::<Vec<_>>(),
+            vec![HashSet::from([d.id.clone()])],
+            "only the review waiting on a chore needs you: plain reviews are in Updates, and one failure is not a streak"
+        );
+        assert!(!rows.iter().any(|t| ids(t).contains(&later.id)));
         let chored = Office::row_of(&db, &d).unwrap();
         assert_eq!(chored.iter().map(|t| t.root.id.clone()).collect::<Vec<_>>(), vec![d.id.clone()], "answering the chore leaves the week alone");
 
@@ -547,10 +578,43 @@ mod tests {
             r.archived_at = Some(now());
             db.save_run(&r).unwrap();
         }
-        let rows = Office::rows(&db, false).unwrap();
-        assert_eq!(rows.iter().map(ids).collect::<Vec<_>>(), vec![HashSet::from([later.id.clone()]), HashSet::from([d.id.clone()])]);
-        let archived = Office::rows(&db, true).unwrap();
+        let rows = Office::rows(&db, View::Inbox).unwrap();
+        assert_eq!(rows.iter().map(ids).collect::<Vec<_>>(), vec![HashSet::from([d.id.clone()])]);
+        let archived = Office::rows(&db, View::Archive).unwrap();
         assert_eq!(archived.iter().map(ids).collect::<Vec<_>>(), vec![week]);
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn updates_hold_the_last_week_and_the_inbox_only_what_needs_you() {
+        let dir = std::env::temp_dir().join(format!("omegastar-updates-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let e = tester();
+        db.save_employee(&e).unwrap();
+        let report = |hours: i64, f: &dyn Fn(&mut Run)| {
+            let at = now() - chrono::Duration::hours(hours);
+            let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), at);
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(at);
+            r.summary = Some("Done.".into());
+            f(&mut r);
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r
+        };
+        let plain = report(1, &|_| {});
+        let carded = report(2, &|r| *r = Run { id: r.id.clone(), created_at: r.created_at, ended_at: r.ended_at, ..carded(&e) });
+        let limited = report(3, &|r| {
+            r.state = RunState::Failed;
+            r.limited = true;
+        });
+        let broken = report(4, &|r| r.state = RunState::Failed);
+        let old = report(24 * 10, &|_| {});
+        let roots = |v: Vec<Thread>| v.into_iter().map(|t| t.root.id).collect::<Vec<_>>();
+        assert_eq!(roots(Office::rows(&db, View::Updates).unwrap()), vec![plain.id.clone(), carded.id.clone(), limited.id.clone(), broken.id.clone()]);
+        assert!(!roots(Office::rows(&db, View::Updates).unwrap()).contains(&old.id), "Updates reads a week");
+        assert_eq!(roots(Office::rows(&db, View::Inbox).unwrap()), vec![carded.id.clone(), broken.id.clone()], "the usage limit is never yours to fix");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -569,10 +633,10 @@ mod tests {
         let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
         assert_eq!(office.set_archived(&report.id, true).unwrap_err().message, "Answer the card first, or dismiss it.");
         assert!(office.set_archived(&report.id, false).is_ok(), "moving it back is never blocked");
-        assert_eq!(office.answer_card(&report.id, CardReply::Choice { index: 5 }).unwrap_err().message, "That answer does not fit this card.");
+        assert_eq!(office.answer_card(&report.id, 0, CardReply::Choice { index: 5 }).unwrap_err().message, "That answer does not fit this card.");
         let unreadable = vec![NewAttachment { name: "notes.txt".into(), data: "not base64!".into() }];
         assert_eq!(office.reply_to_run(&report.id, "Not now.", false, unreadable).unwrap_err().message, "notes.txt could not be read");
-        assert!(office.db().run(&report.id).unwrap().unwrap().run.card.unwrap().is_open(), "a reply that did not go leaves the card open");
+        assert!(office.db().run(&report.id).unwrap().unwrap().run.has_open_card(), "a reply that did not go leaves the card open");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -583,7 +647,7 @@ mod tests {
         r.state = state;
         r.ended_at = Some(now()).filter(|_| state.is_finished());
         r.needs_you = vec!["Open Chrome.".into()];
-        r.card = Some(Card { message: "Open Chrome.".into(), ask: CardAsk::Chore { subject: cards::CHROME.into() }, answer: None });
+        r.cards = vec![Card::new("Open Chrome.", None, None, CardAsk::Chore { subject: cards::CHROME.into() })];
         r
     }
 
@@ -601,6 +665,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn one_answer_reaches_everyone_asked_the_same_thing_and_close_ask_withdraws_one() {
+        let dir = std::env::temp_dir().join(format!("omegastar-same-ask-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let ada = tester();
+        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let ask = |e: &Employee, message: &str, key: &str| {
+            let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), now());
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(now());
+            r.needs_you = vec![message.into()];
+            r.cards = vec![Card::new(message, Some("Top page.".into()), Some(key.into()), CardAsk::Choices { choices: vec!["Merge".into(), "Not now".into()], recommended: 0 })];
+            r
+        };
+        let (a, b, c) = (ask(&ada, "Merge PR #12?", "ask:pr:12"), ask(&bo, "Can #12 go live?", "ask:pr:12"), ask(&bo, "Merge PR #13?", "ask:pr:13"));
+        let office = {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.save_employee(&bo).unwrap();
+            drop(db);
+            held_office(&dir, &ada, &[&a, &b, &c]).await
+        };
+        let replies = office.answer_card(&a.id, 0, CardReply::Choice { index: 0 }).unwrap();
+        // Each run hears it under its own question (quoted whole here, since these sessions never started).
+        let heard = |q: &str| replies.iter().filter(|r| r.prompt.ends_with(&format!("Your card: \"{q}\"\nChose: Merge."))).count();
+        assert_eq!((replies.len(), heard("Merge PR #12?"), heard("Can #12 go live?")), (2, 1, 1));
+        let stored = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run;
+        for r in [&a, &b] {
+            let s = stored(r);
+            assert_eq!(s.cards[0].answer.as_ref().map(|x| (x.how, x.text.as_str())), Some((AnswerHow::Tapped, "Chose: Merge.")));
+            assert!(s.archived_at.is_some(), "answered, so it leaves the Inbox");
+        }
+        assert!(stored(&c).has_open_card(), "another key is another question");
+
+        let err = office.close_ask_tool(&bo, "pr:14", "No such thing.").unwrap_err().message;
+        assert_eq!(err, "You have no open card about 'pr:14'. Your open cards: pr:13.");
+        assert_eq!(office.close_ask_tool(&bo, "PR:13", "Merged by hand.").unwrap()["closed"], 1);
+        let c = stored(&c);
+        assert_eq!(c.cards[0].answer.as_ref().map(|x| (x.how, x.text.as_str())), Some((AnswerHow::Withdrawn, "Merged by hand.")));
+        assert!(c.archived_at.is_some());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn chrome_dropping_in_a_chat_raises_no_card() {
         let dir = std::env::temp_dir().join(format!("omegastar-chrome-chat-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
@@ -611,8 +718,8 @@ mod tests {
         let office = held_office(&dir, &e, &[&chat]).await;
         office.chrome_down(&chat, &e);
         let stored = office.db().run(&chat.id).unwrap().unwrap().run;
-        assert!(stored.card.is_none() && stored.needs_you.is_empty(), "the chat says it itself");
-        assert!(office.db().open_chore_runs(cards::CHROME).unwrap().is_empty());
+        assert!(stored.cards.is_empty() && stored.needs_you.is_empty(), "the chat says it itself");
+        assert!(office.db().open_topic_runs("chore:chrome").unwrap().is_empty());
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -625,12 +732,12 @@ mod tests {
         let done = chrome_wait(&e, RunState::Succeeded);
         let held = chrome_wait(&e, RunState::Queued);
         let office = held_office(&dir, &e, &[&done, &held]).await;
-        let replies = office.answer_card(&done.id, CardReply::Done).unwrap();
+        let replies = office.answer_card(&done.id, 0, CardReply::Done).unwrap();
         assert_eq!(replies.len(), 1, "only the finished run gets a reply");
         assert!(matches!(&replies[0].kind, RunKind::Reply { to_run_id, .. } if *to_run_id == done.id));
         let held = office.db().run(&held.id).unwrap().unwrap().run;
         assert_eq!(held.state, RunState::Queued);
-        assert!(held.card.is_some_and(|c| !c.is_open()), "its retry carries the answered card");
+        assert!(!held.cards.is_empty() && !held.has_open_card(), "its retry carries the answered card");
         assert!(held.archived_at.is_none());
         drop(office);
         let _ = fs::remove_dir_all(&dir);
@@ -647,12 +754,12 @@ mod tests {
         let live = chrome_wait(&e, RunState::Running);
         lock(&office.0.active).insert(
             live.id.clone(),
-            Active { token: "t".into(), pid: None, cancelled: false, needs_you: vec!["Open Chrome.".into(), "Totals look off.".into()], card: live.card.clone(), proposed: None, verdict: false, transcript: None, input: Some(input) },
+            Active { token: "t".into(), pid: None, cancelled: false, needs_you: vec!["Open Chrome.".into(), "Totals look off.".into()], cards: live.cards.clone(), score: None, proposed: None, verdict: false, transcript: None, input: Some(input) },
         );
-        office.answer_card(&done.id, CardReply::Done).unwrap();
+        office.answer_card(&done.id, 0, CardReply::Done).unwrap();
         let active = lock(&office.0.active);
         let a = &active[&live.id];
-        assert!(a.card.as_ref().is_some_and(|c| !c.is_open()));
+        assert!(!a.cards.is_empty() && a.cards.iter().all(|c| !c.is_open()));
         assert_eq!(a.needs_you, vec!["Totals look off.".to_string()], "only the answered chore leaves");
         drop(active);
         drop(office);

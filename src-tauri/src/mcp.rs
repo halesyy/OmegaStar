@@ -37,7 +37,7 @@ async fn respond(office: &Office, token: &str, msg: Value) -> Option<Value> {
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2025-06-18")),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "omega", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "Omega Star office tools: your recurring schedules, notifying the person you work for, moving and retiring your skills, your team (delegate, await reports), proposing hires, and the people you can ask for help. Omega Star runs your schedules even when no Claude session is open, and watches your requests to people for replies.",
+            "instructions": "Omega Star office tools: your recurring schedules, putting decisions to the person you work for, moving and retiring your skills, your team (delegate, await reports), proposing hires, and the people you can ask for help. Omega Star runs your schedules even when no Claude session is open, and watches your requests to people for replies.",
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
@@ -87,6 +87,8 @@ async fn call(office: &Office, token: &str, name: &str, args: &Value) -> Result<
         "schedule" => office.schedule_tool(&me, args),
         "unschedule" => office.unschedule_tool(&me, s("id")),
         "notify" => office.notify_tool(&run_id, &me, args),
+        "close_ask" => office.close_ask_tool(&me, s("key"), s("reason")),
+        "report_number" => office.report_number_tool(&run_id, args),
         "catalog" => office.catalog_tool(),
         "propose_hire" => office.propose_hire_tool(&run_id, &me, args),
         "my_proposals" => office.my_proposals(&me),
@@ -130,14 +132,16 @@ fn tools() -> Value {
         },
         {
             "name": "notify",
-            "description": "Ask the person you work for for something only they can give: a decision, an approval, or a chore. Sends a desktop notification now and puts your message, with the answer built in, at the top of this run's report in their Inbox. Add choices for a decision (up to four buttons, mark the one you recommend), items for a list they approve one by one, or chore for something only they can do. Your message says what you recommend and the safe default you will follow if they dismiss it; going ahead is never the default for spending, public posts, customer messages, deleting data, new vendors or payment details. Their answer comes back to you in this conversation as a short fixed message. One card per run. Never for updates or routine results: those belong in your report.",
+            "description": "Put one decision in front of the person you work for, as a card in their Inbox with the answer built in, and send a desktop notification. The card is all they read, so it stands alone: the question in message, one line of why, and choices (2 to 4 buttons, mark the one you recommend), items (a list they approve one by one) or chore (something only they can do). One decision per card; a run may raise up to five. Name what it is about in key: the same key from you or a colleague is one item in their Inbox, and asking again replaces your earlier card. Going ahead is never the answer you assume for spending, public posts, customer messages, deleting data, new vendors or payment details. Their answer comes back to you in this conversation as a short fixed message; dismissed means not now. Never for updates or results: those go in your report.",
             "inputSchema": obj(json!({
-                "message": { "type": "string", "description": "One or two sentences, written to them: what needs them, what you recommend, and the safe default if they dismiss it. Never a code or password." },
+                "message": { "type": "string", "description": "The question, at most 80 characters, e.g. 'Merge PR #12, the pricing page?'. Never a code or password." },
+                "why": { "type": "string", "description": "Optional. One line, at most 140 characters: what it changes or costs, e.g. 'Our busiest page. Built and reviewed.'" },
+                "key": { "type": "string", "description": "What the card is about, e.g. 'pr:12' or 'spring-sale'. Required for choices and items. Close it with close_ask once it is settled without them." },
                 "choices": {
                     "type": "array", "maxItems": 4,
-                    "description": "2 to 4 buttons for one decision, e.g. [{\"label\": \"Not now\", \"recommended\": true}, {\"label\": \"Try it for a week\"}]. Mark exactly one recommended.",
+                    "description": "2 to 4 buttons for one decision, e.g. [{\"label\": \"Merge\", \"recommended\": true}, {\"label\": \"Not now\"}]. Mark exactly one recommended.",
                     "items": obj(json!({
-                        "label": { "type": "string", "description": "A few words, e.g. 'Not now'." },
+                        "label": { "type": "string", "description": "A few words, e.g. 'Merge'." },
                         "recommended": { "type": "boolean" }
                     }), &["label"])
                 },
@@ -146,13 +150,31 @@ fn tools() -> Value {
                     "description": "Things to approve one by one, up to 10. Each gets a tick box and an optional note.",
                     "items": obj(json!({
                         "id": { "type": "string", "description": "A short id they and you can refer to, e.g. 'd1'." },
-                        "text": { "type": "string", "description": "One line: what it is and anything that decides it, e.g. how old the post it answers is." },
+                        "text": { "type": "string", "description": "What it is, e.g. the post as it would go out, and anything that decides it, e.g. how old the post it answers is." },
                         "recommended": { "type": "boolean", "description": "true for the ones you would approve." }
                     }), &["id", "text"])
                 },
                 "itemVerb": { "type": "string", "description": "What a tick means, one word, e.g. 'Post'. Default 'Approve'." },
-                "chore": { "type": "string", "description": "Something only they can do, as one of: 'chrome' (reconnect Claude in Chrome) or 'sign-in:<site>' (sign in to a site, e.g. 'sign-in:acme'). They press Done and every run waiting on it carries on. Your message names the one action, in plain words." }
+                "chore": { "type": "string", "description": "Something only they can do, as one of: 'chrome' (reconnect Claude in Chrome) or 'sign-in:<site>' (sign in to a site, e.g. 'sign-in:acme'). They press Done and every run waiting on it carries on. Needs no key." }
             }), &["message"]),
+        },
+        {
+            "name": "close_ask",
+            "description": "Close your open card about key: it was settled without the person you work for (merged, paid, no longer needed). It leaves their Inbox.",
+            "inputSchema": obj(json!({
+                "key": { "type": "string", "description": "The key you gave the card, e.g. 'pr:12'." },
+                "reason": { "type": "string", "description": "One line on how it was settled." }
+            }), &["key", "reason"]),
+        },
+        {
+            "name": "report_number",
+            "description": "Only in your weekly review: record the number you answer for, for the team's scoreboard. Call once, after you measured it.",
+            "inputSchema": obj(json!({
+                "metric": { "type": "string", "description": "What you count, at most 40 characters, e.g. 'Open support tickets'." },
+                "value": { "type": "string", "description": "This week's value, at most 20 characters, e.g. '0' or '12'." },
+                "change": { "type": "string", "description": "Against last week, at most 30 characters, e.g. '+3%', 'down 1' or 'first count'." },
+                "note": { "type": "string", "description": "Optional. What explains it, at most 100 characters." }
+            }), &["metric", "value", "change"]),
         },
         {
             "name": "propose_changes",

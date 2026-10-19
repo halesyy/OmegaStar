@@ -80,8 +80,17 @@ const conversations = createStore<ConversationsState>({ data: null, error: null 
 let conversationsWired = false;
 let conversationsSeq = 0;
 
+/** Takes a thread you just marked done out of every conversation at once, ahead of the reread that confirms it.
+ *  A reread already on its way is dropped, so it cannot bring the thread back. */
+export function dropConversation(rootId: string) {
+  const { data } = conversations.get();
+  if (!data) return;
+  conversationsSeq++;
+  conversations.set({ data: { ...data, threads: data.threads.filter((t) => t.root.id !== rootId), inbox: data.inbox.filter((id) => id !== rootId) }, error: null });
+}
+
 /** Rereads every conversation. */
-function refreshConversations() {
+export function refreshConversations() {
   const n = ++conversationsSeq;
   call("conversations").then(
     (data) => { if (n === conversationsSeq) conversations.set({ data, error: null }); },

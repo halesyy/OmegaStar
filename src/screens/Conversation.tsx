@@ -7,7 +7,7 @@ import { chatKey, lastMoved, setMark, useMarkSeen } from "../lib/marks";
 import { openChat, openFullChat, openMember, openRun, type Route } from "../lib/router";
 import { threadStatus, type Status } from "../lib/status";
 import { toast } from "../lib/toasts";
-import { isLive, NEW_TASK_FOCUS, openCard, parseThreadFocus, rowCardOpen, threadFocus } from "../lib/threads";
+import { isLive, NEW_TASK_FOCUS, openCards, parseThreadFocus, rowCardOpen, threadFocus } from "../lib/threads";
 import { kindNames } from "../components/RunRow";
 import { Icon } from "../components/Icon";
 import { Avatar, ErrorNote, Skeleton, StatePill } from "../components/ui";
@@ -69,7 +69,7 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
 
   const done = async () => {
     const go = leave();
-    if (await markDone(rootId, name)) go();
+    if (await markDone(rootId)) go();
   };
   const sendDone = async (text: string, attachments: NewAttachment[]) => {
     const go = leave();
@@ -86,7 +86,7 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
   doneRef.current = done;
   const ready = !!root?.endedAt && !archived && !runs.some(isLive);
   // A card waiting on you is answered on the card, so neither Done nor E closes the thread.
-  const carded = (root ? !!openCard({ root, replies: runs.slice(1), related: [] }) : false) || (row ? rowCardOpen(row.thread) : false);
+  const carded = (root ? openCards({ root, replies: runs.slice(1), related: [] }).length > 0 : false) || (row ? rowCardOpen(row.thread) : false);
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.ctrlKey || ev.metaKey || ev.altKey || typing(ev.target) || document.querySelector(".popover")) return;

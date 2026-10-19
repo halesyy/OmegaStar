@@ -126,7 +126,31 @@ impl Store {
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch(&format!("BEGIN; {SCHEMA} COMMIT;"))?;
-        Ok(Store { conn })
+        let store = Store { conn };
+        store.migrate_cards()?;
+        Ok(store)
+    }
+
+    /// Once: a run's one `card` becomes its list of `cards`, and a chore card gets the key every card now
+    /// has, so the queries below read one shape.
+    fn migrate_cards(&self) -> Result<()> {
+        if self.meta::<bool>("cards_listed")?.unwrap_or(false) {
+            return Ok(());
+        }
+        self.tx(|| {
+            self.conn.execute(
+                "UPDATE runs SET data = json_set(json_remove(data, '$.card'), '$.cards',
+                   CASE
+                     WHEN json_type(data, '$.card') != 'object' THEN json_array()
+                     WHEN json_extract(data, '$.card.ask.type') = 'chore'
+                       THEN json_array(json_set(json(json_extract(data, '$.card')), '$.key', 'chore:' || json_extract(data, '$.card.ask.subject')))
+                     ELSE json_array(json(json_extract(data, '$.card')))
+                   END)
+                 WHERE json_valid(data) AND json_type(data, '$.card') IS NOT NULL",
+                [],
+            )?;
+            self.set_meta("cards_listed", &true)
+        })
     }
 
     /// Runs `f` as one unit: every write it makes lands, or none does. A savepoint, so units nest.
@@ -464,12 +488,11 @@ impl Store {
             .and_then(|r| r.ended_at))
     }
 
-    /// An employee's finished runs whose card you have not answered yet, oldest first.
+    /// An employee's finished runs with a card you have not answered yet, oldest first.
     pub fn open_cards(&self, employee_id: &str) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE employee_id = ? AND json_valid(data)
-               AND json_extract(data, '$.card.ask.type') IS NOT NULL
-               AND json_extract(data, '$.card.answer') IS NULL
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c WHERE json_extract(c.value, '$.answer') IS NULL)
                AND state NOT IN ('queued', 'running')
              ORDER BY created_at, rowid",
             &[&employee_id],
@@ -503,11 +526,23 @@ impl Store {
             .is_some())
     }
 
-    /// The runs that may reach the Inbox on their own, not archived, newest first. `roots` are the
-    /// employees who report to you, `flagged` everyone. Reply runs never appear: they belong to the thread
-    /// of the run they answer (`reply_runs`).
+    /// The runs that may need you in the Inbox, not archived, newest first: those that reach you and might
+    /// need you (`threads::could_need_you`). `roots` are the employees who report to you, `flagged` everyone.
+    /// Reply runs never appear: they belong to the thread of the run they answer (`reply_runs`).
     pub fn finished_root_runs(&self, roots: &[String], flagged: &[String]) -> Result<Vec<Run>> {
-        self.reports(roots, flagged, None, "json_extract(data, '$.archivedAt') IS NULL", "created_at DESC, rowid DESC")
+        self.reports(
+            roots,
+            flagged,
+            None,
+            "json_extract(data, '$.archivedAt') IS NULL
+             AND CASE WHEN json_valid(data) THEN
+                   COALESCE(json_array_length(data, '$.needsYou'), 0) > 0
+                   OR (COALESCE(json_array_length(data, '$.denials'), 0) > 0 AND json_extract(data, '$.kind.type') IS NOT 'tidy')
+                   OR state IN ('failed', 'lost')
+                   OR json_extract(data, '$.repliedAt') IS NOT NULL
+                 ELSE 0 END",
+            "created_at DESC, rowid DESC",
+        )
     }
 
     /// Finished weekly reviews created since `since`, oldest first: the runs one team week's row gathers.
@@ -558,6 +593,12 @@ impl Store {
         )?;
         let v = readable("skill_revisions", st.query_map(params![employee_id, ms(since)], |r| Ok((from_row(r, 0)?, from_row(r, 1)?)))?)?;
         Ok(v)
+    }
+
+    /// The runs that reach you, as `finished_root_runs` picks them, created since `since` whether archived or
+    /// not, newest first: what Updates shows.
+    pub fn recent_root_runs(&self, roots: &[String], flagged: &[String], since: Ts) -> Result<Vec<Run>> {
+        self.reports(roots, flagged, None, &format!("created_at >= {}", ms(since)), "created_at DESC, rowid DESC")
     }
 
     /// The same runs once archived: the most recently archived `limit`, newest first.
@@ -613,17 +654,16 @@ impl Store {
         )
     }
 
-    /// Work runs waiting on a chore you have not done yet, oldest first: finished ones, and ones the usage
-    /// limit sent back to the queue with the card they raised.
-    pub fn open_chore_runs(&self, subject: &str) -> Result<Vec<Run>> {
+    /// Work runs with a card about `topic` (`Card::topic`) you have not answered yet, oldest first: finished
+    /// ones, and ones the usage limit sent back to the queue with the cards they raised.
+    pub fn open_topic_runs(&self, topic: &str) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE json_valid(data)
-               AND json_extract(data, '$.card.ask.type') = 'chore'
-               AND json_extract(data, '$.card.ask.subject') = ?
-               AND json_extract(data, '$.card.answer') IS NULL
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+                           WHERE json_extract(c.value, '$.key') = ? AND json_extract(c.value, '$.answer') IS NULL)
                AND state != 'running' AND lane = 'work'
              ORDER BY created_at, rowid",
-            &[&subject],
+            &[&topic],
         )
     }
 
@@ -631,8 +671,8 @@ impl Store {
     pub fn open_cards_of_schedule(&self, schedule_id: &str, before: Ts) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE schedule_id = ? AND created_at < ? AND json_valid(data)
-               AND json_extract(data, '$.card.ask.type') IN ('choices', 'items')
-               AND json_extract(data, '$.card.answer') IS NULL
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+                           WHERE json_extract(c.value, '$.ask.type') IN ('choices', 'items') AND json_extract(c.value, '$.answer') IS NULL)
              ORDER BY created_at, rowid",
             &[&schedule_id, &ms(before)],
         )
@@ -1047,7 +1087,8 @@ mod tests {
         let ada = employee("Ada", None);
         db.save_employee(&ada).unwrap();
         let queued = run(&ada, RunKind::Manual, RunState::Queued);
-        let done = run(&ada, RunKind::Manual, RunState::Succeeded);
+        let mut done = run(&ada, RunKind::Manual, RunState::Succeeded);
+        done.needs_you = vec!["Look at this.".into()];
         assert!(db.insert_run(&queued, &queued.id).unwrap());
         assert!(db.insert_run(&done, &done.id).unwrap());
         for state in [RunState::Queued, RunState::Succeeded] {
@@ -1064,7 +1105,11 @@ mod tests {
         assert_eq!(ids(&records), ids(&[queued.clone()]));
         assert_eq!(ids(&db.runs_in_state(RunState::Queued).unwrap()), ids(&[queued]));
         assert_eq!(ids(&db.runs_in_state(RunState::Succeeded).unwrap()), ids(&[done.clone()]));
-        assert_eq!(ids(&db.finished_root_runs(&[ada.id.clone()], &[ada.id.clone()]).unwrap()), ids(&[done]));
+        let ada_only = std::slice::from_ref(&ada.id);
+        assert_eq!(ids(&db.finished_root_runs(ada_only, ada_only).unwrap()), ids(&[done.clone()]));
+        assert_eq!(ids(&db.recent_root_runs(ada_only, ada_only, Utc::now() - chrono::Duration::days(1)).unwrap()), ids(&[done.clone()]));
+        assert_eq!(ids(&db.open_cards(&ada.id).unwrap()), ids(&[]));
+        assert!(db.open_topic_runs("chore:chrome").unwrap().is_empty());
         // The Inbox's other queries read the JSON in SQL too.
         assert!(db.reply_runs(None).unwrap().is_empty());
         assert!(db.open_tasks(&ada.id).unwrap().is_empty());
@@ -1274,9 +1319,40 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
     }
 
     fn with_card(mut r: Run, ask: CardAsk, answered: bool) -> Run {
-        let answer = answered.then(|| CardAnswer { at: Utc::now(), how: AnswerHow::Tapped, text: "Chose: Not now.".into() });
-        r.card = Some(Card { message: "Needs you.".into(), ask, answer });
+        let mut card = Card::new("Needs you.", None, Some("ask:boost".into()), ask);
+        card.answer = answered.then(|| CardAnswer { at: Utc::now(), how: AnswerHow::Tapped, text: "Chose: Not now.".into() });
+        r.cards = vec![card];
         r
+    }
+
+    #[test]
+    fn a_runs_one_card_becomes_its_list_once() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada", None);
+        db.save_employee(&ada).unwrap();
+        let old = |id: &str, card: serde_json::Value| {
+            let mut v = serde_json::to_value(run(&ada, RunKind::Manual, RunState::Succeeded)).unwrap();
+            v["id"] = id.into();
+            v.as_object_mut().unwrap().remove("cards");
+            v["card"] = card;
+            raw(&db, &ada, id, "succeeded", id, &v.to_string());
+        };
+        old("chore", serde_json::json!({ "message": "Open Chrome.", "ask": { "type": "chore", "subject": "chrome" }, "answer": null }));
+        old("choice", serde_json::json!({ "message": "Boost?", "ask": { "type": "choices", "choices": ["No", "Yes"], "recommended": 0 }, "answer": null }));
+        old("none", serde_json::Value::Null);
+        db.conn.execute("DELETE FROM meta WHERE key = 'cards_listed'", []).unwrap();
+        db.migrate_cards().unwrap();
+        let get = |id: &str| db.run(id).unwrap().unwrap().run;
+        assert_eq!(get("chore").cards[0].key.as_deref(), Some("chore:chrome"), "a chore gets its key");
+        assert_eq!(get("choice").cards.len(), 1);
+        assert!(get("none").cards.is_empty());
+        let raw_json: String = db.conn.query_row("SELECT data FROM runs WHERE id = 'choice'", [], |r| r.get(0)).unwrap();
+        assert!(!raw_json.contains("\"card\""), "{raw_json}");
+        assert_eq!(ids(&db.open_topic_runs("chore:chrome").unwrap()), ids(&[get("chore")]));
+        assert_eq!(ids(&db.open_cards(&ada.id).unwrap()), ids(&[get("chore"), get("choice")]));
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1298,7 +1374,7 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         insert(with_card(run(&ada, RunKind::Chat, RunState::Succeeded), chrome(), false));
         insert(with_card(run(&ada, RunKind::Manual, RunState::Succeeded), CardAsk::Chore { subject: "sign-in:acme".into() }, false));
         insert(with_card(run(&ada, RunKind::Manual, RunState::Succeeded), choices(), false));
-        assert_eq!(ids(&db.open_chore_runs("chrome").unwrap()), ids(&[waiting, held]), "a run held for the usage limit still waits; a chat turn never does");
+        assert_eq!(ids(&db.open_topic_runs("chore:chrome").unwrap()), ids(&[waiting, held]), "a run held for the usage limit still waits; a chat turn never does");
 
         let at = |mins: i64| Utc::now() - chrono::Duration::minutes(mins);
         let scheduled = |id: &str, mins: i64, ask: CardAsk, answered: bool| {
@@ -1409,10 +1485,13 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
                 for flag in [false, true] {
                     for blocked in [false, true] {
                         i += 1;
-                        for kind in every_kind(i) {
+                        for (j, kind) in every_kind(i).into_iter().enumerate() {
                             let mut r = run(e, kind, state);
                             if flag {
                                 r.needs_you = vec!["Look at this.".into()];
+                            }
+                            if j % 2 == 0 {
+                                r.replied_at = Some(Utc::now());
                             }
                             if blocked {
                                 r.denials = vec![denial.clone()];
@@ -1427,7 +1506,7 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
 
         let got = ids(&db.finished_root_runs(&[ada.id.clone()], &[ada.id.clone(), bo.id.clone()]).unwrap());
         let want: BTreeSet<String> =
-            all.iter().filter(|r| threads::reaches_you(r, false, r.employee_id == ada.id)).map(|r| r.id.clone()).collect();
+            all.iter().filter(|r| threads::reaches_you(r, false, r.employee_id == ada.id) && threads::could_need_you(r)).map(|r| r.id.clone()).collect();
         let differ: Vec<String> = all
             .iter()
             .filter(|r| got.contains(&r.id) != want.contains(&r.id))

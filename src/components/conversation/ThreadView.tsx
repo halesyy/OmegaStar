@@ -2,11 +2,11 @@ import { useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, NewAttachment, Run, Thread } from "../../api/types";
 import { dateLong, firstName, relTime, whenShort } from "../../lib/format";
-import { useOrg, type Conversation } from "../../lib/hooks";
+import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
 import { snoozePresets } from "../../lib/status";
 import { toast } from "../../lib/toasts";
-import { didNotFinish, isLive } from "../../lib/threads";
-import { answerCard, CardView } from "./CardView";
+import { didNotFinish, flags, isLive } from "../../lib/threads";
+import { RunCards } from "./CardView";
 import { RowHistory } from "./RowHistory";
 import { BlockedCard } from "../BlockedCard";
 import { TidyProposal } from "../TidyProposal";
@@ -89,18 +89,25 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
           {shown.map((t, i) => (
             <div key={t.run.id} className="stack" style={{ gap: 10 }}>
               <Turn turn={t} e={e} withReport />
-              {t.run.needsYou.length ? (
-                <ul className="report-needs thread-needs" aria-label="Needs you">
-                  {t.run.needsYou.map((m, j) => <li key={j}><Icon name="bell" size={12} /><span>{m}</span></li>)}
-                </ul>
-              ) : null}
-              {t.run.card ? <CardView run={t.run} e={e} onAnswer={async (reply) => { await answerCard(t.run, reply, name); }} /> : null}
+              <Flags run={t.run} />
+              <RunCards run={t.run} e={e} />
               {i === shown.length - 1 && t.run.denials.length > 0 && t.run.endedAt && !archived ? <BlockedCard run={t.run} employee={e} /> : null}
             </div>
           ))}
         </div>
       </ChatSurface>
     </div>
+  );
+}
+
+/** What Omega Star flagged on a run, apart from its cards. */
+function Flags({ run }: { run: Run }) {
+  const fs = flags(run);
+  if (!fs.length) return null;
+  return (
+    <ul className="report-needs thread-needs" aria-label="Needs you">
+      {fs.map((m, i) => <li key={i}><Icon name="bell" size={12} /><span>{m}</span></li>)}
+    </ul>
   );
 }
 
@@ -117,12 +124,8 @@ function ReportTurn({ root, e, blocked, archived }: { root: Run; e: EmployeeView
             <span className="grow" />
             {root.endedAt ? <span className="faint thread-time" title={dateLong(root.endedAt)}>{relTime(root.endedAt)}</span> : null}
           </div>
-          {root.needsYou.length ? (
-            <ul className="report-needs thread-needs" aria-label="Needs you">
-              {root.needsYou.map((m, i) => <li key={i}><Icon name="bell" size={12} /><span>{m}</span></li>)}
-            </ul>
-          ) : null}
-          {root.card ? <CardView run={root} e={e} onAnswer={async (reply) => { await answerCard(root, reply, firstName(e.name)); }} /> : null}
+          <Flags run={root} />
+          <RunCards run={root} e={e} />
           {root.summary ? <Markdown text={root.summary} /> : <p className="muted">{failed ? root.error ?? "This run didn't finish." : "No report."}</p>}
           {root.skillChanges.length ? <SkillsGrew run={root} /> : null}
           {blocked && root.denials.length > 0 ? <BlockedCard run={root} employee={e} /> : null}
@@ -133,16 +136,17 @@ function ReportTurn({ root, e, blocked, archived }: { root: Run; e: EmployeeView
   );
 }
 
-/** Marks the thread with `rootId` done, which archives it, and offers Undo. Resolves false, having said why, when it failed. */
-export async function markDone(rootId: string, _name: string): Promise<boolean> {
+/** Marks the thread with `rootId` done, which archives it. It leaves at once, with nothing to confirm; the Archive
+ *  brings it back. Resolves false, having said why and put it back, when it failed. */
+export async function markDone(rootId: string): Promise<boolean> {
+  dropConversation(rootId);
   try {
     await call("set_archived", { runId: rootId, archived: true });
   } catch (err) {
+    refreshConversations();
     toast(errorMessage(err), "err");
     return false;
   }
-  const undo = () => void call("set_archived", { runId: rootId, archived: false }).catch((err) => toast(errorMessage(err), "err"));
-  toast("Done", "ok", { label: "Undo", run: undo });
   return true;
 }
 

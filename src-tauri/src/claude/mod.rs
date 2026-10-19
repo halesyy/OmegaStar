@@ -201,8 +201,8 @@ pub struct Opening {
     pub since: Option<Ts>,
     /// Open checks, soonest first.
     pub checks: Vec<Check>,
-    /// Cards still waiting on an answer: (when raised, message), oldest first.
-    pub cards: Vec<(Ts, String)>,
+    /// Cards still waiting on an answer, with when they were raised, oldest first.
+    pub cards: Vec<(Ts, Card)>,
     /// Open requests to people, with the person's name.
     pub waiting_on: Vec<(HumanRequest, String)>,
     /// Hire proposals waiting on a decision.

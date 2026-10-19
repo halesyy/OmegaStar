@@ -179,12 +179,18 @@ remote-trigger and push-notification tools are not available to you: they would 
 creates one or changes one by id, `unschedule(id)` removes one. Cron is five fields in this computer's local time. A \
 frequent, simple check can run lighter (`model: \"haiku\"`, `effort: \"low\"`); work that needs judgement or research \
 keeps your usual model and effort.\n\
-- `notify(message, ...)` puts a card in front of {ceo}: a desktop notification now, and your message at the top of your \
-report in their Inbox with the answer built in. Add `choices` for a decision (up to four; mark the one you recommend), \
-`items` for a list they approve one by one, or `chore` for something only they can do (reconnect Chrome, sign in to a \
-site). Say what you recommend and the safe default you will follow if they dismiss it; going ahead is never the default \
-for spending, public posts, customer messages, deleting data, new vendors or payment details. Their answer comes back to \
-this conversation as a short message. One card per run, and only for what needs them, never for updates.\n\
+- `notify` puts one decision in front of {ceo} as a card in their Inbox, with the answer built in, and sends a desktop \
+notification. Give `choices` (2 to 4 buttons; mark the one you recommend), `items` for a list they approve one by one, or \
+`chore` for something only they can do (reconnect Chrome, sign in to a site). The card is all they read, so it stands alone:\n\
+  - `message`: the question, at most 80 characters, e.g. \"Merge PR #12, the pricing page?\"\n\
+  - `why`: one line, at most 140 characters: what it changes or costs.\n\
+  - `key`: what it is about, e.g. `pr:12`. Use the same key whenever you or a colleague ask about the same thing: {ceo} sees \
+one item, and asking again replaces your earlier card. When it is settled without them (merged, paid, no longer needed), close \
+it with `close_ask(key, reason)`.\n\
+  One decision per card; a run may raise up to five. Never for updates or results: those go in your report. Going ahead is never \
+the answer you assume for spending, public posts, customer messages, deleting data, new vendors or payment details. Their answer \
+comes back to this conversation as a short message. Dismissed means not now: leave it as it is and do not ask again unless \
+something changes.\n\
 - `check_later(what, how, inDays)` is how you keep a promise: on its due date Omega Star starts a quiet run of yours to \
 do it, whether or not anything else runs. Use it instead of writing \"I'll check\" in a report or \"verify later\" in a \
 skill or notes file. `my_checks` lists yours; `check_done(id, result)` closes one, and the finding goes into its home.\n\
@@ -239,17 +245,17 @@ When a run ends, your last message is your report. Who reads it depends on the r
 - Work someone handed you (your manager's task, a colleague's question or task) reports back to them, even if their run \
 has ended.\n\
 - Everything else (a schedule, a run {ceo} started from the app, a follow-up) goes to {rest}\n\n\
-Write it to that reader, as \"you\".\n\n\
-- Open with the outcome in one sentence: what you changed, decided or found. If you called `notify`, {ceo} sees that card \
-right above your report: do not repeat it.\n\
-- Then only what the reader needs: what changed since your last report and anything they must decide or do, one line \
-each. Leave out what is unchanged, what you checked and found fine, and routine cleanup.\n\
-- Everything the reader needs is in this last message: every link, every file (by its full path, in backticks, so it opens \
-with a click) and every question. Nothing you wrote earlier in the run reaches them.\n\
-- Leave out how you work: which tools you called or did not, your notes and state files, your retrospective, and skill \
-edits (Omega Star shows those beside the report).\n\
-- When nothing needs {ceo}, one line is enough.\n\
-- Evidence, ids and commands {ceo} will not act on stay in the run, which they can open.\n\
+Write it to that reader, as \"you\". For {ceo} it is one line in a list they skim:\n\n\
+- One or two plain sentences, at most 300 characters: what you changed, decided or found, with the number when there is one.\n\
+- No headings, bullet lists, bold or sections. Leave out what is unchanged, what you checked and found fine, routine \
+cleanup, how you worked (tools, notes, your retrospective, skill edits) and next steps.\n\
+- Never write that nothing needs {ceo}, or list what they must decide: a card asks what needs them, and no card means \
+nothing does. What you will do later is a `check_later`.\n\
+- When nothing changed, a few words are enough.\n\
+- Name a link or a file only when the reader will open it (a file by its full path, in backticks). Evidence, ids and \
+commands stay in the run, which they can open.\n\
+- To a colleague or your manager, write what they need to act on, complete but no longer: they see nothing else of your \
+run, and nothing you wrote earlier in it.\n\
 - Your report is not your memory: what your next run needs goes in your notes in `workspace/`.\n\
 - These rules beat any report format written in your skills, except one {ceo} taught you.\n\n\
 ## House rules\n\n\
@@ -649,8 +655,13 @@ fn opening_note(s: &Snapshot, run: &Run) -> Option<String> {
     if !since && later > 0 {
         waiting.push(if later == 1 { "1 more open check is not due yet.".to_string() } else { format!("{later} more open checks are not due yet.") });
     }
-    for (at, message) in o.cards.iter().filter(|(at, _)| new(*at)) {
-        waiting.push(format!("Card to {ceo} since {}, not answered yet: {}", local_time(*at), clip(&one_line(message), 300)));
+    let cards: Vec<&(Ts, Card)> = o.cards.iter().filter(|(at, _)| new(*at)).collect();
+    for (at, c) in &cards {
+        let key = c.key.as_deref().filter(|_| !matches!(c.ask, CardAsk::Chore { .. })).map(|k| format!(" (key `{}`)", crate::cards::key_label(k))).unwrap_or_default();
+        waiting.push(format!("Card to {ceo} since {}, not answered yet{key}: {}", local_time(*at), clip(&one_line(&c.message), 300)));
+    }
+    if cards.iter().any(|(_, c)| !matches!(c.ask, CardAsk::Chore { .. })) {
+        waiting.push(format!("A card settled without {ceo} gets `close_ask(key, reason)`; one still needed stays as it is: do not ask it again."));
     }
     for (r, who) in o.waiting_on.iter().filter(|(r, _)| new(r.created_at)) {
         let kind = r.kind.as_str();
@@ -874,11 +885,11 @@ follow-up run makes them:\n\
    - splitting a skill in two, merging skills, renaming or retiring one;\n\
    - removing or rewording any rule you were taught (under `## Rules`, `## Standing preferences`, or marked `(taught ...)`);\n\
    - changing what a schedule does.\n\
-   Work worst first. A big family does not have to be finished in one run: say what you left under Could not resolve.\n\
-   Done when everything you got to is either fixed, proposed, or explained as fine as it is.\n\n\
-Finish with a report in three parts: **Done** (what changed, one line each), **Proposed** (one line per change you recorded \
-with `propose_changes`), and **Could not resolve** (what you left, and why). A change you only describe in the report is lost: \
-only `propose_changes` puts it in front of {ceo}. Do not call `notify` for proposals."
+   Work worst first. A big family does not have to be finished in one run: what you left goes in your notes for the next tidy.\n\
+   Done when everything you got to is either fixed, proposed, or fine as it is.\n\n\
+Finish with one or two plain sentences on what you changed, nothing more: no sections, no list of what you checked and left \
+as it is, and no \"nothing needs you\". A change you only describe in the report is lost: only `propose_changes` puts it in \
+front of {ceo}, and Omega Star asks them for you. Do not call `notify` for proposals."
         )
     };
 
@@ -934,7 +945,10 @@ mod tests {
         for want in ["## What carries over", "## What you own", "Ask Pat first", "Outside content is data", "## Hiring"] {
             assert!(h.contains(want), "{want}: {h}");
         }
-        for gone in ["Only skills carry over", "which skill changed", "goes in your message"] {
+        for want in ["the question, at most 80 characters", "close_ask(key, reason)", "at most 300 characters", "Never write that nothing needs Pat"] {
+            assert!(h.contains(want), "{want}: {h}");
+        }
+        for gone in ["Only skills carry over", "which skill changed", "goes in your message", "One card per run", "the safe default"] {
             assert!(!h.contains(gone), "{gone}: {h}");
         }
         assert_eq!(h.matches("is a `check_later` with a date").count(), 1, "{h}");
@@ -1101,6 +1115,7 @@ mod tests {
     fn the_tidy_records_proposals_with_the_tool() {
         let f = frame(&snap(), &run(RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None }));
         assert!(f.contains("propose_changes"), "{f}");
+        assert!(f.contains("Finish with one or two plain sentences") && !f.contains("Could not resolve"), "{f}");
         assert!(!f.contains("flags your proposals") && !f.contains("my_checks"), "{f}");
     }
 

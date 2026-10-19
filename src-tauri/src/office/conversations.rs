@@ -17,7 +17,7 @@ impl Office {
         let current: HashSet<&str> = employees.iter().map(|e| e.id.as_str()).collect();
         let top = Self::top_ids(&employees);
 
-        let mut open = Self::rows(db, false)?;
+        let mut open = Self::rows(db, threads::View::Inbox)?;
         let inbox: Vec<String> = open.iter().map(|t| t.root.id.clone()).collect();
         let mut filed: HashSet<String> = open.iter().flat_map(|t| std::iter::once(t).chain(&t.related)).map(|t| t.root.id.clone()).collect();
         let mut grouped = threads::group(db.reply_runs(None)?);
@@ -118,7 +118,10 @@ mod tests {
         db.save_employee(&ada).unwrap();
         db.save_employee(&bo).unwrap();
 
-        let report = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 60, None);
+        let mut report = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 60, None);
+        report.needs_you = vec!["Look at this.".into()];
+        db.save_run(&report).unwrap();
+        let plain = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 55, None);
         let replied = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 50, None);
         let reply = Run::new(&ada.id, RunKind::Reply { to_run_id: replied.id.clone(), label: "Manual run".into(), task: false, card: false }, "ok".into(), now());
         db.insert_run(&reply, &replied.id).unwrap();
@@ -144,7 +147,7 @@ mod tests {
         for want in [&report.id, &replied.id, &open_task.id, &sub_report.id, &live.id] {
             assert_eq!(ids.iter().filter(|id| **id == want.as_str()).count(), 1, "{want} once in threads: {ids:?}");
         }
-        for unwanted in [&live_quiet.id, &live_sub.id, &done.id, &chat.id] {
+        for unwanted in [&plain.id, &live_quiet.id, &live_sub.id, &done.id, &chat.id] {
             assert!(!ids.contains(&unwanted.as_str()), "{unwanted} not in threads");
         }
         let with_reply = c.threads.iter().find(|t| t.root.id == replied.id).unwrap();
@@ -153,9 +156,7 @@ mod tests {
 
         let mut inbox: Vec<&str> = c.inbox.iter().map(String::as_str).collect();
         inbox.sort();
-        let mut want = vec![report.id.as_str(), replied.id.as_str()];
-        want.sort();
-        assert_eq!(inbox, want, "only reports that reached you lead an Inbox row");
+        assert_eq!(inbox, vec![report.id.as_str()], "only a report that needs you leads an Inbox row; a plain one is in Updates");
 
         let head = |e: &Employee| c.chats.iter().find(|h| h.employee_id == e.id).unwrap();
         assert_eq!(head(&ada).last_ended_at, chat.ended_at);

@@ -3,10 +3,11 @@
 //! the Inbox, the Archive and each employee's chips show the same threads. A task is a thread too: its root
 //! is your first message rather than a report, and it is never filed into an Inbox row.
 //!
-//! Inbox rows group threads that belong together, so you see one row per piece of work rather than
-//! one per run: a report with everything it set off in conversation, or an ask a report made with
-//! everything that came back from it (`file`), and a schedule's failures in a row or everyone waiting on
-//! the same chore (`merge_rows`).
+//! Rows group threads that belong together, so you see one row per piece of work rather than one per run:
+//! a report with everything it set off in conversation, or an ask a report made with everything that came
+//! back from it (`file`), and a schedule's failures in a row or everyone waiting on the same chore
+//! (`merge_rows`). A row is in the Inbox only while it needs you (`needs_you`): a card, a flag, a blocked
+//! tool or breakage you can act on. Every row that reached you is in Updates, which never asks anything.
 
 use crate::claude::{clip, one_line};
 use crate::model::*;
@@ -66,13 +67,49 @@ pub fn quiet(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Scheduled { quiet: true, .. } | RunKind::Tidy { .. } | RunKind::Nudge { .. })
 }
 
-/// The run called notify, or was blocked on a tool (a tidy trying a command it may not run is not).
+/// The run raised a card or a flag, or was blocked on a tool (a tidy trying a command it may not run is not).
 pub fn flagged(r: &Run) -> bool {
-    !r.needs_you.is_empty() || (!r.denials.is_empty() && !matches!(r.kind, RunKind::Tidy { .. }))
+    !r.needs_you.is_empty() || blocked(r)
+}
+
+/// The run was blocked on a tool you could allow (a tidy trying a command it may not run is not).
+pub fn blocked(r: &Run) -> bool {
+    !r.denials.is_empty() && !matches!(r.kind, RunKind::Tidy { .. })
 }
 
 pub fn broke(r: &Run) -> bool {
     matches!(r.state, RunState::Failed | RunState::Lost)
+}
+
+/// A schedule's failures in a row before they need you: a routine that breaks once or twice usually works
+/// the next time, and you see it in Updates meanwhile.
+pub const STREAK: usize = 3;
+
+/// A finished run that might need you, before its thread is read: it raised something, was blocked, broke,
+/// or you replied to it (a reply can raise something). Every other report goes straight to Updates. The
+/// Inbox's query, `Store::finished_root_runs`, does this in SQL; its test holds the two equal.
+#[cfg(test)]
+pub fn could_need_you(r: &Run) -> bool {
+    flagged(r) || broke(r) || r.replied_at.is_some()
+}
+
+/// The newest run in a thread that has finished: the root, or the last reply that ended.
+fn latest_finished(t: &Thread) -> &Run {
+    t.replies.iter().rev().find(|r| r.ended_at.is_some()).unwrap_or(&t.root)
+}
+
+/// The thread asks you something: a card you have not answered anywhere in it, or its newest finished run
+/// flagged something or was blocked on a tool. A flag on an earlier run was answered by what came after it.
+pub fn asks_you(t: &Thread) -> bool {
+    let last = latest_finished(t);
+    std::iter::once(&t.root).chain(&t.replies).any(Run::has_open_card) || last.flags().next().is_some() || blocked(last)
+}
+
+/// The thread's newest finished run broke for a reason you can act on: not the usage limit, which Omega
+/// Star waits out and retries itself.
+pub fn broken(t: &Thread) -> bool {
+    let last = latest_finished(t);
+    broke(last) && !last.limited
 }
 
 /// Whether a finished run reaches your Inbox. `quiet_chain`: it is part of a hand-off a quiet report
@@ -209,9 +246,9 @@ pub fn merge_rows(rows: Vec<Row>, key: impl Fn(&Row) -> Option<String>) -> Vec<R
     out
 }
 
-/// The run in a thread whose card waits on your answer, newest first.
+/// The run in a thread with a card waiting on your answer, newest first.
 pub fn open_card(t: &Thread) -> Option<&Run> {
-    t.replies.iter().rev().chain(std::iter::once(&t.root)).find(|r| r.card.as_ref().is_some_and(Card::is_open))
+    t.replies.iter().rev().chain(std::iter::once(&t.root)).find(|r| r.has_open_card())
 }
 
 /// Any of these threads has a card waiting on your answer.
@@ -221,10 +258,12 @@ pub fn card_open(threads: &[Thread]) -> bool {
 
 /// `chore:<subject>` for a row with a chore waiting on you, so everyone waiting on the same chore shares a row.
 pub fn chore_key(row: &Row) -> Option<String> {
-    row.members.iter().flat_map(|(t, _)| std::iter::once(&t.root).chain(&t.replies)).find_map(|r| match &r.card {
-        Some(c @ Card { ask: CardAsk::Chore { subject }, .. }) if c.is_open() => Some(format!("chore:{subject}")),
-        _ => None,
-    })
+    row.members
+        .iter()
+        .flat_map(|(t, _)| std::iter::once(&t.root).chain(&t.replies))
+        .flat_map(|r| r.open_cards())
+        .find(|c| matches!(c.ask, CardAsk::Chore { .. }))
+        .and_then(Card::topic)
 }
 
 /// `review@<year>-W<week>` for a weekly review, from its slot's local ISO week, so one week's reviews
@@ -235,15 +274,39 @@ pub fn review_week(r: &Run) -> Option<String> {
     Some(format!("review@{}-W{:02}", iso.year(), iso.week()))
 }
 
-/// A row as you see it: the thread it is about, with its other threads in `related`, oldest first.
-/// In the Inbox that is the newest open thread (it reaches you and is not archived) that flags you or
-/// broke, else the newest open one; None when nothing in the row is open. In the Archive (`archive`)
-/// it is the newest thread that reached you; None while the row is open, or if it never reached you.
-pub fn present(row: Row, archive: bool) -> Option<Thread> {
-    let open = |m: &(Thread, bool)| m.1 && m.0.root.archived_at.is_none();
-    if row.members.iter().any(open) == archive {
-        return None;
+/// Where a row is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// What needs you, until it no longer does.
+    Inbox,
+    /// Everything that reached you lately, one line each. It asks nothing.
+    Updates,
+    /// Rows you dealt with.
+    Archive,
+}
+
+/// A member thread that reaches you and you have not archived.
+fn is_open(m: &(Thread, bool)) -> bool {
+    m.1 && m.0.root.archived_at.is_none()
+}
+
+/// The row needs you: an open thread in it asks you something, or broke where breakage needs you. A
+/// schedule's failures need you once `STREAK` of them are in a row; anything else that breaks, at once.
+pub fn needs_you(row: &Row) -> bool {
+    let open = || row.members.iter().filter(|m| is_open(m)).map(|(t, _)| t);
+    if open().any(asks_you) {
+        return true;
     }
+    let scheduled = |t: &Thread| matches!(t.root.kind, RunKind::Scheduled { .. });
+    let failures = row.members.iter().filter(|(t, _)| scheduled(t) && broke(&t.root) && !t.root.limited).count();
+    open().any(|t| broken(t) && (!scheduled(t) || failures >= STREAK))
+}
+
+/// A row as `view` shows it: the thread it is about, with its other threads in `related`, oldest first.
+/// In the Inbox that is the newest open thread that asks you something or broke, else the newest open one;
+/// None unless the row needs you. In Updates it is the newest thread that reached you. In the Archive it is
+/// the newest thread that reached you; None while the row is open, or if it never reached you.
+pub fn present(row: Row, view: View) -> Option<Thread> {
     let newest = |pick: &dyn Fn(&(Thread, bool)) -> bool| {
         row.members
             .iter()
@@ -252,10 +315,20 @@ pub fn present(row: Row, archive: bool) -> Option<Thread> {
             .max_by_key(|(_, (t, _))| activity_at(&t.root, &t.replies))
             .map(|(i, _)| i)
     };
-    let lead = if archive {
-        newest(&|m| m.1)?
-    } else {
-        newest(&|m| open(m) && (flagged(&m.0.root) || broke(&m.0.root))).or_else(|| newest(&open))?
+    let lead = match view {
+        View::Inbox => {
+            if !needs_you(&row) {
+                return None;
+            }
+            newest(&|m| is_open(m) && (asks_you(&m.0) || broken(&m.0))).or_else(|| newest(&is_open))?
+        }
+        View::Updates => newest(&|m| m.1)?,
+        View::Archive => {
+            if row.members.iter().any(is_open) {
+                return None;
+            }
+            newest(&|m| m.1)?
+        }
     };
     let mut members: Vec<Thread> = row.members.into_iter().map(|(t, _)| t).collect();
     let mut lead = members.remove(lead);
@@ -383,11 +456,9 @@ mod tests {
     fn chore(employee: &str, subject: &str, answered: bool) -> Run {
         let mut r = Run::new(employee, RunKind::Manual, "go".into(), chrono::Utc::now());
         r.state = RunState::Failed;
-        r.card = Some(Card {
-            message: "Waiting on you.".into(),
-            ask: CardAsk::Chore { subject: subject.into() },
-            answer: answered.then(|| CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: "Done.".into() }),
-        });
+        let mut card = Card::new("Waiting on you.", None, None, CardAsk::Chore { subject: subject.into() });
+        card.answer = answered.then(|| CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: "Done.".into() });
+        r.cards = vec![card];
         r
     }
 
@@ -440,6 +511,59 @@ mod tests {
         };
         let merged = merge_rows(vec![row(failed("s1")), row(failed("s2")), row(failed("s1"))], streak);
         assert_eq!(merged.iter().map(|r| r.members.len()).collect::<Vec<_>>(), vec![2, 1]);
+    }
+
+    #[test]
+    fn a_routine_needs_you_once_it_fails_three_times_in_a_row() {
+        let failed = |limited: bool| {
+            let kind = RunKind::Scheduled { schedule_id: "s1".into(), slot: chrono::Utc::now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
+            let mut r = Run::new("e1", kind, "go".into(), chrono::Utc::now());
+            r.state = RunState::Failed;
+            r.limited = limited;
+            (Thread::new(r, vec![]), true)
+        };
+        let streak = |n: usize, limited: usize| Row { members: (0..n).map(|i| failed(i < limited)).collect() };
+        assert!(!needs_you(&streak(1, 0)), "once is in Updates");
+        assert!(!needs_you(&streak(2, 0)));
+        assert!(needs_you(&streak(3, 0)));
+        assert!(!needs_you(&streak(3, 1)), "a failure from the usage limit does not count");
+        let mut manual = Run::new("e1", RunKind::Manual, "go".into(), chrono::Utc::now());
+        manual.state = RunState::Failed;
+        assert!(needs_you(&row(manual.clone())), "anything else that breaks needs you at once");
+        manual.limited = true;
+        assert!(!needs_you(&row(manual)));
+        assert!(present(streak(3, 0), View::Inbox).is_some());
+        assert!(present(streak(2, 0), View::Inbox).is_none());
+        assert!(present(streak(2, 0), View::Updates).is_some(), "Updates shows it all");
+    }
+
+    #[test]
+    fn a_thread_needs_you_for_cards_flags_and_blocks_not_reports() {
+        let mut r = Run::new("e1", RunKind::Manual, "go".into(), chrono::Utc::now());
+        r.state = RunState::Succeeded;
+        r.ended_at = Some(chrono::Utc::now());
+        r.summary = Some("Done.".into());
+        let t = |r: &Run| Thread::new(r.clone(), vec![]);
+        assert!(!asks_you(&t(&r)), "a plain report asks nothing");
+        let mut card = Card::new("Merge it?", None, Some("ask:pr:1".into()), CardAsk::Choices { choices: vec!["Merge".into(), "Not now".into()], recommended: 0 });
+        r.needs_you = vec!["Merge it?".into()];
+        r.cards = vec![card.clone()];
+        assert!(asks_you(&t(&r)));
+        card.answer = Some(CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: "Chose: Merge.".into() });
+        r.cards = vec![card];
+        assert!(!asks_you(&t(&r)), "an answered card asks nothing, though its message stays");
+        r.needs_you.push("The tidy dropped a rule.".into());
+        assert!(asks_you(&t(&r)), "a flag Omega Star raised");
+        r.needs_you.truncate(1);
+        r.denials = vec![Denial { tool: "Bash".into(), brief: "ls".into(), suggested_rule: "Bash(ls:*)".into() }];
+        assert!(asks_you(&t(&r)));
+        let mut retried = Run::new("e1", RunKind::Reply { to_run_id: r.id.clone(), label: "Manual run".into(), task: false, card: false }, "ok".into(), chrono::Utc::now());
+        retried.state = RunState::Succeeded;
+        retried.ended_at = Some(chrono::Utc::now());
+        assert!(!asks_you(&Thread::new(r.clone(), vec![retried.clone()])), "a retry that went through is no longer blocked");
+        r.denials.clear();
+        r.needs_you.push("The tidy dropped a rule.".into());
+        assert!(!asks_you(&Thread::new(r, vec![retried])), "a reply after a flag answers it");
     }
 
     #[test]

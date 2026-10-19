@@ -12,8 +12,6 @@ const COOLDOWN_DAYS: i64 = 7;
 /// Automatic tidies wait while the plan's windows are this full: real work comes first.
 const HOLD_FIVE_HOUR_PERCENT: f64 = 70.0;
 const HOLD_SEVEN_DAY_PERCENT: f64 = 85.0;
-/// A tidy's report goes to the Inbox for review until the employee has had this many.
-pub const REVIEWED_FIRST: usize = 3;
 /// How many of your words a tidy is handed to check against, newest first.
 pub const TAUGHT_LIMIT: usize = 40;
 
@@ -178,25 +176,6 @@ pub fn dropped(before: &Snapshot, after: &Snapshot) -> Vec<Taught> {
         for (heading, line) in taught_lines(text) {
             if !family.keeps(&line) && !family.near(&line) {
                 out.push(Taught { skill: skill.clone(), file: file.clone(), heading, line });
-            }
-        }
-    }
-    out
-}
-
-/// Lines of the changed or removed files in `before` that no longer appear anywhere in `after`, as
-/// (skill, file, line): what a tidy deleted, as opposed to moved. It lets you check the first tidies
-/// against the diff. Headings, table rules and short lines are ignored.
-pub fn vanished(before: &Snapshot, after: &Snapshot) -> Vec<(String, String, String)> {
-    let family = Family::new(after, false);
-    let mut out = vec![];
-    for ((skill, file), text) in before {
-        if after.get(&(skill.clone(), file.clone())) == Some(text) || !file.ends_with(".md") {
-            continue;
-        }
-        for line in text.lines().map(str::trim).filter(|l| !l.starts_with('#') && tokens(l).len() >= 4) {
-            if !family.keeps(line) {
-                out.push((skill.clone(), file.clone(), line.to_string()));
             }
         }
     }

@@ -238,6 +238,7 @@ pub fn run() {
             commands::runs,
             commands::run_detail,
             commands::archived,
+            commands::updates,
             commands::conversations,
             commands::thread,
             commands::set_archived,

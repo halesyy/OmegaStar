@@ -1,27 +1,29 @@
 import { useState, type ReactNode } from "react";
 import { call, errorMessage } from "../../api/client";
-import type { CardAnswer, CardItem, CardReply, EmployeeView, Run } from "../../api/types";
+import type { Card, CardAnswer, CardItem, CardReply, EmployeeView, Run } from "../../api/types";
 import { firstName } from "../../lib/format";
 import { toast } from "../../lib/toasts";
 import { Icon } from "../Icon";
 import "../../screens/Inbox.css";
 
-/** Sends your answer on `run`'s card and says what went. Resolves false, having said why, when it failed. */
-export async function answerCard(run: Run, reply: CardReply, name: string): Promise<boolean> {
+/** Sends your answer on the card at `index` of `run`'s cards and says what went. Resolves false, having said why,
+ *  when it failed. */
+export async function answerCard(run: Run, index: number, reply: CardReply, name: string): Promise<boolean> {
   let replies: Run[];
   try {
-    replies = await call("answer_card", { runId: run.id, answer: reply });
+    replies = await call("answer_card", { runId: run.id, card: index, answer: reply });
   } catch (err) {
     toast(errorMessage(err), "err");
     return false;
   }
-  const ask = run.card?.ask;
+  const ask = run.cards[index]?.ask;
+  const to = replies.length > 1 ? `${name} and ${replies.length - 1} more` : name;
   const said =
-    reply.type === "choice" ? `Sent to ${name}: ${ask?.type === "choices" ? ask.choices[reply.index] : ""}.`
-    : reply.type === "items" ? `Sent to ${name}.`
+    reply.type === "choice" ? `Sent to ${to}: ${ask?.type === "choices" ? ask.choices[reply.index] : ""}.`
+    : reply.type === "items" ? `Sent to ${to}.`
     : reply.type === "done" ? (replies.length > 1 ? `Done. ${replies.length} runs carry on.` : `Done. ${name} carries on.`)
-    : ask?.type === "chore" ? "Dismissed."
-    : `Dismissed. ${name} goes with the safe default.`;
+    : ask?.type === "chore" ? "Not now."
+    : `Not now. ${name} leaves it as it is.`;
   toast(said, "ok");
   return true;
 }
@@ -30,18 +32,29 @@ export async function answerCard(run: Run, reply: CardReply, name: string): Prom
 function answered(a: CardAnswer): string {
   switch (a.how) {
     case "tapped": return `Sent: ${a.text}`;
-    case "dismissed": return "You dismissed it";
+    case "dismissed": return "Not now";
     case "replaced": return "A newer card replaced this one";
     case "typed": return "You answered in the thread";
+    case "withdrawn": return a.text ? `Withdrawn: ${a.text}` : "They withdrew it";
   }
 }
 
-/** A run's card with the answer built in: buttons for a decision, a tick list, or Done for a chore. Once
- *  answered, one line on what you did. */
-export function CardView({ run, e, onAnswer }: { run: Run; e: EmployeeView; onAnswer: (reply: CardReply) => Promise<void> }) {
+/** A run's cards, each with its question and the answer built in, as a thread shows them. */
+export function RunCards({ run, e }: { run: Run; e: EmployeeView }) {
+  const name = firstName(e.name);
+  return run.cards.map((c, i) => (
+    <div key={i} className="card-ask">
+      <div className="card-q">{c.message}</div>
+      {c.why ? <div className="card-why">{c.why}</div> : null}
+      <CardView card={c} e={e} onAnswer={async (reply) => { await answerCard(run, i, reply, name); }} />
+    </div>
+  ));
+}
+
+/** A card's answer built in: buttons for a decision, a tick list, or Done for a chore. Once answered, one line on
+ *  what you did. */
+export function CardView({ card, e, onAnswer }: { card: Card; e: EmployeeView; onAnswer: (reply: CardReply) => Promise<void> }) {
   const [sending, setSending] = useState(false);
-  const card = run.card;
-  if (!card) return null;
   if (card.answer) return <p className="card-answered">{answered(card.answer)}</p>;
   const name = firstName(e.name);
   const ask = card.ask;
@@ -50,8 +63,8 @@ export function CardView({ run, e, onAnswer }: { run: Run; e: EmployeeView; onAn
     try { await onAnswer(reply); } finally { setSending(false); }
   };
   const dismiss = (
-    <button className="btn btn-ghost btn-sm" title="They go with the safe default they stated" disabled={sending} onClick={() => void send({ type: "dismiss" })}>
-      Dismiss
+    <button className="btn btn-ghost btn-sm" title="They leave it as it is and don't ask again" disabled={sending} onClick={() => void send({ type: "dismiss" })}>
+      Not now
     </button>
   );
   return (
@@ -72,7 +85,7 @@ export function CardView({ run, e, onAnswer }: { run: Run; e: EmployeeView; onAn
           <button className="btn btn-primary btn-sm" title="You did it. Every run waiting on this carries on." disabled={sending} onClick={() => void send({ type: "done" })}>
             <Icon name="check" size={13} /> Done
           </button>
-          <button className="btn btn-ghost btn-sm" disabled={sending} onClick={() => void send({ type: "dismiss" })}>Dismiss</button>
+          <button className="btn btn-ghost btn-sm" disabled={sending} onClick={() => void send({ type: "dismiss" })}>Not now</button>
         </div>
       )}
     </div>

@@ -9,6 +9,7 @@ import { UpdateCard } from "./components/UpdateCard";
 import { UsageCard } from "./components/UsageCard";
 import { Avatar } from "./components/ui";
 import { usePruneMarks, useStatuses } from "./components/conversation/useStatuses";
+import { decisions } from "./lib/decisions";
 import { firstName, initials } from "./lib/format";
 import { openMember, openYou, useRoute } from "./lib/router";
 import { YOU_ID } from "./lib/org";
@@ -67,9 +68,8 @@ export function Shell() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const proposals = useProposals();
-  const waiting = (snap?.people ?? []).reduce((s, p) => s + p.openRequests, 0) + (proposals ?? []).filter((p) => p.state === "open").length;
-  const unread = (items ?? []).filter((i) => i.status.inbox && i.status.unread).length;
-  const inboxCount = waiting + unread;
+  // The badge counts decisions: hire proposals, and every entry the Inbox shows.
+  const inboxCount = (proposals ?? []).filter((p) => p.state === "open").length + decisions((items ?? []).filter((i) => i.status.inbox)).length;
 
   const closeSheet = useCallback(() => setSheet(null), []);
   const toggleCollapsed = () => setCollapsed((c) => { storageSet(COLLAPSE_KEY, c ? "0" : "1"); return !c; });
