@@ -5,7 +5,7 @@ import { refreshOrg, useOrg, useThread } from "../lib/hooks";
 import { lastMoved, setMark, useMarkSeen } from "../lib/marks";
 import { openChat, openFullChat, openMember, openRun, type Route } from "../lib/router";
 import { threadStatus, type Status } from "../lib/status";
-import { doneHeld, isLive, parseThreadFocus, threadFocus } from "../lib/threads";
+import { doneHeld, isLive, parseThreadFocus, rowThreads, threadFocus } from "../lib/threads";
 import { kindNames } from "../components/RunRow";
 import { Icon } from "../components/Icon";
 import { Avatar, ErrorNote, Skeleton, StatePill } from "../components/ui";
@@ -59,7 +59,9 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
   const task = root?.kind.type === "task";
   const archived = !!root?.archivedAt;
   const name = firstName(e.name);
-  const row = items?.find((i) => i.thread.root.id === rootId) ?? null;
+  // The Inbox row the conversation is in, whether it leads the row or is filed under another.
+  const inRow = items?.find((i) => rowThreads(i.thread).some((x) => x.root.id === rootId)) ?? null;
+  const row = inRow?.thread.root.id === rootId ? inRow : null;
   const status = root ? threadStatus({ root, replies: runs.slice(1), related: [] }, !!filed?.has(rootId), ctx) : null;
   const title = root ? runKindLabel(root.kind, kindNames(root, snap?.employees ?? [], snap?.people ?? [])) : row?.title ?? "";
 
@@ -83,7 +85,7 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
   const ready = !!root?.endedAt && !archived && !runs.some(isLive);
   // A card waiting on you is answered on the card, so neither Done nor E closes the thread.
   const own = root ? { root, replies: runs.slice(1), related: [] } : null;
-  const carded = own ? doneHeld(own, row?.thread ?? own) : false;
+  const carded = own ? doneHeld(own, inRow?.thread ?? own) : false;
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.ctrlKey || ev.metaKey || ev.altKey || typing(ev.target) || document.querySelector(".popover")) return;

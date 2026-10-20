@@ -8,7 +8,7 @@ import { lastMoved, useMarkSeen } from "../lib/marks";
 import { openMember } from "../lib/router";
 import { toolName } from "../lib/rules";
 import { toast } from "../lib/toasts";
-import { activityAt, didNotFinish, doneHeld, isTeamWeek, latestFinished, rowThreads, STREAK, threadFocus } from "../lib/threads";
+import { activityAt, didNotFinish, doneHeld, isTeamWeek, latestFinished, rowThreads, STREAK, threadBusy, threadFocus } from "../lib/threads";
 import { Icon } from "../components/Icon";
 import { Avatar } from "../components/ui";
 import { kindNames } from "../components/RunRow";
@@ -80,7 +80,8 @@ export function DecisionItem({ d, employees, people, open, onToggle, onHover, ac
   const e = employees.find((x) => x.id === d.run.employeeId) ?? item.employee;
   const who = firstName(e.name);
   const what = label(d.thread, employees, people);
-  const busy = status.state === "working" || status.state === "queued";
+  // Done acts on the decision's own conversation, so it waits on that one, not on whichever leads the row.
+  const busy = threadBusy(d.thread);
   const { title, why } = ask(d, who, what);
   const also = d.type === "card" ? names(d.also.map((r) => r.employeeId).filter((id) => id !== e.id), employees) : "";
   const at = d.run.endedAt ?? activityAt(item.thread);

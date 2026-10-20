@@ -846,15 +846,18 @@ fn report_of(r: &Run) -> String {
 
 /// The run that brings `handed`'s answer or report (`report`) to whoever handed it over, from
 /// `parent`, and the session it runs in. When the asker handed it over in a conversation you started, it is
-/// that conversation's next turn, in the session the conversation continues in. Otherwise it resumes the
-/// asking run's session, which still holds everything it knew, except after a turn of an older build's chat,
-/// which gets a fresh session. It quotes where the asker's run started only when it does not resume it.
+/// that conversation's next turn, in the session the conversation continues in. An older build's chat message
+/// counts as one, as `adopt_chat_turns` makes it, though its first answer gets a fresh session rather than the
+/// old chat's. Otherwise it resumes the asking run's session, which still holds everything it knew. It quotes
+/// where the asker's run started only when it does not resume it.
 /// None when the asker has left.
 fn answered_run(db: &Store, ceo: &str, handed: &Run, parent: &RunRecord, task: bool, report: &str, note: Option<&str>) -> Result<Option<(Run, String)>> {
     let Some(asker) = db.employee(&parent.run.employee_id)? else { return Ok(None) };
     let from = db.employee(&handed.employee_id)?.map(|e| e.name).unwrap_or_else(|| "A former colleague".into());
-    let into = parent.run.conversation_root().map(|root| Office::thread_in(db, root)).transpose()?;
+    let root = if matches!(parent.run.kind, RunKind::Chat) { Some(parent.run.id.as_str()) } else { parent.run.conversation_root() };
+    let into = root.map(|root| Office::thread_in(db, root)).transpose()?;
     let (session, resumes) = match &into {
+        Some(t) if matches!(t.root.kind, RunKind::Chat) && t.replies.is_empty() => (None, false),
         Some(t) => {
             let (rec, resumes) = Office::next_turn(db, t)?;
             (resumes.then_some(rec.session), resumes)
@@ -1210,7 +1213,7 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_to_an_older_builds_chat_starts_fresh() {
+    fn an_answer_to_an_older_builds_chat_comes_back_into_its_message_in_a_fresh_session() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
@@ -1218,7 +1221,7 @@ mod tests {
         o.db.mark_inited(&parent.id).unwrap();
         let child = run(&o.db, &bo, asked(&parent, false), "What are the numbers?", RunState::Succeeded, 20, None);
         let (a, session) = due_answers(&o.db, &child).unwrap().remove(0);
-        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: false, chat: false, thread: None });
+        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: false, chat: false, thread: Some(parent.id.clone()) });
         assert_eq!(session, a.id, "never into the old chat");
         assert!(a.prompt.starts_with("Bo answered your question.\n\nYou were talking with Pat, whose message was:\n\nAsk Bo for the numbers."), "{}", a.prompt);
     }

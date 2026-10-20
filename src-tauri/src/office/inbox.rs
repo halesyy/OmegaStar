@@ -181,20 +181,27 @@ impl Office {
     /// employee's chips), or moves them all back. Archiving leaves alone any other conversation you are in
     /// in the row (`threads::talking`), cards and all. `run_id` may be any run in the row.
     pub fn set_archived(&self, run_id: &str, archived: bool) -> Result<Run> {
+        self.archive_row(run_id, archived, false)
+    }
+
+    /// `set_archived`, but when `spare_own` and `run_id`'s thread is a conversation you are in (`yours`), it is left
+    /// going and only the rest of its row is archived: what a typed reply leaves alone, a tap there does too.
+    fn archive_row(&self, run_id: &str, archived: bool, spare_own: bool) -> Result<Run> {
         let (root, changed) = {
             let db = self.db();
             let t = Self::thread_in(&db, run_id)?;
             if !t.root.state.is_finished() {
                 return Err(AppError::conflict("it is still working, so it cannot be archived yet"));
             }
+            let own = archived && !(spare_own && yours(&t));
             // Done ends only this conversation: another one you are in goes on in its own chip, so neither it
             // nor a card in it is Done's to settle. `t` holds every turn, answers that came back into it too.
             let row: Vec<Thread> = Self::row_of(&db, &t.root)?.into_iter().filter(|m| !archived || (m.root.id != t.root.id && !threads::talking(m))).collect();
-            if archived && (threads::open_card(&t).is_some() || threads::card_open(&row)) {
+            if archived && ((own && threads::open_card(&t).is_some()) || threads::card_open(&row)) {
                 return Err(AppError::conflict("Answer the card first, or dismiss it."));
             }
             let mut changed = vec![];
-            for m in row.into_iter().chain(archived.then(|| t.clone())) {
+            for m in row.into_iter().chain(own.then(|| t.clone())) {
                 // A run still going joins the row when it finishes, and shows only if it needs you.
                 let mut root = m.root;
                 if !root.state.is_finished() || root.archived_at.is_some() == archived {
@@ -287,7 +294,8 @@ impl Office {
         Ok(replies)
     }
 
-    /// Sends your answer `text` on `card` to each run and archives its row, carrying on past a run that fails.
+    /// Sends your answer `text` on `card` to each run and archives its row (but not a conversation you are in),
+    /// carrying on past a run that fails.
     /// Each run hears it under its own card about the same thing. A run back in the queue after the usage
     /// limit only keeps its answered card: its retry carries on anyway. Returns the reply runs it started.
     fn send_card_answers(&self, targets: &[Run], card: &Card, text: Option<&str>) -> Vec<Run> {
@@ -307,7 +315,8 @@ impl Office {
                     }
                 }
             }
-            match self.set_archived(&t.id, true) {
+            // A tap in a conversation you are in answers the card, and the conversation goes on.
+            match self.archive_row(&t.id, true, true) {
                 Err(e) if e.code != crate::error::ErrorCode::Conflict => log!("archiving run {} after its card failed: {e}", t.id),
                 _ => {}
             }
@@ -319,9 +328,10 @@ impl Office {
     /// saves the rules to the employee; otherwise they apply to the retry run only. The rules must
     /// come from what the run was denied: its own suggested rule, or every tool of the same MCP server.
     pub fn approve_blocked(&self, run_id: &str, rules: Vec<String>, always: bool) -> Result<Run> {
-        let (original, employee, ceo) = {
+        let (original, employee, ceo, mine) = {
             let db = self.db();
             let original = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
+            let mine = yours(&Self::thread_in(&db, run_id)?);
             if original.denials.is_empty() {
                 return Err(AppError::conflict("nothing was blocked in that run"));
             }
@@ -330,7 +340,7 @@ impl Office {
             }
             let employee = db.employee(&original.employee_id)?.ok_or_else(|| AppError::not_found("that employee no longer works here"))?;
             let ceo = ceo_of(&db)?;
-            (original, employee, ceo)
+            (original, employee, ceo, mine)
         };
         let mut rules: Vec<String> = rules.into_iter().map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect();
         rules.dedup();
@@ -355,8 +365,9 @@ impl Office {
 Approval covers only what is listed, so if something else is blocked, stop and say what.",
             rules.join(", ")
         );
-        // Decided, so it leaves the Inbox: the retry comes back only if it needs you again.
-        let reply = self.reply_with(run_id, &text, true, rules, vec![], ReplyBy::App)?;
+        // Decided, so it leaves the Inbox: the retry comes back only if it needs you again. A conversation you are
+        // in goes on instead.
+        let reply = self.reply_with(run_id, &text, !mine, rules, vec![], ReplyBy::App)?;
         Ok(reply)
     }
 
@@ -396,8 +407,10 @@ Approval covers only what is listed, so if something else is blocked, stop and s
                 return Ok(latest);
             }
             let (rec, resumes) = Self::next_turn(&db, &t)?;
-            let label = threads::report_label(&root.kind);
-            let task = matches!(root.kind, RunKind::Task { .. });
+            // An older build's chat message that an answer came back into is a conversation you started too.
+            let chat = matches!(root.kind, RunKind::Chat);
+            let label = if chat { threads::task_label(&root.prompt, &root.attachments) } else { threads::report_label(&root.kind) };
+            let task = chat || matches!(root.kind, RunKind::Task { .. });
             let (prompt, session) = if resumes {
                 (text.to_string(), rec.session)
             } else {
@@ -425,6 +438,11 @@ Approval covers only what is listed, so if something else is blocked, stop and s
         self.sink().run_updated(&root);
         self.enqueue(reply, session)
     }
+}
+
+/// A conversation you are in: one you started, or a report you typed into (`threads::talking`).
+fn yours(t: &Thread) -> bool {
+    matches!(t.root.kind, RunKind::Task { .. }) || threads::talking(t)
 }
 
 /// Marks every open card on a finished run of `run_id`'s thread answered by your typed reply (`text`,
@@ -769,6 +787,51 @@ mod tests {
         let office = held_office(&dir, &e, &[&task, &answer]).await;
         assert_eq!(office.set_archived(&task.id, true).unwrap_err().message, "Answer the card first, or dismiss it.");
         assert!(office.db().run(&task.id).unwrap().unwrap().run.archived_at.is_none());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_tap_or_an_approval_in_a_conversation_you_started_keeps_it_going() {
+        let dir = std::env::temp_dir().join(format!("omegastar-task-tap-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let start = |label: &str| {
+            let mut r = Run::new(&e.id, RunKind::Task { label: label.into(), from: None, context: String::new() }, format!("{label}."), now());
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(now());
+            r
+        };
+        let carded = with_card(start("Check the supplier site"), "Order the spare parts?");
+        let mut blocked = start("Publish the menu");
+        blocked.denials = vec![Denial { tool: "Bash".into(), brief: "npm publish".into(), suggested_rule: "Bash(npm publish)".into() }];
+        let office = held_office(&dir, &e, &[&carded, &blocked]).await;
+        let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
+        assert_eq!(office.answer_card(&carded.id, 0, CardReply::Choice { index: 1 }).unwrap().len(), 1);
+        assert!(!archived(&carded), "the answer goes on in the conversation, as a typed one does");
+        office.approve_blocked(&blocked.id, vec!["Bash(npm publish)".into()], false).unwrap();
+        assert!(!archived(&blocked), "the retry goes on in the conversation");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_reply_in_an_older_chat_message_is_a_turn_of_your_conversation() {
+        let dir = std::env::temp_dir().join(format!("omegastar-old-chat-reply-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let mut message = Run::new(&e.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
+        message.state = RunState::Succeeded;
+        message.ended_at = Some(now());
+        let came = RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: false, thread: Some(message.id.clone()) };
+        let mut answer = Run::new(&e.id, came, "Bo answered your question.".into(), now());
+        answer.state = RunState::Succeeded;
+        answer.ended_at = Some(now());
+        answer.omega_wrote = true;
+        let office = held_office(&dir, &e, &[&message, &answer]).await;
+        let reply = office.reply_to_run(&message.id, "Thanks, book it.", false, vec![]).unwrap();
+        assert_eq!(reply.kind, RunKind::Reply { to_run_id: message.id.clone(), label: "Check the rota with Bo".into(), task: true, card: false });
+        assert!(reply.prompt.starts_with("Your manager started this conversation (Check the rota with Bo)"), "{}", reply.prompt);
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
