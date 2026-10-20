@@ -104,3 +104,14 @@ export const isChoreRow = (t: Thread): boolean => t.related.length > 0 && choreO
 export const threadFocus = (rootId: string): string => `thread~${rootId}`;
 export const parseThreadFocus = (focus: string | null): string | null =>
   focus && focus.startsWith("thread~") ? focus.slice("thread~".length) : null;
+
+/** The first run of the conversation `r` is a turn of: a conversation you started, the thread a reply is in, or the
+ *  conversation an answer came back into. Null for anything else, an older build's chat included. */
+export function conversationOf(r: Run): string | null {
+  switch (r.kind.type) {
+    case "task": return r.id;
+    case "reply": return r.kind.toRunId;
+    case "answered": return r.kind.thread ?? null;
+    default: return null;
+  }
+}

@@ -1,12 +1,14 @@
 .panel-head { flex: none; display: flex; gap: 14px; align-items: center; padding: 18px 16px 14px 20px; }
 .panel-name { line-height: 1.2; }
 .panel-sub { font-size: var(--t-base); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.panel-presence { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--muted); margin-top: 4px; border-radius: 6px; }
-.panel-presence-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
+.panel-presence { align-self: flex-start; max-width: 100%; display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--muted); margin-top: 4px; border-radius: 6px; }
+.panel-presence-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
 .panel-presence-accent { color: var(--live-text); }
 .panel-presence-accent .panel-presence-dot { background: var(--live); animation: pulseDot 2.4s ease-in-out infinite; }
 .panel-presence-warn { color: var(--err-text); }
 .panel-presence-warn .panel-presence-dot { background: var(--err); }
+.panel-presence-what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+button.panel-presence:hover .panel-presence-what { text-decoration: underline; text-underline-offset: 2px; }
 .panel-presence-link { display: inline-flex; align-items: center; gap: 3px; font-weight: 500; }
 button.panel-presence:hover .panel-presence-link { text-decoration: underline; text-underline-offset: 2px; }
 .panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }

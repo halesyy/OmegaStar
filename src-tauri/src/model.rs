@@ -209,8 +209,8 @@ pub struct EmployeeView {
     #[serde(flatten)]
     pub employee: Employee,
     pub presence: Presence,
-    /// The run to look at while they are working or queued: background work before a conversation with you.
-    pub active_run_id: Option<String>,
+    /// What they are working on: every queued or running run of theirs, running first, oldest first within each.
+    pub live: Vec<Run>,
     /// How many runs they have going at once, and how many more wait to start.
     pub working: u32,
     pub waiting: u32,

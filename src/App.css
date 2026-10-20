@@ -44,6 +44,7 @@
 .side-dot { position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 0 2px var(--side); }
 .side-dot-live { background: var(--live); }
 .side-dot-err { background: var(--err); }
+.side-what { color: var(--faint); font-weight: 400; }
 .side-count { flex: none; font-size: var(--t-xs); font-weight: 600; color: var(--live-text); }
 .side-more { height: 28px; font-size: var(--t-sm); color: var(--muted); font-weight: 400; }
 .side-bottom { display: flex; flex-direction: column; gap: 2px; padding-top: 10px; }

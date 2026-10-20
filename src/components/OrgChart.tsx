@@ -3,6 +3,7 @@ import type { Company, EmployeeView, PersonView } from "../api/types";
 import { initials, whenInline } from "../lib/format";
 import { YOU_ID, up } from "../lib/org";
 import { CARD_H, CARD_W, layoutOrg } from "../lib/orgLayout";
+import { workLabel } from "./RunRow";
 import { Avatar } from "./ui";
 import "./OrgChart.css";
 
@@ -95,7 +96,7 @@ export const OrgChart = forwardRef<OrgChartHandle, {
             if (!b) return null;
             return (
               <div key={e.id} className={`org-node ${fresh.has(e.id) ? "org-node-enter" : ""}`} style={{ transform: `translate(${b.x}px, ${b.y}px)`, width: CARD_W, height: CARD_H }}>
-                <EmployeeCard e={e} selected={selectedId === e.id} onOpen={() => onSelect(e.id)} />
+                <EmployeeCard e={e} what={e.live.length === 1 ? workLabel(e.live[0], employees, people) : null} selected={selectedId === e.id} onOpen={() => onSelect(e.id)} />
               </div>
             );
           })}
@@ -116,10 +117,10 @@ export const OrgChart = forwardRef<OrgChartHandle, {
 
 type Status = { tone: "live" | "err" | "warn" | "plain" | "faint"; text: string; pulse?: boolean };
 
-/** The one line under an employee's title: working, blocked, or when they next run. */
-function employeeStatus(e: EmployeeView): Status {
-  if (e.presence === "working") return { tone: "live", text: e.working > 1 ? `Working on ${e.working} things` : "Working now", pulse: true };
-  if (e.presence === "queued") return { tone: "live", text: "Queued" };
+/** The one line under an employee's title: working (on what, when it is one thing), blocked, or when they next run. */
+function employeeStatus(e: EmployeeView, what: string | null): Status {
+  if (e.presence === "working") return { tone: "live", text: what ? `Working on ${what}` : e.working > 1 ? `Working on ${e.working} things` : "Working now", pulse: true };
+  if (e.presence === "queued") return { tone: "live", text: what ? `Waiting to start: ${what}` : "Queued" };
   if (e.presence === "attention") return { tone: "err", text: e.lastRun?.denials.length ? "Blocked, needs your OK" : "Last run failed" };
   if (e.nextFire) return { tone: "plain", text: `Next run ${whenInline(e.nextFire)}` };
   return { tone: "faint", text: "Works when asked" };
@@ -150,8 +151,8 @@ export function YouCard({ company, selected, onOpen }: { company: Company; selec
   );
 }
 
-function EmployeeCard({ e, selected, onOpen }: { e: EmployeeView; selected: boolean; onOpen: () => void }) {
-  const status = employeeStatus(e);
+function EmployeeCard({ e, what, selected, onOpen }: { e: EmployeeView; what: string | null; selected: boolean; onOpen: () => void }) {
+  const status = employeeStatus(e, what);
   return (
     <button
       type="button" className={`mcard ${selected ? "mcard-selected" : ""}`} onClick={onOpen} data-member={e.id}

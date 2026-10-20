@@ -27,7 +27,7 @@ export type EmployeeDraft = Omit<Employee, "id" | "slug" | "chatSession" | "hire
 export type Presence = "idle" | "working" | "queued" | "attention";
 export type EmployeeView = Employee & {
   presence: Presence;
-  activeRunId: string | null;         // the run to look at while working or queued: background work before a conversation
+  live: Run[];                        // what they are working on: queued and running runs, running first, oldest first within each
   working: number;                    // runs they have going at once
   waiting: number;                    // runs of theirs waiting to start
   nextFire: string | null;

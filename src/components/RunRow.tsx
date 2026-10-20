@@ -25,6 +25,18 @@ export function kindNames(run: Run, employees: EmployeeView[], people: PersonVie
   return {};
 }
 
+/** The prompt of a run started with no instruction. Mirrors Rust `DEFAULT_PROMPT`. */
+const DEFAULT_PROMPT = "Work toward your objective. Start from your role skill, pick the most valuable next step, do it, and report.";
+
+/** What a run is about, in a few words: a manual run you gave an instruction is its first line. */
+export function workLabel(run: Run, employees: EmployeeView[], people: PersonView[]): string {
+  if (run.kind.type === "manual" && run.prompt !== DEFAULT_PROMPT) {
+    const line = run.prompt.split("\n").find((l) => l.trim())?.trim();
+    if (line) return line;
+  }
+  return runKindLabel(run.kind, kindNames(run, employees, people));
+}
+
 export function kindIcon(run: Run): IconName {
   switch (run.kind.type) {
     case "scheduled": return "clock";

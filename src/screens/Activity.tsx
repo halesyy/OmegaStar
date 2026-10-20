@@ -1,11 +1,11 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { call } from "../api/client";
 import type { EmployeeView, PersonView, Run, SkillRevision } from "../api/types";
-import { dayHeading, firstName, relTime } from "../lib/format";
+import { dayHeading, duration, elapsedMs, firstName, relTime } from "../lib/format";
 import { useNow, useOrg, useQuery } from "../lib/hooks";
-import { navigate, openMember, type ActivityView } from "../lib/router";
+import { navigate, openMember, openWork, type ActivityView } from "../lib/router";
 import { threadFocus } from "../lib/threads";
-import { RunRow } from "../components/RunRow";
+import { RunRow, workLabel } from "../components/RunRow";
 import { RequestCard } from "../components/RequestCard";
 import { AskRow } from "../components/ColleagueAsks";
 import { groupByDay } from "../components/panel/WorkTab";
@@ -19,7 +19,8 @@ import "./Activity.css";
 const WEEK_MS = 8 * 24 * 3600 * 1000;
 
 /** Everything that happened: the runs your employees did, or the changes they (and you) made to their skills. Above
- *  the runs, what is going on: who they are waiting on, what they asked each other, and the week's numbers. */
+ *  the runs, what is going on: what they are working on now, who they are waiting on, what they asked each other, and
+ *  the week's numbers. */
 export function ActivityScreen({ view }: { view: ActivityView }) {
   const { snap } = useOrg();
   const [who, setWho] = useState<string | null>(null);
@@ -79,11 +80,36 @@ function Runs({ who, name, employees }: { who: string | null; name: string | nul
   }
   return (
     <>
+      <WorkingNow who={who} employees={employees} people={people} />
       <Waiting who={who} employees={employees} people={people} />
       <BetweenColleagues who={who} employees={employees} />
       <Scoreboard runs={runs} employees={employees} />
       {list}
     </>
+  );
+}
+
+/** Every run going on right now, running first and oldest first, each opening where it can be followed. */
+function WorkingNow({ who, employees, people }: { who: string | null; employees: EmployeeView[]; people: PersonView[] }) {
+  const live = employees
+    .filter((e) => who === null || e.id === who)
+    .flatMap((e) => e.live.map((run) => ({ run, e })))
+    .sort((a, b) => Number(b.run.state === "running") - Number(a.run.state === "running") || a.run.createdAt.localeCompare(b.run.createdAt));
+  const now = useNow(1000, live.some((x) => x.run.state === "running"));
+  if (!live.length) return null;
+  return (
+    <Section title="Working now" count={live.length}>
+      <div className="now">
+        {live.map(({ run, e }) => (
+          <button key={run.id} className="now-row" onClick={() => openWork(run)}>
+            <Avatar name={e.name} hue={e.hue} size={20} presence={run.state === "running" ? "working" : undefined} />
+            <b className="now-who">{firstName(e.name)}</b>
+            <span className="now-what">{workLabel(run, employees, people)}</span>
+            <span className="now-state mono num">{run.state === "running" ? duration(elapsedMs(run, now)) : "Waiting to start"}</span>
+          </button>
+        ))}
+      </div>
+    </Section>
   );
 }
 

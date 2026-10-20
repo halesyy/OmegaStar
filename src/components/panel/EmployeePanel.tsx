@@ -1,12 +1,13 @@
 import { useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView } from "../../api/types";
-import { firstName, relTime, whenInline } from "../../lib/format";
-import { useOrg } from "../../lib/hooks";
+import { duration, elapsedMs, firstName, relTime, whenInline } from "../../lib/format";
+import { useNow, useOrg } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
-import { openMember, openRun, type PanelTab } from "../../lib/router";
+import { openMember, openRun, openWork, type PanelTab } from "../../lib/router";
 import { Conversation } from "../../screens/Conversation";
 import { Icon } from "../Icon";
+import { workLabel } from "../RunRow";
 import { Avatar, Popover, SlideOver, Tabs } from "../ui";
 import { WorkTab } from "./WorkTab";
 import { SkillsTab } from "./SkillsTab";
@@ -51,26 +52,26 @@ export function EmployeePanel({ employee: e, tab, focus, onClose }: { employee: 
   );
 }
 
+/** What they are working on, one link each to where it can be followed; else what needs a look, or when they last
+ *  or next work. */
 function PresenceLine({ e }: { e: EmployeeView }) {
-  if (e.working > 1) {
+  const { snap } = useOrg();
+  const now = useNow(1000, e.working > 0);
+  if (e.live.length) {
     return (
-      <button className="panel-presence panel-presence-accent" onClick={() => openMember(e.id, "chat", null, true)}>
-        <span className="panel-presence-dot" />
-        Working on {e.working} things
-        {e.waiting ? <><span className="faint">·</span>{e.waiting} waiting</> : null}
-        <span className="faint">·</span>
-        <span className="panel-presence-link">See them <Icon name="arrowRight" size={11} /></span>
-      </button>
-    );
-  }
-  if (e.presence === "working" || e.presence === "queued") {
-    return (
-      <button className="panel-presence panel-presence-accent" onClick={() => e.activeRunId && openRun(e.activeRunId)}>
-        <span className="panel-presence-dot" />
-        {e.presence === "working" ? "Working now" : "Queued"}
-        <span className="faint">·</span>
-        <span className="panel-presence-link">View run <Icon name="arrowRight" size={11} /></span>
-      </button>
+      <>
+        {e.live.map((run) => {
+          const what = workLabel(run, snap?.employees ?? [], snap?.people ?? []);
+          return (
+            <button key={run.id} className="panel-presence panel-presence-accent" onClick={() => openWork(run)}>
+              <span className="panel-presence-dot" />
+              <span className="panel-presence-what">{run.state === "running" ? `Working on ${what}` : `Waiting to start: ${what}`}</span>
+              {run.state === "running" && run.startedAt ? <><span className="faint">·</span><span className="num">{duration(elapsedMs(run, now))}</span></> : null}
+              <span className="panel-presence-link"><Icon name="arrowRight" size={11} /></span>
+            </button>
+          );
+        })}
+      </>
     );
   }
   if (e.presence === "attention" && e.lastRun) {

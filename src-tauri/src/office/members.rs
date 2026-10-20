@@ -37,15 +37,12 @@ impl Office {
     }
 
     pub(super) fn presence(db: &Store, e: &Employee, now: Ts, paused: bool) -> Result<EmployeeView> {
-        let active = db.active_runs_of(&e.id)?;
-        // Talking to them is how you usually start work, so a conversation turn in flight counts as working
-        // just like background work does; background work is only preferred as the run to look at.
-        let in_state = |state: RunState| {
-            active.iter().filter(|r| r.state == state).min_by_key(|r| r.kind.is_conversation())
-        };
-        let live = in_state(RunState::Running);
-        let waiting = in_state(RunState::Queued);
-        let shown = live.or(waiting);
+        // Talking to them is how you usually start work, so a conversation in flight counts as working just like
+        // background work does. Running first; the sort is stable, so each keeps the oldest first.
+        let mut live = db.active_runs_of(&e.id)?;
+        live.sort_by_key(|r| r.state != RunState::Running);
+        let working = live.iter().filter(|r| r.state == RunState::Running).count() as u32;
+        let waiting = live.len() as u32 - working;
         let recent = db.work_runs(&e.id, 10)?;
         // A reply check that failed shows on its request's card; it is not the employee's problem.
         let last_finished = recent.iter().filter(|r| !matches!(r.kind, RunKind::ReplyCheck { .. })).find(|r| r.state.is_finished());
@@ -55,9 +52,9 @@ impl Office {
             .filter(|r| r.state.is_finished())
             .map(|r| r.ended_at.unwrap_or(r.created_at))
             .max();
-        let presence = if live.is_some() {
+        let presence = if working > 0 {
             Presence::Working
-        } else if waiting.is_some() {
+        } else if waiting > 0 {
             Presence::Queued
         } else if last_finished.map(|r| matches!(r.state, RunState::Failed | RunState::Lost) || !r.denials.is_empty()).unwrap_or(false) {
             Presence::Attention
@@ -72,9 +69,9 @@ impl Office {
         Ok(EmployeeView {
             employee: e.clone(),
             presence,
-            active_run_id: shown.map(|r| r.id.clone()),
-            working: active.iter().filter(|r| r.state == RunState::Running).count() as u32,
-            waiting: active.iter().filter(|r| r.state == RunState::Queued).count() as u32,
+            live,
+            working,
+            waiting,
             next_fire,
             last_run: recent.first().cloned(),
             last_worked_at,
@@ -386,5 +383,73 @@ something changes. Adjust your plan for the gap, and say in a line or two how yo
         };
         self.enqueue(run, session)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn employee(name: &str) -> Employee {
+        Employee {
+            id: uuid::Uuid::new_v4().to_string(),
+            slug: name.to_lowercase(),
+            name: name.into(),
+            title: "Tester".into(),
+            description: String::new(),
+            objective: String::new(),
+            manager_id: None,
+            skills: SkillGrant { builtins: false, keys: vec![] },
+            clearance: Clearance::Supervised,
+            allow_rules: vec![],
+            model: None,
+            effort: None,
+            browser: false,
+            auto_tidy: true,
+            workspaces: vec![],
+            hue: 0,
+            chat_session: format!("chat-{name}"),
+            hired_at: now(),
+        }
+    }
+
+    /// Saves a run of `e` in `state`, created `ago` minutes back.
+    fn run(db: &Store, e: &Employee, kind: RunKind, state: RunState, ago: i64) -> Run {
+        let mut r = Run::new(&e.id, kind, "go".into(), now() - chrono::Duration::minutes(ago));
+        r.state = state;
+        if state.is_finished() {
+            r.ended_at = Some(r.created_at);
+        }
+        assert!(db.insert_run(&r, &r.id).unwrap());
+        r
+    }
+
+    #[test]
+    fn presence_lists_live_work_running_first_then_oldest_first() {
+        let dir = std::env::temp_dir().join(format!("omegastar-presence-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada");
+        let bo = employee("Bo");
+        db.save_employee(&ada).unwrap();
+        db.save_employee(&bo).unwrap();
+
+        let task = RunKind::Task { label: "Draft the plan".into(), from: None, context: String::new() };
+        let queued_old = run(&db, &ada, RunKind::Manual, RunState::Queued, 30);
+        let running_new = run(&db, &ada, RunKind::Manual, RunState::Running, 5);
+        let running_old = run(&db, &ada, task, RunState::Running, 20);
+        let queued_new = run(&db, &ada, RunKind::Manual, RunState::Queued, 1);
+        run(&db, &ada, RunKind::Manual, RunState::Succeeded, 60);
+        run(&db, &bo, RunKind::Manual, RunState::Succeeded, 10);
+
+        let v = Office::presence(&db, &ada, now(), false).unwrap();
+        let ids: Vec<&str> = v.live.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, [&running_old.id, &running_new.id, &queued_old.id, &queued_new.id]);
+        assert_eq!((v.presence, v.working, v.waiting), (Presence::Working, 2, 2));
+
+        let idle = Office::presence(&db, &bo, now(), false).unwrap();
+        assert!(idle.live.is_empty());
+        assert_eq!(idle.presence, Presence::Idle);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

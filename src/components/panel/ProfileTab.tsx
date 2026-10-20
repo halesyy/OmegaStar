@@ -12,7 +12,7 @@ import { Markdown } from "../Markdown";
 import { ConfirmButton, ErrorNote, Section, Skeleton } from "../ui";
 
 function toEmployee(v: EmployeeView): Employee {
-  const { presence: _p, activeRunId: _a, nextFire: _n, lastRun: _l, ...e } = v;
+  const { presence: _p, live: _a, nextFire: _n, lastRun: _l, ...e } = v;
   return e;
 }
 

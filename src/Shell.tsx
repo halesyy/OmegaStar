@@ -7,11 +7,13 @@ import { HireSheet } from "./components/HireSheet";
 import { AddPersonSheet } from "./components/AddPersonSheet";
 import { UpdateCard } from "./components/UpdateCard";
 import { UsageCard } from "./components/UsageCard";
+import { workLabel } from "./components/RunRow";
 import { Avatar } from "./components/ui";
 import { usePruneMarks, useStatuses } from "./components/conversation/useStatuses";
 import { decisions } from "./lib/decisions";
 import { firstName, initials } from "./lib/format";
 import { openMember, openYou, useRoute } from "./lib/router";
+import { conversationOf } from "./lib/threads";
 import { YOU_ID } from "./lib/org";
 import { useOrg, useProposals } from "./lib/hooks";
 import { storageGet, storageSet } from "./lib/storage";
@@ -85,9 +87,18 @@ export function Shell() {
     case "run": page = <RunView key={route.runId} runId={route.runId} />; break;
   }
   const memberSelected = route.page === "org" ? route.memberId : null;
+  // A working employee's row says what they are on, and a click opens the first of it that is a conversation.
   const members = [
-    ...(snap?.employees ?? []).map((e) => ({ id: e.id, name: e.name, hue: e.hue, person: false, dot: e.presence === "working" || e.presence === "queued" ? "live" : e.presence === "attention" ? "err" : null, working: e.working })),
-    ...(snap?.people ?? []).map((p) => ({ id: p.id, name: p.name, hue: p.hue, person: true, dot: null, working: 0 })),
+    ...(snap?.employees ?? []).map((e) => {
+      const what = e.live.map((r) => workLabel(r, snap?.employees ?? [], snap?.people ?? []));
+      return {
+        id: e.id, name: e.name, hue: e.hue, person: false,
+        dot: e.presence === "working" || e.presence === "queued" ? "live" : e.presence === "attention" ? "err" : null, working: e.working,
+        what: what[0] ?? null, label: what.length ? `${e.name}, working on ${what.join(", ")}` : e.name,
+        focus: e.live.map(conversationOf).find((root) => root !== null) ?? null,
+      };
+    }),
+    ...(snap?.people ?? []).map((p) => ({ id: p.id, name: p.name, hue: p.hue, person: true, dot: null, working: 0, what: null, label: p.name, focus: null })),
   ];
 
   return (
@@ -115,12 +126,15 @@ export function Shell() {
             {members.length ? <div className="side-label">Team</div> : null}
             <div className="side-team">
               {members.slice(0, 12).map((m) => (
-                <button key={m.id} className={`side-item side-member ${memberSelected === m.id ? "side-item-on" : ""}`} onClick={() => openMember(m.id)} data-tip={collapsed ? m.name : undefined} aria-label={m.name}>
+                <button key={m.id} className={`side-item side-member ${memberSelected === m.id ? "side-item-on" : ""}`} onClick={() => openMember(m.id, m.focus ? "chat" : null, m.focus)} data-tip={collapsed ? m.label : undefined} aria-label={m.label}>
                   <span className="side-member-av">
                     <Avatar name={m.name} hue={m.hue} size={20} person={m.person} />
                     {m.dot ? <span className={`side-dot side-dot-${m.dot}`} /> : null}
                   </span>
-                  <span className="side-text">{m.person ? m.name : firstName(m.name)}</span>
+                  <span className="side-text">
+                    {m.person ? m.name : firstName(m.name)}
+                    {m.what ? <span className="side-what"> · {m.what}</span> : null}
+                  </span>
                   {m.working > 1 ? <span className="side-count num" title={`Working on ${m.working} things`}>{m.working}</span> : null}
                 </button>
               ))}

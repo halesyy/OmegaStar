@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
+import type { Run } from "../api/types";
 import { YOU_ID } from "./org";
+import { conversationOf, threadFocus } from "./threads";
 
 /** An employee panel's tabs. People and you have a single page, so no tab. */
 export type PanelTab = "chat" | "work" | "skills" | "profile";
@@ -70,6 +72,12 @@ export function openChat(employeeId: string, focus: string | null = null, replac
 /** The conversation filling the window, whatever mode you are in. */
 export const openFullChat = (employeeId: string, focus: string | null = null) => navigate({ page: "chat", employeeId, focus });
 export const openRun = (runId: string) => navigate({ page: "run", runId });
+/** A run where you can follow it: in its conversation when it is a turn of one, else on its own page. */
+export function openWork(run: Run) {
+  const root = conversationOf(run);
+  if (root) openChat(run.employeeId, threadFocus(root));
+  else openRun(run.id);
+}
 /** Your own panel on the org chart: name, title, company and who you report to. */
 export const openYou = () => openMember(YOU_ID);
 
