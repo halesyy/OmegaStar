@@ -148,7 +148,7 @@ mod tests {
 
         let mut inbox: Vec<&str> = c.inbox.iter().map(String::as_str).collect();
         inbox.sort();
-        assert_eq!(inbox, vec![report.id.as_str()], "only a report that needs you leads an Inbox row; a plain one is in Updates");
+        assert_eq!(inbox, vec![report.id.as_str()], "only a report that needs you leads an Inbox row; a plain one is in the Archive");
 
         drop(db);
         let _ = fs::remove_dir_all(&dir);

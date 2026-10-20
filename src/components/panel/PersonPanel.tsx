@@ -12,7 +12,7 @@ import { Avatar, ConfirmButton, ErrorNote, Section, SlideOver } from "../ui";
 import "./Panel.css";
 import "../Sheet.css";
 
-/** A real person on the chart: who they are and how to reach them. What employees are waiting on them for lives in the Inbox. */
+/** A real person on the chart: who they are and how to reach them. What employees are waiting on them for is on the Activity page. */
 export function PersonPanel({ person: p, onClose }: { person: PersonView; onClose: () => void }) {
   const { snap } = useOrg();
   const manager = personManagerName(p.manager, snap);
@@ -34,7 +34,7 @@ export function PersonPanel({ person: p, onClose }: { person: PersonView; onClos
   );
 }
 
-/** Requests employees sent this person that are settled: answered, done or cancelled. Open ones are in the Inbox. */
+/** Requests employees sent this person that are settled: answered, done or cancelled. Open ones are on the Activity page. */
 function PastRequests({ p }: { p: PersonView }) {
   const { snap } = useOrg();
   const q = useQuery(() => call("requests", { personId: p.id, employeeId: null, state: null }), [p.id], ["request:updated", "org:changed"]);
@@ -91,7 +91,7 @@ function PersonProfile({ p, onGone }: { p: PersonView; onGone: () => void }) {
           <div className="person-waiting">
             <Icon name="ask" size={14} />
             <span>{p.openRequests === 1 ? `An employee is waiting on ${name}` : `${p.openRequests} requests are waiting on ${name}`}</span>
-            <button className="btn btn-sm" onClick={() => navigate({ page: "inbox" })}>Open Inbox</button>
+            <button className="btn btn-sm" onClick={() => navigate({ page: "activity", view: "runs" })}>Open Activity</button>
           </div>
         ) : null}
         <div className="stack" style={{ gap: 18 }}>

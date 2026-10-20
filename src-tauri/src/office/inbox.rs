@@ -4,10 +4,8 @@ use super::*;
 use crate::cards;
 use crate::threads::View;
 
-/// How many archived reports the Archive reads, most recently archived first.
+/// How many rows the Archive shows, and how many of each kind of run it reads for them, newest first.
 const ARCHIVE_ROWS: u32 = 200;
-/// How far back Updates reads.
-const UPDATES_DAYS: i64 = 7;
 
 /// Who wrote a reply: you, or Omega Star from something you did in the app (an approval, or your answer
 /// on a card).
@@ -19,20 +17,15 @@ pub(super) enum ReplyBy {
 }
 
 impl Office {
-    /// Colleague asks still in flight, for the Inbox's "With colleagues" list.
+    /// Colleague asks still in flight, for Activity's "Between colleagues" list.
     pub fn open_asks(&self) -> Result<Vec<Run>> {
         self.db().open_asks()
     }
 
-    /// The Archive: rows you archived, most recently archived first.
+    /// The Archive: every row that reached you and needs nothing from you now, the rows you archived, and the
+    /// conversations you started and marked done, newest first (`threads::archive_at`).
     pub fn archived(&self) -> Result<Vec<Thread>> {
         Self::rows(&self.db(), View::Archive)
-    }
-
-    /// Updates: every row that reached you in the last week, most recently active first, whether or not it
-    /// needs you. Nothing here asks anything.
-    pub fn updates(&self) -> Result<Vec<Thread>> {
-        Self::rows(&self.db(), View::Updates)
     }
 
     /// The employees who report to you.
@@ -53,21 +46,22 @@ impl Office {
         Some(format!("{schedule_id}@{since}"))
     }
 
-    /// The Inbox, Updates or the Archive (`view`) as rows (`threads::file`): one row per piece of work, most
-    /// recently active (or archived) first. A row is a thread (a report and your exchange on it) with the
-    /// threads that belong with it in `related`: everything a hand-off between employees set off, a schedule's
-    /// earlier failures in a row, or the team's other reviews that week. The Inbox reads only runs that might
-    /// need you; Updates reads the last week of everything that reached you.
+    /// The Inbox or the Archive (`view`) as rows (`threads::file`): one row per piece of work, most recently
+    /// active (or archived) first. A row is a thread (a report and your exchange on it) with the threads that
+    /// belong with it in `related`: everything a hand-off between employees set off, a schedule's earlier
+    /// failures in a row, or the team's other reviews that week. The Inbox reads only runs that might need
+    /// you; the Archive reads the newest of everything that reached you, and adds the conversations you
+    /// started and marked done, each a line of its own.
     pub(super) fn rows(db: &Store, view: View) -> Result<Vec<Thread>> {
         let employees = db.employees()?;
         let top = Self::top_ids(&employees);
         let all: Vec<String> = employees.into_iter().map(|e| e.id).collect();
         let roots: Vec<String> = top.iter().cloned().collect();
-        let mut starts = match view {
-            View::Updates => db.recent_root_runs(&roots, &all, now() - chrono::Duration::days(UPDATES_DAYS))?,
-            // The Archive reads open runs too, so a row with anything still open stays out of it.
-            View::Inbox | View::Archive => db.finished_root_runs(&roots, &all)?,
-        };
+        // The Archive reads the runs that might need you too, so a row that needs you is whole and stays out of it.
+        let mut starts = db.finished_root_runs(&roots, &all)?;
+        if view == View::Archive {
+            starts.extend(db.reached_root_runs(&roots, &all, ARCHIVE_ROWS)?);
+        }
         starts.retain(|r| threads::reaches_you(r, false, top.contains(&r.employee_id)));
         if view == View::Archive {
             let mut archived = db.archived_root_runs(&all, ARCHIVE_ROWS)?;
@@ -79,7 +73,14 @@ impl Office {
         let rows = threads::merge_rows(rows, |row| Self::row_key(db, &cache, row));
         let mut out: Vec<Thread> = rows.into_iter().filter_map(|r| threads::present(r, view)).collect();
         if view == View::Archive {
-            out.sort_by_key(|t| std::cmp::Reverse(threads::row_archived_at(t)));
+            // A conversation you started is never filed into a row: once done, it is a line of its own.
+            let mut replies = threads::group(db.reply_runs(None)?);
+            out.extend(db.archived_tasks(ARCHIVE_ROWS)?.into_iter().map(|root| {
+                let turns = replies.remove(&root.id).unwrap_or_default();
+                Thread::new(root, turns)
+            }));
+            out.sort_by_key(|t| std::cmp::Reverse(threads::archive_at(t)));
+            out.truncate(ARCHIVE_ROWS as usize);
         } else {
             out.sort_by_key(|t| std::cmp::Reverse(threads::activity_at(&t.root, &t.replies)));
         }
@@ -573,7 +574,7 @@ mod tests {
         assert_eq!(
             rows.iter().map(ids).collect::<Vec<_>>(),
             vec![HashSet::from([d.id.clone()])],
-            "only the review waiting on a chore needs you: plain reviews are in Updates, and one failure is not a streak"
+            "only the review waiting on a chore needs you: plain reviews are in the Archive, and one failure is not a streak"
         );
         assert!(!rows.iter().any(|t| ids(t).contains(&later.id)));
         let chored = Office::row_of(&db, &d).unwrap();
@@ -588,21 +589,23 @@ mod tests {
         }
         let rows = Office::rows(&db, View::Inbox).unwrap();
         assert_eq!(rows.iter().map(ids).collect::<Vec<_>>(), vec![HashSet::from([d.id.clone()])]);
-        let archived = Office::rows(&db, View::Archive).unwrap();
-        assert_eq!(archived.iter().map(ids).collect::<Vec<_>>(), vec![week]);
+        let archived: Vec<HashSet<String>> = Office::rows(&db, View::Archive).unwrap().iter().map(ids).collect();
+        assert_eq!(archived.len(), 2, "the week you archived, and next week's review, which needs nothing");
+        assert!(archived.contains(&week) && archived.contains(&HashSet::from([later.id.clone()])));
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn updates_hold_the_last_week_and_the_inbox_only_what_needs_you() {
-        let dir = std::env::temp_dir().join(format!("omegastar-updates-{}", uuid::Uuid::new_v4()));
+    fn the_archive_holds_what_reached_you_and_needs_nothing_and_the_inbox_what_does() {
+        let dir = std::env::temp_dir().join(format!("omegastar-archive-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let db = Store::open(&dir.join("office.db")).unwrap();
         let e = tester();
         db.save_employee(&e).unwrap();
-        let report = |hours: i64, f: &dyn Fn(&mut Run)| {
-            let at = now() - chrono::Duration::hours(hours);
+        let ago = |hours: f64| now() - chrono::Duration::minutes((hours * 60.0) as i64);
+        let report = |hours: f64, f: &dyn Fn(&mut Run)| {
+            let at = ago(hours);
             let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), at);
             r.state = RunState::Succeeded;
             r.ended_at = Some(at);
@@ -611,18 +614,44 @@ mod tests {
             assert!(db.insert_run(&r, &r.id).unwrap());
             r
         };
-        let plain = report(1, &|_| {});
-        let carded = report(2, &|r| *r = Run { id: r.id.clone(), created_at: r.created_at, ended_at: r.ended_at, ..carded(&e) });
-        let limited = report(3, &|r| {
+        let plain = report(1.0, &|_| {});
+        let carded = report(2.0, &|r| *r = Run { id: r.id.clone(), created_at: r.created_at, ended_at: r.ended_at, ..carded(&e) });
+        let limited = report(3.0, &|r| {
             r.state = RunState::Failed;
             r.limited = true;
         });
-        let broken = report(4, &|r| r.state = RunState::Failed);
-        let old = report(24 * 10, &|_| {});
-        let roots = |v: Vec<Thread>| v.into_iter().map(|t| t.root.id).collect::<Vec<_>>();
-        assert_eq!(roots(Office::rows(&db, View::Updates).unwrap()), vec![plain.id.clone(), carded.id.clone(), limited.id.clone(), broken.id.clone()]);
-        assert!(!roots(Office::rows(&db, View::Updates).unwrap()).contains(&old.id), "Updates reads a week");
-        assert_eq!(roots(Office::rows(&db, View::Inbox).unwrap()), vec![carded.id.clone(), broken.id.clone()], "the usage limit is never yours to fix");
+        let broken = report(4.0, &|r| r.state = RunState::Failed);
+        let old = report(24.0 * 10.0, &|_| {});
+        let done = report(30.0, &|r| r.archived_at = Some(ago(0.5)));
+        let talking = report(5.0, &|r| r.replied_at = Some(ago(4.5)));
+        // A conversation you started and marked done, with the employee's answer in it, and one still going.
+        let task = |hours: f64, archived: Option<Ts>| {
+            let at = ago(hours);
+            let mut r = Run::new(&e.id, RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, "Draft it.".into(), at);
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(at);
+            r.archived_at = archived;
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r
+        };
+        let finished = task(50.0, Some(ago(2.0)));
+        let mut turn = Run::new(&e.id, RunKind::Reply { to_run_id: finished.id.clone(), label: "Draft it".into(), task: true, card: false }, "Shorter.".into(), ago(49.0));
+        turn.state = RunState::Succeeded;
+        turn.ended_at = Some(ago(49.0));
+        assert!(db.insert_run(&turn, &finished.id).unwrap());
+        let going = task(6.0, None);
+
+        let roots = |v: &[Thread]| v.iter().map(|t| t.root.id.clone()).collect::<Vec<_>>();
+        let archive = Office::rows(&db, View::Archive).unwrap();
+        assert_eq!(
+            roots(&archive),
+            vec![done.id.clone(), plain.id.clone(), finished.id.clone(), limited.id.clone(), old.id.clone()],
+            "newest first by when each was done or last moved; what needs you, a conversation still going and an open task stay out"
+        );
+        assert_eq!(archive[2].replies.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![turn.id.clone()], "a finished conversation keeps its turns");
+        assert!(!roots(&archive).contains(&talking.id) && !roots(&archive).contains(&going.id));
+        let inbox = Office::rows(&db, View::Inbox).unwrap();
+        assert_eq!(roots(&inbox), vec![carded.id.clone(), broken.id.clone()], "the usage limit is never yours to fix");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }

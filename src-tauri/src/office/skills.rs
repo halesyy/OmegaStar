@@ -362,7 +362,7 @@ impl Office {
     }
 
     /// A finished tidy goes to your Inbox only when it proposes changes that need your OK. Everything else it
-    /// did is in Updates, and every change can be reverted.
+    /// did is in the Archive, and every change can be reverted.
     pub(super) fn review_tidy(&self, run: &mut Run) {
         if run.proposed.is_some() {
             let name = self.db().employee(&run.employee_id).ok().flatten().map(|e| e.name).unwrap_or_default();

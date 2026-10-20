@@ -780,7 +780,7 @@ impl Office {
         let mut omega_notes: Vec<String> = vec![];
         if let RunKind::Tidy { reason, .. } = &run.kind {
             // What you taught is never lost to a tidy. An approved tidy may prune the rules its plan names. It is
-            // already put back, so it is a line in Updates rather than something for you to do.
+            // already put back, so it is a line in the Archive rather than something for you to do.
             if *reason != TidyReason::Approved {
                 let lost = tidy::dropped(&before, &after);
                 let put_back = if lost.is_empty() { vec![] } else { tidy::restore(&skills_dir, &snap.employee.slug, &lost).unwrap_or_default() };

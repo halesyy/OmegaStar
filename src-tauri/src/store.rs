@@ -588,10 +588,10 @@ impl Store {
         Ok(v)
     }
 
-    /// The runs that reach you, as `finished_root_runs` picks them, created since `since` whether archived or
-    /// not, newest first: what Updates shows.
-    pub fn recent_root_runs(&self, roots: &[String], flagged: &[String], since: Ts) -> Result<Vec<Run>> {
-        self.reports(roots, flagged, None, &format!("created_at >= {}", ms(since)), "created_at DESC, rowid DESC")
+    /// The newest `limit` runs that reach you, as `finished_root_runs` picks them, archived or not: what the
+    /// Archive reads for everything that reached you and needs nothing now.
+    pub fn reached_root_runs(&self, roots: &[String], flagged: &[String], limit: u32) -> Result<Vec<Run>> {
+        self.reports(roots, flagged, Some(limit), "1", "created_at DESC, rowid DESC")
     }
 
     /// The same runs once archived: the most recently archived `limit`, newest first.
@@ -812,6 +812,15 @@ impl Store {
             "WHERE employee_id = ? AND json_valid(data) AND json_extract(data, '$.kind.type') = 'task' AND json_extract(data, '$.archivedAt') IS NULL
              ORDER BY created_at, rowid",
             &[&employee_id],
+        )
+    }
+
+    /// Conversations you started and marked done, the most recently done `limit`, newest first.
+    pub fn archived_tasks(&self, limit: u32) -> Result<Vec<Run>> {
+        self.runs_where(
+            "WHERE json_valid(data) AND json_extract(data, '$.kind.type') = 'task' AND json_extract(data, '$.archivedAt') IS NOT NULL
+             ORDER BY json_extract(data, '$.archivedAt') DESC, rowid DESC LIMIT ?",
+            &[&limit],
         )
     }
 
@@ -1107,12 +1116,13 @@ mod tests {
         assert_eq!(ids(&db.runs_in_state(RunState::Succeeded).unwrap()), ids(&[done.clone()]));
         let ada_only = std::slice::from_ref(&ada.id);
         assert_eq!(ids(&db.finished_root_runs(ada_only, ada_only).unwrap()), ids(&[done.clone()]));
-        assert_eq!(ids(&db.recent_root_runs(ada_only, ada_only, Utc::now() - chrono::Duration::days(1)).unwrap()), ids(&[done.clone()]));
+        assert_eq!(ids(&db.reached_root_runs(ada_only, ada_only, 10).unwrap()), ids(&[done.clone()]));
         assert_eq!(ids(&db.open_cards(&ada.id).unwrap()), ids(&[]));
         assert!(db.open_topic_runs("chore:chrome").unwrap().is_empty());
         // The Inbox's other queries read the JSON in SQL too.
         assert!(db.reply_runs(None).unwrap().is_empty());
         assert!(db.open_tasks(&ada.id).unwrap().is_empty());
+        assert!(db.archived_tasks(10).unwrap().is_empty());
         assert!(db.conversation_runs().unwrap().is_empty());
         assert!(db.open_asks().unwrap().is_empty());
         // So do the reply watch and Tidy.

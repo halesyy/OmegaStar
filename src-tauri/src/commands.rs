@@ -196,11 +196,6 @@ pub async fn archived(office: O<'_>) -> Result<Vec<Thread>> {
 }
 
 #[tauri::command]
-pub async fn updates(office: O<'_>) -> Result<Vec<Thread>> {
-    office.updates()
-}
-
-#[tauri::command]
 pub async fn conversations(office: O<'_>) -> Result<Conversations> {
     office.conversations()
 }

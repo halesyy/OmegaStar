@@ -144,7 +144,7 @@ export function AddPersonSheet({ open, managerId, onClose }: { open: boolean; ma
           <ol className="preview-steps">
             <li><b>Every employee learns who they are</b>, their strengths and what they own.</li>
             <li><b>When an employee is stuck</b>, they send one clear request through the channel that fits.</li>
-            <li><b>Their reply resumes the work.</b> You can answer for them from the Inbox too.</li>
+            <li><b>Their reply resumes the work.</b> You can answer for them from the Activity page too.</li>
           </ol>
         </aside>
       </div>

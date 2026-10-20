@@ -185,15 +185,15 @@ function ApproveTidy({ run, who }: { run: Run; who: string }) {
   );
 }
 
-/** One line in the Inbox's last week, or the Archive: who, what it was, and the first thing it said. It opens in place into the
- *  whole thread. In the Archive, hovering shows Reopen. */
+/** One line in the Archive: who, what it was, and the first thing it said. It opens in place into the whole thread.
+ *  Hovering shows Reopen when you marked something in it done. */
 export function FeedItem({ item, employees, people, open, onToggle, onReopen }: {
   item: Item;
   employees: EmployeeView[];
   people: PersonView[];
   open: boolean;
   onToggle: () => void;
-  /** In the Archive: bring it back to the Inbox. */
+  /** Bring what you marked done back to the Inbox, or null when nothing in it was marked done. */
   onReopen: (() => void) | null;
 }) {
   const { thread: t, employee: e } = item;

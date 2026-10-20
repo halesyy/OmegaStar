@@ -42,6 +42,17 @@ export function lastFrom(t: Thread): "you" | "them" | null {
 export const rowThreads = (t: Thread): Thread[] =>
   [t, ...t.related].sort((a, b) => a.root.createdAt.localeCompare(b.root.createdAt));
 
+/** Where a row sits in the Archive, newest first: the later of when it was archived and when it last moved. Mirrors
+ *  Rust `threads::archive_at`. */
+export function archiveAt(t: Thread): string {
+  let at = activityAt(t);
+  for (const x of rowThreads(t)) if (x.root.archivedAt && x.root.archivedAt > at) at = x.root.archivedAt;
+  return at;
+}
+
+/** You marked something in the row done, so Reopen has something to bring back. */
+export const wasArchived = (t: Thread): boolean => rowThreads(t).some((x) => !!x.root.archivedAt);
+
 /** An Inbox row that is one schedule's failures in a row. */
 export function isStreak(t: Thread): boolean {
   const k = t.root.kind;

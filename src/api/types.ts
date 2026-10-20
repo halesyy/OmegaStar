@@ -121,7 +121,7 @@ export type SkillSources = {
 export type Schedule = {
   id: string; employeeId: string; label: string; cron: string; instruction: string;
   enabled: boolean;
-  quiet: boolean;            // reports reach the Inbox only when the run calls notify or fails
+  quiet: boolean;            // reports reach you only when the run calls notify or fails
   model: string | null; effort: Effort | null;   // null: the employee's own
   review?: boolean;          // the weekly review Omega Star seeds for every employee
   nextFire: string | null;
@@ -173,7 +173,7 @@ export type CardAnswer = { at: string; how: AnswerHow; text: string };   // text
 /** message: the question. why: one line on why it matters. key: what it is about (`ask:<name>` or `chore:<subject>`),
  *  so the same question from anyone is one Inbox item; null on cards asked before keys. */
 export type Card = { message: string; why: string | null; key: string | null; ask: CardAsk; answer: CardAnswer | null };
-/** A weekly review's one number, for the Updates scoreboard. */
+/** A weekly review's one number, for Activity's week in numbers. */
 export type Score = { metric: string; value: string; change: string; note: string };
 /** Your answer on a card. */
 export type ItemPick = { id: string; tick: boolean; note?: string | null };
@@ -327,9 +327,9 @@ export type Commands = {
   open_report_path: { args: { path: string }; ret: null };
   runs: { args: { employeeId: string | null; limit: number }; ret: Run[] };
   run_detail: { args: { runId: string }; ret: RunDetail };
+  /** Every row that reached you and needs nothing from you now, what you archived, and the conversations you marked
+   *  done, newest first. */
   archived: { args: Record<string, never>; ret: Thread[] };
-  /** Every row that reached you in the last week, whether or not it needs you. */
-  updates: { args: Record<string, never>; ret: Thread[] };
   /** Every open thread, and which of them lead an Inbox row. */
   conversations: { args: Record<string, never>; ret: Conversations };
   /** The thread any of its runs belongs to. */

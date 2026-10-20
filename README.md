@@ -49,8 +49,8 @@ Next Monday 8 am, window closed, Omega Star in the tray
   Felix  Hi Grace, our API certificate expires Friday. Could you make
          the DNS change? Felix (AI assistant to Alex)
 
-  Inbox  Waiting on people: Felix asked Grace · watching for a reply
-  Inbox  Sam: Monday report. Status: on track, one open item (DNS).
+  Activity  Waiting on people: Felix asked Grace · watching for a reply
+  Archive   Sam: Monday report. Status: on track, one open item (DNS).
 
 9:15 am  Grace replies on Teams. Omega Star reads it and resumes Felix's work.
 ```
@@ -90,7 +90,7 @@ You teach an employee by talking to them, the way you'd teach a new hire. Each l
 - **People.** Record each person's role, strengths and channels (Teams, Slack, email, Jira and more), each with a "When to use" line. Employees reach out with your Claude Code's own tools, and Omega Star tracks each request: a reply resumes the work, and without one the employee nudges once, then carries on.
 - **Managers and colleagues.** Managers delegate to their direct reports, employees ask each other for help, and any of them can propose a hire for you to approve.
 - **Several things at once.** Every conversation with an employee is its own thread and runs alongside the rest of their work, so you can have several going at once. When a colleague answers something they asked along the way, the answer comes back into that conversation. Mark it done when it's finished and it moves to the Archive.
-- **Schedules and the Inbox.** Schedules run from the tray and catch up once after the computer was off or asleep, unless you set them to skip. Reports, hire proposals, open requests and blocked actions land in one Inbox.
+- **Schedules and the Inbox.** Schedules run from the tray and catch up once after the computer was off or asleep, unless you set them to skip. Hire proposals, questions and blocked actions land in one Inbox; reports that need nothing from you go straight to the Archive, and open requests to people show on the Activity page.
 - **Skills that grow.** Each employee's role skill routes to small, one-job skills they write as you teach. Tidies run on their own, big restructures wait for your approval, a rule you taught is put back if a tidy drops it, and every skill edit can be undone.
 - **You stay in charge.** New employees are Supervised: they edit files in their own folders, and anything else you haven't allowed is blocked until you click **Allow once & retry** or **Always allow & retry**. **Pause schedules** stops all scheduled work.
 - **Runs on your Claude Code.** Every run, including the short Haiku calls that check for replies, is a `claude -p` process under your login. Omega Star has no agent loop or API client of its own, and nothing to host.

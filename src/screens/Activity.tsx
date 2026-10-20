@@ -1,17 +1,25 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { call } from "../api/client";
-import type { EmployeeView, SkillRevision } from "../api/types";
+import type { EmployeeView, PersonView, Run, SkillRevision } from "../api/types";
 import { dayHeading, firstName, relTime } from "../lib/format";
-import { useOrg, useQuery } from "../lib/hooks";
+import { useNow, useOrg, useQuery } from "../lib/hooks";
 import { navigate, openMember, type ActivityView } from "../lib/router";
+import { threadFocus } from "../lib/threads";
 import { RunRow } from "../components/RunRow";
+import { RequestCard } from "../components/RequestCard";
+import { AskRow } from "../components/ColleagueAsks";
 import { groupByDay } from "../components/panel/WorkTab";
+import { lines } from "../components/conversation/RowHistory";
 import { lineStats } from "../components/Diff";
 import { Icon } from "../components/Icon";
-import { Avatar, ErrorNote, PageColumn, Skeleton } from "../components/ui";
+import { Avatar, ErrorNote, PageColumn, Section, Skeleton } from "../components/ui";
 import "./Activity.css";
 
-/** Everything that happened: the runs your employees did, or the changes they (and you) made to their skills. */
+/** How far back the week's numbers look: a week, with a day's slack for a review that ran late. */
+const WEEK_MS = 8 * 24 * 3600 * 1000;
+
+/** Everything that happened: the runs your employees did, or the changes they (and you) made to their skills. Above
+ *  the runs, what is going on: who they are waiting on, what they asked each other, and the week's numbers. */
 export function ActivityScreen({ view }: { view: ActivityView }) {
   const { snap } = useOrg();
   const [who, setWho] = useState<string | null>(null);
@@ -41,30 +49,111 @@ export function ActivityScreen({ view }: { view: ActivityView }) {
 
 function Runs({ who, name, employees }: { who: string | null; name: string | null; employees: EmployeeView[] }) {
   const { snap } = useOrg();
+  const people = snap?.people ?? [];
   const q = useQuery(() => call("runs", { employeeId: null, limit: 300 }), [], ["run:updated"]);
   const runs = useMemo(() => (q.data ?? []).filter((r) => who === null || r.employeeId === who), [q.data, who]);
   const groups = useMemo(() => groupByDay(runs), [runs]);
 
-  if (q.error) return <ErrorNote text={q.error} onRetry={q.reload} />;
-  if (!q.data) return <div className="stack" style={{ gap: 10 }}>{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} h={44} r={10} />)}</div>;
-  if (runs.length === 0) {
-    return (
+  let list: ReactNode;
+  if (q.error) list = <ErrorNote text={q.error} onRetry={q.reload} />;
+  else if (!q.data) list = <div className="stack" style={{ gap: 10 }}>{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} h={44} r={10} />)}</div>;
+  else if (runs.length === 0) {
+    list = (
       <div className="empty">
         <Icon name="activity" size={22} />
         <span className="empty-title">{name ? `No runs for ${name} yet` : "No runs yet"}</span>
         <p>Runs show up here the moment they start: schedules, Run now, and work employees hand each other.</p>
       </div>
     );
+  } else {
+    list = (
+      <div className="activity-list">
+        {groups.map((g) => (
+          <div key={g.day} className="daygroup">
+            <div className="daygroup-title">{g.day}</div>
+            {g.runs.map((r) => <RunRow key={r.id} run={r} employee={employees.find((e) => e.id === r.employeeId)} employees={employees} people={people} showEmployee />)}
+          </div>
+        ))}
+      </div>
+    );
   }
   return (
-    <div className="activity-list">
-      {groups.map((g) => (
-        <div key={g.day} className="daygroup">
-          <div className="daygroup-title">{g.day}</div>
-          {g.runs.map((r) => <RunRow key={r.id} run={r} employee={employees.find((e) => e.id === r.employeeId)} employees={employees} people={snap?.people ?? []} showEmployee />)}
-        </div>
-      ))}
-    </div>
+    <>
+      <Waiting who={who} employees={employees} people={people} />
+      <BetweenColleagues who={who} employees={employees} />
+      <Scoreboard runs={runs} employees={employees} />
+      {list}
+    </>
+  );
+}
+
+/** Requests your employees made of people that are still open, each answered or chased in place. */
+function Waiting({ who, employees, people }: { who: string | null; employees: EmployeeView[]; people: PersonView[] }) {
+  const q = useQuery(() => call("requests", { personId: null, employeeId: who, state: "open" }), [who], ["request:updated", "org:changed"]);
+  if (!q.data?.length) return null;
+  return (
+    <Section title="Waiting on people" count={q.data.length} id="waiting">
+      <div className="plist">
+        {q.data.map((r) => (
+          <RequestCard key={r.id} r={r} employee={employees.find((e) => e.id === r.employeeId)} person={people.find((p) => p.id === r.personId)} showPerson onChanged={() => q.reload()} />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/** Asks between employees that have not come back yet. */
+function BetweenColleagues({ who, employees }: { who: string | null; employees: EmployeeView[] }) {
+  const q = useQuery(() => call("open_asks"), [], ["run:updated"]);
+  const asks = (q.data ?? []).filter((r) => who === null || r.employeeId === who || (r.kind.type === "asked" && r.kind.askedBy === who));
+  if (!asks.length) return null;
+  return (
+    <Section title="Between colleagues" count={asks.length}>
+      <div className="plist">
+        {asks.map((r) => <AskRow key={r.id} run={r} employees={employees} />)}
+      </div>
+    </Section>
+  );
+}
+
+/** The week in numbers: each employee's latest weekly review from the last week, as the number it reported, else its
+ *  first line. Each opens the review on the employee's panel. */
+function Scoreboard({ runs, employees }: { runs: Run[]; employees: EmployeeView[] }) {
+  const now = useNow(60_000);
+  const latest = new Map<string, Run>();
+  for (const r of runs) {
+    if (r.kind.type !== "scheduled" || !r.kind.review || r.state !== "succeeded" || now - Date.parse(r.createdAt) > WEEK_MS) continue;
+    const had = latest.get(r.employeeId);
+    if (!had || had.createdAt < r.createdAt) latest.set(r.employeeId, r);
+  }
+  const rows = [...latest.values()].flatMap((r) => {
+    const e = employees.find((m) => m.id === r.employeeId);
+    return e ? [{ r, e }] : [];
+  });
+  if (!rows.length) return null;
+  return (
+    <Section title="This week's numbers" count={null}>
+      <div className="score">
+        {rows.map(({ r, e }) => {
+          const s = r.score;
+          return (
+            <button key={r.id} className="score-row" onClick={() => openMember(e.id, "chat", threadFocus(r.id))}>
+              <Avatar name={e.name} hue={e.hue} size={20} />
+              <b className="score-who">{firstName(e.name)}</b>
+              {s ? (
+                <>
+                  <span className="score-metric">{s.metric}</span>
+                  <span className="score-value num">{s.value}</span>
+                  <span className="score-change faint">{s.change}</span>
+                </>
+              ) : (
+                <span className="score-metric score-plain">{lines(r.summary)[0] ?? "Reviewed the week"}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
 

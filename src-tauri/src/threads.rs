@@ -8,7 +8,8 @@
 //! a report with everything it set off in conversation, or an ask a report made with everything that came
 //! back from it (`file`), and a schedule's failures in a row or everyone waiting on the same chore
 //! (`merge_rows`). A row is in the Inbox only while it needs you (`needs_you`): a card, a flag, a blocked
-//! tool or breakage you can act on. Every row that reached you is in Updates, which never asks anything.
+//! tool or breakage you can act on. Every other row that reached you is in the Archive, which never asks
+//! anything, and so is what you marked done.
 
 use crate::claude::clip;
 use crate::model::*;
@@ -79,11 +80,11 @@ pub fn broke(r: &Run) -> bool {
 }
 
 /// A schedule's failures in a row before they need you: a routine that breaks once or twice usually works
-/// the next time, and you see it in Updates meanwhile.
+/// the next time, and you see it in the Archive meanwhile.
 pub const STREAK: usize = 3;
 
 /// A finished run that might need you, before its thread is read: it raised something, was blocked, broke,
-/// or you replied to it (a reply can raise something). Every other report goes straight to Updates. The
+/// or you replied to it (a reply can raise something). Every other report goes straight to the Archive. The
 /// Inbox's query, `Store::finished_root_runs`, does this in SQL; its test holds the two equal.
 #[cfg(test)]
 pub fn could_need_you(r: &Run) -> bool {
@@ -278,9 +279,7 @@ pub fn review_week(r: &Run) -> Option<String> {
 pub enum View {
     /// What needs you, until it no longer does.
     Inbox,
-    /// Everything that reached you lately, one line each. It asks nothing.
-    Updates,
-    /// Rows you dealt with.
+    /// Every row that reached you and needs nothing from you now, one line each, and the rows you archived.
     Archive,
 }
 
@@ -303,8 +302,9 @@ pub fn needs_you(row: &Row) -> bool {
 
 /// A row as `view` shows it: the thread it is about, with its other threads in `related`, oldest first.
 /// In the Inbox that is the newest open thread that asks you something or broke, else the newest open one;
-/// None unless the row needs you. In Updates it is the newest thread that reached you. In the Archive it is
-/// the newest thread that reached you; None while the row is open, or if it never reached you.
+/// None unless the row needs you. In the Archive it is the newest thread that reached you; None while the row
+/// needs you or holds a thread you replied to and have not archived (a conversation still going on, which
+/// the Inbox and the employee's chips show), or if it never reached you.
 pub fn present(row: Row, view: View) -> Option<Thread> {
     let newest = |pick: &dyn Fn(&(Thread, bool)) -> bool| {
         row.members
@@ -321,9 +321,9 @@ pub fn present(row: Row, view: View) -> Option<Thread> {
             }
             newest(&|m| is_open(m) && (asks_you(&m.0) || broken(&m.0))).or_else(|| newest(&is_open))?
         }
-        View::Updates => newest(&|m| m.1)?,
         View::Archive => {
-            if row.members.iter().any(is_open) {
+            let talking = |m: &(Thread, bool)| m.0.root.archived_at.is_none() && m.0.root.replied_at.is_some();
+            if needs_you(&row) || row.members.iter().any(talking) {
                 return None;
             }
             newest(&|m| m.1)?
@@ -338,6 +338,11 @@ pub fn present(row: Row, view: View) -> Option<Thread> {
 /// When a row was archived: the latest of its threads.
 pub fn row_archived_at(t: &Thread) -> Option<Ts> {
     std::iter::once(t).chain(&t.related).filter_map(|x| x.root.archived_at).max()
+}
+
+/// Where a row sits in the Archive, newest first: the later of when it was archived and when it last moved.
+pub fn archive_at(t: &Thread) -> Ts {
+    row_archived_at(t).into_iter().chain(std::iter::once(activity_at(&t.root, &t.replies))).max().unwrap_or(t.root.created_at)
 }
 
 /// What a report was, as a thread is named: a schedule's label, "Manual run", a task's name, or the kind.
@@ -472,7 +477,7 @@ mod tests {
             (Thread::new(r, vec![]), true)
         };
         let streak = |n: usize, limited: usize| Row { members: (0..n).map(|i| failed(i < limited)).collect() };
-        assert!(!needs_you(&streak(1, 0)), "once is in Updates");
+        assert!(!needs_you(&streak(1, 0)), "once is in the Archive");
         assert!(!needs_you(&streak(2, 0)));
         assert!(needs_you(&streak(3, 0)));
         assert!(!needs_you(&streak(3, 1)), "a failure from the usage limit does not count");
@@ -483,7 +488,8 @@ mod tests {
         assert!(!needs_you(&row(manual)));
         assert!(present(streak(3, 0), View::Inbox).is_some());
         assert!(present(streak(2, 0), View::Inbox).is_none());
-        assert!(present(streak(2, 0), View::Updates).is_some(), "Updates shows it all");
+        assert!(present(streak(2, 0), View::Archive).is_some(), "the Archive shows what does not need you yet");
+        assert!(present(streak(3, 0), View::Archive).is_none(), "nothing is in both");
     }
 
     #[test]
