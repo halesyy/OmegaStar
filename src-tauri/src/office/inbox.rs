@@ -795,6 +795,36 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[tokio::test]
+    async fn an_older_chat_answer_comes_back_into_the_chat_message_that_asked() {
+        let dir = std::env::temp_dir().join(format!("omegastar-old-chat-answer-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let ana = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "ana".into(), name: "Ana".into(), chat_session: "chat-ana".into(), ..tester() };
+        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let cy = Employee { manager_id: Some(ana.id.clone()), ..tester() };
+        let mut message = Run::new(&cy.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
+        message.state = RunState::Succeeded;
+        message.ended_at = Some(now());
+        let mut asked = Run::new(&bo.id, RunKind::Asked { parent_run_id: message.id.clone(), asked_by: cy.id.clone(), task: false }, "Is the rota final?".into(), now());
+        asked.state = RunState::Succeeded;
+        asked.ended_at = Some(now());
+        let came = RunKind::Answered { asked_run_id: asked.id.clone(), from: bo.id.clone(), task: false, chat: true, thread: None };
+        let answer = Run::new(&cy.id, came, "Bo answered your question.".into(), now());
+        {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.save_employee(&ana).unwrap();
+            db.save_employee(&bo).unwrap();
+        }
+        let office = held_office(&dir, &cy, &[&message, &asked, &answer]).await;
+        let kind = office.db().run(&answer.id).unwrap().unwrap().run.kind;
+        assert_eq!(kind, RunKind::Answered { asked_run_id: asked.id.clone(), from: bo.id.clone(), task: false, chat: false, thread: Some(message.id.clone()) });
+        let open = office.conversations().unwrap().threads;
+        let chat = open.iter().find(|t| t.root.id == message.id).expect("the chat message is a conversation to follow");
+        assert_eq!(chat.replies.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![answer.id.clone()], "even though Cy reports to Ana");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_review_you_are_talking_about_leaves_the_rest_of_its_week_in_the_archive() {
         let dir = std::env::temp_dir().join(format!("omegastar-week-talking-{}", uuid::Uuid::new_v4()));

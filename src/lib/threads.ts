@@ -74,8 +74,17 @@ export type OpenCard = { run: Run; index: number; card: Card };
 export const openCards = (t: Thread): OpenCard[] =>
   [...t.replies].reverse().concat(t.root).flatMap((run) => run.cards.flatMap((card, index) => (card.answer ? [] : [{ run, index, card }])));
 
-/** Some thread in an Inbox row has a card waiting on you, so the row cannot be marked done yet. */
-export const rowCardOpen = (t: Thread): boolean => rowThreads(t).some((x) => openCards(x).length > 0);
+/** A conversation you are in: one going on (not archived, with replies) that you started or typed into. Turns Omega
+ *  Star wrote from a tap alone do not make one. Mirrors Rust `threads::talking`. */
+export const talking = (t: Thread): boolean =>
+  !t.root.archivedAt && t.replies.length > 0 && (isTask(t) || t.replies.some((r) => !r.omegaWrote));
+
+/** A card waiting on you holds up Done on `thread`, a thread of the Inbox row `row`: a card in the thread itself, or in
+ *  another member Done would archive with it. Another conversation you are in goes on in its own chip, so a card there
+ *  does not. Mirrors Rust `Office::set_archived`. */
+export const doneHeld = (thread: Thread, row: Thread): boolean =>
+  openCards(thread).length > 0
+  || rowThreads(row).some((x) => x.root.id !== thread.root.id && !talking(x) && openCards(x).length > 0);
 
 /** What a card is about, so the same question from anyone is one decision: its key, or for a chore asked
  *  before keys, `chore:<subject>`. Mirrors Rust `Card::topic`. */

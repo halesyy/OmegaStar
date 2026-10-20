@@ -8,7 +8,7 @@ import { lastMoved, useMarkSeen } from "../lib/marks";
 import { openMember } from "../lib/router";
 import { toolName } from "../lib/rules";
 import { toast } from "../lib/toasts";
-import { activityAt, didNotFinish, isTeamWeek, latestFinished, rowCardOpen, rowThreads, STREAK, threadFocus } from "../lib/threads";
+import { activityAt, didNotFinish, doneHeld, isTeamWeek, latestFinished, rowThreads, STREAK, threadFocus } from "../lib/threads";
 import { Icon } from "../components/Icon";
 import { Avatar } from "../components/ui";
 import { kindNames } from "../components/RunRow";
@@ -127,13 +127,13 @@ export function DecisionItem({ d, employees, people, open, onToggle, onHover, ac
 }
 
 /** The buttons that answer a decision. Anything that is not a card or a block is dealt with by reading it, so Done;
- *  a row with a card open waits for the card instead. */
+ *  while a card Done would settle is open (`doneHeld`), it waits for the card instead. */
 function Answer({ d, e, busy, actions }: { d: Decision<Item>; e: EmployeeView; busy: boolean; actions: ItemActions }) {
   const who = firstName(e.name);
   if (d.type === "card") return <CardView card={d.card} e={e} onAnswer={(reply) => actions.answer(d.run, d.index, reply)} />;
   if (d.type === "blocked") return <Allow run={d.run} who={who} />;
   if (d.type === "flag" && d.run.kind.type === "tidy" && d.run.proposed && !d.run.repliedAt) return <ApproveTidy run={d.run} who={who} />;
-  if (rowCardOpen(d.item.thread)) return null;
+  if (doneHeld(d.thread, d.item.thread)) return null;
   return (
     <div className="card-choices">
       <DoneButton name={who} disabled={busy} onDone={actions.done} />

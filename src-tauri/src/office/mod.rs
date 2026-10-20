@@ -336,14 +336,24 @@ impl Office {
 
     /// Moves the turns an older build's chat left queued or running into the work lane, as this build makes
     /// them, since nothing shows a chat-lane run once it ends: your message there becomes a conversation you
-    /// started, and a colleague's answer that came back into the chat an answer of its own, which can ask you on
-    /// a card.
+    /// started, and a colleague's answer that came back into the chat the next turn of the chat message that
+    /// asked, so it waits for you in that conversation whoever the employee reports to.
     fn adopt_chat_turns(&self) -> Result<()> {
         let db = self.db();
         for state in [RunState::Queued, RunState::Running] {
             for mut r in db.runs_in_state(state)?.into_iter().filter(|r| r.kind.lane() == Lane::Chat) {
                 r.kind = match r.kind {
-                    RunKind::Answered { asked_run_id, from, task, thread, .. } => RunKind::Answered { asked_run_id, from, task, chat: false, thread },
+                    RunKind::Answered { asked_run_id, from, task, thread, .. } => {
+                        let asker = match thread {
+                            Some(t) => Some(t),
+                            None => db.run(&asked_run_id)?.and_then(|a| a.run.parent_run_id().map(String::from)),
+                        };
+                        let thread = match asker {
+                            Some(id) if db.run(&id)?.is_some() => Some(id),
+                            _ => None,
+                        };
+                        RunKind::Answered { asked_run_id, from, task, chat: false, thread }
+                    }
                     _ => RunKind::Task { label: threads::task_label(&r.prompt, &r.attachments), from: None, context: String::new() },
                 };
                 db.save_run_moved(&r)?;

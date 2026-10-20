@@ -5,7 +5,7 @@ import { decisions, type Decision } from "../lib/decisions";
 import { dayHeading, firstName } from "../lib/format";
 import { useOrg, useProposals, useQuery } from "../lib/hooks";
 import { setMark } from "../lib/marks";
-import { archiveAt, rowCardOpen, wasArchived } from "../lib/threads";
+import { archiveAt, doneHeld, wasArchived } from "../lib/threads";
 import { ProposalCard } from "../components/ProposalCard";
 import { useShell } from "../Shell";
 import { Icon } from "../components/Icon";
@@ -48,7 +48,7 @@ function after(ids: string[], id: string): string | null {
 /** An entry with nothing to answer but Done: E marks it done. */
 const doneable = (d: Decision<Item>): boolean =>
   (d.type === "flag" ? !d.run.proposed || !!d.run.repliedAt : d.type !== "card" && d.type !== "blocked")
-  && !rowCardOpen(d.item.thread) && d.item.status.state !== "working" && d.item.status.state !== "queued";
+  && !doneHeld(d.thread, d.item.thread) && d.item.status.state !== "working" && d.item.status.state !== "queued";
 
 /**
  * Only what needs you: hire proposals, then one entry per question, block or breakage, and every conversation where

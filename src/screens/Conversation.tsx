@@ -5,7 +5,7 @@ import { refreshOrg, useOrg, useThread } from "../lib/hooks";
 import { lastMoved, setMark, useMarkSeen } from "../lib/marks";
 import { openChat, openFullChat, openMember, openRun, type Route } from "../lib/router";
 import { threadStatus, type Status } from "../lib/status";
-import { isLive, openCards, parseThreadFocus, rowCardOpen, threadFocus } from "../lib/threads";
+import { doneHeld, isLive, parseThreadFocus, threadFocus } from "../lib/threads";
 import { kindNames } from "../components/RunRow";
 import { Icon } from "../components/Icon";
 import { Avatar, ErrorNote, Skeleton, StatePill } from "../components/ui";
@@ -82,7 +82,8 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
   doneRef.current = done;
   const ready = !!root?.endedAt && !archived && !runs.some(isLive);
   // A card waiting on you is answered on the card, so neither Done nor E closes the thread.
-  const carded = (root ? openCards({ root, replies: runs.slice(1), related: [] }).length > 0 : false) || (row ? rowCardOpen(row.thread) : false);
+  const own = root ? { root, replies: runs.slice(1), related: [] } : null;
+  const carded = own ? doneHeld(own, row?.thread ?? own) : false;
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.ctrlKey || ev.metaKey || ev.altKey || typing(ev.target) || document.querySelector(".popover")) return;
