@@ -345,14 +345,14 @@ impl Office {
             } else {
                 format!("{name} changed the company page in a run nobody was watching while you were also changing it, so it was not put back.")
             };
-            let tail = if put_back { format!("If you want this, tell {name} in a chat or edit the page in You.") } else { "Check the page in You.".to_string() };
+            let tail = if put_back { format!("If you want this, tell {name} in a conversation or edit the page in You.") } else { "Check the page in You.".to_string() };
             let added = (!added.is_empty()).then(|| format!("It added: \"{added}\""));
             let removed = (!removed.is_empty()).then(|| format!("It removed: \"{removed}\""));
             [Some(head), added, removed, Some(tail)].into_iter().flatten().collect()
         } else {
             let text = claude::clip(&claude::one_line(now.map(String::as_str).unwrap_or_default()), 500);
             if put_back {
-                vec![format!("{name} proposes what they own: \"{text}\" It was put back until you agree. To use it, edit What {name} owns on their profile, or tell them in a chat.")]
+                vec![format!("{name} proposes what they own: \"{text}\" It was put back until you agree. To use it, edit What {name} owns on their profile, or tell them in a conversation.")]
             } else {
                 vec![format!("{name} changed what they own in a run nobody was watching while you were also changing it, so it was not put back: \"{text}\" Check it on their profile.")]
             }
@@ -498,10 +498,11 @@ fn mentions(text: &str, name: &str) -> bool {
     })
 }
 
-/// The CEO is in this conversation. Not is_conversation(): an Answered chat turn starts from a colleague's report.
 /// The flag on a tidy that proposes changes: the Inbox shows it as the approval it waits on.
 pub const PROPOSES: &str = "Proposes bigger changes that need your OK.";
 
+/// The CEO is in this conversation: one they started, a reply, or a turn of an older build's chat. Not
+/// is_conversation(): an answer that came back into a conversation starts from a colleague's report.
 pub(super) fn ceo_in(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. })
 }
@@ -756,9 +757,10 @@ mod tests {
     }
 
     #[test]
-    fn only_chats_tasks_and_replies_have_you_in_them() {
+    fn only_conversations_and_replies_have_you_in_them() {
         let scheduled = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
-        assert!(!ceo_in(&RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: true }));
+        assert!(!ceo_in(&RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: true, thread: None }));
+        assert!(!ceo_in(&RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: false, thread: Some("t1".into()) }));
         assert!(!ceo_in(&scheduled));
         assert!(!ceo_in(&RunKind::Delegated { parent_run_id: "r1".into() }));
         assert!(ceo_in(&RunKind::Chat));

@@ -1,5 +1,5 @@
-//! Every conversation across the office in one read: the open threads, which of them lead an Inbox row,
-//! and each employee's ongoing chat, composed from the Inbox's queries and the open tasks.
+//! Every conversation across the office in one read: the open threads and which of them lead an Inbox
+//! row, composed from the Inbox's queries and the open conversations you started.
 
 use super::*;
 use std::cmp::Reverse;
@@ -38,21 +38,7 @@ impl Office {
             open.push(Thread::new(root, replies));
         }
         open.sort_by_key(|t| Reverse(threads::activity_at(&t.root, &t.replies)));
-
-        let chats = employees
-            .iter()
-            .map(|e| {
-                let turns = db.chat_runs(&e.id, &e.chat_session)?;
-                Ok(ChatHead {
-                    employee_id: e.id.clone(),
-                    last_ended_at: turns.iter().filter_map(|r| r.ended_at).max(),
-                    live: turns.iter().any(|r| r.state == RunState::Running),
-                    queued: turns.iter().any(|r| r.state == RunState::Queued),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(Conversations { threads: open, inbox, chats })
+        Ok(Conversations { threads: open, inbox })
     }
 
     /// A queued or running run that will be a report of its own once it finishes, under the same root
@@ -140,28 +126,29 @@ mod tests {
         done.archived_at = Some(now());
         db.insert_run(&done, &done.id).unwrap();
 
+        // A turn of an older build's chat is in no thread; it is a run of its own.
         let chat = run(&db, &ada, RunKind::Chat, RunState::Succeeded, 5, Some(&ada.chat_session));
+        // A colleague's answer that came back into the open task is its next turn.
+        let came = RunKind::Answered { asked_run_id: "r1".into(), from: bo.id.clone(), task: false, chat: false, thread: Some(open_task.id.clone()) };
+        let answer = run(&db, &ada, came, RunState::Succeeded, 1, Some(&open_task.id));
 
         let c = Office::conversations_in(&db).unwrap();
         let ids: Vec<&str> = c.threads.iter().map(|t| t.root.id.as_str()).collect();
         for want in [&report.id, &replied.id, &open_task.id, &sub_report.id, &live.id] {
             assert_eq!(ids.iter().filter(|id| **id == want.as_str()).count(), 1, "{want} once in threads: {ids:?}");
         }
-        for unwanted in [&plain.id, &live_quiet.id, &live_sub.id, &done.id, &chat.id] {
+        for unwanted in [&plain.id, &live_quiet.id, &live_sub.id, &done.id, &chat.id, &answer.id] {
             assert!(!ids.contains(&unwanted.as_str()), "{unwanted} not in threads");
         }
         let with_reply = c.threads.iter().find(|t| t.root.id == replied.id).unwrap();
         assert_eq!(with_reply.replies.len(), 1, "the inbox row keeps its reply");
         assert_eq!(c.threads.iter().find(|t| t.root.id == sub_report.id).unwrap().replies.len(), 1);
+        let task = c.threads.iter().find(|t| t.root.id == open_task.id).unwrap();
+        assert_eq!(task.replies.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![answer.id.as_str()]);
 
         let mut inbox: Vec<&str> = c.inbox.iter().map(String::as_str).collect();
         inbox.sort();
         assert_eq!(inbox, vec![report.id.as_str()], "only a report that needs you leads an Inbox row; a plain one is in Updates");
-
-        let head = |e: &Employee| c.chats.iter().find(|h| h.employee_id == e.id).unwrap();
-        assert_eq!(head(&ada).last_ended_at, chat.ended_at);
-        assert!(!head(&ada).live && !head(&ada).queued);
-        assert_eq!(head(&bo).last_ended_at, None);
 
         drop(db);
         let _ = fs::remove_dir_all(&dir);

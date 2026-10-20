@@ -233,7 +233,7 @@ pub struct Watched {
 /// since the last tidy, and for an approved tidy the plan they approved.
 pub struct TidyBrief {
     pub findings: Vec<HealthFinding>,
-    /// (when, what they said) in chat and in Inbox replies.
+    /// (when, what they said) in conversations and in Inbox replies.
     pub taught: Vec<(Ts, String)>,
     pub plan: Option<String>,
 }
@@ -263,8 +263,8 @@ pub fn kind_label(k: &RunKind) -> String {
         RunKind::Tidy { reason: TidyReason::Approved, .. } => "tidy of your skills (approved changes)".into(),
         RunKind::Tidy { .. } => "tidy of your skills and notes".into(),
         RunKind::Reply { task: false, .. } => "reply to your report".into(),
-        RunKind::Reply { task: true, label, .. } => format!("reply in your task '{label}'"),
-        RunKind::Task { label, .. } => format!("task '{label}'"),
+        RunKind::Reply { task: true, label, .. } => format!("reply in your conversation '{label}'"),
+        RunKind::Task { label, .. } => format!("conversation '{label}'"),
         RunKind::HireDecided { approved: true, .. } => "hire proposal approved".into(),
         RunKind::HireDecided { approved: false, .. } => "hire proposal declined".into(),
         RunKind::ReplyCheck { .. } => "reply check".into(),
@@ -438,7 +438,7 @@ pub(crate) fn test_snapshot(company: Company, employee: Employee, opening: Optio
         employee_dir,
         mcp_url: "http://127.0.0.1:1/mcp/t".into(),
         resume,
-        session: employee.chat_session.clone(),
+        session: "s1".into(),
         employee,
     }
 }

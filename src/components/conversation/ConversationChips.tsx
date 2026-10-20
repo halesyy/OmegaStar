@@ -3,41 +3,40 @@ import type { EmployeeView, Run } from "../../api/types";
 import { firstName } from "../../lib/format";
 import { openChat } from "../../lib/router";
 import type { State, Status } from "../../lib/status";
-import { NEW_TASK_FOCUS, parseThreadFocus, threadFocus } from "../../lib/threads";
+import { parseThreadFocus, threadFocus } from "../../lib/threads";
 import { kindIcon } from "../RunRow";
 import { Icon, type IconName } from "../Icon";
 import { employeeItems, useStatuses } from "./useStatuses";
 
 /** One chip: what it opens, how it looks, and where its conversation stands (null when it is not open any more). */
-type Chip = { focus: string | null; label: string; icon: IconName; tip: string; replies: number; status: Status | null };
+type Chip = { focus: string; label: string; icon: IconName; tip: string; replies: number; status: Status | null };
 
 /**
- * The employee's conversations as a row of chips above the one open on their panel: Ongoing, then each open
- * thread, newest first, then + for a new task. A thread that is not open any more (done, or opened by link) still
- * gets a chip while it is the open one, from its `root` run and `title`.
+ * The employee's conversations as a row of chips above the one open on their panel: each open thread, newest
+ * first, then + for a new conversation. A thread that is not open any more (done, or opened by link) still gets a
+ * chip while it is the open one, from its `root` run and `title`.
  */
 export function ConversationChips({ e, focus, title, root }: {
   e: EmployeeView;
-  /** The open conversation, as the route has it. */
+  /** The open conversation, as the route has it: null for a new one. */
   focus: string | null;
   /** The open conversation's title. */
   title: string;
   /** The open thread's root run, once loaded. */
   root: Run | null;
 }) {
-  const { items, chats } = useStatuses();
-  const chips: Chip[] = [{ focus: null, label: "Ongoing", icon: "chat", tip: "Ongoing chat", replies: 0, status: chats.get(e.id) ?? null }];
-  for (const i of employeeItems(items ?? [], e.id)) {
+  const { items } = useStatuses();
+  const chips: Chip[] = employeeItems(items ?? [], e.id).map((i) => {
     const t = i.thread;
-    chips.push({ focus: threadFocus(t.root.id), label: i.title, icon: kindIcon(t.root), tip: [i.title, i.status.reason].filter(Boolean).join(". "), replies: t.replies.length, status: i.status });
-  }
+    return { focus: threadFocus(t.root.id), label: i.title, icon: kindIcon(t.root), tip: [i.title, i.status.reason].filter(Boolean).join(". "), replies: t.replies.length, status: i.status };
+  });
   if (root && parseThreadFocus(focus) === root.id && !chips.some((c) => c.focus === focus)) {
-    chips.push({ focus, label: title, icon: root.archivedAt ? "archive" : kindIcon(root), tip: title, replies: 0, status: null });
+    chips.push({ focus: threadFocus(root.id), label: title, icon: root.archivedAt ? "archive" : kindIcon(root), tip: title, replies: 0, status: null });
   }
   return (
     <div className="thread-switch" role="group" aria-label={`Conversations with ${firstName(e.name)}`}>
-      {chips.map((c) => <ConversationChip key={c.focus ?? "chat"} c={c} on={c.focus === focus} onClick={() => openChat(e.id, c.focus, true)} />)}
-      <button className="chip chip-new" aria-pressed={focus === NEW_TASK_FOCUS} aria-label="New task" title="New task, alongside everything else" onClick={() => openChat(e.id, NEW_TASK_FOCUS, true)}>
+      {chips.map((c) => <ConversationChip key={c.focus} c={c} on={c.focus === focus} onClick={() => openChat(e.id, c.focus, true)} />)}
+      <button className="chip chip-new" aria-pressed={focus === null} aria-label="New conversation" title="New conversation" onClick={() => openChat(e.id, null, true)}>
         <Icon name="plus" size={13} />
       </button>
     </div>

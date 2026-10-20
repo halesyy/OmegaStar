@@ -67,7 +67,7 @@ function PresenceLine({ e }: { e: EmployeeView }) {
     return (
       <button className="panel-presence panel-presence-accent" onClick={() => e.activeRunId && openRun(e.activeRunId)}>
         <span className="panel-presence-dot" />
-        {e.presence === "working" ? (e.activeLane === "chat" ? "Working on your chat" : "Working now") : "Queued"}
+        {e.presence === "working" ? "Working now" : "Queued"}
         <span className="faint">·</span>
         <span className="panel-presence-link">View run <Icon name="arrowRight" size={11} /></span>
       </button>

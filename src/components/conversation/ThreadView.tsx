@@ -21,8 +21,9 @@ import "../../screens/Inbox.css";
 const TEACH_PREFIX = "I want to teach you a new task: ";
 
 /**
- * A thread on one of the employee's reports, or a task, read as a conversation: the report (or your first
- * message) first, then each reply as a turn, with a composer that answers in it. What you send while the
+ * A thread on one of the employee's reports, or a conversation you started, read as a conversation: the report
+ * (or your first message) first, then each reply (and each answer a colleague brought back into it) as a turn, with
+ * a composer that answers in it. What you send while the
  * employee works reaches them as they work, or runs as the next reply. Whoever shows it (the conversation
  * screen, an Inbox row) holds the thread's runs (`thread`), and the rest of an Inbox row (`row`) when it leads one.
  */
@@ -71,9 +72,9 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   }
 
   const tail = replies.length ? replies[replies.length - 1].run : root;
-  const place = task ? "task" : "thread";
+  const place = task ? "conversation" : "thread";
   const hint = archived ? (task ? "Replying reopens it" : "Replying brings it back") : `Stays in this ${place} · Shift+Enter for a new line`;
-  // A task's first message is a turn like the rest; a report opens its thread on its own.
+  // A conversation's first message is a turn like the rest; a report opens its thread on its own.
   const shown = task ? turns : replies;
 
   return (
@@ -172,7 +173,6 @@ export async function sendAndDone(rootId: string, name: string, text: string, at
 export function DoneButton({ name, disabled, onDone }: {
   /** The employee's first name. */
   name: string;
-  task: boolean;
   /** The thread is still working, so it cannot be done yet. */
   disabled: boolean;
   onDone: () => Promise<void>;
@@ -180,7 +180,7 @@ export function DoneButton({ name, disabled, onDone }: {
   const [busy, setBusy] = useState(false);
   return (
     <button
-      className="btn btn-sm" disabled={disabled || busy} title={disabled ? `${name} is still working on it` : "Done (E)"}
+      className="btn btn-sm" disabled={disabled || busy} title={disabled ? `${name} is still working on it` : "Mark this conversation done (E)"}
       onClick={async () => { setBusy(true); try { await onDone(); } finally { setBusy(false); } }}
     >
       <Icon name="check" size={13} /> Done <kbd className="kbd">E</kbd>

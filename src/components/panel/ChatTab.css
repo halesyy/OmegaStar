@@ -11,7 +11,7 @@
   align-self: flex-end; max-width: 82%; padding: 9px 13px; border-radius: 14px 14px 4px 14px; background: var(--sunken);
   border: 1px solid var(--line); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5;
 }
-/* A colleague's report or answer that came back as a turn in the chat: folded, since Omega Star wrote it. */
+/* A colleague's report or answer that came back as a turn in a conversation: folded, since Omega Star wrote it. */
 .msg-came { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); }
 .msg-came > summary { display: flex; align-items: center; gap: 7px; font-size: var(--t-sm); color: var(--muted); cursor: pointer; list-style: none; }
 .msg-came > summary::-webkit-details-marker { display: none; }
@@ -28,6 +28,7 @@
 .thinking span:nth-child(2) { animation-delay: 0.18s; }
 .thinking span:nth-child(3) { animation-delay: 0.36s; }
 
+/* A conversation before its first message. */
 .chat-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 48px 36px 24px; animation: riseIn 320ms var(--ease); }
 .chat-empty p { max-width: 360px; line-height: 1.55; margin-bottom: 6px; }
 .chat-suggest { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 400px; margin-top: 18px; }
@@ -68,13 +69,10 @@
 .attach-sent { transition: border-color var(--d-ui) var(--ease), color var(--d-ui) var(--ease); }
 .attach-sent:hover { border-color: var(--line-strong); color: var(--ink); }
 
-/* ------------------------------------------------ a thread or task */
+/* ------------------------------------------------ a thread or conversation */
 .thread { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .thread-time { font-size: var(--t-xs); white-space: nowrap; }
 .thread-needs { margin: 0; }
-
-/* In a new task the send button says a task will start. */
-.composer-send.composer-send-task { width: auto; height: 32px; padding: 0 12px 0 10px; gap: 6px; }
 
 /* A turn waiting to start. */
 .task-wait {
@@ -84,11 +82,3 @@
 .task-wait > svg { flex: none; margin-top: 2px; color: var(--live-text); }
 .task-wait b { font-weight: 600; color: var(--ink); }
 .task-wait-link { margin: 4px 0 0 -8px; }
-
-/* A task before its first message. */
-.task-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; padding: 56px 36px 24px; animation: riseIn 320ms var(--ease); }
-.task-empty p { max-width: 380px; line-height: 1.55; }
-.task-empty-icon {
-  width: 48px; height: 48px; margin-bottom: 4px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center;
-  background: var(--raised); border: 1px solid var(--line); color: var(--ink-2);
-}

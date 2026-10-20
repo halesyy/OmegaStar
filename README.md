@@ -33,7 +33,7 @@ Omega Star is not another agent. Every AI employee (an autonomous Claude Code ag
 A week with Sam, your Chief of Staff, and Felix, a Cloud Engineer who reports to Sam:
 
 ```text
-Monday 10 am, chat with Sam
+Monday 10 am, a conversation with Sam
 
   You    Every Monday I want one page: status line first, then evidence.
   Sam    Done. That's a rule in my weekly report skill now, and I've set
@@ -84,12 +84,12 @@ You teach an employee by talking to them, the way you'd teach a new hire. Each l
 | Step | You | Your employee |
 |---|---|---|
 | **1. Hire** | Pick a template or start blank. Set a title, an objective and skills. | Gets a role skill that starts from that objective. |
-| **2. Teach** | Explain a task in chat, or correct a report by replying to it. | Writes it into a skill and names the one that changed. |
+| **2. Teach** | Explain a task in a conversation, or correct a report by replying to it. | Writes it into a skill and names the one that changed. |
 | **3. Delegate** | Give them a schedule, a manager and people to ask. | Works on their own, asks when stuck, reports back. |
 
 - **People.** Record each person's role, strengths and channels (Teams, Slack, email, Jira and more), each with a "When to use" line. Employees reach out with your Claude Code's own tools, and Omega Star tracks each request: a reply resumes the work, and without one the employee nudges once, then carries on.
 - **Managers and colleagues.** Managers delegate to their direct reports, employees ask each other for help, and any of them can propose a hire for you to approve.
-- **Several things at once.** While an employee is busy, anything else you send starts a task: a conversation of its own that runs alongside the rest of their work and knows what you'd just discussed. Archive it when it's done and their ongoing chat hears what was decided.
+- **Several things at once.** Every conversation with an employee is its own thread and runs alongside the rest of their work, so you can have several going at once. When a colleague answers something they asked along the way, the answer comes back into that conversation. Mark it done when it's finished and it moves to the Archive.
 - **Schedules and the Inbox.** Schedules run from the tray and catch up once after the computer was off or asleep, unless you set them to skip. Reports, hire proposals, open requests and blocked actions land in one Inbox.
 - **Skills that grow.** Each employee's role skill routes to small, one-job skills they write as you teach. Tidies run on their own, big restructures wait for your approval, a rule you taught is put back if a tidy drops it, and every skill edit can be undone.
 - **You stay in charge.** New employees are Supervised: they edit files in their own folders, and anything else you haven't allowed is blocked until you click **Allow once & retry** or **Always allow & retry**. **Pause schedules** stops all scheduled work.
@@ -110,7 +110,7 @@ You teach an employee by talking to them, the way you'd teach a new hire. Each l
    - **Windows:** the `-setup.exe`. If SmartScreen appears, click **More info**, then **Run anyway**.
    - **Linux:** the `.AppImage` (untested).
 2. **Open your office.** Setup checks Claude Code and asks for your company, name and title. Turn on "Keep Omega Star running in the background" so it starts at login. Closing the window leaves it in the tray, where schedules keep running.
-3. **Hire your first employee** from a template, such as Chief of Staff. Their chat opens with a first lesson already written. Send it, and they'll interview you and write their first skill.
+3. **Hire your first employee** from a template, such as Chief of Staff. A new conversation opens with a first lesson already written. Send it, and they'll interview you and write their first skill.
 
 **Tip:** start with one employee and one job, and expect a short training period while you allow the commands and tools they need.
 
@@ -158,7 +158,7 @@ Employees run as you, and there is no sandbox; containers isolate better. Superv
 <details>
 <summary><b>What does it cost, and is it allowed on my plan?</b></summary>
 
-Omega Star is free and open source; you pay for your Claude plan as usual. It runs the official Claude Code CLI as you and never reads your Claude credentials, so Anthropic's terms for your plan apply (see [Using it responsibly](#using-it-responsibly)). Work runs are capped at 3 at a time by default; chats, and work a manager delegates while it waits, skip the cap. The sidebar shows your 5-hour and 7-day Claude usage, and background upkeep (never real work) waits when usage is high.
+Omega Star is free and open source; you pay for your Claude plan as usual. It runs the official Claude Code CLI as you and never reads your Claude credentials, so Anthropic's terms for your plan apply (see [Using it responsibly](#using-it-responsibly)). Work runs are capped at 3 at a time by default; your conversations with employees, and work a manager delegates while it waits, skip the cap. The sidebar shows your 5-hour and 7-day Claude usage, and background upkeep (never real work) waits when usage is high.
 
 </details>
 

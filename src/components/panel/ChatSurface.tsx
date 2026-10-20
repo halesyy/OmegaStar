@@ -33,8 +33,8 @@ export type ChatSurfaceHandle = {
 
 /**
  * The surface a conversation with an employee happens on: the scrolling transcript (`children`), a drop
- * zone for files, and the composer. The ongoing chat and every thread share it; what differs is where a
- * message goes (`onSend`) and what sits in the composer's bar (`actions`). While a turn is in flight the
+ * zone for files, and the composer. Every conversation shares it; what differs is where a message goes
+ * (`onSend`) and what sits in the composer's bar (`actions`). While a turn is in flight the
  * composer stays open: what you send reaches the employee as they work.
  */
 export const ChatSurface = forwardRef<ChatSurfaceHandle, {
@@ -52,15 +52,13 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   onSend: (text: string, attachments: NewAttachment[]) => Promise<void>;
   /** A second way to send, "Send & done" (also Ctrl or ⌘ + Enter): the message goes and the conversation is put away. */
   onSendDone?: (text: string, attachments: NewAttachment[]) => Promise<void>;
-  /** Sending starts a task, so the button says so. */
-  startsTask?: boolean;
   onStop?: () => Promise<void>;
   /** Extra buttons in the bar, after the paperclip. */
   actions?: ReactNode;
   /** The composer takes focus when it appears. Off in an Inbox row, so its keys keep working until you click in. */
   autoFocus?: boolean;
   children: ReactNode;
-}>(function ChatSurface({ e, busy, live, placeholder, hint, draftKey, scrollKey, onSend, onSendDone, startsTask = false, onStop, actions, autoFocus = true, children }, ref) {
+}>(function ChatSurface({ e, busy, live, placeholder, hint, draftKey, scrollKey, onSend, onSendDone, onStop, actions, autoFocus = true, children }, ref) {
   const [text, setText] = useState(() => getDraft(draftKey));
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -214,22 +212,14 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
             ) : (
               hint ? <span className="composer-hint faint">{hint}</span> : null
             )}
-            {startsTask && hasContent ? (
-              <button className="btn btn-primary btn-sm composer-send composer-send-task" title="Start as a new task (Enter). Shift+Enter adds a new line." disabled={sending} onClick={() => void send()}>
-                <Icon name="branch" size={13} /> Start task
+            {onSendDone && hasContent ? (
+              <button className="btn btn-sm" title="Send, and bring it back only if the answer needs you (Ctrl+Enter)" disabled={sending} onClick={() => void send(onSendDone)}>
+                Send &amp; done
               </button>
-            ) : (
-              <>
-                {onSendDone && hasContent ? (
-                  <button className="btn btn-sm" title="Send, and bring it back only if the answer needs you (Ctrl+Enter)" disabled={sending} onClick={() => void send(onSendDone)}>
-                    Send &amp; done
-                  </button>
-                ) : null}
-                <button className="btn btn-primary btn-icon btn-sm composer-send" aria-label="Send" title="Send (Enter). Shift+Enter adds a new line." disabled={sending || !hasContent} onClick={() => void send()}>
-                  <Icon name="send" size={14} strokeWidth={1.8} />
-                </button>
-              </>
-            )}
+            ) : null}
+            <button className="btn btn-primary btn-icon btn-sm composer-send" aria-label="Send" title="Send (Enter). Shift+Enter adds a new line." disabled={sending || !hasContent} onClick={() => void send()}>
+              <Icon name="send" size={14} strokeWidth={1.8} />
+            </button>
           </div>
         </div>
       </div>

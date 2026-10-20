@@ -11,8 +11,6 @@ const ASK_DEPTH: usize = 6;
 const AWAIT_LIMIT: Duration = Duration::from_secs(240);
 /// Most runs `source_chain` walks back through hand-offs.
 const SOURCE_HOPS: usize = 12;
-/// CEO chat turns a chat origin quotes.
-const SOURCE_TURNS: usize = 3;
 
 impl Office {
     /// The live run a token belongs to, and its employee.
@@ -47,15 +45,15 @@ impl Office {
         if task.trim().is_empty() {
             return Err(AppError::invalid("task is empty"));
         }
-        let (report, busy, chat) = {
+        let (report, busy, conversation) = {
             let db = self.db();
             let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.manager_id.as_deref() == Some(&caller.id)).collect();
             let report = find_member(&reports, to, |e| (&e.id, Some(&e.slug), &e.name))
                 .ok_or_else(|| AppError::invalid(format!("'{to}' is not one of your direct reports. Call team() for the list.")))?
                 .clone();
             let busy = db.active_runs_of(&report.id)?.iter().any(|r| r.state == RunState::Running && !r.kind.is_conversation());
-            let chat = db.run(caller_run)?.map(|r| r.run.kind.lane()) == Some(Lane::Chat);
-            (report, busy, chat)
+            let conversation = db.run(caller_run)?.is_some_and(|r| r.run.conversation_root().is_some());
+            (report, busy, conversation)
         };
         let run = Run::new(&report.id, RunKind::Delegated { parent_run_id: caller_run.to_string() }, task.trim().to_string(), now());
         let session = run.id.clone();
@@ -64,7 +62,7 @@ impl Office {
             caller_run,
             RunEvent::Delegated { child_run_id: run.id.clone(), employee_id: report.id.clone(), task: run.prompt.clone() },
         );
-        let note = handoff_note(&report.name, "Their report", busy, chat);
+        let note = handoff_note(&report.name, "Their report", busy, conversation);
         Ok(json!({ "runId": run.id, "employee": report.name, "state": run.state, "note": note }))
     }
 
@@ -101,7 +99,7 @@ impl Office {
         if question.trim().is_empty() {
             return Err(AppError::invalid(if task { "task is empty" } else { "question is empty" }));
         }
-        let (colleague, busy, chat) = {
+        let (colleague, busy, conversation) = {
             let db = self.db();
             let others: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.id != caller.id).collect();
             let key = to.trim().to_lowercase();
@@ -131,8 +129,8 @@ impl Office {
             }
             // Background work goes one piece at a time; their conversations with the CEO run beside it.
             let busy = db.active_runs_of(&colleague.id)?.iter().any(|r| r.state == RunState::Running && !r.kind.is_conversation());
-            let chat = db.run(caller_run)?.map(|r| r.run.kind.lane()) == Some(Lane::Chat);
-            (colleague, busy, chat)
+            let conversation = db.run(caller_run)?.is_some_and(|r| r.run.conversation_root().is_some());
+            (colleague, busy, conversation)
         };
         let run = Run::new(
             &colleague.id,
@@ -146,7 +144,7 @@ impl Office {
             caller_run,
             RunEvent::Asked { child_run_id: run.id.clone(), employee_id: colleague.id.clone(), question: run.prompt.clone(), task },
         );
-        let note = handoff_note(&colleague.name, if task { "Their report" } else { "The answer" }, busy, chat);
+        let note = handoff_note(&colleague.name, if task { "Their report" } else { "The answer" }, busy, conversation);
         Ok(json!({ "runId": run.id, "colleague": colleague.name, "state": run.state, "note": note }))
     }
 
@@ -483,8 +481,9 @@ impl Office {
         let card = cards::card(args)?;
         let ceo = {
             let db = self.db();
+            // A turn of an older build's chat: a card there would never reach them.
             if db.run(caller_run)?.map(|r| r.run.kind.lane()) == Some(Lane::Chat) {
-                return Err(AppError::invalid(format!("In the ongoing chat, ask {} in your reply: cards are for work they are not watching.", ceo_of(&db)?)));
+                return Err(AppError::invalid(format!("Ask {} in your reply instead: a card from this run would not reach them.", ceo_of(&db)?)));
             }
             ceo_of(&db)?
         };
@@ -767,10 +766,10 @@ you as a new run. Never create the hire any other way."
 }
 
 /// The note `delegate` and `ask_colleague` return: the hand-off comes back either way, so wait only
-/// for a quick one.
-fn handoff_note(name: &str, what: &str, busy: bool, chat: bool) -> String {
+/// for a quick one. `conversation`: it was handed over in a conversation you started, so it comes back there.
+fn handoff_note(name: &str, what: &str, busy: bool, conversation: bool) -> String {
     let wait = if busy { format!("{name} is busy with other work, so this starts when that finishes. ") } else { String::new() };
-    let turn = if chat { ", as your next turn in this chat" } else { "" };
+    let turn = if conversation { ", as your next turn in this conversation" } else { "" };
     format!(
         "{wait}{what} comes back to you either way. Wait for it with await_reports only if it should take a few minutes and you need it \
 before you finish. Otherwise finish now: Omega Star starts a new run for you when it arrives{turn}."
@@ -846,15 +845,23 @@ fn report_of(r: &Run) -> String {
 }
 
 /// The run that brings `handed`'s answer or report (`report`) to whoever handed it over, from
-/// `parent`, and the session it runs in. A chat turn's answer is the asker's next turn in their
-/// current chat; a work run's resumes that run's session, which still holds everything it knew. It
-/// quotes where the asker's run started only when it does not resume it. None when the asker has left.
+/// `parent`, and the session it runs in. When the asker handed it over in a conversation you started, it is
+/// that conversation's next turn, in the session the conversation continues in. Otherwise it resumes the
+/// asking run's session, which still holds everything it knew, except after a turn of an older build's chat,
+/// which gets a fresh session. It quotes where the asker's run started only when it does not resume it.
+/// None when the asker has left.
 fn answered_run(db: &Store, ceo: &str, handed: &Run, parent: &RunRecord, task: bool, report: &str, note: Option<&str>) -> Result<Option<(Run, String)>> {
     let Some(asker) = db.employee(&parent.run.employee_id)? else { return Ok(None) };
     let from = db.employee(&handed.employee_id)?.map(|e| e.name).unwrap_or_else(|| "A former colleague".into());
-    let chat = parent.run.kind.lane() == Lane::Chat;
-    let session = if chat { asker.chat_session.clone() } else { parent.session.clone() };
-    let resumes = session == parent.session && db.session_started(&session)?;
+    let into = parent.run.conversation_root().map(|root| Office::thread_in(db, root)).transpose()?;
+    let (session, resumes) = match &into {
+        Some(t) => {
+            let (rec, resumes) = Office::next_turn(db, t)?;
+            (resumes.then_some(rec.session), resumes)
+        }
+        None if parent.run.kind.lane() == Lane::Chat => (None, false),
+        None => (Some(parent.session.clone()), db.session_started(&parent.session)?),
+    };
     let (did, yours, theirs) =
         if task { ("finished the task you handed them", "Your task", "Their report") } else { ("answered your question", "Your question", "Their answer") };
     let mut prompt = format!("{from} {did}.");
@@ -862,16 +869,19 @@ fn answered_run(db: &Store, ceo: &str, handed: &Run, parent: &RunRecord, task: b
         prompt += &format!("\n\n{n}");
     }
     if !resumes {
-        let origin = match parent.run.kind {
-            RunKind::Chat => format!("You were talking with {ceo}, whose message was:"),
-            _ => "Your run had started from:".to_string(),
+        let origin = if skills::ceo_in(&parent.run.kind) && !parent.run.omega_wrote {
+            format!("You were talking with {ceo}, whose message was:")
+        } else {
+            "Your run had started from:".to_string()
         };
         prompt += &format!("\n\n{origin}\n\n{}", claude::clip(&parent.run.prompt, 2000));
     }
     prompt += &format!("\n\n{yours}:\n\n{}\n\n{theirs}:\n\n{}", handed.prompt, claude::clip(report, 20000));
-    let kind = RunKind::Answered { asked_run_id: handed.id.clone(), from: handed.employee_id.clone(), task, chat };
+    let thread = into.map(|t| t.root.id);
+    let kind = RunKind::Answered { asked_run_id: handed.id.clone(), from: handed.employee_id.clone(), task, chat: false, thread };
     let mut run = Run::new(&asker.id, kind, prompt, now());
     run.omega_wrote = true;
+    let session = session.unwrap_or_else(|| run.id.clone());
     Ok(Some((run, session)))
 }
 
@@ -885,8 +895,6 @@ pub(super) struct SourceChain {
     handoffs: Vec<(Run, String)>,
     /// The first run that did not come from a hand-off, with its employee's name; None when it is gone.
     origin: Option<(Run, String)>,
-    /// For a chat origin: your last chat turns there up to and including it, oldest first.
-    turns: Vec<Run>,
     /// For a hire decision: your note on the proposal.
     note: Option<String>,
     /// For a follow-up: the person who replied.
@@ -895,7 +903,7 @@ pub(super) struct SourceChain {
 
 /// Walks back from the run `from` (the upstream of a hand-off) to the run the work began in.
 pub(super) fn source_chain(db: &Store, ceo: &str, from: &str) -> Result<SourceChain> {
-    let mut chain = SourceChain { ceo: ceo.to_string(), sender: String::new(), handoffs: vec![], origin: None, turns: vec![], note: None, person: None };
+    let mut chain = SourceChain { ceo: ceo.to_string(), sender: String::new(), handoffs: vec![], origin: None, note: None, person: None };
     let mut seen = HashSet::new();
     let mut next = Some(from.to_string());
     for _ in 0..SOURCE_HOPS {
@@ -911,14 +919,6 @@ pub(super) fn source_chain(db: &Store, ceo: &str, from: &str) -> Result<SourceCh
             continue;
         }
         match &rec.run.kind {
-            RunKind::Chat => {
-                let mut turns: Vec<Run> = db
-                    .chat_runs(&rec.run.employee_id, &rec.session)?
-                    .into_iter()
-                    .filter(|t| t.created_at <= rec.run.created_at && matches!(t.kind, RunKind::Chat) && !t.omega_wrote)
-                    .collect();
-                chain.turns = turns.split_off(turns.len().saturating_sub(SOURCE_TURNS));
-            }
             RunKind::HireDecided { proposal_id, .. } => chain.note = db.proposal(proposal_id)?.and_then(|p| p.note),
             RunKind::FollowUp { person_id, .. } => {
                 chain.person = Some(db.person(person_id)?.map(|p| p.name).unwrap_or_else(|| "a former member".into()))
@@ -948,16 +948,11 @@ pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
             quote(&r.prompt)
         ),
         Some((r, employee)) => match &r.kind {
-            RunKind::Chat => {
-                let mut t = format!("This began in {ceo}'s chat with {employee}. {ceo}'s last messages there, oldest first:");
-                for turn in &chain.turns {
-                    let words: Vec<String> = std::iter::once(turn.prompt.clone()).chain(steered(&turn.id)).collect();
-                    t += &format!("\n{}", quote(&words.join(" ")));
-                }
-                t
-            }
             RunKind::Manual if r.prompt == DEFAULT_PROMPT => format!("This began when {ceo} started a run for {employee} from the app, with no instructions."),
-            RunKind::Manual | RunKind::Task { .. } | RunKind::Reply { .. } => format!("This began with {ceo}'s own message to {employee}:\n{}", quote(&r.prompt)),
+            RunKind::Manual | RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. } => {
+                let words: Vec<String> = std::iter::once(r.prompt.clone()).chain(steered(&r.id)).collect();
+                format!("This began with {ceo}'s own message to {employee}:\n{}", quote(&words.join(" ")))
+            }
             RunKind::HireDecided { .. } => {
                 let mut t = format!("This began with {ceo}'s decision on a hire {employee} proposed; Omega Star wrote the message.");
                 if let Some(n) = &chain.note {
@@ -1104,7 +1099,7 @@ mod tests {
         assert_eq!(due.len(), 1);
         let (a, session) = &due[0];
         assert_eq!(a.employee_id, ada.id);
-        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: true, chat: false });
+        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: true, chat: false, thread: None });
         assert_eq!(session, &parent.id, "it resumes the manager's session");
         assert!(a.omega_wrote);
         assert!(a.prompt.starts_with("Bo finished the task you handed them.\n\nYour task:\n\nCount the stock.\n\nTheir report:\n\nBo did it."), "{}", a.prompt);
@@ -1179,40 +1174,53 @@ mod tests {
     }
 
     #[test]
-    fn a_chat_turns_report_comes_back_as_its_next_chat_turn() {
+    fn an_answer_to_an_ask_from_a_conversation_is_its_next_turn() {
         let o = office();
-        let mut ada = employee(&o.db, "Ada", None);
+        let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        // You talked with Ada in an older chat, and have started a new one since.
-        let parent = run(&o.db, &ada, RunKind::Chat, "Ask Bo for the numbers.", RunState::Succeeded, 30, Some("chat-old"));
+        let task = RunKind::Task { label: "The numbers".into(), from: None, context: String::new() };
+        let parent = run(&o.db, &ada, task, "Ask Bo for the numbers.", RunState::Succeeded, 30, None);
         o.db.mark_inited(&parent.id).unwrap();
         let mut child = run(&o.db, &bo, asked(&parent, false), "What are the numbers?", RunState::Succeeded, 20, None);
         child.needs_you = vec!["Look at this.".into()];
         o.db.save_run(&child).unwrap();
 
-        let due = due_answers(&o.db, &child).unwrap();
-        let (a, session) = &due[0];
-        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: false, chat: true });
-        assert_eq!(session, &ada.chat_session, "the chat Ada is in now");
+        let (a, session) = due_answers(&o.db, &child).unwrap().remove(0);
+        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: false, chat: false, thread: Some(parent.id.clone()) });
+        assert_eq!(session, parent.id, "the conversation's session");
         assert!(a.kind.is_conversation());
-        assert_eq!(a.kind.lane(), Lane::Chat);
-        assert!(a.prompt.starts_with("Bo answered your question.\n\nYou were talking with Pat, whose message was:\n\nAsk Bo for the numbers."), "{}", a.prompt);
+        assert_eq!(a.kind.lane(), Lane::Work);
+        assert!(a.prompt.starts_with("Bo answered your question.\n\nYour question:"), "it resumes the conversation, so it quotes nothing: {}", a.prompt);
 
-        assert!(o.db.insert_run(a, session).unwrap());
-        assert!(o.db.chat_runs(&ada.id, &ada.chat_session).unwrap().iter().any(|r| r.id == a.id));
+        assert!(o.db.insert_run(&a, &session).unwrap());
+        assert_eq!(Office::thread_in(&o.db, &parent.id).unwrap().replies.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![a.id.clone()]);
         assert!(!o.db.conversation_runs().unwrap().iter().any(|r| r.id == a.id));
         let rows = Office::rows(&o.db, crate::threads::View::Inbox).unwrap();
         let filed: Vec<&str> = rows.iter().flat_map(|t| std::iter::once(t).chain(&t.related)).map(|t| t.root.id.as_str()).collect();
         assert!(filed.contains(&child.id.as_str()), "the flagged answer has its row: {filed:?}");
-        assert!(!filed.contains(&a.id.as_str()), "the chat turn is in no row");
+        assert!(!filed.contains(&a.id.as_str()), "the turn is in no row");
 
-        // In the same chat, the turn resumes it and quotes nothing again.
-        ada.chat_session = "chat-old".into();
-        o.db.save_employee(&ada).unwrap();
-        let again = run(&o.db, &bo, asked(&parent, false), "And the totals?", RunState::Succeeded, 10, None);
-        let (a, session) = due_answers(&o.db, &again).unwrap().remove(0);
-        assert_eq!(session, "chat-old");
-        assert!(!a.prompt.contains("You were talking with"), "{}", a.prompt);
+        // An ask from your reply in the conversation comes back into it too, after the turn before it.
+        let reply = RunKind::Reply { to_run_id: parent.id.clone(), label: "The numbers".into(), task: true, card: false };
+        let replied = run(&o.db, &ada, reply, "And the totals?", RunState::Succeeded, 5, Some(&parent.id));
+        let again = run(&o.db, &bo, asked(&replied, false), "And the totals?", RunState::Succeeded, 2, None);
+        let (b, session) = due_answers(&o.db, &again).unwrap().remove(0);
+        assert!(matches!(&b.kind, RunKind::Answered { thread: Some(t), .. } if *t == parent.id), "{:?}", b.kind);
+        assert_eq!(session, parent.id);
+    }
+
+    #[test]
+    fn an_answer_to_an_older_builds_chat_starts_fresh() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let bo = employee(&o.db, "Bo", Some(&ada.id));
+        let parent = run(&o.db, &ada, RunKind::Chat, "Ask Bo for the numbers.", RunState::Succeeded, 30, Some(&ada.chat_session));
+        o.db.mark_inited(&parent.id).unwrap();
+        let child = run(&o.db, &bo, asked(&parent, false), "What are the numbers?", RunState::Succeeded, 20, None);
+        let (a, session) = due_answers(&o.db, &child).unwrap().remove(0);
+        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: false, chat: false, thread: None });
+        assert_eq!(session, a.id, "never into the old chat");
+        assert!(a.prompt.starts_with("Bo answered your question.\n\nYou were talking with Pat, whose message was:\n\nAsk Bo for the numbers."), "{}", a.prompt);
     }
 
     #[test]
@@ -1226,7 +1234,7 @@ mod tests {
         assert_eq!(session, never_started.id);
         assert!(a.prompt.contains("\n\nYour run had started from:\n\nPlan the launch.\n\nYour task:"), "{}", a.prompt);
 
-        let came = RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: true, chat: false };
+        let came = RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: true, chat: false, thread: None };
         let answered = run(&o.db, &ada, came, "Bo finished the task you handed them.", RunState::Succeeded, 10, None);
         let child = run(&o.db, &bo, asked(&answered, true), "Count the till.", RunState::Failed, 5, None);
         let (a, _) = due_answers(&o.db, &child).unwrap().remove(0);
@@ -1261,7 +1269,7 @@ mod tests {
         let (a, session) = &due[0];
         assert_eq!(a.employee_id, ada.id);
         assert_eq!(session, &parent.id);
-        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: true, chat: false });
+        assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: true, chat: false, thread: None });
         assert!(
             a.prompt.starts_with("Bo finished the task you handed them.\n\nPat answered Bo's card (Chose: Not now.) and Bo carried on.\n\nYour task:\n\nBoost the post.\n\nTheir report:\n\nBo did it."),
             "{}",
@@ -1272,7 +1280,7 @@ mod tests {
     #[test]
     fn older_runs_load_without_the_new_fields() {
         let kind: RunKind = serde_json::from_value(json!({ "type": "answered", "askedRunId": "r1", "from": "e1", "task": true })).unwrap();
-        assert_eq!(kind, RunKind::Answered { asked_run_id: "r1".into(), from: "e1".into(), task: true, chat: false });
+        assert_eq!(kind, RunKind::Answered { asked_run_id: "r1".into(), from: "e1".into(), task: true, chat: false, thread: None });
         let mut v = serde_json::to_value(Run::new("e1", RunKind::Manual, "go".into(), now())).unwrap();
         v.as_object_mut().unwrap().remove("omegaWrote");
         let r: Run = serde_json::from_value(v).unwrap();
@@ -1289,7 +1297,7 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
         );
         let both = handoff_note("Bo", "The answer", true, true);
         assert!(both.starts_with("Bo is busy with other work, so this starts when that finishes. The answer comes back"));
-        assert!(both.ends_with("when it arrives, as your next turn in this chat."));
+        assert!(both.ends_with("when it arrives, as your next turn in this conversation."));
         assert!(!plain.contains('\u{2014}') && !both.contains('\u{2014}'));
     }
 
@@ -1307,42 +1315,30 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
     }
 
     #[test]
-    fn a_handoff_from_a_chat_quotes_the_chat() {
+    fn a_handoff_from_a_conversation_quotes_what_you_wrote_into_it() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         let cy = employee(&o.db, "Cy", None);
-        let chat = Some(ada.chat_session.as_str());
-        let turn = |prompt: &str, ago: i64| run(&o.db, &ada, RunKind::Chat, prompt, RunState::Succeeded, ago, chat);
-        turn("First, hello.", 50);
-        turn("Second, the plan.", 45);
-        turn("Third, the budget.", 40);
-        let came = RunKind::Answered { asked_run_id: "elsewhere".into(), from: bo.id.clone(), task: false, chat: true };
-        run(&o.db, &ada, came, "Bo answered your question.", RunState::Succeeded, 38, chat);
-        let delegating = turn("Fourth, get Bo to count the stock.", 35);
-        turn("Fifth, after it.", 10);
+        let task = RunKind::Task { label: "The stock".into(), from: None, context: String::new() };
+        let delegating = run(&o.db, &ada, task, "Get Bo to count the stock.", RunState::Succeeded, 35, None);
         steer(&o, &delegating, &["Only the warehouse."]);
 
         let d = run(&o.db, &bo, delegated(&delegating), "Count the stock.", RunState::Running, 30, None);
         steer(&o, &d, &["Use last week's sheet."]);
-        assert_eq!(
-            source(&o, &d),
-            "This began in Pat's chat with Ada. Pat's last messages there, oldest first:\n\
-> \"Second, the plan.\"\n\
-> \"Third, the budget.\"\n\
-> \"Fourth, get Bo to count the stock. Only the warehouse.\""
-        );
+        assert_eq!(source(&o, &d), "This began with Pat's own message to Ada:\n> \"Get Bo to count the stock. Only the warehouse.\"");
         // Bo asks Cy on: what Pat wrote into Bo's run on the way comes with it.
         let a = run(&o.db, &cy, asked(&d, false), "Where is last week's sheet?", RunState::Running, 20, None);
         assert_eq!(
             source(&o, &a),
-            "This began in Pat's chat with Ada. Pat's last messages there, oldest first:\n\
-> \"Second, the plan.\"\n\
-> \"Third, the budget.\"\n\
-> \"Fourth, get Bo to count the stock. Only the warehouse.\"\n\
+            "This began with Pat's own message to Ada:\n> \"Get Bo to count the stock. Only the warehouse.\"\n\
 Pat also wrote into Bo's run on the way:\n\
 > \"Use last week's sheet.\""
         );
+        // A hand-off from an older build's chat quotes the message it began with.
+        let chat = run(&o.db, &ada, RunKind::Chat, "Ask Bo for a date.", RunState::Succeeded, 10, Some(&ada.chat_session));
+        let d = run(&o.db, &bo, delegated(&chat), "Find a date.", RunState::Running, 5, None);
+        assert_eq!(source(&o, &d), "This began with Pat's own message to Ada:\n> \"Ask Bo for a date.\"");
     }
 
     #[test]

@@ -1,7 +1,8 @@
-//! Threads: a report and the replies you exchanged on it. A thread is a root run plus every Reply run
-//! whose `to_run_id` is that root. These are pure functions over runs; the Office loads the runs and
-//! the Inbox, the Archive and each employee's chips show the same threads. A task is a thread too: its root
-//! is your first message rather than a report, and it is never filed into an Inbox row.
+//! Threads: a report and the replies you exchanged on it. A thread is a root run plus every later turn
+//! whose `Run::reply_to` is that root. These are pure functions over runs; the Office loads the runs and
+//! the Inbox, the Archive and each employee's chips show the same threads. A conversation you started is a
+//! thread too (a task under the hood): its root is your first message rather than a report, an answer a
+//! colleague brings back into it is one of its turns, and it is never filed into an Inbox row.
 //!
 //! Rows group threads that belong together, so you see one row per piece of work rather than one per run:
 //! a report with everything it set off in conversation, or an ask a report made with everything that came
@@ -9,18 +10,14 @@
 //! (`merge_rows`). A row is in the Inbox only while it needs you (`needs_you`): a card, a flag, a blocked
 //! tool or breakage you can act on. Every row that reached you is in Updates, which never asks anything.
 
-use crate::claude::{clip, one_line};
+use crate::claude::clip;
 use crate::model::*;
 use std::collections::{HashMap, HashSet};
 
-/// Turns a new task is told about from the conversation it started in.
-const CONTEXT_TURNS: usize = 8;
-/// How far back a new task is told about that conversation: older turns are likely about something else.
-const CONTEXT_WINDOW: chrono::Duration = chrono::Duration::hours(2);
 /// A task's name, cut from your first message.
 const TASK_LABEL_CHARS: usize = 48;
 
-/// Replies grouped under their root's id, oldest first.
+/// Later turns grouped under their root's id, oldest first.
 pub fn group(replies: Vec<Run>) -> HashMap<String, Vec<Run>> {
     let mut out: HashMap<String, Vec<Run>> = HashMap::new();
     for r in replies {
@@ -115,9 +112,11 @@ pub fn broken(t: &Thread) -> bool {
 /// Whether a finished run reaches your Inbox. `quiet_chain`: it is part of a hand-off a quiet report
 /// started, so like that report it speaks up only when it flags something or breaks. `top`: its
 /// employee reports to you; an agent below another agent reports to that manager unless it flags you.
-/// A task never does: you follow it as a conversation of its own.
+/// A conversation you started never does, nor an answer that came back into one: you follow it as a
+/// conversation of its own.
 pub fn reaches_you(r: &Run, quiet_chain: bool, top: bool) -> bool {
-    if r.kind.lane() != Lane::Work || matches!(r.kind, RunKind::Reply { .. } | RunKind::ReplyCheck { .. } | RunKind::Task { .. }) || !r.state.is_finished() {
+    let turn = matches!(r.kind, RunKind::Reply { .. } | RunKind::ReplyCheck { .. } | RunKind::Task { .. } | RunKind::Answered { thread: Some(_), .. });
+    if r.kind.lane() != Lane::Work || turn || !r.state.is_finished() {
         return false;
     }
     if matches!(r.kind, RunKind::Nudge { .. }) && r.state == RunState::Cancelled {
@@ -350,35 +349,6 @@ pub fn report_label(kind: &RunKind) -> String {
     }
 }
 
-/// A moment on your local clock, as a task's context labels a turn: "2:15 pm".
-fn clock(t: Ts) -> String {
-    t.with_timezone(&chrono::Local).format("%-I:%M %P").to_string()
-}
-
-/// One turn of a conversation as a task's context quotes it, each line labelled with its time: what
-/// you said at `asked`, then the employee's answer, or `pending` while it is still coming. A message
-/// Omega Star wrote is never quoted as yours.
-fn exchange(ceo: &str, r: &Run, asked: &str, pending: &str) -> String {
-    let mut text = String::new();
-    if !r.prompt.trim().is_empty() {
-        let who = match &r.kind {
-            RunKind::Answered { .. } => "a colleague's report came back".to_string(),
-            _ if r.omega_wrote => format!("Omega Star, from what {ceo} did in the app"),
-            _ => ceo.to_string(),
-        };
-        text += &format!("- {asked}, {who}: {}\n", clip(&one_line(&r.prompt), 300));
-    }
-    let answered = r.ended_at.map(clock).unwrap_or_else(|| asked.to_string());
-    match r.summary.as_deref().filter(|s| !s.trim().is_empty()) {
-        Some(s) => text += &format!("- {answered}, you: {}\n", clip(&one_line(s), 400)),
-        None if r.state.is_finished() => {
-            text += &format!("- {answered}, you: (your reply did not finish: {})\n", r.error.as_deref().unwrap_or("no report"))
-        }
-        None => text += &format!("- {answered}, you: ({pending})\n"),
-    }
-    text
-}
-
 /// The first line of a report with markdown marks stripped, so an excerpt reads as plain text.
 fn first_line(s: &str) -> String {
     let marks: &[char] = &['#', '>', '-', '*', ' '];
@@ -387,27 +357,6 @@ fn first_line(s: &str) -> String {
         .map(|l| l.trim().trim_start_matches(marks).replace(emphasis, ""))
         .find(|l| !l.is_empty())
         .unwrap_or_default()
-}
-
-/// What a task you start mid-conversation is told about that conversation: its turns from the last
-/// two hours, at most the newest few, oldest first, each clipped and labelled with its time. `runs` is
-/// the conversation in order; a report opening it is quoted as one.
-pub fn context(ceo: &str, runs: &[Run], now: Ts) -> String {
-    let recent: Vec<&Run> = runs.iter().filter(|r| now - r.created_at <= CONTEXT_WINDOW).collect();
-    let skipped = recent.len().saturating_sub(CONTEXT_TURNS);
-    let mut text = String::new();
-    if skipped > 0 {
-        text += &format!("- ({skipped} earlier {} omitted)\n", if skipped == 1 { "turn" } else { "turns" });
-    }
-    for r in recent.into_iter().skip(skipped) {
-        let at = clock(r.created_at);
-        if r.kind.is_conversation() {
-            text += &exchange(ceo, r, &at, "still working on this in that conversation");
-        } else if let Some(s) = r.summary.as_deref().filter(|s| !s.trim().is_empty()) {
-            text += &format!("- {}, your report: {}\n", clock(r.ended_at.unwrap_or(r.created_at)), clip(&one_line(s), 400));
-        }
-    }
-    text
 }
 
 /// A task's name: the first sentence of your first message without the words that open a request, so
@@ -582,45 +531,19 @@ mod tests {
     }
 
     #[test]
-    fn context_never_quotes_omega_stars_words_as_yours() {
+    fn an_answer_in_a_conversation_joins_it_and_reaches_you_only_there() {
         let at = chrono::Utc::now();
-        let t = clock(at);
-        let mut turn = Run::new("e1", RunKind::Chat, "Count the stock.".into(), at);
-        turn.summary = Some("On it.".into());
-        turn.ended_at = Some(at);
-        let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: true };
-        let mut answered = Run::new("e1", came, "Bo answered your question. Their answer: 40 boxes.".into(), at);
-        answered.omega_wrote = true;
-        answered.summary = Some("Bo counted 40 boxes.".into());
-        answered.ended_at = Some(at);
-        let reply = RunKind::Reply { to_run_id: "r2".into(), label: "Manual run".into(), task: false, card: false };
-        let mut tap = Run::new("e1", reply, "Pat approved what was blocked.".into(), at);
-        tap.omega_wrote = true;
-        assert_eq!(
-            context("Pat", &[turn, answered, tap], at),
-            format!(
-                "- {t}, Pat: Count the stock.\n- {t}, you: On it.\n\
-- {t}, a colleague's report came back: Bo answered your question. Their answer: 40 boxes.\n- {t}, you: Bo counted 40 boxes.\n\
-- {t}, Omega Star, from what Pat did in the app: Pat approved what was blocked.\n- {t}, you: (still working on this in that conversation)\n"
-            )
-        );
-    }
-
-    #[test]
-    fn context_keeps_only_the_last_two_hours() {
-        let now = chrono::Utc::now();
-        let turn = |mins: i64, said: &str| {
-            let at = now - chrono::Duration::minutes(mins);
-            let mut r = Run::new("e1", RunKind::Chat, said.into(), at);
+        let task = Run::new("e1", RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, "Draft it.".into(), at);
+        let came = |thread: Option<String>| {
+            let mut r = Run::new("e1", RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: false, thread }, "Bo answered.".into(), at);
             r.state = RunState::Succeeded;
-            r.ended_at = Some(at);
-            r.summary = Some("Done.".into());
+            r.needs_you = vec!["Look at this.".into()];
             r
         };
-        let text = context("Pat", &[turn(180, "Book the venue."), turn(30, "Order the chairs.")], now);
-        assert!(!text.contains("Book the venue."), "{text}");
-        let at = clock(now - chrono::Duration::minutes(30));
-        assert!(text.starts_with(&format!("- {at}, Pat: Order the chairs.\n- {at}, you: Done.\n")), "{text}");
-        assert_eq!(context("Pat", &[turn(180, "Book the venue.")], now), "");
+        let turn = came(Some(task.id.clone()));
+        let grouped = group(vec![turn.clone()]);
+        assert_eq!(grouped.get(&task.id).map(|v| v.len()), Some(1));
+        assert!(!reaches_you(&turn, false, true), "it is a turn of its conversation, even when it flags something");
+        assert!(reaches_you(&came(None), false, true), "an answer to background work is a report of its own");
     }
 }

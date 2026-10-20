@@ -113,10 +113,10 @@ export function SettingsScreen() {
               <Row title="Keep Omega Star running in the background" desc="Schedules only run while Omega Star is open. With this on, it starts at login and stays in the tray.">
                 <Switch checked={st.background} onChange={(v) => void setBackground(v)} label="Run in the background" />
               </Row>
-              <Row title="Pause all schedules" desc={s.paused ? "Nobody runs on a schedule until you resume. Manual runs and chat still work." : "Stop every schedule at once, for a holiday or a noisy week."}>
+              <Row title="Pause all schedules" desc={s.paused ? "Nobody runs on a schedule until you resume. Manual runs and conversations still work." : "Stop every schedule at once, for a holiday or a noisy week."}>
                 <Switch checked={s.paused} onChange={(v) => void save({ ...s, paused: v }, v ? "Schedules paused" : "Schedules resumed")} label="Pause schedules" />
               </Row>
-              <Row title="Runs at the same time" desc="Extra work and tasks wait their turn. Chat is never held up.">
+              <Row title="Runs at the same time" desc="Extra work waits its turn. Conversations with you are never held up.">
                 <div className="stepper">
                   <button className="btn btn-icon stepper-btn" aria-label="Fewer" disabled={s.maxConcurrentRuns <= 1} onClick={() => void save({ ...s, maxConcurrentRuns: s.maxConcurrentRuns - 1 })}>−</button>
                   <span className="mono num stepper-value">{s.maxConcurrentRuns}</span>

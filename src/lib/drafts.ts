@@ -1,7 +1,7 @@
-// Composer drafts per employee, so a suggested first message survives navigation.
+// Composer drafts per composer, so a suggested first message survives navigation.
 const drafts = new Map<string, string>();
-export const getDraft = (employeeId: string) => drafts.get(employeeId) ?? "";
-export const setDraft = (employeeId: string, text: string) => {
-  if (text) drafts.set(employeeId, text);
-  else drafts.delete(employeeId);
+export const getDraft = (key: string) => drafts.get(key) ?? "";
+export const setDraft = (key: string, text: string) => {
+  if (text) drafts.set(key, text);
+  else drafts.delete(key);
 };

@@ -114,7 +114,7 @@ export function SkillsOverview({ e, skills, history, runs, staged, health, runBy
           ) : (
             <div className="tree-children">
               <div className="tree-empty">
-                Nothing yet. Teach {name} a task in Chat and it becomes a skill here.
+                Nothing yet. Teach {name} a task in a conversation and it becomes a skill here.
                 <button className="btn btn-sm" onClick={() => openChat(e.id)}><Icon name="teach" size={12} /> Teach a task</button>
               </div>
             </div>

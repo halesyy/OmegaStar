@@ -8,7 +8,7 @@ export type ActivityView = "runs" | "skills";
 export type Route =
   /** The org chart, with a member's panel open. On an employee's Chat tab, `focus` says which conversation is open. */
   | { page: "org"; memberId: string | null; tab: PanelTab | null; focus: string | null }
-  /** A conversation with an employee filling the window. `focus`: null for the ongoing chat, `thread~<root run id>`, or `new-task`. */
+  /** A conversation with an employee filling the window. `focus`: `thread~<root run id>`, or null for a new conversation. */
   | { page: "chat"; employeeId: string; focus: string | null }
   | { page: "inbox" }
   | { page: "activity"; view: ActivityView }
@@ -61,7 +61,7 @@ export function navigate(r: Route, opts: { replace?: boolean } = {}) {
 
 export const openMember = (memberId: string, tab: PanelTab | null = null, focus: string | null = null, replace = false) =>
   navigate({ page: "org", memberId, tab, focus }, { replace });
-/** A conversation with an employee: the ongoing chat, or with `focus` a thread or a new task. It opens in the mode
+/** A conversation with an employee: with `focus` a thread, without one a new conversation. It opens in the mode
  *  you are in: full window while a conversation fills the window, else on their panel's Chat tab over the org chart. */
 export function openChat(employeeId: string, focus: string | null = null, replace = false) {
   if (routeOf(location.hash).page === "chat") navigate({ page: "chat", employeeId, focus }, { replace });

@@ -1,7 +1,7 @@
 // Where each conversation stands, worked out in one place. The Inbox, its badge, the panel's chips and the
-// conversation header all read what `threadStatus` and `chatStatus` return and decide nothing themselves. Pure.
-import type { ChatHead, Thread } from "../api/types";
-import { chatKey, type Mark, type Marks } from "./marks";
+// conversation header all read what `threadStatus` returns and decide nothing themselves. Pure.
+import type { Thread } from "../api/types";
+import type { Mark, Marks } from "./marks";
 import { toolName } from "./rules";
 import { activityAt, blocked, broken, flags, isLive, lastReply, latestFinished, openCards, threadBusy } from "./threads";
 
@@ -12,8 +12,8 @@ export type State = "needsYou" | "working" | "queued" | "snoozed" | "done" | "id
 /** Where one conversation stands. */
 export type Status = {
   state: State;
-  /** It is a row of the Inbox: a report that reached you, or a task or replied thread the employee answered,
-   *  until you mark it done. A snoozed row sits under Snoozed instead. Never an ongoing chat. */
+  /** It is a row of the Inbox: a report that reached you, or a conversation or replied thread the employee
+   *  answered, until you mark it done. A snoozed row sits under Snoozed instead. */
   inbox: boolean;
   /** It moved since you last looked, or its snooze ended. */
   unread: boolean;
@@ -36,7 +36,7 @@ type Facts = {
   busy: boolean;
   /** Everything in flight waits for a free slot. */
   queued: boolean;
-  /** It is yours to act on until you mark it done: an Inbox row, an answered thread, or an ongoing chat. */
+  /** It is yours to act on until you mark it done: an Inbox row, or an answered thread. */
   waiting: boolean;
   unread: boolean;
   /** It asks you something: a card, a flag, a blocked tool, or a run that broke. */
@@ -107,15 +107,6 @@ export function threadStatus(t: Thread, filed: boolean, { marks, since, now }: S
     reason: state === "needsYou" ? threadReason(t, mark, now) : null,
     snoozedUntil: snoozed ? mark.snoozedUntil! : null,
   };
-}
-
-/** Where an employee's ongoing chat stands: it needs you while it has an answer you have not read. */
-export function chatStatus(head: ChatHead, { marks, since }: StatusContext): Status {
-  const mark = marks[chatKey(head.employeeId)] ?? {};
-  const busy = head.live || head.queued;
-  const unread = !busy && ms(head.lastEndedAt) > seenFloor(mark, since);
-  const state = stateOf({ done: false, snoozed: false, busy, queued: !head.live, waiting: true, unread, flagged: false });
-  return { state, inbox: false, unread, reason: state === "needsYou" ? "New reply" : null, snoozedUntil: null };
 }
 
 /** Snooze choices from `now`: in 3 hours, tomorrow at 9:00 am, and next week, the Monday after tomorrow at 9:00 am. */

@@ -120,7 +120,7 @@ impl Office {
         Ok(rows.into_iter().nth(at).map(|r| r.members.into_iter().map(|(t, _)| t).collect()).unwrap_or_default())
     }
 
-    /// The thread a run belongs to: the report or task (root) and every reply on it, oldest first.
+    /// The thread a run belongs to: the report or conversation you started (root) and every later turn, oldest first.
     pub(super) fn thread_in(db: &Store, run_id: &str) -> Result<Thread> {
         let run = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
         let root = match run.reply_to() {
@@ -340,6 +340,16 @@ Approval covers only what is listed, so if something else is blocked, stop and s
         Ok(reply)
     }
 
+    /// A thread's newest turn as stored, and whether the next turn resumes its session: yes while that turn is
+    /// still to come (it has the session, even before it starts) or once its session started. No when it never
+    /// started (it failed first), so there is nothing to resume and the next turn starts a fresh one.
+    pub(super) fn next_turn(db: &Store, t: &Thread) -> Result<(RunRecord, bool)> {
+        let latest = t.replies.last().unwrap_or(&t.root);
+        let rec = db.run(&latest.id)?.ok_or_else(|| AppError::not_found("run not found"))?;
+        let resumes = !rec.run.state.is_finished() || db.session_started(&rec.session)?;
+        Ok((rec, resumes))
+    }
+
     /// `run_id` may be any run in the thread. The reply answers the thread's root and resumes the
     /// thread's newest session (the root's, or a fresh one an earlier reply had to start). A plain reply
     /// goes into that session's run while it works; one that carries files or rules, or that Omega Star
@@ -354,7 +364,7 @@ Approval covers only what is listed, so if something else is blocked, stop and s
         let (root, mut reply, session) = {
             let db = self.db();
             let t = Self::thread_in(&db, run_id)?;
-            let mut root = t.root;
+            let mut root = t.root.clone();
             let e = db.employee(&root.employee_id)?.ok_or_else(|| AppError::not_found("that employee no longer works here"))?;
             let latest = t.replies.last().cloned().unwrap_or_else(|| root.clone());
             if plain && latest.state == RunState::Running && self.steer(&latest.id, text) {
@@ -365,18 +375,16 @@ Approval covers only what is listed, so if something else is blocked, stop and s
                 self.sink().run_updated(&root);
                 return Ok(latest);
             }
-            let rec = db.run(&latest.id)?.ok_or_else(|| AppError::not_found("run not found"))?;
+            let (rec, resumes) = Self::next_turn(&db, &t)?;
             let label = threads::report_label(&root.kind);
             let task = matches!(root.kind, RunKind::Task { .. });
-            // A turn still to come has the session, even before it starts.
-            let (prompt, session) = if !rec.run.state.is_finished() || db.session_started(&rec.session)? {
+            let (prompt, session) = if resumes {
                 (text.to_string(), rec.session)
             } else {
-                // The session never started (it failed first), so there is nothing to resume.
                 let report = rec.run.summary.clone().or_else(|| rec.run.error.clone()).unwrap_or_else(|| "(no report)".into());
                 let ceo = db.company()?.map(|c| c.ceo_name).unwrap_or_else(|| "Your manager".into());
                 let before = if task {
-                    format!("{ceo}'s task ({label}):\n\n{}\n\nWhat came of it:\n\n{report}", root.prompt)
+                    format!("{ceo} started this conversation ({label}):\n\n{}\n\nWhat came of it:\n\n{report}", root.prompt)
                 } else {
                     format!("Your report ({label}):\n\n{report}")
                 };

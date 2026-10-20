@@ -136,7 +136,7 @@ function Answer({ d, e, busy, actions }: { d: Decision<Item>; e: EmployeeView; b
   if (rowCardOpen(d.item.thread)) return null;
   return (
     <div className="card-choices">
-      <DoneButton name={who} task={d.item.thread.root.kind.type === "task"} disabled={busy} onDone={actions.done} />
+      <DoneButton name={who} disabled={busy} onDone={actions.done} />
     </div>
   );
 }

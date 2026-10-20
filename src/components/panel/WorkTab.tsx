@@ -18,16 +18,15 @@ export function groupByDay(runs: Run[]): { day: string; runs: Run[] }[] {
   return out;
 }
 
-/** What an employee does: their schedules, then every run, live ones first. Chat turns stay in their ongoing chat. */
+/** What an employee does: their schedules, then every run, live ones first. */
 export function WorkTab({ e }: { e: EmployeeView }) {
   const { snap } = useOrg();
   const [editing, setEditing] = useState<ScheduleDraft | null>(null);
   const q = useQuery(() => call("runs", { employeeId: e.id, limit: 100 }), [e.id], ["run:updated"]);
-  // Anything going right now, whichever lane it is in: asking for work in chat is how most of it starts.
-  // Everything else is history, and finished chat turns stay in the ongoing chat.
+  // Anything going right now, conversations included: asking for work in one is how most of it starts.
+  // Everything else is history.
   const live = useMemo(() => (q.data ?? []).filter((r) => r.state === "running" || r.state === "queued"), [q.data]);
-  const work = useMemo(() => (q.data ?? []).filter((r) => r.kind.type !== "chat"), [q.data]);
-  const groups = useMemo(() => groupByDay(work.filter((r) => !live.includes(r))), [work, live]);
+  const groups = useMemo(() => groupByDay((q.data ?? []).filter((r) => !live.includes(r))), [q.data, live]);
 
   if (editing) return <ScheduleEditor e={e} initial={editing} onDone={() => { setEditing(null); refreshOrg(); }} />;
   const employees = snap?.employees ?? [];
@@ -38,7 +37,7 @@ export function WorkTab({ e }: { e: EmployeeView }) {
       <Section title="Runs">
         {q.error ? <ErrorNote text={q.error} onRetry={q.reload} /> : null}
         {!q.data && !q.error ? <div className="stack" style={{ gap: 8 }}>{[0, 1, 2].map((i) => <Skeleton key={i} h={40} r={10} />)}</div> : null}
-        {q.data && work.length === 0 && live.length === 0 ? (
+        {q.data && q.data.length === 0 ? (
           <p className="tab-empty">No runs yet. They show up here when {firstName(e.name)} works on a schedule, when you press Run now, or when a colleague hands them something.</p>
         ) : null}
         <div className="work-runs">

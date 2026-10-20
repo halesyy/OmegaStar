@@ -131,6 +131,8 @@ pub struct Employee {
     pub auto_tidy: bool,
     pub workspaces: Vec<String>,
     pub hue: u16,
+    /// The session of the one long chat older builds kept. Nothing reads it now, but a hire still gets one of
+    /// its own, so an older build reading this employee never shares a session with another.
     pub chat_session: String,
     pub hired_at: Ts,
 }
@@ -207,10 +209,8 @@ pub struct EmployeeView {
     #[serde(flatten)]
     pub employee: Employee,
     pub presence: Presence,
-    /// The run to look at while they are working or queued: a work run before a chat turn.
+    /// The run to look at while they are working or queued: background work before a conversation with you.
     pub active_run_id: Option<String>,
-    /// Which lane `active_run_id` is in, so the UI can say "in chat" rather than "run".
-    pub active_lane: Option<Lane>,
     /// How many runs they have going at once, and how many more wait to start.
     pub working: u32,
     pub waiting: u32,
@@ -714,6 +714,7 @@ pub const CHECK_PREFIX: &str = "check:";
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RunKind {
     Manual,
+    /// A turn of the one long chat older builds had. Nothing starts one now; old ones still load.
     Chat,
     Scheduled {
         schedule_id: String,
@@ -744,9 +745,13 @@ pub enum RunKind {
         asked_run_id: String,
         from: String,
         task: bool,
-        /// It is a turn in the asker's chat with you: their run was a chat turn when they handed the work over.
+        /// A turn in the one long chat of an older build. Nothing sets it now.
         #[serde(default)]
         chat: bool,
+        /// The asker handed the work over in a conversation you started, so this is its next turn: the id of
+        /// that conversation's first message.
+        #[serde(default)]
+        thread: Option<String>,
     },
     FollowUp { request_id: String, person_id: String },
     /// Sorts skills you imported from Claude Code into the employee's family.
@@ -768,9 +773,9 @@ pub enum RunKind {
         #[serde(default)]
         card: bool,
     },
-    /// A task you started beside the ongoing chat: a conversation of its own, so it runs at the same
-    /// time as the employee's other work. `label` names it. It starts from the conversation you were in:
-    /// `context` is what was said there and `from` names it ("your chat"); both are empty when nothing was.
+    /// A conversation you started with the employee, under the hood a task: a thread of its own, so it runs at
+    /// the same time as their other work. `label` names it. `from` and `context` held what an older build's chat
+    /// said before it began; nothing sets them now.
     Task {
         label: String,
         #[serde(default)]
@@ -860,6 +865,8 @@ impl Lane {
 }
 
 impl RunKind {
+    /// The lane a run is stored in, written once when it is queued: Chat only for the turns of an older
+    /// build's chat, so those rows keep to themselves.
     pub fn lane(&self) -> Lane {
         match self {
             RunKind::Chat | RunKind::Answered { chat: true, .. } => Lane::Chat,
@@ -867,10 +874,11 @@ impl RunKind {
         }
     }
 
-    /// Your conversations with the employee (the ongoing chat, tasks, replies in a thread) run beside
-    /// everything else. The rest is background work, which an employee does one piece at a time.
+    /// Your conversations with the employee (a thread you started, a reply in a thread, an answer that came
+    /// back into one, and an older build's chat) run beside everything else. The rest is background work,
+    /// which an employee does one piece at a time.
     pub fn is_conversation(&self) -> bool {
-        matches!(self, RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. } | RunKind::Answered { chat: true, .. })
+        matches!(self, RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. } | RunKind::Answered { chat: true, .. } | RunKind::Answered { thread: Some(_), .. })
     }
 
     /// A due check runs as a Scheduled run whose schedule_id is check:<check id>; no schedules row has that id.
@@ -1158,7 +1166,7 @@ pub struct Run {
     /// For a Tidy run: the bigger changes it proposes and waits for your approval to make.
     #[serde(default)]
     pub proposed: Option<String>,
-    /// Files you attached to a chat message, by name. They live in the employee's `attachments/<run id>/`.
+    /// Files you attached to a message, by name. They live in the employee's `attachments/<run id>/`.
     #[serde(default)]
     pub attachments: Vec<String>,
     /// The build that ran it: app version, commit and channel, Claude Code's version and the signed-in organisation.
@@ -1233,12 +1241,31 @@ impl Run {
         }
     }
 
-    /// For a Reply run: the thread's root, which it answers.
+    /// The root of the thread this run is a later turn of: the run a Reply answers, or the first message of
+    /// the conversation an answer came back into.
     pub fn reply_to(&self) -> Option<&str> {
         match &self.kind {
-            RunKind::Reply { to_run_id, .. } => Some(to_run_id),
+            RunKind::Reply { to_run_id, .. } | RunKind::Answered { thread: Some(to_run_id), .. } => Some(to_run_id),
             _ => None,
         }
+    }
+
+    /// The conversation you started that this run is a turn of, by its first message's id: a task itself, a
+    /// reply in one, or an answer that came back into one. None for anything else.
+    pub fn conversation_root(&self) -> Option<&str> {
+        match &self.kind {
+            RunKind::Task { .. } => Some(&self.id),
+            RunKind::Reply { to_run_id, task: true, .. } | RunKind::Answered { thread: Some(to_run_id), .. } => Some(to_run_id),
+            _ => None,
+        }
+    }
+
+    /// A turn of a conversation with you, which never waits for or counts against the cap on runs at once: a
+    /// conversation you started, a reply you typed, an answer that came back into a conversation, and a turn of
+    /// an older build's chat. A reply Omega Star wrote from your tap (a card's answer, an approval) is capped:
+    /// one tap can answer many runs at once.
+    pub fn uncapped(&self) -> bool {
+        self.kind.is_conversation() && !(self.omega_wrote && matches!(self.kind, RunKind::Reply { .. }))
     }
 
     /// The run this one continues from in a chain of hand-offs: the parent of a delegated or asked
@@ -1251,8 +1278,8 @@ impl Run {
     }
 }
 
-/// A report and the replies you exchanged on it: the root run and every Reply run chained to it,
-/// oldest first. One chip on the employee's panel. In the Inbox and the Archive a thread is a row's
+/// A report and the replies you exchanged on it: the root run and every later turn chained to it
+/// (`Run::reply_to`), oldest first. One chip on the employee's panel. In the Inbox and the Archive a thread is a row's
 /// lead, with the row's other threads in `related`.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1270,30 +1297,15 @@ impl Thread {
     }
 }
 
-/// Where an employee's ongoing chat stands, for its chip: read from its current session's turns.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatHead {
-    pub employee_id: String,
-    /// When the newest finished turn ended; None before the first answer.
-    pub last_ended_at: Option<Ts>,
-    /// A turn is running.
-    pub live: bool,
-    /// A turn is waiting to start.
-    pub queued: bool,
-}
-
 /// Every conversation across the office, for the Inbox and each employee's chips, in one read.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Conversations {
     /// Open threads of every employee, one per root, most recently active first: Inbox rows (with
-    /// `related`), open tasks, reports you replied to, and top-level reports still being written.
+    /// `related`), open conversations you started, reports you replied to, and top-level reports still being written.
     pub threads: Vec<Thread>,
     /// The root ids of the threads in `threads` that lead an Inbox row: reports that reached you.
     pub inbox: Vec<String>,
-    /// One per current employee.
-    pub chats: Vec<ChatHead>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1711,7 +1723,7 @@ pub struct AccountIssue {
     pub signed_in_as: Option<String>,
 }
 
-/// A file attached to a chat message: its name and its bytes in base64.
+/// A file attached to a message: its name and its bytes in base64.
 #[derive(Debug, Clone, Deserialize)]
 pub struct NewAttachment {
     pub name: String,
@@ -1842,5 +1854,46 @@ mod tests {
         assert_eq!(scheduled("check:abc").check_id(), Some("abc"));
         assert_eq!(scheduled("6f1c0e2a").check_id(), None);
         assert_eq!(RunKind::Chat.check_id(), None);
+    }
+
+    #[test]
+    fn a_conversation_you_are_in_is_never_capped() {
+        let answered = |thread: Option<&str>, chat: bool| RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat, thread: thread.map(String::from) };
+        let reply = |card: bool| RunKind::Reply { to_run_id: "r0".into(), label: "Draft it".into(), task: true, card };
+        let run = |kind: RunKind, omega_wrote: bool| Run { omega_wrote, ..Run::new("e1", kind, "go".into(), Utc::now()) };
+        for kind in [RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, reply(false), answered(Some("r0"), false), RunKind::Chat, answered(None, true)] {
+            assert!(run(kind.clone(), false).uncapped(), "{kind:?}");
+        }
+        assert!(run(answered(Some("r0"), false), true).uncapped(), "Omega Star writes every answer");
+        assert!(!run(reply(true), true).uncapped(), "a card's answer waits its turn");
+        assert!(!run(reply(false), true).uncapped(), "so does an approval");
+        for kind in [RunKind::Manual, answered(None, false), RunKind::Delegated { parent_run_id: "r0".into() }] {
+            assert!(!run(kind.clone(), false).uncapped(), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn an_answer_in_a_conversation_is_its_next_turn() {
+        let task = Run::new("e1", RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, "Draft it.".into(), Utc::now());
+        let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: false, thread: Some(task.id.clone()) };
+        let answer = Run::new("e1", came, "Bo answered your question.".into(), Utc::now());
+        assert_eq!(answer.reply_to(), Some(task.id.as_str()));
+        assert_eq!(answer.conversation_root(), Some(task.id.as_str()));
+        assert_eq!(task.conversation_root(), Some(task.id.as_str()));
+        assert!(answer.kind.is_conversation());
+        assert_eq!(answer.kind.lane(), Lane::Work);
+        let on_a_report = Run::new("e1", RunKind::Reply { to_run_id: "r0".into(), label: "Sweep".into(), task: false, card: false }, "ok".into(), Utc::now());
+        assert_eq!((on_a_report.reply_to(), on_a_report.conversation_root()), (Some("r0"), None));
+    }
+
+    #[test]
+    fn rows_from_an_older_builds_chat_still_load() {
+        let chat: Run = serde_json::from_value(serde_json::to_value(Run::new("e1", RunKind::Chat, "Hi.".into(), Utc::now())).unwrap()).unwrap();
+        assert_eq!(chat.kind, RunKind::Chat);
+        let came: RunKind = serde_json::from_value(json!({ "type": "answered", "askedRunId": "r1", "from": "e2", "task": false, "chat": true })).unwrap();
+        assert_eq!(came, RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: true, thread: None });
+        assert_eq!(came.lane(), Lane::Chat);
+        let task: RunKind = serde_json::from_value(json!({ "type": "task", "label": "Draft it", "from": "your chat", "context": "- 2:15 pm, Pat: Hi.\n" })).unwrap();
+        assert_eq!(task, RunKind::Task { label: "Draft it".into(), from: Some("your chat".into()), context: "- 2:15 pm, Pat: Hi.\n".into() });
     }
 }

@@ -69,7 +69,7 @@ export function CommandPalette({ onClose, api }: { onClose: () => void; api: { h
     const employees = snap?.employees ?? [];
     const people = snap?.people ?? [];
     const nameOf = (id: string) => firstName(employees.find((e) => e.id === id)?.name ?? people.find((p) => p.id === id)?.name ?? "Someone");
-    const workRuns = (index?.runs ?? []).filter((r) => r.kind.type !== "chat");
+    const workRuns = index?.runs ?? [];
     const runLabel = (r: Run) => runKindLabel(r.kind, kindNames(r, employees, people));
     const runWhen = (r: Run) => relTime(r.endedAt ?? r.startedAt ?? r.createdAt);
 

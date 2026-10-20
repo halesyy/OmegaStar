@@ -19,15 +19,15 @@ export type Employee = {
   browser: boolean;                         // may drive your Chrome (Claude in Chrome); off for new hires unless you turn it on
   autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on unless you turn it off
   workspaces: string[]; hue: number;        // 0-359, avatar colour
-  chatSession: string; hiredAt: string;
+  chatSession: string;                      // the session of the one long chat older builds kept; nothing reads it
+  hiredAt: string;
 };
 export type EmployeeDraft = Omit<Employee, "id" | "slug" | "chatSession" | "hiredAt">;
 
 export type Presence = "idle" | "working" | "queued" | "attention";
 export type EmployeeView = Employee & {
   presence: Presence;
-  activeRunId: string | null;         // the run to look at while working or queued: a work run before a chat turn
-  activeLane: "work" | "chat" | null; // which lane that run is in
+  activeRunId: string | null;         // the run to look at while working or queued: background work before a conversation
   working: number;                    // runs they have going at once
   waiting: number;                    // runs of theirs waiting to start
   nextFire: string | null;
@@ -130,18 +130,19 @@ export type ScheduleDraft = Omit<Schedule, "id" | "nextFire" | "review"> & { id?
 export type CronPreview = { ok: true; description: string; next: string[] } | { ok: false; error: string };
 
 export type RunKind =
-  | { type: "manual" } | { type: "chat" }
+  | { type: "manual" }
+  | { type: "chat" }   // a turn of the one long chat older builds had; nothing starts one now
   | { type: "scheduled"; scheduleId: string; slot: string; label: string; quiet: boolean; model?: string | null; effort?: Effort | null; review?: boolean }
   | { type: "delegated"; parentRunId: string }
   | { type: "asked"; parentRunId: string; askedBy: string; task: boolean }   // a colleague's question or task; askedBy = their employee id
-  | { type: "answered"; askedRunId: string; from: string; task: boolean; chat: boolean }    // brings an answer or report to an asker whose run had ended; chat: as a turn in their chat
+  | { type: "answered"; askedRunId: string; from: string; task: boolean; chat: boolean; thread?: string | null }    // brings an answer or report to an asker whose run had ended; thread: the conversation it came back into, as its next turn; chat: an older build's chat
   | { type: "followUp"; requestId: string; personId: string }
   | { type: "replyCheck"; requestId: string; personId: string }
   | { type: "nudge"; requestId: string; personId: string }
   | { type: "unanswered"; requestId: string; personId: string }
   | { type: "organize"; imported: ImportedSkill[]; settled: boolean }
-  | { type: "reply"; toRunId: string; label: string; task: boolean; card: boolean }    // your reply to a report or in a task; label = what it was; card: Omega Star wrote it from your answer on a card
-  | { type: "task"; label: string; from: string | null; context: string }   // a task you started beside the chat; from = the conversation it started in
+  | { type: "reply"; toRunId: string; label: string; task: boolean; card: boolean }    // your reply to a report or in a conversation (task); label = what it was; card: Omega Star wrote it from your answer on a card
+  | { type: "task"; label: string; from: string | null; context: string }   // a conversation you started; from and context: an older build's chat it began in
   | { type: "hireDecided"; proposalId: string; approved: boolean }   // you approved or declined their hire proposal
   | { type: "tidy"; reason: TidyReason; signature: string[]; plan: string | null };   // they tidy their own skills and notes
 /** auto: Omega Star saw something to tidy. manual: you asked. approved: you approved the changes an earlier tidy proposed. */
@@ -193,7 +194,7 @@ export type Run = {
   deliveredAt: string | null;  // asked and delegated runs: when the answer or report reached whoever handed it over
   allowOnce: string[];         // rules you granted this run only ("Allow once & retry")
   proposed: string | null;     // a tidy's bigger changes, waiting for your approval
-  attachments: string[];       // file names you attached to a chat message
+  attachments: string[];       // file names you attached to a message
   build: RunBuild | null;      // the build that ran it, and the Claude Code organisation around it
   limitRetries: number;        // times it went back to the queue after the usage limit
   limited: boolean;            // it failed on the usage limit, which Omega Star waits out itself
@@ -201,22 +202,15 @@ export type Run = {
 };
 export type NewAttachment = { name: string; data: string /* base64 */ };
 
-/** A report and the replies you exchanged on it, oldest first. In the Inbox and the Archive a thread leads a row,
+/** A report and the replies you exchanged on it, oldest first. A conversation you started is one too, and an answer
+ *  a colleague brought back into it is one of its replies. In the Inbox and the Archive a thread leads a row,
  *  and `related` holds the row's other threads, oldest first: the rest of a hand-off, or a schedule's earlier
  *  failures in a row. Empty elsewhere. */
 export type Thread = { root: Run; replies: Run[]; related: Thread[] };
-/** Where an employee's ongoing chat stands: read from its current session's turns. */
-export type ChatHead = {
-  employeeId: string;
-  lastEndedAt: string | null;  // when the newest finished turn ended
-  live: boolean;               // a turn is running
-  queued: boolean;             // a turn is waiting to start
-};
 /** Every conversation across the office, for the Inbox and each employee's chips. */
 export type Conversations = {
   threads: Thread[];           // open threads of every employee, one per root, most recently active first
   inbox: string[];             // root ids of the threads that lead an Inbox row: what needs you
-  chats: ChatHead[];           // one per current employee
 };
 export type OwnSkill = {
   name: string; description: string; role: boolean; managed: boolean;
@@ -324,22 +318,19 @@ export type Commands = {
   cron_preview: { args: { cron: string }; ret: CronPreview };
   run_now: { args: { employeeId: string; instruction: string | null }; ret: Run };
   cancel_run: { args: { runId: string }; ret: null };
-  send_chat: { args: { employeeId: string; text: string; attachments: NewAttachment[] }; ret: Run };
-  /** A task beside the ongoing chat, run at the same time as everything else. It starts from the ongoing chat. */
+  /** A new conversation (a task under the hood), run at the same time as everything else. Every next message is `reply_to_run`. */
   start_task: { args: { employeeId: string; text: string; attachments: NewAttachment[] }; ret: Run };
   open_attachment: { args: { runId: string; name: string }; ret: null };
   read_image: { args: { path: string }; ret: string };
   open_image: { args: { path: string }; ret: null };
   /** A path an agent mentioned: documents and folders open, anything else is shown in Finder. */
   open_report_path: { args: { path: string }; ret: null };
-  new_chat: { args: { employeeId: string }; ret: null };
-  chat: { args: { employeeId: string }; ret: Run[] };
   runs: { args: { employeeId: string | null; limit: number }; ret: Run[] };
   run_detail: { args: { runId: string }; ret: RunDetail };
   archived: { args: Record<string, never>; ret: Thread[] };
   /** Every row that reached you in the last week, whether or not it needs you. */
   updates: { args: Record<string, never>; ret: Thread[] };
-  /** Every open thread, which of them lead an Inbox row, and each employee's ongoing chat. */
+  /** Every open thread, and which of them lead an Inbox row. */
   conversations: { args: Record<string, never>; ret: Conversations };
   /** The thread any of its runs belongs to. */
   thread: { args: { runId: string }; ret: Thread };

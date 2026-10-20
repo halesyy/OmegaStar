@@ -82,8 +82,9 @@ export function RunView({ runId }: { runId: string }) {
             {run.startedAt ? <span className="num">{live ? "running for" : "took"} {duration(elapsedMs(run, now))}</span> : null}
             {run.kind.type === "delegated" || run.kind.type === "asked" ? <button className="runview-parent" onClick={() => (run.kind.type === "delegated" || run.kind.type === "asked") && openRun(run.kind.parentRunId)}>The run that asked <Icon name="arrowUpRight" size={12} /></button> : null}
             {run.kind.type === "answered" ? <button className="runview-parent" onClick={() => run.kind.type === "answered" && openRun(run.kind.askedRunId)}>Their run <Icon name="arrowUpRight" size={12} /></button> : null}
-            {run.kind.type === "reply" && e ? <button className="runview-parent" onClick={() => run.kind.type === "reply" && openChat(e.id, threadFocus(run.kind.toRunId))}>Open {run.kind.task ? "task" : "thread"} <Icon name="arrowUpRight" size={12} /></button> : null}
-            {run.kind.type === "task" && e ? <button className="runview-parent" onClick={() => openChat(e.id, threadFocus(run.id))}>Open task <Icon name="arrowUpRight" size={12} /></button> : null}
+            {run.kind.type === "answered" && run.kind.thread && e ? <button className="runview-parent" onClick={() => run.kind.type === "answered" && run.kind.thread && openChat(e.id, threadFocus(run.kind.thread))}>Open conversation <Icon name="arrowUpRight" size={12} /></button> : null}
+            {run.kind.type === "reply" && e ? <button className="runview-parent" onClick={() => run.kind.type === "reply" && openChat(e.id, threadFocus(run.kind.toRunId))}>Open {run.kind.task ? "conversation" : "thread"} <Icon name="arrowUpRight" size={12} /></button> : null}
+            {run.kind.type === "task" && e ? <button className="runview-parent" onClick={() => openChat(e.id, threadFocus(run.id))}>Open conversation <Icon name="arrowUpRight" size={12} /></button> : null}
           </div>
       </header>
       <div className="runview-body">

@@ -99,11 +99,6 @@ pub async fn cancel_run(office: O<'_>, run_id: String) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn send_chat(office: O<'_>, employee_id: String, text: String, attachments: Vec<NewAttachment>) -> Result<Run> {
-    office.send_chat(&employee_id, &text, attachments)
-}
-
-#[tauri::command]
 pub async fn start_task(office: O<'_>, employee_id: String, text: String, attachments: Vec<NewAttachment>) -> Result<Run> {
     office.start_task(&employee_id, &text, attachments)
 }
@@ -183,16 +178,6 @@ pub async fn open_report_path(app: AppHandle, path: String) -> Result<()> {
         app.opener().reveal_item_in_dir(&full)
     };
     done.map_err(|e| AppError::internal(format!("Could not open {path}: {e}")))
-}
-
-#[tauri::command]
-pub async fn new_chat(office: O<'_>, employee_id: String) -> Result<()> {
-    office.new_chat(&employee_id)
-}
-
-#[tauri::command]
-pub async fn chat(office: O<'_>, employee_id: String) -> Result<Vec<Run>> {
-    office.chat(&employee_id)
 }
 
 #[tauri::command]

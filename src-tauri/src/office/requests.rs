@@ -168,8 +168,8 @@ has to start that work, hand it back with what they need to start it instead of 
     }
 
     /// The session a run about a request continues: the asking run's own when it was a work run whose
-    /// session started; otherwise `fresh`, with your chat message to quote when the ask came from one.
-    /// A chat turn Omega Star wrote, such as a colleague's report coming back, is not yours to quote.
+    /// session started; otherwise `fresh`. An ask from a turn of an older build's chat starts fresh, with your
+    /// message there to quote; a turn Omega Star wrote, such as a colleague's report coming back, is not yours.
     fn origin_session(db: &Store, origin_run_id: Option<&str>, fresh: &str) -> Result<(String, Option<String>)> {
         let Some(rec) = origin_run_id.map(|id| db.run(id)).transpose()?.flatten() else {
             return Ok((fresh.to_string(), None));
@@ -710,7 +710,7 @@ mod tests {
         let db = Store::open(&dir.join("office.db")).unwrap();
         let turn = Run::new("e1", RunKind::Chat, "Ask the supplier for a date.".into(), now());
         db.insert_run(&turn, "chat-e1").unwrap();
-        let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: true };
+        let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: true, thread: None };
         let mut answered = Run::new("e1", came, "Bo answered your question. Their answer: ask the supplier.".into(), now());
         answered.omega_wrote = true;
         db.insert_run(&answered, "chat-e1").unwrap();

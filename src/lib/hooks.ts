@@ -185,7 +185,7 @@ type LiveRuns = { runs: LiveRun[] | null; error: string | null; reload: () => vo
 
 /**
  * Runs with their transcripts, kept current by `run:updated` and `run:event`. `load` lists them; `belongs`
- * admits runs that arrive later, so a new chat turn or thread reply joins as soon as it is created.
+ * admits runs that arrive later, so a new turn of a conversation joins as soon as it is created.
  */
 function useLiveRuns(load: () => Promise<LiveRun[]>, belongs: (r: Run) => boolean, deps: unknown[]): LiveRuns {
   const [runs, setRuns] = useState<LiveRun[] | null>(null);
@@ -244,21 +244,12 @@ export function useRunDetail(runId: string): { detail: LiveRun | null; error: st
 
 export type Conversation = { turns: LiveRun[] | null; error: string | null; reload: () => void; appendRun: (r: Run) => void };
 
-/** The employee's ongoing chat: the chat runs of their current session, oldest first. */
-export function useChat(employeeId: string): Conversation {
-  const { runs, ...rest } = useLiveRuns(
-    () => call("chat", { employeeId }).then((rs) => details(rs.map((r) => r.id))),
-    (r) => r.employeeId === employeeId && (r.kind.type === "chat" || (r.kind.type === "answered" && r.kind.chat)),
-    [employeeId],
-  );
-  return { turns: runs, ...rest };
-}
-
-/** A thread as a conversation: the report first, then every reply. A reply sent later joins as it is created. */
+/** A thread as a conversation: the report (or your first message) first, then every reply, and every answer a
+ *  colleague brought back into it. A turn that comes later joins as it is created. */
 export function useThread(rootId: string): Conversation {
   const { runs, ...rest } = useLiveRuns(
     () => call("thread", { runId: rootId }).then((t) => details([t.root.id, ...t.replies.map((r) => r.id)])),
-    (r) => r.id === rootId || (r.kind.type === "reply" && r.kind.toRunId === rootId),
+    (r) => r.id === rootId || (r.kind.type === "reply" && r.kind.toRunId === rootId) || (r.kind.type === "answered" && r.kind.thread === rootId),
     [rootId],
   );
   return { turns: runs, ...rest };

@@ -1,5 +1,6 @@
-// A thread is a report and the replies you exchanged on it (`Thread { root, replies }`). A task is a thread
-// too, whose root is your first message. These helpers read one the same way everywhere: the Inbox and its
+// A thread is a report and the replies you exchanged on it (`Thread { root, replies }`). A conversation you
+// started is a thread too (a task under the hood), whose root is your first message, and an answer a colleague
+// brought back into it is one of its replies. These helpers read one the same way everywhere: the Inbox and its
 // Archive, the panel's chips, and the conversation screen.
 import type { Card, Run, Thread } from "../api/types";
 
@@ -26,11 +27,11 @@ export function latestFinished(t: Thread): Run {
 
 export const isTask = (t: Thread): boolean => t.root.kind.type === "task";
 
-/** The employee is answering (a task or a reply is queued or running). */
+/** The employee is answering (a conversation's first message or a later turn is queued or running). */
 export const threadBusy = (t: Thread): boolean => isLive(t.root) || t.replies.some(isLive);
 
-/** Who spoke last: the employee once their newest reply finished, you while it is still on its way. A task's
- *  first message counts as a reply; a report does not. */
+/** Who spoke last: the employee once their newest reply finished, you while it is still on its way. A
+ *  conversation's first message counts as a reply; a report does not. */
 export function lastFrom(t: Thread): "you" | "them" | null {
   const l = lastReply(t) ?? (isTask(t) ? t.root : undefined);
   if (!l) return null;
@@ -92,5 +93,3 @@ export const isChoreRow = (t: Thread): boolean => t.related.length > 0 && choreO
 export const threadFocus = (rootId: string): string => `thread~${rootId}`;
 export const parseThreadFocus = (focus: string | null): string | null =>
   focus && focus.startsWith("thread~") ? focus.slice("thread~".length) : null;
-/** The conversation route's `focus` segment for a task you are about to start. */
-export const NEW_TASK_FOCUS = "new-task";

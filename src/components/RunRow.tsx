@@ -40,7 +40,7 @@ export function kindIcon(run: Run): IconName {
     case "organize": return "layers";
     case "tidy": return "sparkle";
     case "reply": return "reply";
-    case "task": return "branch";
+    case "task": return "chat";
     case "hireDecided": return "userPlus";
   }
 }

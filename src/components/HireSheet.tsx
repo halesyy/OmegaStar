@@ -11,6 +11,7 @@ import { Markdown } from "./Markdown";
 import { SkillPicker } from "./SkillPicker";
 import { Icon } from "./Icon";
 import { Avatar, ErrorNote, SlideOver } from "./ui";
+import { newConversationDraft } from "./conversation/NewConversation";
 import "./Sheet.css";
 
 type Template = { id: string; title: string; description: string; objective: string; skills: string[]; firstLesson: string };
@@ -127,7 +128,8 @@ export function HireSheet({ open, managerId, template, proposal, onClose }: {
       const e = await call("hire", { draft: final, imports: toImport });
       const t = TEMPLATES.find((x) => x.id === tpl);
       const lesson = t?.firstLesson || `Welcome aboard, ${firstName(e.name)}. Let's start with the most important thing you'll do for me. Ask me questions until you can write it down as a skill.`;
-      setDraft(e.id, lesson);
+      // A new conversation opens with it written, ready to send.
+      setDraft(newConversationDraft(e.id), lesson);
       refreshOrg();
       onClose();
       toast(`${firstName(e.name)} joined ${snap?.company.name ?? "the company"}`, "ok");
@@ -247,7 +249,7 @@ export function HireSheet({ open, managerId, template, proposal, onClose }: {
           <ol className="preview-steps">
             <li><b>Omega Star writes their role skill</b> from the objective, listing the skills they may use.</li>
             {imports.some((k) => draft.skills.keys.includes(k)) ? <li><b>They organize what you import</b> into their own skill family, first thing. Your originals stay as they are.</li> : null}
-            <li><b>You teach them in chat.</b> Every procedure you explain becomes one of their own skills.</li>
+            <li><b>You teach them in conversation.</b> Every procedure you explain becomes one of their own skills.</li>
             <li><b>Give them a schedule</b> and they run on their own, refining their skills after each run.</li>
           </ol>
         </aside>

@@ -60,30 +60,8 @@ impl Office {
         Ok(())
     }
 
-    /// Your message in the ongoing chat. It goes into the turn that is working, or else runs as the next
-    /// turn. A message with attachments is always a turn of its own.
-    pub fn send_chat(&self, employee_id: &str, text: &str, attachments: Vec<NewAttachment>) -> Result<Run> {
-        if text.trim().is_empty() && attachments.is_empty() {
-            return Err(AppError::invalid("message is empty"));
-        }
-        let files = Self::decode_attachments(&attachments)?;
-        let (e, working) = {
-            let db = self.db();
-            let e = db.employee(employee_id)?.ok_or_else(|| AppError::not_found("employee not found"))?;
-            // Only the newest turn takes messages, so a message never overtakes one queued before it.
-            let working = db.chat_runs(&e.id, &e.chat_session)?.pop().filter(|r| r.state == RunState::Running);
-            (e, working)
-        };
-        if let Some(r) = working.filter(|r| files.is_empty() && self.steer(&r.id, text)) {
-            return Ok(r);
-        }
-        let mut run = Run::new(employee_id, RunKind::Chat, text.to_string(), now());
-        self.attach(&mut run, &files)?;
-        self.enqueue(run, e.chat_session)
-    }
-
-    /// Starts a task: a conversation of its own, so the employee works on it at the same time as
-    /// everything else. It starts from what you discussed in the ongoing chat.
+    /// Starts a new conversation with the employee (a task under the hood): a thread of its own, so they
+    /// work on it at the same time as everything else. Every next message in it is a reply (`reply_to_run`).
     pub fn start_task(&self, employee_id: &str, text: &str, attachments: Vec<NewAttachment>) -> Result<Run> {
         let text = text.trim();
         if text.is_empty() && attachments.is_empty() {
@@ -91,13 +69,9 @@ impl Office {
         }
         let files = Self::decode_attachments(&attachments)?;
         let mut run = {
-            let db = self.db();
-            let e = db.employee(employee_id)?.ok_or_else(|| AppError::not_found("employee not found"))?;
-            let at = now();
-            let context = threads::context(&ceo_of(&db)?, &db.chat_runs(&e.id, &e.chat_session)?, at);
-            let from = (!context.is_empty()).then(|| "your chat".to_string());
+            let e = self.db().employee(employee_id)?.ok_or_else(|| AppError::not_found("employee not found"))?;
             let names: Vec<String> = attachments.iter().map(|a| a.name.clone()).collect();
-            Run::new(&e.id, RunKind::Task { label: threads::task_label(text, &names), from, context }, text.to_string(), at)
+            Run::new(&e.id, RunKind::Task { label: threads::task_label(text, &names), from: None, context: String::new() }, text.to_string(), now())
         };
         self.attach(&mut run, &files)?;
         let session = run.id.clone();
@@ -115,23 +89,6 @@ impl Office {
             return Err(AppError::not_found(format!("{name} is no longer there")));
         }
         Ok(path)
-    }
-
-    pub fn new_chat(&self, employee_id: &str) -> Result<()> {
-        {
-            let db = self.db();
-            let mut e = db.employee(employee_id)?.ok_or_else(|| AppError::not_found("employee not found"))?;
-            e.chat_session = uuid::Uuid::new_v4().to_string();
-            db.save_employee(&e)?;
-        }
-        self.sink().org_changed();
-        Ok(())
-    }
-
-    pub fn chat(&self, employee_id: &str) -> Result<Vec<Run>> {
-        let db = self.db();
-        let e = db.employee(employee_id)?.ok_or_else(|| AppError::not_found("employee not found"))?;
-        db.chat_runs(&e.id, &e.chat_session)
     }
 
     pub fn runs(&self, employee_id: Option<&str>, limit: u32) -> Result<Vec<Run>> {
@@ -198,10 +155,10 @@ impl Office {
         let _ = fs::remove_file(self.0.data_dir.join(RUNNING_MARKER));
     }
 
-    /// Starts every queued run that is free to go, within the global work cap. A conversation takes
-    /// turns (one run per session at a time), and an employee does one piece of background work at a
-    /// time; their conversations with you run beside it. Delegated runs whose parent is running bypass
-    /// the cap: the parent is blocked on them, so capping them could deadlock.
+    /// Starts every queued run that is free to go, within the global cap. A conversation takes turns (one
+    /// run per session at a time), and an employee does one piece of background work at a time; their
+    /// conversations with you run beside it and never wait for the cap (`Run::uncapped`). Delegated runs
+    /// whose parent is running bypass the cap too: the parent is blocked on them, so capping them could deadlock.
     pub(super) fn pump(&self) {
         let (started, dropped) = match self.claim_runnable() {
             Ok(v) => v,
@@ -246,7 +203,7 @@ impl Office {
             let mut working: HashSet<String> = running.iter().filter(|r| !r.run.kind.is_conversation()).map(|r| r.run.employee_id.clone()).collect();
             let running_ids: HashSet<String> = running.iter().map(|r| r.run.id.clone()).collect();
             let mut talking: HashSet<String> = running.iter().filter(|r| r.run.kind.is_conversation()).map(|r| r.run.employee_id.clone()).collect();
-            let mut work = running.iter().filter(|r| r.run.kind.lane() == Lane::Work).count();
+            let mut capped = running.iter().filter(|r| !r.run.uncapped()).count();
             let mut started = vec![];
             let mut dropped = vec![];
             for RunRecord { run: mut r, session } in db.records_in_state(RunState::Queued)? {
@@ -263,13 +220,12 @@ impl Office {
                 if gate(&r.kind, held, account_ok, talking.contains(&r.employee_id), awake) == Gate::Skip {
                     continue;
                 }
-                let lane = r.kind.lane();
                 let background = !r.kind.is_conversation();
                 if sessions.contains(&session) || (background && working.contains(&r.employee_id)) {
                     continue;
                 }
-                let exempt = r.parent_run_id().map(|p| running_ids.contains(p)).unwrap_or(false);
-                if lane == Lane::Work && work >= cap && !exempt {
+                let exempt = r.uncapped() || r.parent_run_id().map(|p| running_ids.contains(p)).unwrap_or(false);
+                if capped >= cap && !exempt {
                     continue;
                 }
                 r.state = RunState::Running;
@@ -282,8 +238,8 @@ impl Office {
                 } else {
                     talking.insert(r.employee_id.clone());
                 }
-                if lane == Lane::Work {
-                    work += 1;
+                if !r.uncapped() {
+                    capped += 1;
                 }
                 started.push(r);
             }
@@ -325,8 +281,8 @@ impl Office {
     }
 
     /// Chrome dropped in a run: you get the one Chrome chore card (or the run joins the open one), and the run
-    /// hears that you were asked, so it carries on without Chrome instead of asking you itself. Not in a chat:
-    /// you are in it, and a card there never reaches you, so the run tells you itself.
+    /// hears that you were asked, so it carries on without Chrome instead of asking you itself. Not in a turn of
+    /// an older build's chat: a card there never reaches you, so the run tells you itself.
     pub(super) fn chrome_down(&self, run: &Run, e: &Employee) {
         if run.kind.lane() == Lane::Chat {
             return;
@@ -938,17 +894,17 @@ enum Gate {
     Skip,
 }
 
-/// The office-wide holds on a queued run, in order: the usage limit holds every run (a chat would fail
-/// the same way); work you are not in waits for the right account; a tidy waits while its employee is
+/// The office-wide holds on a queued run, in order: the usage limit holds every run (a conversation would
+/// fail the same way); work you are not in waits for the right account; a tidy waits while its employee is
 /// talking with you, so it never tidies a skill the conversation is still changing; and a dark wake
-/// starts no work you are not in. A report coming back as a chat turn is not you: nobody may be
+/// starts no work you are not in. An answer coming back into a conversation is not you: nobody may be
 /// watching when it lands. Pure.
 /// Off until omega.log shows its "dark wake" lines only during real dark wakes (`pmset -g log`), never
 /// while the display merely sleeps in a full wake: a wrong reading would hold every routine overnight.
 const GATE_DARK_WAKE: bool = false;
 
 fn gate(kind: &RunKind, held: bool, account_ok: bool, talking: bool, awake: bool) -> Gate {
-    let background = !matches!(kind, RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. });
+    let background = !skills::ceo_in(kind);
     if held || (background && !account_ok) || (matches!(kind, RunKind::Tidy { .. }) && talking) || (background && !awake) {
         Gate::Skip
     } else {
@@ -1117,7 +1073,8 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
             .unwrap_or(now - week);
         for x in reports {
             for r in finished_after(&x.id, team_since)? {
-                if r.run.kind.lane() != Lane::Work {
+                // Their conversations with you are between you and them.
+                if r.run.kind.is_conversation() {
                     continue;
                 }
                 // Work this employee handed over comes back to them on its own.
@@ -1252,18 +1209,21 @@ mod tests {
         claude::first_message(&claude::test_snapshot(company, e.clone(), Some(o), false), run)
     }
 
+    fn task(label: &str) -> RunKind {
+        RunKind::Task { label: label.into(), from: None, context: String::new() }
+    }
+
     #[test]
-    fn a_fresh_chat_knows_the_last_one() {
+    fn a_new_conversation_knows_the_last_one() {
         let (dir, db) = opening_store();
-        let mut ada = employee(Clearance::Supervised);
-        ada.chat_session = "chat-2".into();
+        let ada = employee(Clearance::Supervised);
         db.save_employee(&ada).unwrap();
-        finished(&db, &ada, RunKind::Chat, 90, "chat-1", "Booked the venue for Thursday.");
-        let turn = Run::new(&ada.id, RunKind::Chat, "Where are we on the offsite?".into(), now());
-        let o = opening(&db, &ada, std::slice::from_ref(&ada), &turn, "chat-2", false, now()).unwrap().unwrap();
+        finished(&db, &ada, task("Book the venue"), 90, "t1", "Booked the venue for Thursday.");
+        let turn = Run::new(&ada.id, task("The offsite"), "Where are we on the offsite?".into(), now());
+        let o = opening(&db, &ada, std::slice::from_ref(&ada), &turn, &turn.id, false, now()).unwrap().unwrap();
         assert_eq!(o.since, None);
         let text = note(&ada, o, &turn);
-        assert!(text.contains(", chat with Pat: Pat: \"Prompt 90.\" You: Booked the venue for Thursday."), "{text}");
+        assert!(text.contains(", your conversation 'Book the venue': Pat: \"Prompt 90.\" You: Booked the venue for Thursday."), "{text}");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1273,12 +1233,13 @@ mod tests {
         let ada = employee(Clearance::Supervised);
         db.save_employee(&ada).unwrap();
         let sweep = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: false, model: None, effort: None, review: false };
-        finished(&db, &ada, RunKind::Chat, 180, "chat-ada", "Earlier turn.");
-        let last = finished(&db, &ada, RunKind::Chat, 60, "chat-ada", "Last turn.");
+        let first = finished(&db, &ada, task("Plan the offsite"), 180, "t1", "Earlier turn.");
+        let reply = || RunKind::Reply { to_run_id: first.id.clone(), label: "Plan the offsite".into(), task: true, card: false };
+        let last = finished(&db, &ada, reply(), 60, "t1", "Last turn.");
         finished(&db, &ada, sweep, 120, "s1-run", "Swept before the last turn.");
         let manual = finished(&db, &ada, RunKind::Manual, 30, "m1", "Paid the invoice.");
-        let turn = Run::new(&ada.id, RunKind::Chat, "And now?".into(), now());
-        let o = opening(&db, &ada, std::slice::from_ref(&ada), &turn, "chat-ada", true, now()).unwrap().unwrap();
+        let turn = Run::new(&ada.id, reply(), "And now?".into(), now());
+        let o = opening(&db, &ada, std::slice::from_ref(&ada), &turn, "t1", true, now()).unwrap().unwrap();
         assert_eq!(o.since, last.ended_at);
         assert_eq!(o.work.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![manual.id]);
         let text = note(&ada, o, &turn);
@@ -1302,6 +1263,7 @@ mod tests {
         finished(&db, &bo, RunKind::Delegated { parent_run_id: handed.id.clone() }, 100, "d1", "Audit done.");
         let report = RunKind::Scheduled { schedule_id: "s9".into(), slot: now(), label: "Weekly numbers".into(), quiet: false, model: None, effort: None, review: false };
         finished(&db, &bo, report, 50, "s9-run", "Sales are up 4 percent.");
+        finished(&db, &bo, task("Draft the memo"), 45, "t-bo", "Drafted the memo for Pat.");
         let run = Run::new(&ada.id, RunKind::Manual, "Go.".into(), now());
         let employees = vec![ada.clone(), bo.clone()];
         let o = opening(&db, &ada, &employees, &run, "m-now", false, now()).unwrap().unwrap();
@@ -1309,6 +1271,7 @@ mod tests {
         let text = note(&ada, o, &run);
         assert!(text.contains("From your team since your last run:\n- Bo, scheduled 'Weekly numbers' ("), "{text}");
         assert!(text.contains("): Sales are up 4 percent.") && !text.contains("Audit done."), "{text}");
+        assert!(!text.contains("Drafted the memo"), "Bo's conversation with Pat stays between them: {text}");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1316,16 +1279,17 @@ mod tests {
     fn the_gate_holds_runs_by_kind() {
         let scheduled = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
         let tidy = RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
+        let talk = task("Draft it");
         // gate(kind, held, account_ok, talking, awake)
-        assert_eq!(gate(&RunKind::Chat, true, true, false, true), Gate::Skip);
-        assert_eq!(gate(&RunKind::Chat, false, false, false, true), Gate::Claim);
+        assert_eq!(gate(&talk, true, true, false, true), Gate::Skip);
+        assert_eq!(gate(&talk, false, false, false, true), Gate::Claim);
         assert_eq!(gate(&scheduled, false, false, false, true), Gate::Skip);
         assert_eq!(gate(&scheduled, false, true, false, false), Gate::Skip);
         assert_eq!(gate(&scheduled, false, true, false, true), Gate::Claim);
-        assert_eq!(gate(&RunKind::Chat, false, true, false, false), Gate::Claim);
+        assert_eq!(gate(&talk, false, true, false, false), Gate::Claim);
         assert_eq!(gate(&tidy, false, true, true, true), Gate::Skip);
         assert_eq!(gate(&tidy, false, true, false, true), Gate::Claim);
-        let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: true };
+        let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: false, thread: Some("t1".into()) };
         assert_eq!(gate(&came, false, false, false, true), Gate::Skip);
         assert_eq!(gate(&came, false, true, false, false), Gate::Skip);
         assert_eq!(gate(&came, false, true, false, true), Gate::Claim);

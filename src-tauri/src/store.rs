@@ -452,13 +452,6 @@ impl Store {
         self.runs_where("WHERE parent_run_id = ? ORDER BY created_at, rowid", &[&parent_run_id])
     }
 
-    pub fn chat_runs(&self, employee_id: &str, session: &str) -> Result<Vec<Run>> {
-        self.runs_where(
-            "WHERE employee_id = ? AND lane = 'chat' AND session = ? ORDER BY created_at, rowid",
-            &[&employee_id, &session],
-        )
-    }
-
     /// Latest work-lane runs of an employee, newest first.
     pub fn work_runs(&self, employee_id: &str, limit: u32) -> Result<Vec<Run>> {
         self.runs_where(
@@ -528,7 +521,7 @@ impl Store {
 
     /// The runs that may need you in the Inbox, not archived, newest first: those that reach you and might
     /// need you (`threads::could_need_you`). `roots` are the employees who report to you, `flagged` everyone.
-    /// Reply runs never appear: they belong to the thread of the run they answer (`reply_runs`).
+    /// Reply runs never appear, nor answers that came back into a conversation: they belong to their thread (`reply_runs`).
     pub fn finished_root_runs(&self, roots: &[String], flagged: &[String]) -> Result<Vec<Run>> {
         self.reports(
             roots,
@@ -620,6 +613,7 @@ impl Store {
                  AND json_extract(data, '$.kind.type') IS NOT 'reply'
                  AND json_extract(data, '$.kind.type') IS NOT 'replyCheck'
                  AND json_extract(data, '$.kind.type') IS NOT 'task'
+                 AND NOT (json_extract(data, '$.kind.type') = 'answered' AND json_extract(data, '$.kind.thread') IS NOT NULL)
                  AND ((employee_id IN (SELECT value FROM json_each(?)) AND parent_run_id IS NULL)
                       OR (employee_id IN (SELECT value FROM json_each(?))
                           AND json_valid(data)
@@ -780,8 +774,8 @@ impl Store {
         self.runs_where("WHERE employee_id = ? AND json_valid(data) AND json_extract(data, '$.kind.type') = 'tidy' ORDER BY created_at DESC, rowid DESC", &[&employee_id])
     }
 
-    /// What you told this employee since `since`, in chat, tasks and Inbox replies: (when, your words),
-    /// oldest first, at most `limit` of the newest.
+    /// What you told this employee since `since`, in conversations, Inbox replies and an older build's chat:
+    /// (when, your words), oldest first, at most `limit` of the newest.
     pub fn taught_since(&self, employee_id: &str, since: Option<Ts>, limit: usize) -> Result<Vec<(Ts, String)>> {
         let mut st = self.conn.prepare(
             "SELECT created_at, json_extract(data, '$.prompt') FROM runs
@@ -800,15 +794,19 @@ impl Store {
 
     // ---- threads ----
 
-    /// Every Reply run, of one employee or of everyone, oldest first. Threads are built from them.
+    /// Every later turn of a thread (Reply runs, and answers that came back into a conversation), of one
+    /// employee or of everyone, oldest first. Threads are built from them.
     pub fn reply_runs(&self, employee_id: Option<&str>) -> Result<Vec<Run>> {
         self.runs_where(
-            "WHERE json_valid(data) AND (?1 IS NULL OR employee_id = ?1) AND json_extract(data, '$.kind.type') = 'reply' ORDER BY created_at, rowid",
+            "WHERE json_valid(data) AND (?1 IS NULL OR employee_id = ?1)
+               AND (json_extract(data, '$.kind.type') = 'reply'
+                    OR (json_extract(data, '$.kind.type') = 'answered' AND json_extract(data, '$.kind.thread') IS NOT NULL))
+             ORDER BY created_at, rowid",
             &[&employee_id],
         )
     }
 
-    /// An employee's tasks you have not archived, oldest first.
+    /// An employee's conversations you started and have not archived, oldest first.
     pub fn open_tasks(&self, employee_id: &str) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE employee_id = ? AND json_valid(data) AND json_extract(data, '$.kind.type') = 'task' AND json_extract(data, '$.archivedAt') IS NULL
@@ -819,11 +817,13 @@ impl Store {
 
     /// Every run that continues a conversation (replies, colleagues' asks and answers, delegated
     /// work), oldest first: what `threads::file` follows to put a hand-off in one Inbox row. An answer
-    /// that came back as a chat turn belongs to that chat, never to a row.
+    /// that came back into a conversation belongs to that conversation's thread, never to a row, and so does
+    /// one that came back as a turn of an older build's chat.
     pub fn conversation_runs(&self) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE json_valid(data) AND json_extract(data, '$.kind.type') IN ('reply', 'answered', 'asked', 'delegated')
-               AND NOT (json_extract(data, '$.kind.type') = 'answered' AND COALESCE(json_extract(data, '$.kind.chat'), 0) = 1)
+               AND NOT (json_extract(data, '$.kind.type') = 'answered'
+                        AND (COALESCE(json_extract(data, '$.kind.chat'), 0) = 1 OR json_extract(data, '$.kind.thread') IS NOT NULL))
              ORDER BY created_at, rowid",
             &[],
         )
@@ -934,8 +934,8 @@ impl Store {
             .optional()?)
     }
 
-    /// A conversation with you is working: a chat, task or reply, of one employee or of anyone. A report
-    /// coming back as a chat turn is not one.
+    /// A conversation with you is working: one you started, a reply, or a turn of an older build's chat, of
+    /// one employee or of anyone. An answer coming back into a conversation is not one: nobody may be watching.
     pub fn ceo_conversation_running(&self, employee_id: Option<&str>) -> Result<bool> {
         Ok(self
             .conn
@@ -1249,10 +1249,10 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
         // An approval from the app, and a reply of yours wrapped because the report's session never started.
         reply("Pat allowed the build for this retry.", true);
         reply("Your report (Manual run):\n\nIt failed.\n\nPat's reply:\n\nTry the other folder.", false);
-        let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e0".into(), task: false, chat: true };
+        let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e0".into(), task: false, chat: false, thread: Some(report.id.clone()) };
         let mut answer = Run::new(&ada.id, came, "Bo answered your question.".into(), Utc::now());
         answer.omega_wrote = true;
-        db.insert_run(&answer, &ada.chat_session).unwrap();
+        db.insert_run(&answer, &report.id).unwrap();
 
         let taught: Vec<String> = db.taught_since(&ada.id, None, 10).unwrap().into_iter().map(|(_, t)| t).collect();
         assert_eq!(taught.len(), 1, "{taught:?}");
@@ -1452,8 +1452,9 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
             RunKind::Scheduled { schedule_id: format!("review-{i}"), slot, label: "Weekly review".into(), quiet: false, model: None, effort: None, review: true },
             RunKind::Delegated { parent_run_id: format!("parent-{i}") },
             RunKind::Asked { parent_run_id: format!("parent-{i}"), asked_by: "e0".into(), task: false },
-            RunKind::Answered { asked_run_id: format!("asked-{i}"), from: "e0".into(), task: false, chat: false },
-            RunKind::Answered { asked_run_id: format!("asked-chat-{i}"), from: "e0".into(), task: true, chat: true },
+            RunKind::Answered { asked_run_id: format!("asked-{i}"), from: "e0".into(), task: false, chat: false, thread: None },
+            RunKind::Answered { asked_run_id: format!("asked-chat-{i}"), from: "e0".into(), task: true, chat: true, thread: None },
+            RunKind::Answered { asked_run_id: format!("asked-thread-{i}"), from: "e0".into(), task: false, chat: false, thread: Some(format!("task-{i}")) },
             RunKind::FollowUp { request_id: format!("request-{i}"), person_id: person() },
             RunKind::Organize { imported: vec![], settled: false },
             RunKind::Reply { to_run_id: format!("root-{i}"), label: "Manual run".into(), task: false, card: false },
@@ -1593,11 +1594,12 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         db.save_employee(&ada).unwrap();
         db.save_employee(&bo).unwrap();
         let insert = |r: Run| assert!(db.insert_run(&r, &r.id).unwrap());
-        let came = RunKind::Answered { asked_run_id: "r1".into(), from: bo.id.clone(), task: false, chat: true };
-        insert(run(&ada, came, RunState::Running));
+        let came = |chat: bool, thread: Option<String>| RunKind::Answered { asked_run_id: "r1".into(), from: bo.id.clone(), task: false, chat, thread };
+        insert(run(&ada, came(true, None), RunState::Running));
+        insert(run(&ada, came(false, Some("t1".into())), RunState::Running));
         insert(run(&ada, RunKind::Chat, RunState::Succeeded));
         insert(run(&ada, RunKind::Manual, RunState::Running));
-        assert!(!db.ceo_conversation_running(None).unwrap(), "a report coming back as a chat turn is not you");
+        assert!(!db.ceo_conversation_running(None).unwrap(), "an answer coming back into a conversation is not you");
         insert(run(&bo, RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, RunState::Running));
         assert!(db.ceo_conversation_running(None).unwrap());
         assert!(db.ceo_conversation_running(Some(&bo.id)).unwrap());

@@ -38,10 +38,10 @@ impl Office {
 
     pub(super) fn presence(db: &Store, e: &Employee, now: Ts, paused: bool) -> Result<EmployeeView> {
         let active = db.active_runs_of(&e.id)?;
-        // Talking to them is how you usually start work, so a chat turn in flight counts as working
-        // just like a work run does; the work lane is only preferred as the run to look at.
+        // Talking to them is how you usually start work, so a conversation turn in flight counts as working
+        // just like background work does; background work is only preferred as the run to look at.
         let in_state = |state: RunState| {
-            active.iter().filter(|r| r.state == state).min_by_key(|r| r.kind.lane() == Lane::Chat)
+            active.iter().filter(|r| r.state == state).min_by_key(|r| r.kind.is_conversation())
         };
         let live = in_state(RunState::Running);
         let waiting = in_state(RunState::Queued);
@@ -73,7 +73,6 @@ impl Office {
             employee: e.clone(),
             presence,
             active_run_id: shown.map(|r| r.id.clone()),
-            active_lane: shown.map(|r| r.kind.lane()),
             working: active.iter().filter(|r| r.state == RunState::Running).count() as u32,
             waiting: active.iter().filter(|r| r.state == RunState::Queued).count() as u32,
             next_fire,
@@ -327,7 +326,7 @@ impl Office {
     }
 
     /// The proposer's run that hears your decision. It resumes the work run the proposal came
-    /// from, which still holds the context; a proposal made in chat gets a fresh session.
+    /// from, which still holds the context; a proposal made in an older build's chat gets a fresh session.
     fn enqueue_decision(&self, p: &HireProposal, hired: Option<&Employee>) -> Result<()> {
         let (run, session) = {
             let db = self.db();

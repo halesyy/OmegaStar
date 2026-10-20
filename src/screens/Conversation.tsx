@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
-import { call, errorMessage } from "../api/client";
 import type { EmployeeView, NewAttachment, Run } from "../api/types";
 import { firstName, runKindLabel, whenInline } from "../lib/format";
-import { refreshOrg, useChat, useOrg, useThread } from "../lib/hooks";
-import { chatKey, lastMoved, setMark, useMarkSeen } from "../lib/marks";
+import { refreshOrg, useOrg, useThread } from "../lib/hooks";
+import { lastMoved, setMark, useMarkSeen } from "../lib/marks";
 import { openChat, openFullChat, openMember, openRun, type Route } from "../lib/router";
 import { threadStatus, type Status } from "../lib/status";
-import { toast } from "../lib/toasts";
-import { isLive, NEW_TASK_FOCUS, openCards, parseThreadFocus, rowCardOpen, threadFocus } from "../lib/threads";
+import { isLive, openCards, parseThreadFocus, rowCardOpen, threadFocus } from "../lib/threads";
 import { kindNames } from "../components/RunRow";
 import { Icon } from "../components/Icon";
 import { Avatar, ErrorNote, Skeleton, StatePill } from "../components/ui";
-import { OngoingChat } from "../components/conversation/OngoingChat";
-import { NewTask } from "../components/conversation/NewTask";
+import { NewConversation } from "../components/conversation/NewConversation";
 import { ConversationChips } from "../components/conversation/ConversationChips";
 import { DoneButton, markDone, reopen, sendAndDone, SnoozeButton, ThreadView } from "../components/conversation/ThreadView";
 import { employeeItems, useStatuses, type Item } from "../components/conversation/useStatuses";
@@ -23,7 +20,7 @@ const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isConte
 /** Where a conversation shows: filling the main window, or on the employee's panel over the org chart. */
 export type ConversationVariant = "full" | "panel";
 
-/** The conversation filling the main window: an employee's ongoing chat, one of their threads, or a task about to start. */
+/** The conversation filling the main window: one of an employee's threads, or a new one about to start. */
 export function ConversationScreen({ route }: { route: Extract<Route, { page: "chat" }> }) {
   const { snap, error } = useOrg();
   if (!snap) {
@@ -42,16 +39,15 @@ export function ConversationScreen({ route }: { route: Extract<Route, { page: "c
   return <Conversation e={e} focus={route.focus} variant="full" />;
 }
 
-/** The employee's conversation that `focus` names, the same in either variant: their ongoing chat (null), a thread
- *  (`thread~<root run id>`) or a new task. */
+/** The employee's conversation that `focus` names, the same in either variant: a thread (`thread~<root run id>`),
+ *  or for anything else (null, or an old `new-task` link) a new conversation. */
 export function Conversation({ e, focus, variant }: { e: EmployeeView; focus: string | null; variant: ConversationVariant }) {
   const rootId = parseThreadFocus(focus);
   if (rootId) return <ThreadConversation key={rootId} e={e} rootId={rootId} variant={variant} />;
-  if (focus === NEW_TASK_FOCUS) return <NewTaskConversation key={e.id} e={e} variant={variant} />;
-  return <ChatConversation key={e.id} e={e} variant={variant} />;
+  return <StartConversation key={e.id} e={e} variant={variant} />;
 }
 
-/** The thread or task with `rootId`: its header actions, and E to mark it done. */
+/** The thread or conversation with `rootId`: its header actions, and E to mark it done. */
 function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: string; variant: ConversationVariant }) {
   const { snap } = useOrg();
   const thread = useThread(rootId);
@@ -104,7 +100,7 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
       {task ? null : <button className="btn btn-ghost btn-sm" onClick={() => openRun(root.id)}>Open run <Icon name="arrowUpRight" size={12} /></button>}
       {archived
         ? <button className="btn btn-sm" onClick={() => void reopen(rootId)}><Icon name="undo" size={13} /> Reopen</button>
-        : carded ? null : <DoneButton name={name} task={task} disabled={!ready} onDone={done} />}
+        : carded ? null : <DoneButton name={name} disabled={!ready} onDone={done} />}
     </>
   ) : null;
   return (
@@ -114,39 +110,11 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
   );
 }
 
-/** The employee's ongoing chat, with New conversation in its header. */
-function ChatConversation({ e, variant }: { e: EmployeeView; variant: ConversationVariant }) {
-  const chat = useChat(e.id);
-  const status = useStatuses().chats.get(e.id) ?? null;
-  const runs = chat.turns?.map((t) => t.run) ?? [];
-  useMarkSeen(chatKey(e.id), lastMoved(runs));
-  const busy = runs.some(isLive);
-  const newConversation = async () => {
-    try {
-      await call("new_chat", { employeeId: e.id });
-      chat.reload();
-      toast(`Fresh conversation. Everything ${firstName(e.name)} learned stays in their skills.`, "ok");
-    } catch (err) {
-      toast(errorMessage(err), "err");
-    }
-  };
-  const actions = (
-    <button className="btn btn-ghost btn-sm" onClick={() => void newConversation()} disabled={!runs.length || busy}>
-      <Icon name="newChat" size={13} /> New conversation
-    </button>
-  );
+/** A conversation before its first message. */
+function StartConversation({ e, variant }: { e: EmployeeView; variant: ConversationVariant }) {
   return (
-    <ConversationFrame e={e} variant={variant} focus={null} title="Ongoing chat" status={<StatusPill status={status} />} actions={actions}>
-      <OngoingChat e={e} chat={chat} />
-    </ConversationFrame>
-  );
-}
-
-/** A task before its first message. */
-function NewTaskConversation({ e, variant }: { e: EmployeeView; variant: ConversationVariant }) {
-  return (
-    <ConversationFrame e={e} variant={variant} focus={NEW_TASK_FOCUS} title="New task" status={null}>
-      <NewTask e={e} />
+    <ConversationFrame e={e} variant={variant} focus={null} title="New conversation" status={null}>
+      <NewConversation e={e} />
     </ConversationFrame>
   );
 }
@@ -213,7 +181,7 @@ function StatusPill({ status }: { status: Status | null }) {
 }
 
 /** Leaving the thread after you snooze it or mark it done: call before acting, to fix the employee's next thread
- *  while this one is still among `items`, then call what it returns to open it (their ongoing chat when none is left). */
+ *  while this one is still among `items`, then call what it returns to open it (a new conversation when none is left). */
 function useLeave(employeeId: string, rootId: string, items: Item[] | null): () => () => void {
   const latest = useRef(items);
   latest.current = items;

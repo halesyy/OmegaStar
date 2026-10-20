@@ -1,5 +1,5 @@
-// What you did to a conversation on this device: snoozed it, last looked at it. Keyed by a thread's root run id,
-// or `chat:<employee id>` for an ongoing chat. Per-device UI organisation, so it lives in localStorage.
+// What you did to a conversation on this device: snoozed it, last looked at it. Keyed by a thread's root run id.
+// Per-device UI organisation, so it lives in localStorage.
 import { useEffect, useState } from "react";
 import type { Run } from "../api/types";
 import { createStore, useStore } from "./store";
@@ -33,9 +33,6 @@ function save(next: Marks) {
 
 /** Every mark, re-rendering when one changes. */
 export const useMarks = (): Marks => useStore(store);
-
-/** The conversation key of an employee's ongoing chat. */
-export const chatKey = (employeeId: string): string => `chat:${employeeId}`;
 
 /** Changes one conversation's mark; a field set to undefined is cleared, and an empty mark is dropped. */
 export function setMark(key: string, patch: Mark) {

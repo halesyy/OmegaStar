@@ -4,14 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import type { EmployeeView, OrgSnapshot, Thread } from "../../api/types";
 import { runKindLabel } from "../../lib/format";
 import { useConversations, useOrg } from "../../lib/hooks";
-import { chatKey, pruneMarks, seenSince, useMarks, type Marks } from "../../lib/marks";
-import { chatStatus, nextWake, threadStatus, type Status, type StatusContext } from "../../lib/status";
+import { pruneMarks, seenSince, useMarks, type Marks } from "../../lib/marks";
+import { nextWake, threadStatus, type Status, type StatusContext } from "../../lib/status";
 import { kindNames } from "../RunRow";
 
 /** A thread with what the Inbox and the chips show about it. `title` names it as the rest of the app does. */
 export type Item = { thread: Thread; employee: EmployeeView; title: string; status: Status };
-
-const NO_CHATS: ReadonlyMap<string, Status> = new Map();
 
 /** A thread as an item, or null when its employee no longer works here. `filed`: it leads an Inbox row. */
 export function toItem(thread: Thread, snap: OrgSnapshot, filed: boolean, ctx: StatusContext): Item | null {
@@ -38,8 +36,8 @@ function useWakeClock(marks: Marks): number {
   return now;
 }
 
-/** Every open thread as an item (null while loading), each ongoing chat's status by employee id, and the context
- *  a status is read in, for a conversation the snapshot does not have. */
+/** Every open thread as an item (null while loading), and the context a status is read in, for a conversation the
+ *  snapshot does not have. */
 export function useStatuses() {
   const { data, error } = useConversations();
   const { snap } = useOrg();
@@ -51,10 +49,9 @@ export function useStatuses() {
     if (!data || !snap) return null;
     const filed = new Set(data.inbox);
     const items = data.threads.flatMap((t) => toItem(t, snap, filed.has(t.root.id), ctx) ?? []);
-    const chats: ReadonlyMap<string, Status> = new Map(data.chats.map((h) => [h.employeeId, chatStatus(h, ctx)]));
-    return { items, chats, filed };
+    return { items, filed };
   }, [data, snap, ctx]);
-  return { items: read?.items ?? null, chats: read?.chats ?? NO_CHATS, filed: read?.filed ?? null, ctx, error };
+  return { items: read?.items ?? null, filed: read?.filed ?? null, ctx, error };
 }
 
 /** Forgets the marks of conversations that are no longer open. The shell runs this once. */
@@ -62,8 +59,6 @@ export function usePruneMarks() {
   const { data } = useConversations();
   useEffect(() => {
     if (!data) return;
-    const keep = new Set(data.threads.map((t) => t.root.id));
-    for (const c of data.chats) keep.add(chatKey(c.employeeId));
-    pruneMarks(keep);
+    pruneMarks(new Set(data.threads.map((t) => t.root.id)));
   }, [data]);
 }
