@@ -145,6 +145,28 @@ fn now() -> Ts {
     Utc::now()
 }
 
+/// The first message of the conversation `run` is a turn of (`Run::conversation_root`), counting an older build's
+/// chat message as one: the message itself, or for a colleague's answer that came back into its chat, the message
+/// whose ask it answers, through any answer turns there that asked on. None for anything else, or when the trail
+/// is gone.
+pub(super) fn conversation_of(db: &Store, run: &Run) -> Result<Option<String>> {
+    let mut at = run.clone();
+    // Each step goes to an earlier run, so this only guards against a damaged trail.
+    for _ in 0..64 {
+        if matches!(at.kind, RunKind::Chat) {
+            return Ok(Some(at.id));
+        }
+        if let Some(root) = at.conversation_root() {
+            return Ok(Some(root.to_string()));
+        }
+        let RunKind::Answered { chat: true, asked_run_id, .. } = &at.kind else { return Ok(None) };
+        let Some(asker) = db.run(asked_run_id)?.and_then(|a| a.run.parent_run_id().map(String::from)) else { return Ok(None) };
+        let Some(next) = db.run(&asker)? else { return Ok(None) };
+        at = next.run;
+    }
+    Ok(None)
+}
+
 impl Office {
     /// Opens the data dir, recovers from a previous crash, starts the MCP endpoint, and dispatches
     /// queued work. Does not start the scheduler loop (see `spawn_scheduler`).
@@ -342,13 +364,10 @@ impl Office {
         let db = self.db();
         for state in [RunState::Queued, RunState::Running] {
             for mut r in db.runs_in_state(state)?.into_iter().filter(|r| r.kind.lane() == Lane::Chat) {
+                let message = conversation_of(&db, &r)?;
                 r.kind = match r.kind {
-                    RunKind::Answered { asked_run_id, from, task, thread, .. } => {
-                        let asker = match thread {
-                            Some(t) => Some(t),
-                            None => db.run(&asked_run_id)?.and_then(|a| a.run.parent_run_id().map(String::from)),
-                        };
-                        let thread = match asker {
+                    RunKind::Answered { asked_run_id, from, task, .. } => {
+                        let thread = match message {
                             Some(id) if db.run(&id)?.is_some() => Some(id),
                             _ => None,
                         };

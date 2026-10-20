@@ -127,6 +127,44 @@ export function runKindLabel(kind: RunKind, names: { manager?: string; person?: 
   }
 }
 
+/** What a thread is called: as `runKindLabel` names its first run, but an older build's chat message an answer came
+ *  back into is a conversation you started, so it is named from what you wrote, as Rust names it in a reply. */
+export function threadTitle(root: Run, names: { manager?: string; person?: string; asker?: string } = {}): string {
+  return root.kind.type === "chat" ? taskLabel(root.prompt, root.attachments) : runKindLabel(root.kind, names);
+}
+
+const TASK_LABEL_CHARS = 48;
+const OPENERS = ["also", "and", "hey", "ok", "please", "can you", "could you", "would you", "i need you to"];
+const LABEL_ENDS = /[?.!,:;]+$/;
+
+/** A conversation's name from your first message: its first sentence without the words that open a request.
+ *  `files` name a message that is only attachments. Mirrors Rust `threads::task_label`. */
+export function taskLabel(text: string, files: string[]): string {
+  const line = text.split("\n").map((l) => l.trim().replace(/^[#>\-* ]+/, "").replace(/[*_`]/g, "")).find((l) => l) ?? "";
+  let s = line;
+  strip: for (;;) {
+    s = s.replace(/^[,: ]+/, "");
+    for (const o of OPENERS) {
+      const rest = s.slice(o.length);
+      if (s.slice(0, o.length).toLowerCase() === o && (rest === "" || /^[,: ]/.test(rest))) {
+        s = rest;
+        continue strip;
+      }
+    }
+    break;
+  }
+  const ends = ["? ", ". ", "! "].map((e) => s.indexOf(e)).filter((i) => i >= 0);
+  let label = (ends.length ? s.slice(0, Math.min(...ends)) : s).replace(LABEL_ENDS, "").trim() || line.trim();
+  if (!label) return files.join(", ") || "New task";
+  if ([...label].length > TASK_LABEL_CHARS) {
+    let cut = [...label].slice(0, TASK_LABEL_CHARS).join("");
+    // Cut at a word, so the name never ends mid-word.
+    if (cut.includes(" ")) cut = cut.slice(0, cut.lastIndexOf(" "));
+    label = `${cut.replace(LABEL_ENDS, "")}…`;
+  }
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 export function runStateLabel(state: RunState): string {
   switch (state) {
     case "queued": return "Queued";

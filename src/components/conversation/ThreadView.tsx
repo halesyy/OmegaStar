@@ -5,7 +5,7 @@ import { dateLong, firstName, relTime, whenShort } from "../../lib/format";
 import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
 import { snoozePresets } from "../../lib/status";
 import { toast } from "../../lib/toasts";
-import { didNotFinish, flags, isLive } from "../../lib/threads";
+import { didNotFinish, flags, isLive, startedByYou } from "../../lib/threads";
 import { RunCards } from "./CardView";
 import { RowHistory } from "./RowHistory";
 import { BlockedCard } from "../BlockedCard";
@@ -49,7 +49,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const replies = turns?.slice(1) ?? [];
   const live = turns?.find((t) => t.run.state === "running") ?? turns?.find((t) => isLive(t.run));
   const archived = !!root?.archivedAt;
-  const task = root?.kind.type === "task";
+  const task = !!root && startedByYou(root);
   const name = firstName(e.name);
 
   const liveKey = turns ? `${turns.length}:${turns[turns.length - 1]?.events.length}:${turns[turns.length - 1]?.live.length}` : "";

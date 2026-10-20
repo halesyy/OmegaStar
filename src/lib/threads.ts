@@ -25,7 +25,12 @@ export function latestFinished(t: Thread): Run {
   return t.root;
 }
 
-export const isTask = (t: Thread): boolean => t.root.kind.type === "task";
+/** A conversation you started begins with `r`: a task, or an older build's chat message an answer came back into,
+ *  which is one now. Mirrors Rust `threads::talking`. */
+export const startedByYou = (r: Run): boolean => r.kind.type === "task" || r.kind.type === "chat";
+
+export const isTask = (t: Thread): boolean => startedByYou(t.root);
+
 
 /** The employee is answering (a conversation's first message or a later turn is queued or running). */
 export const threadBusy = (t: Thread): boolean => isLive(t.root) || t.replies.some(isLive);
@@ -95,6 +100,13 @@ export const flags = (r: Run): string[] => r.needsYou.filter((m) => !r.cards.som
 
 /** Blocked on a tool you could allow (a tidy trying a command it may not run is not). */
 export const blocked = (r: Run): boolean => r.denials.length > 0 && r.kind.type !== "tidy";
+
+/** The thread's newest finished run was blocked on a tool you could allow, and no later turn (the retry you allowed)
+ *  is on its way yet. Mirrors Rust `threads::asks_you`. */
+export function blockedNow(t: Thread): boolean {
+  const r = lastReply(t);
+  return blocked(latestFinished(t)) && !(r && !r.endedAt);
+}
 
 /** Broke for a reason you can act on: not the usage limit, which Omega Star waits out and retries itself. */
 export const broken = (r: Run): boolean => (r.state === "failed" || r.state === "lost") && !r.limited;

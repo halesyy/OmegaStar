@@ -226,6 +226,8 @@ impl Office {
                 }
                 let exempt = r.uncapped() || r.parent_run_id().map(|p| running_ids.contains(p)).unwrap_or(false);
                 if capped >= cap && !exempt {
+                    // Its session's later turns wait behind it, so a reply typed after a tap never overtakes the tap.
+                    sessions.insert(session);
                     continue;
                 }
                 r.state = RunState::Running;
@@ -1211,6 +1213,49 @@ mod tests {
 
     fn task(label: &str) -> RunKind {
         RunKind::Task { label: label.into(), from: None, context: String::new() }
+    }
+
+    struct NoSink;
+    impl EventSink for NoSink {
+        fn org_changed(&self) {}
+        fn run_updated(&self, _run: &Run) {}
+        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
+        fn request_updated(&self, _request: &HumanRequest) {}
+    }
+
+    #[tokio::test]
+    async fn a_turn_held_by_the_cap_keeps_its_place_in_its_session() {
+        let dir = std::env::temp_dir().join(format!("omegastar-cap-order-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let ada = employee(Clearance::Supervised);
+        {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.save_employee(&ada).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+        }
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        {
+            let db = office.db();
+            for i in 0..3 {
+                let mut busy = Run::new(&ada.id, RunKind::Manual, format!("Sweep {i}."), now());
+                busy.state = RunState::Running;
+                assert!(db.insert_run(&busy, &busy.id).unwrap());
+            }
+            let root = finished(&db, &ada, task("Book the venue"), 10, "s1", "Which room?");
+            let reply = |text: &str, card: bool| {
+                let mut r = Run::new(&ada.id, RunKind::Reply { to_run_id: root.id.clone(), label: "Book the venue".into(), task: true, card }, text.into(), now());
+                r.omega_wrote = card;
+                assert!(db.insert_run(&r, "s1").unwrap());
+                r
+            };
+            reply("Chose: The big room.", true);
+            reply("Thanks, book it.", false);
+        }
+        lock(&office.0.usage).held_until = None;
+        let (started, _) = office.claim_runnable().unwrap();
+        assert!(started.is_empty(), "the typed reply waits for the tap before it: {started:?}");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

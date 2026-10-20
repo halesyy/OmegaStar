@@ -440,9 +440,10 @@ Approval covers only what is listed, so if something else is blocked, stop and s
     }
 }
 
-/// A conversation you are in: one you started, or a report you typed into (`threads::talking`).
+/// A conversation you are in: one you started (an older build's chat message an answer came back into too), or a
+/// report you typed into (`threads::talking`).
 fn yours(t: &Thread) -> bool {
-    matches!(t.root.kind, RunKind::Task { .. }) || threads::talking(t)
+    matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || threads::talking(t)
 }
 
 /// Marks every open card on a finished run of `run_id`'s thread answered by your typed reply (`text`,
@@ -832,6 +833,27 @@ mod tests {
         let reply = office.reply_to_run(&message.id, "Thanks, book it.", false, vec![]).unwrap();
         assert_eq!(reply.kind, RunKind::Reply { to_run_id: message.id.clone(), label: "Check the rota with Bo".into(), task: true, card: false });
         assert!(reply.prompt.starts_with("Your manager started this conversation (Check the rota with Bo)"), "{}", reply.prompt);
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_tap_on_an_answer_in_an_older_chat_message_keeps_its_conversation_going() {
+        let dir = std::env::temp_dir().join(format!("omegastar-old-chat-tap-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let mut message = Run::new(&e.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
+        message.state = RunState::Succeeded;
+        message.ended_at = Some(now());
+        let came = RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: false, thread: Some(message.id.clone()) };
+        let mut answer = with_card(Run::new(&e.id, came, "Bo answered your question.".into(), now()), "Swap the Friday shift?");
+        answer.state = RunState::Succeeded;
+        answer.ended_at = Some(now());
+        answer.omega_wrote = true;
+        let office = held_office(&dir, &e, &[&message, &answer]).await;
+        assert_eq!(office.answer_card(&answer.id, 0, CardReply::Choice { index: 1 }).unwrap().len(), 1);
+        assert!(office.db().run(&message.id).unwrap().unwrap().run.archived_at.is_none(), "the answer goes on in the conversation");
+        assert!(office.conversations().unwrap().threads.iter().any(|t| t.root.id == message.id), "and it keeps its chip");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

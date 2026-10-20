@@ -2,7 +2,7 @@ import { useState } from "react";
 import { call, errorMessage } from "../api/client";
 import type { CardReply, EmployeeView, NewAttachment, PersonView, Run, Thread } from "../api/types";
 import type { Decision } from "../lib/decisions";
-import { dateLong, firstName, relTime, runKindLabel, whenInline } from "../lib/format";
+import { dateLong, firstName, relTime, threadTitle, whenInline } from "../lib/format";
 import { refreshOrg, useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
 import { openMember } from "../lib/router";
@@ -30,7 +30,7 @@ export type ItemActions = {
   answer: (run: Run, index: number, reply: CardReply) => Promise<void>;
 };
 
-const label = (t: Thread, employees: EmployeeView[], people: PersonView[]) => runKindLabel(t.root.kind, kindNames(t.root, employees, people));
+const label = (t: Thread, employees: EmployeeView[], people: PersonView[]) => threadTitle(t.root, kindNames(t.root, employees, people));
 
 /** The first line of what a run said, or why it said nothing. */
 function firstLine(r: Run): string {

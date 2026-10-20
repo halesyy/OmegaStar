@@ -97,10 +97,12 @@ fn latest_finished(t: &Thread) -> &Run {
 }
 
 /// The thread asks you something: a card you have not answered anywhere in it, or its newest finished run
-/// flagged something or was blocked on a tool. A flag on an earlier run was answered by what came after it.
+/// flagged something or was blocked on a tool. A flag on an earlier run was answered by what came after it,
+/// and a block is no longer yours once a later turn (the retry you allowed) is on its way.
 pub fn asks_you(t: &Thread) -> bool {
     let last = latest_finished(t);
-    std::iter::once(&t.root).chain(&t.replies).any(Run::has_open_card) || last.flags().next().is_some() || blocked(last)
+    let retrying = t.replies.last().is_some_and(|r| r.ended_at.is_none());
+    std::iter::once(&t.root).chain(&t.replies).any(Run::has_open_card) || last.flags().next().is_some() || (blocked(last) && !retrying)
 }
 
 /// The thread's newest finished run broke for a reason you can act on: not the usage limit, which Omega
@@ -308,10 +310,11 @@ pub fn going_on(t: &Thread) -> bool {
     t.root.archived_at.is_none() && !t.replies.is_empty()
 }
 
-/// A conversation you are in: one going on (`going_on`) that you started or typed into. Turns Omega Star
-/// wrote from a tap (a card's answer, an approval) alone do not make one.
+/// A conversation you are in: one going on (`going_on`) that you started (an older build's chat message an
+/// answer came back into too) or typed into. Turns Omega Star wrote from a tap (a card's answer, an approval)
+/// alone do not make one.
 pub fn talking(t: &Thread) -> bool {
-    going_on(t) && (matches!(t.root.kind, RunKind::Task { .. }) || t.replies.iter().any(|r| !r.omega_wrote))
+    going_on(t) && (matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || t.replies.iter().any(|r| !r.omega_wrote))
 }
 
 /// A row as `view` shows it: the thread it is about, with its other threads in `related`, oldest first.
@@ -530,6 +533,10 @@ mod tests {
         retried.state = RunState::Succeeded;
         retried.ended_at = Some(chrono::Utc::now());
         assert!(!asks_you(&Thread::new(r.clone(), vec![retried.clone()])), "a retry that went through is no longer blocked");
+        let mut retrying = retried.clone();
+        retrying.state = RunState::Queued;
+        retrying.ended_at = None;
+        assert!(!asks_you(&Thread::new(r.clone(), vec![retrying])), "nor while the retry you allowed is on its way");
         r.denials.clear();
         r.needs_you.push("The tidy dropped a rule.".into());
         assert!(!asks_you(&Thread::new(r, vec![retried])), "a reply after a flag answers it");

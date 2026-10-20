@@ -2,7 +2,7 @@
 // conversation header: one read of the office, your marks, and a clock that ticks when a snooze ends.
 import { useEffect, useMemo, useState } from "react";
 import type { EmployeeView, OrgSnapshot, Thread } from "../../api/types";
-import { runKindLabel } from "../../lib/format";
+import { threadTitle } from "../../lib/format";
 import { useConversations, useOrg } from "../../lib/hooks";
 import { pruneMarks, seenSince, useMarks, type Marks } from "../../lib/marks";
 import { nextWake, threadStatus, type Status, type StatusContext } from "../../lib/status";
@@ -15,7 +15,7 @@ export type Item = { thread: Thread; employee: EmployeeView; title: string; stat
 export function toItem(thread: Thread, snap: OrgSnapshot, filed: boolean, ctx: StatusContext): Item | null {
   const employee = snap.employees.find((e) => e.id === thread.root.employeeId);
   if (!employee) return null;
-  const title = runKindLabel(thread.root.kind, kindNames(thread.root, snap.employees, snap.people));
+  const title = threadTitle(thread.root, kindNames(thread.root, snap.employees, snap.people));
   return { thread, employee, title, status: threadStatus(thread, filed, ctx) };
 }
 

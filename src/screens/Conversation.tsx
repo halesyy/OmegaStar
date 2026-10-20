@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import type { EmployeeView, NewAttachment, Run } from "../api/types";
-import { firstName, runKindLabel, whenInline } from "../lib/format";
+import { firstName, threadTitle, whenInline } from "../lib/format";
 import { refreshOrg, useOrg, useThread } from "../lib/hooks";
 import { lastMoved, setMark, useMarkSeen } from "../lib/marks";
 import { openChat, openFullChat, openMember, openRun, type Route } from "../lib/router";
 import { threadStatus, type Status } from "../lib/status";
-import { doneHeld, isLive, parseThreadFocus, rowThreads, threadFocus } from "../lib/threads";
+import { doneHeld, isLive, parseThreadFocus, rowThreads, startedByYou, threadFocus } from "../lib/threads";
 import { kindNames } from "../components/RunRow";
 import { Icon } from "../components/Icon";
 import { Avatar, ErrorNote, Skeleton, StatePill } from "../components/ui";
@@ -56,14 +56,14 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
   const runs = thread.turns?.map((t) => t.run) ?? [];
   useMarkSeen(rootId, lastMoved(runs));
   const root = runs[0] ?? null;
-  const task = root?.kind.type === "task";
+  const task = !!root && startedByYou(root);
   const archived = !!root?.archivedAt;
   const name = firstName(e.name);
   // The Inbox row the conversation is in, whether it leads the row or is filed under another.
   const inRow = items?.find((i) => rowThreads(i.thread).some((x) => x.root.id === rootId)) ?? null;
   const row = inRow?.thread.root.id === rootId ? inRow : null;
   const status = root ? threadStatus({ root, replies: runs.slice(1), related: [] }, !!filed?.has(rootId), ctx) : null;
-  const title = root ? runKindLabel(root.kind, kindNames(root, snap?.employees ?? [], snap?.people ?? [])) : row?.title ?? "";
+  const title = root ? threadTitle(root, kindNames(root, snap?.employees ?? [], snap?.people ?? [])) : row?.title ?? "";
 
   const done = async () => {
     const go = leave();

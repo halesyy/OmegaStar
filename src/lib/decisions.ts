@@ -1,7 +1,7 @@
 // The Inbox as decisions: one entry per thing waiting on you, read from the rows the Inbox shows. A question
 // several employees asked is one entry, and answering it answers them all. Pure.
 import type { Card, Run, Thread } from "../api/types";
-import { blocked, broken, flags, latestFinished, openCards, rowThreads, STREAK, topic } from "./threads";
+import { blockedNow, broken, flags, latestFinished, openCards, rowThreads, STREAK, topic } from "./threads";
 
 /** Something waiting on you in a row (`item`). `thread`: the row's thread it is in; `run`: the run it is about. */
 export type Decision<T> = { id: string; item: T; thread: Thread; run: Run } & (
@@ -27,7 +27,7 @@ function rowDecisions<T extends { thread: Thread }>(item: T): Decision<T>[] {
     for (const c of openCards(x)) out.push({ type: "card", id: `${c.run.id}:${c.index}`, item, thread: x, run: c.run, index: c.index, card: c.card, also: [] });
     const last = latestFinished(x);
     flags(last).forEach((text, i) => out.push({ type: "flag", id: `${last.id}:f${i}`, item, thread: x, run: last, text }));
-    if (blocked(last)) out.push({ type: "blocked", id: `${last.id}:blocked`, item, thread: x, run: last });
+    if (blockedNow(x)) out.push({ type: "blocked", id: `${last.id}:blocked`, item, thread: x, run: last });
   }
   const failures = all.filter((x) => scheduled(x) && broken(x.root)).length;
   let streak = false;
