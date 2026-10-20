@@ -76,8 +76,9 @@ export function InboxScreen() {
   const loadError = view === "archive" ? archive.error : error;
   const ids = entries?.map((d) => d.id) ?? feed?.map((i) => i.thread.root.id) ?? [];
 
-  /** What an entry's buttons do. Done and Snooze move an open entry on to the next, so you work down the list. */
-  const actionsFor = (i: Item, id: string): ItemActions => {
+  /** What an entry's buttons do. Done and Snooze move an open entry on to the next, so you work down the list. Done and
+   *  Send & Done act on `thread`, the conversation the entry is in; Snooze and Reopen on the whole row. */
+  const actionsFor = (i: Item, id: string, thread: Thread = i.thread): ItemActions => {
     const root = i.thread.root.id;
     const name = firstName(i.employee.name);
     const leaving = () => {
@@ -87,7 +88,7 @@ export function InboxScreen() {
     return {
       done: async () => {
         const go = leaving();
-        if (await markDone(root)) go();
+        if (await markDone(thread.root.id)) go();
       },
       snooze: (until) => {
         const go = leaving();
@@ -101,7 +102,7 @@ export function InboxScreen() {
       },
       sendDone: async (text: string, attachments: NewAttachment[]) => {
         const go = leaving();
-        await sendAndDone(root, name, text, attachments);
+        await sendAndDone(thread.root.id, name, text, attachments);
         go();
       },
       answer: async (run: Run, index: number, reply: CardReply) => {
@@ -132,7 +133,7 @@ export function InboxScreen() {
       const d = entries?.find((x) => x.id === target);
       if (!d || !doneable(d)) return;
       e.preventDefault();
-      void actionsFor(d.item, d.id).done();
+      void actionsFor(d.item, d.id, d.thread).done();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -183,7 +184,7 @@ export function InboxScreen() {
           <div className="inbox-list">
             {entries.map((d) => (
               <DecisionItem
-                key={d.id} d={d} employees={employees} people={people} actions={actionsFor(d.item, d.id)}
+                key={d.id} d={d} employees={employees} people={people} actions={actionsFor(d.item, d.id, d.thread)}
                 open={openId === d.id} onToggle={() => toggle(d.id)} onHover={hover(d.id)}
               />
             ))}

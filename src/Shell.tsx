@@ -87,14 +87,18 @@ export function Shell() {
     case "run": page = <RunView key={route.runId} runId={route.runId} />; break;
   }
   const memberSelected = route.page === "org" ? route.memberId : null;
-  // A working employee's row says what they are on, and a click opens the first of it that is a conversation.
+  // A working employee's row says what they are on and what waits to start, and a click opens the first of it that is a
+  // conversation.
   const members = [
     ...(snap?.employees ?? []).map((e) => {
       const what = e.live.map((r) => workLabel(r, snap?.employees ?? [], snap?.people ?? []));
+      const on = (state: string) => what.filter((_, i) => e.live[i].state === state).join(", ");
+      const [running, queued] = [on("running"), on("queued")];
+      const doing = [running && `working on ${running}`, queued && `waiting to start: ${queued}`].filter(Boolean).join("; ");
       return {
         id: e.id, name: e.name, hue: e.hue, person: false,
         dot: e.presence === "working" || e.presence === "queued" ? "live" : e.presence === "attention" ? "err" : null, working: e.working,
-        what: what[0] ?? null, label: what.length ? `${e.name}, working on ${what.join(", ")}` : e.name,
+        what: what[0] ?? null, label: doing ? `${e.name}, ${doing}` : e.name,
         focus: (() => { const root = e.live.map(conversationOf).find((r) => r !== null); return root ? threadFocus(root) : null; })(),
       };
     }),

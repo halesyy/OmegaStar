@@ -384,6 +384,12 @@ impl Store {
         Ok(())
     }
 
+    /// Saves a run whose kind moved it to another lane, with that lane.
+    pub fn save_run_moved(&self, run: &Run) -> Result<()> {
+        self.conn.execute("UPDATE runs SET lane = ?2, data = ?3 WHERE id = ?1", params![run.id, run.kind.lane().as_str(), to_json(run)?])?;
+        Ok(())
+    }
+
     /// Marks every run still running as lost, in SQL, so it reaches rows this build cannot read; JSON
     /// that is not valid is left as it is. `recover` calls it after saving the readable ones, so a row
     /// from another build never holds its session's running slot.

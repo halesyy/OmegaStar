@@ -178,8 +178,8 @@ impl Office {
     }
 
     /// Archives a report with its thread and the rest of its Inbox row (they leave the Inbox and the
-    /// employee's chips), or moves them all back. Archiving leaves alone any other conversation still going
-    /// on in the row (`threads::going_on`). `run_id` may be any run in the row.
+    /// employee's chips), or moves them all back. Archiving leaves alone any other conversation you are in
+    /// in the row (`threads::talking`), cards and all. `run_id` may be any run in the row.
     pub fn set_archived(&self, run_id: &str, archived: bool) -> Result<Run> {
         let (root, changed) = {
             let db = self.db();
@@ -187,16 +187,14 @@ impl Office {
             if !t.root.state.is_finished() {
                 return Err(AppError::conflict("it is still working, so it cannot be archived yet"));
             }
-            let row = Self::row_of(&db, &t.root)?;
-            if archived && threads::card_open(&row) {
+            // Done ends only this conversation: another one you are in goes on in its own chip, so neither it
+            // nor a card in it is Done's to settle. `t` holds every turn, answers that came back into it too.
+            let row: Vec<Thread> = Self::row_of(&db, &t.root)?.into_iter().filter(|m| !archived || (m.root.id != t.root.id && !threads::talking(m))).collect();
+            if archived && (threads::open_card(&t).is_some() || threads::card_open(&row)) {
                 return Err(AppError::conflict("Answer the card first, or dismiss it."));
             }
             let mut changed = vec![];
-            for m in row {
-                // Done ends only this conversation: another one in the row goes on in its own chip.
-                if archived && m.root.id != t.root.id && threads::going_on(&m) {
-                    continue;
-                }
+            for m in row.into_iter().chain(archived.then(|| t.clone())) {
                 // A run still going joins the row when it finishes, and shows only if it needs you.
                 let mut root = m.root;
                 if !root.state.is_finished() || root.archived_at.is_some() == archived {
@@ -699,6 +697,100 @@ mod tests {
         assert!(archived(&week[0]), "Done ends the conversation you pressed it on");
         assert!(!archived(&week[1]), "another conversation on the week goes on");
         assert!(archived(&week[2]), "the rest of the week goes with it");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A card on `run` with no answer yet.
+    fn with_card(mut run: Run, message: &str) -> Run {
+        run.needs_you = vec![message.into()];
+        run.cards = vec![Card::new(message, None, None, CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 })];
+        run
+    }
+
+    #[tokio::test]
+    async fn answering_the_last_card_of_a_week_archives_a_review_whose_card_was_answered_first() {
+        let dir = std::env::temp_dir().join(format!("omegastar-week-cards-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let week = {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+            let week = plain_week(&db, &["ada", "bo"]);
+            for r in &week {
+                db.save_run(&with_card(r.clone(), "Boost the post?")).unwrap();
+            }
+            week
+        };
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
+        assert_eq!(office.answer_card(&week[0].id, 0, CardReply::Choice { index: 1 }).unwrap().len(), 1);
+        assert!(!archived(&week[0]), "the week still waits on the other card");
+        office.answer_card(&week[1].id, 0, CardReply::Choice { index: 1 }).unwrap();
+        assert!(archived(&week[0]) && archived(&week[1]), "the answer to a tap is no conversation of yours, so the whole week goes");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_card_in_another_conversation_of_the_row_does_not_hold_up_done() {
+        let dir = std::env::temp_dir().join(format!("omegastar-week-other-card-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let week = {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+            let week = plain_week(&db, &["ada", "bo"]);
+            talk_about(&db, &week[0]);
+            let turn = talk_about(&db, &week[1]);
+            db.save_run(&with_card(turn, "Boost the post?")).unwrap();
+            week
+        };
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        office.set_archived(&week[0].id, true).unwrap();
+        let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
+        assert!(archived(&week[0]) && !archived(&week[1]), "the card waits in its own conversation");
+        assert_eq!(office.set_archived(&week[1].id, true).unwrap_err().message, "Answer the card first, or dismiss it.");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_card_in_an_answer_that_came_back_into_a_conversation_holds_up_done() {
+        let dir = std::env::temp_dir().join(format!("omegastar-answer-card-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let mut task = Run::new(&e.id, RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, "Draft it.".into(), now());
+        task.state = RunState::Succeeded;
+        task.ended_at = Some(now());
+        let kind = RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: false, thread: Some(task.id.clone()) };
+        let mut answer = with_card(Run::new(&e.id, kind, "Bo answered your question.".into(), now()), "Send it to the printer?");
+        answer.state = RunState::Succeeded;
+        answer.ended_at = Some(now());
+        answer.omega_wrote = true;
+        let office = held_office(&dir, &e, &[&task, &answer]).await;
+        assert_eq!(office.set_archived(&task.id, true).unwrap_err().message, "Answer the card first, or dismiss it.");
+        assert!(office.db().run(&task.id).unwrap().unwrap().run.archived_at.is_none());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn turns_an_older_chat_left_waiting_move_to_the_work_lane() {
+        let dir = std::env::temp_dir().join(format!("omegastar-old-chat-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let message = Run::new(&e.id, RunKind::Chat, "Can you draft the launch note?".into(), now());
+        let came = RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: true, thread: None };
+        let answer = Run::new(&e.id, came, "Bo answered your question.".into(), now());
+        let mut done = Run::new(&e.id, RunKind::Chat, "Hi.".into(), now());
+        done.state = RunState::Succeeded;
+        done.ended_at = Some(now());
+        let office = held_office(&dir, &e, &[&message, &answer, &done]).await;
+        let stored = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.kind;
+        assert_eq!(stored(&message), RunKind::Task { label: "Draft the launch note".into(), from: None, context: String::new() }, "your message is a conversation");
+        assert_eq!(stored(&answer), RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: false, thread: None });
+        assert_eq!(stored(&done), RunKind::Chat, "a finished turn stays as it was");
+        let work: HashSet<String> = office.db().work_runs(&e.id, 10).unwrap().into_iter().map(|r| r.id).collect();
+        assert_eq!(work, HashSet::from([message.id.clone(), answer.id.clone()]));
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

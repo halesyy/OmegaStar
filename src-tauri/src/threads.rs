@@ -308,6 +308,12 @@ pub fn going_on(t: &Thread) -> bool {
     t.root.archived_at.is_none() && !t.replies.is_empty()
 }
 
+/// A conversation you are in: one going on (`going_on`) that you started or typed into. Turns Omega Star
+/// wrote from a tap (a card's answer, an approval) alone do not make one.
+pub fn talking(t: &Thread) -> bool {
+    going_on(t) && (matches!(t.root.kind, RunKind::Task { .. }) || t.replies.iter().any(|r| !r.omega_wrote))
+}
+
 /// A row as `view` shows it: the thread it is about, with its other threads in `related`, oldest first.
 /// In the Inbox that is the newest open thread that asks you something or broke, else the newest open one;
 /// None unless the row needs you. In the Archive it is the newest thread that reached you, leaving out any

@@ -186,6 +186,7 @@ impl Office {
             awake: AtomicBool::new(true),
             company_saved: Mutex::new(None),
         }));
+        office.adopt_chat_turns()?;
         for mut run in office.recover()? {
             // The run never reached its end, where its sends are normally found.
             if let Err(e) = office.capture_deliveries(&run.id, true) {
@@ -331,6 +332,24 @@ impl Office {
 
     fn skills_dir(&self, employee_id: &str) -> PathBuf {
         own_skills::skills_dir(&self.employee_dir(employee_id))
+    }
+
+    /// Moves the turns an older build's chat left queued or running into the work lane, as this build makes
+    /// them, since nothing shows a chat-lane run once it ends: your message there becomes a conversation you
+    /// started, and a colleague's answer that came back into the chat an answer of its own, which can ask you on
+    /// a card.
+    fn adopt_chat_turns(&self) -> Result<()> {
+        let db = self.db();
+        for state in [RunState::Queued, RunState::Running] {
+            for mut r in db.runs_in_state(state)?.into_iter().filter(|r| r.kind.lane() == Lane::Chat) {
+                r.kind = match r.kind {
+                    RunKind::Answered { asked_run_id, from, task, thread, .. } => RunKind::Answered { asked_run_id, from, task, chat: false, thread },
+                    _ => RunKind::Task { label: threads::task_label(&r.prompt, &r.attachments), from: None, context: String::new() },
+                };
+                db.save_run_moved(&r)?;
+            }
+        }
+        Ok(())
     }
 
     /// Settles the runs a previous session left running: a run whose transcript ends in a result is
