@@ -242,6 +242,7 @@ pub fn run() {
             commands::approve_blocked,
             commands::answer_card,
             commands::open_asks,
+            commands::week_reviews,
             commands::employee_skills,
             commands::skill_health,
             commands::tidy,

@@ -22,6 +22,11 @@ impl Office {
         self.db().open_asks()
     }
 
+    /// Weekly reviews from the last eight days, for Activity's "This week's numbers".
+    pub fn week_reviews(&self) -> Result<Vec<Run>> {
+        self.db().review_runs(now() - chrono::Duration::days(8))
+    }
+
     /// The Archive: every row that reached you and needs nothing from you now, the rows you archived, and the
     /// conversations you started and marked done, newest first (`threads::archive_at`).
     pub fn archived(&self) -> Result<Vec<Thread>> {
@@ -61,6 +66,14 @@ impl Office {
         let mut starts = db.finished_root_runs(&roots, &all)?;
         if view == View::Archive {
             starts.extend(db.reached_root_runs(&roots, &all, ARCHIVE_ROWS)?);
+        }
+        // A review brings the team's other reviews that week, as `row_of` does, so a week that needs you is one
+        // whole row in the Inbox and none of it is left in the Archive.
+        let weeks: HashSet<String> = starts.iter().filter_map(threads::review_week).collect();
+        if let Some(first) = starts.iter().filter(|r| threads::review_week(r).is_some()).map(|r| r.created_at).min() {
+            let have: HashSet<String> = starts.iter().map(|r| r.id.clone()).collect();
+            let same = |r: &Run| !have.contains(&r.id) && threads::review_week(r).is_some_and(|w| weeks.contains(&w));
+            starts.extend(db.review_runs(first - chrono::Duration::days(8))?.into_iter().filter(same));
         }
         starts.retain(|r| threads::reaches_you(r, false, top.contains(&r.employee_id)));
         if view == View::Archive {
@@ -592,6 +605,35 @@ mod tests {
         let archived: Vec<HashSet<String>> = Office::rows(&db, View::Archive).unwrap().iter().map(ids).collect();
         assert_eq!(archived.len(), 2, "the week you archived, and next week's review, which needs nothing");
         assert!(archived.contains(&week) && archived.contains(&HashSet::from([later.id.clone()])));
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_week_that_needs_you_is_one_inbox_row_with_every_review() {
+        let dir = std::env::temp_dir().join(format!("omegastar-week-needs-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let slot = "2026-10-07T12:00:00Z".parse::<Ts>().unwrap();
+        let review = |slug: &str, flag: bool| {
+            let e = Employee { slug: slug.into(), name: slug.into(), chat_session: format!("chat-{slug}"), ..tester() };
+            db.save_employee(&e).unwrap();
+            let kind = RunKind::Scheduled { schedule_id: format!("review-{slug}"), slot, label: "Weekly review".into(), quiet: false, model: None, effort: None, review: true };
+            let mut r = Run::new(&e.id, kind, "Review your week.".into(), slot);
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(slot);
+            r.summary = Some("Signups 40, up 5.".into());
+            if flag {
+                r.needs_you = vec!["Approve the budget.".into()];
+            }
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r.id
+        };
+        let week: HashSet<String> = [review("ada", false), review("bo", true), review("cy", false)].into();
+        let ids = |t: &Thread| -> HashSet<String> { std::iter::once(t).chain(&t.related).map(|x| x.root.id.clone()).collect() };
+        let inbox: Vec<HashSet<String>> = Office::rows(&db, View::Inbox).unwrap().iter().map(ids).collect();
+        assert_eq!(inbox, vec![week], "the reviews that need nothing come along with the one that does");
+        assert!(Office::rows(&db, View::Archive).unwrap().is_empty(), "so none of them is lost between the two");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }

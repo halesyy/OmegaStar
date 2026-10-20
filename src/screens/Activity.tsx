@@ -83,7 +83,7 @@ function Runs({ who, name, employees }: { who: string | null; name: string | nul
       <WorkingNow who={who} employees={employees} people={people} />
       <Waiting who={who} employees={employees} people={people} />
       <BetweenColleagues who={who} employees={employees} />
-      <Scoreboard runs={runs} employees={employees} />
+      <Scoreboard who={who} employees={employees} />
       {list}
     </>
   );
@@ -144,10 +144,12 @@ function BetweenColleagues({ who, employees }: { who: string | null; employees: 
 
 /** The week in numbers: each employee's latest weekly review from the last week, as the number it reported, else its
  *  first line. Each opens the review on the employee's panel. */
-function Scoreboard({ runs, employees }: { runs: Run[]; employees: EmployeeView[] }) {
+function Scoreboard({ who, employees }: { who: string | null; employees: EmployeeView[] }) {
   const now = useNow(60_000);
+  const q = useQuery(() => call("week_reviews"), [], ["run:updated"]);
   const latest = new Map<string, Run>();
-  for (const r of runs) {
+  for (const r of q.data ?? []) {
+    if (who !== null && r.employeeId !== who) continue;
     if (r.kind.type !== "scheduled" || !r.kind.review || r.state !== "succeeded" || now - Date.parse(r.createdAt) > WEEK_MS) continue;
     const had = latest.get(r.employeeId);
     if (!had || had.createdAt < r.createdAt) latest.set(r.employeeId, r);

@@ -184,7 +184,7 @@ function TimelineGroup({ revs, run, name }: { revs: SkillRevision[]; run: Run | 
   const skillCount = new Set(revs.map((r) => r.skill).filter((n) => recordedName(n) === n)).size;
   const added = revs.filter((r) => r.change === "added").length;
   const title = run?.kind.type === "organize" ? runKindLabel(run.kind) : skillsChanged(revs).label;
-  const who = run ? (run.kind.type === "chat" ? "Learned in chat" : runKindLabel(run.kind)) : "During a run";
+  const who = run ? (run.kind.type === "chat" ? "Learned in a conversation" : runKindLabel(run.kind)) : "During a run";
   const revert = async () => {
     if (!revs[0].runId) return;
     try {
@@ -242,7 +242,7 @@ function SkillNode({ s, kind, count, onOpenFile }: { s: OwnSkill; kind: "role" |
 export function TimelineItem({ r, run, onOpen }: { r: SkillRevision; run: Run | undefined; onOpen: () => void }) {
   const stats = useMemo(() => lineStats(r.before, r.after), [r.before, r.after]);
   const verb = r.change === "added" ? "Created" : r.change === "removed" ? "Removed" : "Changed";
-  const who = r.runId ? (run ? (run.kind.type === "chat" ? "Learned in chat" : runKindLabel(run.kind)) : "During a run") : r.change === "added" ? "Set up" : "Edited by you";
+  const who = r.runId ? (run ? (run.kind.type === "chat" ? "Learned in a conversation" : runKindLabel(run.kind)) : "During a run") : r.change === "added" ? "Set up" : "Edited by you";
   return (
     <li className={`tl ${r.runId ? "tl-run" : "tl-ceo"}`}>
       <span className="tl-dot" />

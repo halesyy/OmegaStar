@@ -346,6 +346,8 @@ export type Commands = {
   answer_card: { args: { runId: string; card: number; answer: CardReply }; ret: Run[] };
   /** Colleague asks still in flight (queued, running, or answered and not yet collected), oldest first. */
   open_asks: { args: Record<string, never>; ret: Run[] };
+  /** Weekly reviews from the last eight days, oldest first. */
+  week_reviews: { args: Record<string, never>; ret: Run[] };
   employee_skills: { args: { employeeId: string }; ret: OwnSkill[] };
   skill_health: { args: { employeeId: string }; ret: SkillHealth };
   checks: { args: { employeeId: string }; ret: Check[] };

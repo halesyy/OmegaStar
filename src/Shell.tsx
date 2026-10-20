@@ -13,7 +13,7 @@ import { usePruneMarks, useStatuses } from "./components/conversation/useStatuse
 import { decisions } from "./lib/decisions";
 import { firstName, initials } from "./lib/format";
 import { openMember, openYou, useRoute } from "./lib/router";
-import { conversationOf } from "./lib/threads";
+import { conversationOf, threadFocus } from "./lib/threads";
 import { YOU_ID } from "./lib/org";
 import { useOrg, useProposals } from "./lib/hooks";
 import { storageGet, storageSet } from "./lib/storage";
@@ -95,7 +95,7 @@ export function Shell() {
         id: e.id, name: e.name, hue: e.hue, person: false,
         dot: e.presence === "working" || e.presence === "queued" ? "live" : e.presence === "attention" ? "err" : null, working: e.working,
         what: what[0] ?? null, label: what.length ? `${e.name}, working on ${what.join(", ")}` : e.name,
-        focus: e.live.map(conversationOf).find((root) => root !== null) ?? null,
+        focus: (() => { const root = e.live.map(conversationOf).find((r) => r !== null); return root ? threadFocus(root) : null; })(),
       };
     }),
     ...(snap?.people ?? []).map((p) => ({ id: p.id, name: p.name, hue: p.hue, person: true, dot: null, working: 0, what: null, label: p.name, focus: null })),

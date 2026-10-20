@@ -140,14 +140,16 @@ pub fn reaches_you(r: &Run, quiet_chain: bool, top: bool) -> bool {
 
 /// The run a conversation run continues: the run a reply answers, the ask an answer brings back, and
 /// the run an ask or delegation came from when that run was itself part of a conversation. An ask a
-/// report makes starts a row of its own, so one report's unrelated hand-offs don't share a row.
+/// report makes starts a row of its own, so one report's unrelated hand-offs don't share a row, and so does
+/// one made in a conversation you started, which is never filed into a row.
 fn continues_from<'a>(r: &'a Run, conversation: &HashMap<String, Run>) -> Option<&'a str> {
     match &r.kind {
         RunKind::Reply { to_run_id, .. } => Some(to_run_id),
         RunKind::Answered { asked_run_id, .. } => Some(asked_run_id),
-        RunKind::Asked { parent_run_id, .. } | RunKind::Delegated { parent_run_id } => {
-            conversation.contains_key(parent_run_id.as_str()).then_some(parent_run_id.as_str())
-        }
+        RunKind::Asked { parent_run_id, .. } | RunKind::Delegated { parent_run_id } => conversation
+            .get(parent_run_id.as_str())
+            .filter(|p| !matches!(p.kind, RunKind::Reply { task: true, .. }))
+            .map(|_| parent_run_id.as_str()),
         _ => None,
     }
 }
@@ -551,5 +553,28 @@ mod tests {
         assert_eq!(grouped.get(&task.id).map(|v| v.len()), Some(1));
         assert!(!reaches_you(&turn, false, true), "it is a turn of its conversation, even when it flags something");
         assert!(reaches_you(&came(None), false, true), "an answer to background work is a report of its own");
+    }
+
+    #[test]
+    fn an_ask_from_a_reply_in_a_conversation_is_a_row_of_its_own() {
+        let at = chrono::Utc::now();
+        let task = Run::new("e1", RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, "Draft it.".into(), at);
+        let report = Run::new("e1", RunKind::Manual, "Count the stock.".into(), at);
+        let reply = |to: &Run, task: bool| Run::new("e1", RunKind::Reply { to_run_id: to.id.clone(), label: "Draft it".into(), task, card: false }, "Ask Bo.".into(), at);
+        let ask = |from: &Run| {
+            let mut r = Run::new("e2", RunKind::Asked { parent_run_id: from.id.clone(), asked_by: "e1".into(), task: false }, "What are the numbers?".into(), at);
+            r.state = RunState::Failed;
+            r
+        };
+        let (in_task, in_report) = (reply(&task, true), reply(&report, false));
+        let (a, b) = (ask(&in_task), ask(&in_report));
+        let known = [task.clone(), report.clone()];
+        let lookup = |id: &str| known.iter().find(|r| r.id == id).cloned();
+        let top = HashSet::from(["e1".to_string()]);
+        let rows = file(&[a.clone(), b.clone()], vec![in_task, in_report, a.clone(), b.clone()], lookup, &top);
+        let ids: Vec<Vec<&str>> = rows.iter().map(|r| r.members.iter().map(|(t, _)| t.root.id.as_str()).collect()).collect();
+        assert_eq!(ids[0], vec![a.id.as_str()], "the conversation stays out of the row, so marking the ask done leaves it alone");
+        assert_eq!(ids[1].len(), 2, "an ask from your reply to a report still joins the report's row");
+        assert!(ids[1].contains(&report.id.as_str()) && ids[1].contains(&b.id.as_str()));
     }
 }

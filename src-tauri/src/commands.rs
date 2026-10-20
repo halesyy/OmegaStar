@@ -231,6 +231,11 @@ pub async fn open_asks(office: O<'_>) -> Result<Vec<Run>> {
 }
 
 #[tauri::command]
+pub async fn week_reviews(office: O<'_>) -> Result<Vec<Run>> {
+    office.week_reviews()
+}
+
+#[tauri::command]
 pub async fn employee_skills(office: O<'_>, employee_id: String) -> Result<Vec<OwnSkill>> {
     office.employee_skills(&employee_id)
 }
