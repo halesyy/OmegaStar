@@ -239,7 +239,7 @@ function ItemThread({ item, thread, e, onSendDone }: { item: Item; thread: Threa
   useMarkSeen(item.status.state === "done" ? null : item.thread.root.id, lastMoved(live.turns?.map((t) => t.run) ?? []));
   return (
     <div className="item-thread">
-      <ThreadView e={e} rootId={id} thread={live} row={lead ? item.thread : null} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} />
+      <ThreadView e={e} rootId={id} thread={live} row={lead ? item.thread : null} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent />
     </div>
   );
 }

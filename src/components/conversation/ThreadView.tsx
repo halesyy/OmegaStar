@@ -26,8 +26,9 @@ const TEACH_PREFIX = "I want to teach you a new task: ";
  * a composer that answers in it. What you send while the
  * employee works reaches them as they work, or runs as the next reply. Whoever shows it (the conversation
  * screen, an Inbox row) holds the thread's runs (`thread`), and the rest of an Inbox row (`row`) when it leads one.
+ * With `recent` it opens on the latest exchange, and the turns before it wait behind "Show N earlier".
  */
-export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = true }: {
+export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = true, recent = false }: {
   e: EmployeeView;
   rootId: string;
   thread: Conversation;
@@ -37,10 +38,13 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   onSendDone: ((text: string, attachments: NewAttachment[]) => Promise<void>) | null;
   /** The composer takes focus when the thread appears. */
   autoFocus?: boolean;
+  /** Show only the latest exchange until you ask for the rest. */
+  recent?: boolean;
 }) {
   const { snap } = useOrg();
   const { turns, error, reload, appendRun } = thread;
   const surface = useRef<ChatSurfaceHandle>(null);
+  const [all, setAll] = useState(false);
   const root = turns?.[0]?.run;
   const replies = turns?.slice(1) ?? [];
   const live = turns?.find((t) => t.run.state === "running") ?? turns?.find((t) => isLive(t.run));
@@ -76,6 +80,20 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const hint = archived ? (task ? "Replying reopens it" : "Replying brings it back") : `Stays in this ${place} · Shift+Enter for a new line`;
   // A conversation's first message is a turn like the rest; a report opens its thread on its own.
   const shown = task ? turns : replies;
+  // The latest exchange starts at the last turn, or the one before it that finished while a newer one is still
+  // going, or earlier still at a turn whose card waits on you. -1 is a report thread's report.
+  let start = shown.length - 1;
+  if (start >= 0 && isLive(shown[start].run)) {
+    start--;
+    while (start >= 0 && isLive(shown[start].run)) start--;
+  }
+  const asking = shown.findIndex((t) => waiting(t.run));
+  if (asking >= 0) start = Math.min(start, asking);
+  if (!task && waiting(root)) start = -1;
+  if (!recent || all) start = -1;
+  const visible = shown.slice(Math.max(start, 0));
+  const showReport = !task && start < 0;
+  const earlier = shown.length - visible.length + (task || showReport ? 0 : 1);
 
   return (
     <div className="thread">
@@ -86,13 +104,14 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
       >
         <div className="chat-inner">
           {row && row.related.length ? <RowHistory t={row} employees={snap?.employees ?? []} people={snap?.people ?? []} /> : null}
-          {task ? null : <ReportTurn root={root} e={e} blocked={tail.id === root.id && !archived} archived={archived} />}
-          {shown.map((t, i) => (
+          {earlier ? <button className="btn btn-ghost btn-sm thread-earlier" onClick={() => setAll(true)}>Show {earlier} earlier</button> : null}
+          {showReport ? <ReportTurn root={root} e={e} blocked={tail.id === root.id && !archived} archived={archived} /> : null}
+          {visible.map((t, i) => (
             <div key={t.run.id} className="stack" style={{ gap: 10 }}>
               <Turn turn={t} e={e} withReport />
               <Flags run={t.run} />
               <RunCards run={t.run} e={e} />
-              {i === shown.length - 1 && t.run.denials.length > 0 && t.run.endedAt && !archived ? <BlockedCard run={t.run} employee={e} /> : null}
+              {i === visible.length - 1 && t.run.denials.length > 0 && t.run.endedAt && !archived ? <BlockedCard run={t.run} employee={e} /> : null}
             </div>
           ))}
         </div>
@@ -100,6 +119,9 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
     </div>
   );
 }
+
+/** The run has a card still waiting on your answer. */
+const waiting = (run: Run) => run.cards.some((c) => !c.answer);
 
 /** What Omega Star flagged on a run, apart from its cards. */
 function Flags({ run }: { run: Run }) {

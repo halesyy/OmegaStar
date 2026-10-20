@@ -18,6 +18,14 @@
 .msg-came > summary > svg { flex: none; }
 .msg-came > summary:hover { color: var(--ink); }
 .msg-came[open] > summary { margin-bottom: 8px; }
+/* The work behind an answer, folded into one muted line. */
+.steps-head { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 6px; margin-left: -6px; border-radius: 7px; font-size: var(--t-sm); color: var(--muted); transition: background var(--d-ui) var(--ease), color var(--d-ui) var(--ease); }
+.steps-head:hover { color: var(--ink); background: var(--sunken); }
+.steps-chev { flex: none; color: var(--faint); transition: transform var(--d-ui) var(--ease); }
+.steps-open .steps-chev { transform: rotate(90deg); }
+.steps-body { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; animation: fadeIn var(--d-ui) var(--ease); }
+/* "Show N earlier" above the latest exchange of a thread. */
+.thread-earlier { align-self: center; }
 .msg-emp { display: flex; gap: 10px; align-items: flex-start; }
 .msg-av { margin-top: 1px; }
 .msg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; padding-left: 12px; margin-left: -2px; border-left: 2px solid var(--line); }

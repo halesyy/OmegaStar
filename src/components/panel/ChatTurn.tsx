@@ -1,4 +1,4 @@
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView } from "../../api/types";
 import { firstName, heldLabel } from "../../lib/format";
@@ -43,6 +43,18 @@ export function Turn({ turn, e, withReport = false }: { turn: LiveRun; e: Employ
   const came = turn.run.kind.type === "answered" ? turn.run.kind : null;
   const fromName = came ? snap?.employees.find((x) => x.id === came.from)?.name : undefined;
   const who = fromName ? firstName(fromName) : "A colleague";
+  const item = (it: TranscriptItem) => {
+    switch (it.kind) {
+      case "text": return <Markdown key={it.key} text={it.text} />;
+      case "tools": return <ToolRows key={it.key} tools={it.tools} running={running} compact tasks={turn.tasks} />;
+      case "skill": return <SkillChip key={it.key} skill={it.skill} file={it.file} change={it.change} onClick={() => openMember(e.id, "skills", `diff~${turn.run.id}~${it.skill}~${it.file}`)} />;
+      case "delegated": return <DelegatedCard key={it.key} childRunId={it.childRunId} employeeId={it.employeeId} task={it.task} asked={it.asked} handoff={it.handoff} employees={snap?.employees ?? []} child={turn.children.find((c) => c.id === it.childRunId)} />;
+      case "requested": return <RequestedRow key={it.key} personId={it.personId} reqKind={it.reqKind} message={it.message} people={snap?.people ?? []} />;
+      case "proposed": return <ProposedRow key={it.key} name={it.name} title={it.title} proposal={proposals?.find((p) => p.id === it.proposalId)} />;
+      case "result": return !it.ok && it.text ? <ErrorNote key={it.key} text={it.text} /> : null;
+      case "user": case "stderr": case "init": return null;
+    }
+  };
   return (
     <div className="turn">
       {turn.run.attachments.length ? (
@@ -62,6 +74,12 @@ export function Turn({ turn, e, withReport = false }: { turn: LiveRun; e: Employ
       ) : turn.run.prompt ? <div className="msg-ceo">{turn.run.prompt}</div> : null}
       {parts.map((part, i) => {
         const last = i === parts.length - 1;
+        // The work before the part's answer (its last text, or all of it when there is none) folds into one line;
+        // what came of it (skills, hand-offs, requests, proposals) stays in view.
+        const end = part.items.map((it) => it.kind).lastIndexOf("text");
+        const before = end < 0 ? part.items : part.items.slice(0, end);
+        const work = before.filter((it) => it.kind === "text" || it.kind === "tools");
+        const steps = work.reduce((n, it) => n + (it.kind === "tools" ? it.tools.length : 1), 0);
         return (
           <Fragment key={i}>
             {part.said !== null ? <div className="msg-ceo">{part.said}</div> : null}
@@ -69,18 +87,9 @@ export function Turn({ turn, e, withReport = false }: { turn: LiveRun; e: Employ
               <div className="msg-emp">
                 <Avatar name={e.name} hue={e.hue} size={24} presence={last && queued ? "queued" : last && running ? "working" : undefined} className="msg-av" />
                 <div className="msg-body">
-                  {part.items.map((it) => {
-                    switch (it.kind) {
-                      case "text": return <Markdown key={it.key} text={it.text} />;
-                      case "tools": return <ToolRows key={it.key} tools={it.tools} running={running} compact tasks={turn.tasks} />;
-                      case "skill": return <SkillChip key={it.key} skill={it.skill} file={it.file} change={it.change} onClick={() => openMember(e.id, "skills", `diff~${turn.run.id}~${it.skill}~${it.file}`)} />;
-                      case "delegated": return <DelegatedCard key={it.key} childRunId={it.childRunId} employeeId={it.employeeId} task={it.task} asked={it.asked} handoff={it.handoff} employees={snap?.employees ?? []} child={turn.children.find((c) => c.id === it.childRunId)} />;
-                      case "requested": return <RequestedRow key={it.key} personId={it.personId} reqKind={it.reqKind} message={it.message} people={snap?.people ?? []} />;
-                      case "proposed": return <ProposedRow key={it.key} name={it.name} title={it.title} proposal={proposals?.find((p) => p.id === it.proposalId)} />;
-                      case "result": return !it.ok && it.text ? <ErrorNote key={it.key} text={it.text} /> : null;
-                      case "user": case "stderr": case "init": return null;
-                    }
-                  })}
+                  {work.length ? <Steps count={steps} live={last && running}>{work.map(item)}</Steps> : null}
+                  {before.filter((it) => it.kind !== "text" && it.kind !== "tools").map(item)}
+                  {end < 0 ? null : part.items.slice(end).map(item)}
                   {last ? (
                     <>
                       {turn.live ? <Markdown text={turn.live} className="md-live" /> : null}
@@ -97,6 +106,23 @@ export function Turn({ turn, e, withReport = false }: { turn: LiveRun; e: Employ
           </Fragment>
         );
       })}
+    </div>
+  );
+}
+
+/** The work behind an answer (its notes and tool calls) as one line that opens to show it. It stays open while the
+ *  turn is live; once you open or close it, that holds. */
+function Steps({ count, live, children }: { count: number; live: boolean; children: ReactNode }) {
+  const [toggled, setToggled] = useState<boolean | null>(null);
+  const open = toggled ?? live;
+  const steps = `${count} ${count === 1 ? "step" : "steps"}`;
+  return (
+    <div className={`steps ${open ? "steps-open" : ""}`}>
+      <button type="button" className="steps-head" aria-expanded={open} onClick={() => setToggled(!open)}>
+        <Icon name="chevronRight" size={12} className="steps-chev" />
+        {live ? `${steps} so far` : `Worked through ${steps}`}
+      </button>
+      {open ? <div className="steps-body">{children}</div> : null}
     </div>
   );
 }
