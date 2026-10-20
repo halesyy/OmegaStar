@@ -1223,7 +1223,7 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
         assert_eq!(r.proposed, None);
         let e = db.employee("e1").unwrap().unwrap();
         assert!(e.browser);
-        assert!(!e.auto_tidy);
+        assert!(e.auto_tidy);
         let s = db.settings().unwrap().unwrap();
         assert_eq!(s.max_concurrent_runs, 2);
         assert_eq!(s.backup, BackupSettings::default());

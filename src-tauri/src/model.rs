@@ -92,8 +92,8 @@ pub struct EmployeeDraft {
     /// Lets them drive your Chrome (Claude in Chrome). Off unless you turn it on for a new hire.
     #[serde(default)]
     pub browser: bool,
-    /// Tidies their skills and notes on their own when the health check finds something.
-    #[serde(default)]
+    /// Tidies their skills and notes on their own when the health check finds something. On unless you turn it off.
+    #[serde(default = "tidy_on")]
     pub auto_tidy: bool,
     pub workspaces: Vec<String>,
     pub hue: u16,
@@ -101,6 +101,11 @@ pub struct EmployeeDraft {
 
 /// Employees hired before the browser switch existed could already drive Chrome, so they keep it.
 fn browser_on() -> bool {
+    true
+}
+
+/// Tidying on their own is on unless you turn it off, including for employees saved before it was.
+fn tidy_on() -> bool {
     true
 }
 
@@ -121,7 +126,8 @@ pub struct Employee {
     pub effort: Option<Effort>,
     #[serde(default = "browser_on")]
     pub browser: bool,
-    #[serde(default)]
+    /// On unless you turn it off.
+    #[serde(default = "tidy_on")]
     pub auto_tidy: bool,
     pub workspaces: Vec<String>,
     pub hue: u16,
@@ -1722,6 +1728,35 @@ mod tests {
 
     fn build() -> Build {
         Build { version: "1.2.3".into(), commit: "abc1234567".into(), channel: BuildChannel::Dogfood }
+    }
+
+    #[test]
+    fn tidy_on_its_own_is_on_unless_turned_off() {
+        let draft = EmployeeDraft {
+            name: "Ada".into(),
+            title: "Analyst".into(),
+            description: String::new(),
+            objective: String::new(),
+            manager_id: None,
+            skills: SkillGrant { builtins: false, keys: vec![] },
+            clearance: Clearance::Supervised,
+            allow_rules: vec![],
+            model: None,
+            effort: None,
+            browser: false,
+            auto_tidy: false,
+            workspaces: vec![],
+            hue: 0,
+        };
+        let employee = draft.clone().into_employee("e1".into(), "ada".into(), "chat-ada".into(), Utc::now());
+        let mut draft = serde_json::to_value(draft).unwrap();
+        let mut employee = serde_json::to_value(employee).unwrap();
+        assert!(!serde_json::from_value::<EmployeeDraft>(draft.clone()).unwrap().auto_tidy, "an explicit off stays off");
+        assert!(!serde_json::from_value::<Employee>(employee.clone()).unwrap().auto_tidy, "an explicit off stays off");
+        draft.as_object_mut().unwrap().remove("autoTidy");
+        employee.as_object_mut().unwrap().remove("autoTidy");
+        assert!(serde_json::from_value::<EmployeeDraft>(draft).unwrap().auto_tidy);
+        assert!(serde_json::from_value::<Employee>(employee).unwrap().auto_tidy);
     }
 
     #[test]

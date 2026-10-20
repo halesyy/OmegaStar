@@ -17,7 +17,7 @@ export type Employee = {
   clearance: Clearance; allowRules: string[];
   model: string | null; effort: Effort | null;
   browser: boolean;                         // may drive your Chrome (Claude in Chrome); off for new hires unless you turn it on
-  autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on for new hires
+  autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on unless you turn it off
   workspaces: string[]; hue: number;        // 0-359, avatar colour
   chatSession: string; hiredAt: string;
 };
