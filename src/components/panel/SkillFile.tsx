@@ -141,7 +141,7 @@ export function RevisionView({ e, rev, run, onBack, onOpenFile, onChanged }: {
           <span className="rev-sub">
             {rev.runId ? (
               <button className="linkish" onClick={() => rev.runId && openRun(rev.runId)}>
-                {run ? (run.kind.type === "chat" ? "Learned in chat" : runKindLabel(run.kind)) : "During a run"} <Icon name="arrowUpRight" size={11} />
+                {run ? (run.kind.type === "chat" ? "Learned in a conversation" : runKindLabel(run.kind)) : "During a run"} <Icon name="arrowUpRight" size={11} />
               </button>
             ) : "Edited by you"}
             <span className="faint"> · {dateLong(rev.at)}</span>
