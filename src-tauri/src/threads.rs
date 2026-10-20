@@ -304,10 +304,16 @@ pub fn needs_you(row: &Row) -> bool {
 
 /// A row as `view` shows it: the thread it is about, with its other threads in `related`, oldest first.
 /// In the Inbox that is the newest open thread that asks you something or broke, else the newest open one;
-/// None unless the row needs you. In the Archive it is the newest thread that reached you; None while the row
-/// needs you or holds a thread you replied to and have not archived (a conversation still going on, which
-/// the Inbox and the employee's chips show), or if it never reached you.
-pub fn present(row: Row, view: View) -> Option<Thread> {
+/// None unless the row needs you. In the Archive it is the newest thread that reached you, leaving out any
+/// thread you replied to and have not archived (a conversation still going on, which the Inbox and the
+/// employee's chips show); None while the row needs you, or if nothing else in it reached you.
+pub fn present(mut row: Row, view: View) -> Option<Thread> {
+    if view == View::Archive {
+        if needs_you(&row) {
+            return None;
+        }
+        row.members.retain(|(t, _)| t.root.archived_at.is_some() || t.root.replied_at.is_none());
+    }
     let newest = |pick: &dyn Fn(&(Thread, bool)) -> bool| {
         row.members
             .iter()
@@ -323,13 +329,7 @@ pub fn present(row: Row, view: View) -> Option<Thread> {
             }
             newest(&|m| is_open(m) && (asks_you(&m.0) || broken(&m.0))).or_else(|| newest(&is_open))?
         }
-        View::Archive => {
-            let talking = |m: &(Thread, bool)| m.0.root.archived_at.is_none() && m.0.root.replied_at.is_some();
-            if needs_you(&row) || row.members.iter().any(talking) {
-                return None;
-            }
-            newest(&|m| m.1)?
-        }
+        View::Archive => newest(&|m| m.1)?,
     };
     let mut members: Vec<Thread> = row.members.into_iter().map(|(t, _)| t).collect();
     let mut lead = members.remove(lead);

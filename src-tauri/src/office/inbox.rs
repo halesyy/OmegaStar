@@ -68,11 +68,12 @@ impl Office {
             starts.extend(db.reached_root_runs(&roots, &all, ARCHIVE_ROWS)?);
         }
         // A review brings the team's other reviews that week, as `row_of` does, so a week that needs you is one
-        // whole row in the Inbox and none of it is left in the Archive.
+        // whole row in the Inbox and none of it is left in the Archive. Only current employees': a review by
+        // someone you let go would lead a row nobody can show.
         let weeks: HashSet<String> = starts.iter().filter_map(threads::review_week).collect();
         if let Some(first) = starts.iter().filter(|r| threads::review_week(r).is_some()).map(|r| r.created_at).min() {
             let have: HashSet<String> = starts.iter().map(|r| r.id.clone()).collect();
-            let same = |r: &Run| !have.contains(&r.id) && threads::review_week(r).is_some_and(|w| weeks.contains(&w));
+            let same = |r: &Run| !have.contains(&r.id) && all.contains(&r.employee_id) && threads::review_week(r).is_some_and(|w| weeks.contains(&w));
             starts.extend(db.review_runs(first - chrono::Duration::days(8))?.into_iter().filter(same));
         }
         starts.retain(|r| threads::reaches_you(r, false, top.contains(&r.employee_id)));
@@ -113,7 +114,9 @@ impl Office {
     /// schedule's failure the rest of that run of failures, and for a weekly review the team's other
     /// reviews that week.
     fn row_of(db: &Store, root: &Run) -> Result<Vec<Thread>> {
-        let top = Self::top_ids(&db.employees()?);
+        let employees = db.employees()?;
+        let top = Self::top_ids(&employees);
+        let current: HashSet<&str> = employees.iter().map(|e| e.id.as_str()).collect();
         let conversation = db.conversation_runs()?;
         let lookup = |id: &str| run_of(db, id);
         let cache = std::cell::RefCell::new(HashMap::new());
@@ -121,7 +124,7 @@ impl Office {
         let first = threads::file(&starts, conversation.clone(), lookup, &top).into_iter().next().and_then(|r| r.members.into_iter().next());
         if let Some((t, _)) = first {
             if let Some(week) = threads::review_week(&t.root) {
-                let same = |r: &Run| r.id != t.root.id && threads::review_week(r).as_ref() == Some(&week);
+                let same = |r: &Run| r.id != t.root.id && current.contains(r.employee_id.as_str()) && threads::review_week(r).as_ref() == Some(&week);
                 starts.extend(db.review_runs(t.root.created_at - chrono::Duration::days(8))?.into_iter().filter(same));
             } else if let (Some(key), RunKind::Scheduled { schedule_id, .. }) = (Self::streak_of(db, &cache, &t.root), &t.root.kind) {
                 let same = |f: &Run| f.id != t.root.id && Self::streak_of(db, &cache, f).as_ref() == Some(&key);
@@ -634,6 +637,66 @@ mod tests {
         let inbox: Vec<HashSet<String>> = Office::rows(&db, View::Inbox).unwrap().iter().map(ids).collect();
         assert_eq!(inbox, vec![week], "the reviews that need nothing come along with the one that does");
         assert!(Office::rows(&db, View::Archive).unwrap().is_empty(), "so none of them is lost between the two");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A week of plain reviews by `slugs`, reporting to you, at noon UTC on a Wednesday of one ISO week.
+    fn plain_week(db: &Store, slugs: &[&str]) -> Vec<Run> {
+        let slot = "2026-10-07T12:00:00Z".parse::<Ts>().unwrap();
+        slugs
+            .iter()
+            .enumerate()
+            .map(|(i, slug)| {
+                let e = Employee { slug: (*slug).into(), name: (*slug).into(), chat_session: format!("chat-{slug}"), ..tester() };
+                db.save_employee(&e).unwrap();
+                let at = slot + chrono::Duration::hours(i as i64);
+                let kind = RunKind::Scheduled { schedule_id: format!("review-{slug}"), slot: at, label: "Weekly review".into(), quiet: false, model: None, effort: None, review: true };
+                let mut r = Run::new(&e.id, kind, "Review your week.".into(), at);
+                r.state = RunState::Succeeded;
+                r.ended_at = Some(at);
+                r.summary = Some("Signups 40, up 5.".into());
+                assert!(db.insert_run(&r, &r.id).unwrap());
+                r
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_review_you_are_talking_about_leaves_the_rest_of_its_week_in_the_archive() {
+        let dir = std::env::temp_dir().join(format!("omegastar-week-talking-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let week = plain_week(&db, &["ada", "bo", "cy"]);
+        let mut ada = week[0].clone();
+        ada.replied_at = Some(ada.created_at + chrono::Duration::hours(4));
+        db.save_run(&ada).unwrap();
+        let ids = |t: &Thread| -> HashSet<String> { std::iter::once(t).chain(&t.related).map(|x| x.root.id.clone()).collect() };
+        let archived: Vec<HashSet<String>> = Office::rows(&db, View::Archive).unwrap().iter().map(ids).collect();
+        assert_eq!(archived, vec![HashSet::from([week[1].id.clone(), week[2].id.clone()])], "the conversation shows in the Inbox, the rest of the week here");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_week_leaves_out_the_reviews_of_someone_you_let_go() {
+        let dir = std::env::temp_dir().join(format!("omegastar-week-departed-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let week = plain_week(&db, &["bo", "dee"]);
+        // Both need you, and the review by the one you let go is the newer.
+        for r in &week {
+            let mut r = r.clone();
+            r.needs_you = vec!["Approve the order.".into()];
+            db.save_run(&r).unwrap();
+        }
+        db.depart_employee(&week[1].employee_id, now()).unwrap();
+        let ids = |t: &Thread| -> HashSet<String> { std::iter::once(t).chain(&t.related).map(|x| x.root.id.clone()).collect() };
+        let inbox = Office::rows(&db, View::Inbox).unwrap();
+        assert_eq!(inbox.iter().map(ids).collect::<Vec<_>>(), vec![HashSet::from([week[0].id.clone()])]);
+        assert_eq!(inbox[0].root.id, week[0].id, "a current employee's decision leads the row");
+        let row = Office::row_of(&db, &week[0]).unwrap();
+        assert_eq!(row.iter().map(|t| t.root.id.clone()).collect::<Vec<_>>(), vec![week[0].id.clone()], "Done reaches only what the row shows");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }

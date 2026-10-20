@@ -158,7 +158,7 @@ Employees run as you, and there is no sandbox; containers isolate better. Superv
 <details>
 <summary><b>What does it cost, and is it allowed on my plan?</b></summary>
 
-Omega Star is free and open source; you pay for your Claude plan as usual. It runs the official Claude Code CLI as you and never reads your Claude credentials, so Anthropic's terms for your plan apply (see [Using it responsibly](#using-it-responsibly)). Work runs are capped at 3 at a time by default; your conversations with employees, and work a manager delegates while it waits, skip the cap. The sidebar shows your 5-hour and 7-day Claude usage, and background upkeep (never real work) waits when usage is high.
+Omega Star is free and open source; you pay for your Claude plan as usual. It runs the official Claude Code CLI as you and never reads your Claude credentials, so Anthropic's terms for your plan apply (see [Using it responsibly](#using-it-responsibly)). Work runs are capped at 3 at a time by default; what you type to an employee, and work a manager delegates while it waits, skip the cap; card answers and approvals wait like other work. The sidebar shows your 5-hour and 7-day Claude usage, and background upkeep (never real work) waits when usage is high.
 
 </details>
 
