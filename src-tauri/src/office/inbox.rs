@@ -178,7 +178,8 @@ impl Office {
     }
 
     /// Archives a report with its thread and the rest of its Inbox row (they leave the Inbox and the
-    /// employee's chips), or moves them all back. `run_id` may be any run in the row.
+    /// employee's chips), or moves them all back. Archiving leaves alone any other conversation still going
+    /// on in the row (`threads::going_on`). `run_id` may be any run in the row.
     pub fn set_archived(&self, run_id: &str, archived: bool) -> Result<Run> {
         let (root, changed) = {
             let db = self.db();
@@ -192,6 +193,10 @@ impl Office {
             }
             let mut changed = vec![];
             for m in row {
+                // Done ends only this conversation: another one in the row goes on in its own chip.
+                if archived && m.root.id != t.root.id && threads::going_on(&m) {
+                    continue;
+                }
                 // A run still going joins the row when it finishes, and shows only if it needs you.
                 let mut root = m.root;
                 if !root.state.is_finished() || root.archived_at.is_some() == archived {
@@ -662,18 +667,52 @@ mod tests {
             .collect()
     }
 
+    /// Your reply on `report` and the employee's answer, a later turn of its thread. Returns the turn.
+    fn talk_about(db: &Store, report: &Run) -> Run {
+        let mut root = report.clone();
+        let at = root.created_at + chrono::Duration::hours(4);
+        root.replied_at = Some(at);
+        db.save_run(&root).unwrap();
+        let kind = RunKind::Reply { to_run_id: root.id.clone(), label: threads::report_label(&root.kind), task: false, card: false };
+        let mut turn = Run::new(&root.employee_id, kind, "Why up?".into(), at);
+        turn.state = RunState::Succeeded;
+        turn.ended_at = Some(at);
+        assert!(db.insert_run(&turn, &root.id).unwrap());
+        turn
+    }
+
+    #[tokio::test]
+    async fn done_on_one_review_conversation_leaves_another_in_the_same_week_going() {
+        let dir = std::env::temp_dir().join(format!("omegastar-week-done-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let week = {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+            let week = plain_week(&db, &["ada", "bo", "cy"]);
+            talk_about(&db, &week[0]);
+            talk_about(&db, &week[1]);
+            week
+        };
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        office.set_archived(&week[0].id, true).unwrap();
+        let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
+        assert!(archived(&week[0]), "Done ends the conversation you pressed it on");
+        assert!(!archived(&week[1]), "another conversation on the week goes on");
+        assert!(archived(&week[2]), "the rest of the week goes with it");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_review_you_are_talking_about_leaves_the_rest_of_its_week_in_the_archive() {
         let dir = std::env::temp_dir().join(format!("omegastar-week-talking-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let db = Store::open(&dir.join("office.db")).unwrap();
         let week = plain_week(&db, &["ada", "bo", "cy"]);
-        let mut ada = week[0].clone();
-        ada.replied_at = Some(ada.created_at + chrono::Duration::hours(4));
-        db.save_run(&ada).unwrap();
+        talk_about(&db, &week[0]);
         let ids = |t: &Thread| -> HashSet<String> { std::iter::once(t).chain(&t.related).map(|x| x.root.id.clone()).collect() };
         let archived: Vec<HashSet<String>> = Office::rows(&db, View::Archive).unwrap().iter().map(ids).collect();
-        assert_eq!(archived, vec![HashSet::from([week[1].id.clone(), week[2].id.clone()])], "the conversation shows in the Inbox, the rest of the week here");
+        assert_eq!(archived, vec![HashSet::from([week[1].id.clone(), week[2].id.clone()])], "the conversation shows in its chip, the rest of the week here");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -728,7 +767,10 @@ mod tests {
         let broken = report(4.0, &|r| r.state = RunState::Failed);
         let old = report(24.0 * 10.0, &|_| {});
         let done = report(30.0, &|r| r.archived_at = Some(ago(0.5)));
-        let talking = report(5.0, &|r| r.replied_at = Some(ago(4.5)));
+        let talking = report(5.0, &|_| {});
+        talk_about(&db, &talking);
+        // A reply typed into a report while it worked, with no later turn, then it finished needing nothing.
+        let steered = report(7.0, &|r| r.replied_at = Some(ago(6.5)));
         // A conversation you started and marked done, with the employee's answer in it, and one still going.
         let task = |hours: f64, archived: Option<Ts>| {
             let at = ago(hours);
@@ -750,11 +792,11 @@ mod tests {
         let archive = Office::rows(&db, View::Archive).unwrap();
         assert_eq!(
             roots(&archive),
-            vec![done.id.clone(), plain.id.clone(), finished.id.clone(), limited.id.clone(), old.id.clone()],
+            vec![done.id.clone(), plain.id.clone(), finished.id.clone(), limited.id.clone(), steered.id.clone(), old.id.clone()],
             "newest first by when each was done or last moved; what needs you, a conversation still going and an open task stay out"
         );
         assert_eq!(archive[2].replies.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![turn.id.clone()], "a finished conversation keeps its turns");
-        assert!(!roots(&archive).contains(&talking.id) && !roots(&archive).contains(&going.id));
+        assert!(!roots(&archive).contains(&talking.id) && !roots(&archive).contains(&going.id), "the chips show those");
         let inbox = Office::rows(&db, View::Inbox).unwrap();
         assert_eq!(roots(&inbox), vec![carded.id.clone(), broken.id.clone()], "the usage limit is never yours to fix");
         drop(db);

@@ -115,6 +115,10 @@ mod tests {
         let sub_report = run(&db, &bo, RunKind::Manual, RunState::Succeeded, 40, None);
         let sub_reply = Run::new(&bo.id, RunKind::Reply { to_run_id: sub_report.id.clone(), label: "Manual run".into(), task: false, card: false }, "and?".into(), now());
         db.insert_run(&sub_reply, &sub_report.id).unwrap();
+        // A reply typed into a report while it worked is no later turn: once it needs nothing, it is in the Archive.
+        let mut steered = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 45, None);
+        steered.replied_at = Some(now());
+        db.save_run(&steered).unwrap();
         let live = run(&db, &ada, RunKind::Manual, RunState::Running, 0, None);
         let quiet = RunKind::Scheduled { schedule_id: "s".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
         let live_quiet = run(&db, &ada, quiet, RunState::Running, 0, None);
@@ -137,9 +141,12 @@ mod tests {
         for want in [&report.id, &replied.id, &open_task.id, &sub_report.id, &live.id] {
             assert_eq!(ids.iter().filter(|id| **id == want.as_str()).count(), 1, "{want} once in threads: {ids:?}");
         }
-        for unwanted in [&plain.id, &live_quiet.id, &live_sub.id, &done.id, &chat.id, &answer.id] {
+        for unwanted in [&plain.id, &steered.id, &live_quiet.id, &live_sub.id, &done.id, &chat.id, &answer.id] {
             assert!(!ids.contains(&unwanted.as_str()), "{unwanted} not in threads");
         }
+        let archive = Office::rows(&db, threads::View::Archive).unwrap();
+        let shown = |id: &str| archive.iter().flat_map(|t| std::iter::once(t).chain(&t.related)).filter(|t| t.root.id == id).count();
+        assert_eq!((shown(&steered.id), shown(&replied.id)), (1, 0), "each shows in exactly one place");
         let with_reply = c.threads.iter().find(|t| t.root.id == replied.id).unwrap();
         assert_eq!(with_reply.replies.len(), 1, "the inbox row keeps its reply");
         assert_eq!(c.threads.iter().find(|t| t.root.id == sub_report.id).unwrap().replies.len(), 1);

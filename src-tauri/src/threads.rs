@@ -302,17 +302,23 @@ pub fn needs_you(row: &Row) -> bool {
     open().any(|t| broken(t) && (!scheduled(t) || failures >= STREAK))
 }
 
+/// A conversation still going on: a thread with later turns that you have not archived. The employee's
+/// chips show it until you mark it done. A reply typed into a report while it worked is no later turn.
+pub fn going_on(t: &Thread) -> bool {
+    t.root.archived_at.is_none() && !t.replies.is_empty()
+}
+
 /// A row as `view` shows it: the thread it is about, with its other threads in `related`, oldest first.
 /// In the Inbox that is the newest open thread that asks you something or broke, else the newest open one;
 /// None unless the row needs you. In the Archive it is the newest thread that reached you, leaving out any
-/// thread you replied to and have not archived (a conversation still going on, which the Inbox and the
-/// employee's chips show); None while the row needs you, or if nothing else in it reached you.
+/// conversation still going on (`going_on`); None while the row needs you, or if nothing else in it
+/// reached you.
 pub fn present(mut row: Row, view: View) -> Option<Thread> {
     if view == View::Archive {
         if needs_you(&row) {
             return None;
         }
-        row.members.retain(|(t, _)| t.root.archived_at.is_some() || t.root.replied_at.is_none());
+        row.members.retain(|(t, _)| !going_on(t));
     }
     let newest = |pick: &dyn Fn(&(Thread, bool)) -> bool| {
         row.members
