@@ -428,7 +428,7 @@ mod tests {
         let mut r = Run::new(employee, RunKind::Manual, "go".into(), chrono::Utc::now());
         r.state = RunState::Failed;
         let mut card = Card::new("Waiting on you.", None, None, CardAsk::Chore { subject: subject.into() });
-        card.answer = answered.then(|| CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: "Done.".into() });
+        card.answer = answered.then(|| CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: "Done.".into(), held: false });
         r.cards = vec![card];
         r
     }
@@ -521,7 +521,7 @@ mod tests {
         r.needs_you = vec!["Merge it?".into()];
         r.cards = vec![card.clone()];
         assert!(asks_you(&t(&r)));
-        card.answer = Some(CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: "Chose: Merge.".into() });
+        card.answer = Some(CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: "Chose: Merge.".into(), held: false });
         r.cards = vec![card];
         assert!(!asks_you(&t(&r)), "an answered card asks nothing, though its message stays");
         r.needs_you.push("The tidy dropped a rule.".into());

@@ -169,7 +169,8 @@ export type CardAsk =
   | { type: "items"; verb: string; items: CardItem[] }            // verb: what a tick means, e.g. "Post"
   | { type: "chore"; subject: string };                           // "chrome" or "sign-in:<site>"
 export type AnswerHow = "tapped" | "typed" | "dismissed" | "replaced" | "withdrawn";
-export type CardAnswer = { at: string; how: AnswerHow; text: string };   // text: the fixed answer sent, empty when nothing was
+// held: not sent yet, since its run still asks something else; it goes with the rest once nothing is left open
+export type CardAnswer = { at: string; how: AnswerHow; text: string; held: boolean };   // text: the fixed answer sent, empty when nothing was
 /** message: the question. why: one line on why it matters. key: what it is about (`ask:<name>` or `chore:<subject>`),
  *  so the same question from anyone is one Inbox item; null on cards asked before keys. */
 export type Card = { message: string; why: string | null; key: string | null; ask: CardAsk; answer: CardAnswer | null };

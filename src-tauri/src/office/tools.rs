@@ -494,7 +494,7 @@ impl Office {
         let note = match (&card.ask, first) {
             (CardAsk::Chore { .. }, true) => format!("Recorded. {ceo} has been asked. When they press Done, this conversation carries on with a short message. Carry on without it now, or finish."),
             (CardAsk::Chore { .. }, false) => format!("{ceo} has already been asked to do this for another run. When they press Done, this conversation carries on too. Carry on without it now, or finish."),
-            (_, true) => "Recorded. They answer on the card, and their answer comes back to you in this conversation as a short message. Finish this run now; do not wait for it.".to_string(),
+            (_, true) => "Recorded. They answer on the card, and their answers to this run's cards come back to you in this conversation as one short message. Finish this run now; do not wait for it.".to_string(),
             (_, false) => format!("{ceo} already has this question from another run, so it is one item in their Inbox and their answer comes back to you too. Finish this run now; do not wait for it."),
         };
         Ok(json!({ "notified": first, "note": note }))
@@ -569,7 +569,7 @@ impl Office {
     /// leave your Inbox.
     pub fn close_ask_tool(&self, caller: &Employee, key: &str, reason: &str) -> Result<Value> {
         let topic = cards::ask_key(key)?;
-        let answer = CardAnswer { at: now(), how: AnswerHow::Withdrawn, text: claude::clip(&claude::one_line(reason), 300) };
+        let answer = CardAnswer { at: now(), how: AnswerHow::Withdrawn, text: claude::clip(&claude::one_line(reason), 300), held: false };
         let mut closed = 0;
         for a in lock(&self.0.active).values_mut() {
             for c in a.cards.iter_mut().filter(|c| c.is_open() && c.topic().as_deref() == Some(topic.as_str())) {
@@ -577,22 +577,27 @@ impl Office {
                 closed += 1;
             }
         }
-        let runs = {
+        let (runs, said) = {
             let db = self.db();
             let mut runs: Vec<Run> = db.open_topic_runs(&topic)?.into_iter().filter(|r| r.employee_id == caller.id).collect();
+            let mut said = vec![];
             db.tx(|| {
                 for r in &mut runs {
                     for c in r.cards.iter_mut().filter(|c| c.is_open() && c.topic().as_deref() == Some(topic.as_str())) {
                         c.answer = Some(answer.clone());
                         closed += 1;
                     }
+                    said.push(super::inbox::take_held(r));
                     db.save_run(r)?;
                 }
                 Ok(())
             })?;
-            runs
+            (runs, said)
         };
-        for r in &runs {
+        // A run left with nothing open hears the answers you gave its other cards, as a tap would have sent them.
+        let (sends, runs): (Vec<_>, Vec<_>) = runs.into_iter().zip(said).partition(|(_, s)| s.is_some());
+        self.send_card_answers(&sends);
+        for (r, _) in &runs {
             self.sink().run_updated(r);
             if r.state.is_finished() {
                 match self.set_archived(&r.id, true) {
@@ -1269,7 +1274,7 @@ mod tests {
         let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
         o.db.mark_inited(&parent.id).unwrap();
         let mut child = run(&o.db, &bo, delegated(&parent), "Boost the post.", RunState::Succeeded, 20, None);
-        let answer = CardAnswer { at: now(), how: AnswerHow::Tapped, text: "Chose: Not now.".into() };
+        let answer = CardAnswer { at: now(), how: AnswerHow::Tapped, text: "Chose: Not now.".into(), held: false };
         let mut card = Card::new("Boost it?", None, Some("ask:boost".into()), CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 });
         card.answer = Some(answer);
         child.cards = vec![card];

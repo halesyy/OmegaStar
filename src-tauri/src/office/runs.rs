@@ -615,14 +615,27 @@ impl Office {
     }
 
     /// A newer card closes the open decision and item cards it supersedes, so a routine never stacks them.
+    /// A run left with nothing open hears the answers you gave its other cards, as a tap would have sent them.
     fn replace_older_cards(&self, newer: &Run) -> Result<()> {
         let replaced = {
             let db = self.db();
-            db.tx(|| replace_older_cards_in(&db, newer, now()))?
+            db.tx(|| {
+                let mut out = vec![];
+                for mut r in replace_older_cards_in(&db, newer, now())? {
+                    let said = super::inbox::take_held(&mut r);
+                    if said.is_some() {
+                        db.save_run(&r)?;
+                    }
+                    out.push((r, said));
+                }
+                Ok(out)
+            })?
         };
-        for r in &replaced {
+        let (sends, rest): (Vec<_>, Vec<_>) = replaced.into_iter().partition(|(_, s)| s.is_some());
+        for (r, _) in &rest {
             self.sink().run_updated(r);
         }
+        self.send_card_answers(&sends);
         Ok(())
     }
 
@@ -970,7 +983,7 @@ fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
     }
     for (r, all) in &mut out {
         for c in r.cards.iter_mut().filter(|c| decision(c) && (*all || c.topic().is_some_and(|k| topics.contains(&k)))) {
-            c.answer = Some(CardAnswer { at, how: AnswerHow::Replaced, text: String::new() });
+            c.answer = Some(CardAnswer { at, how: AnswerHow::Replaced, text: String::new(), held: false });
         }
         // A run whose cards all went to a newer one has nothing left to ask, unless you replied to it.
         if !*all && !r.has_open_card() && r.replied_at.is_none() {
@@ -1221,6 +1234,36 @@ mod tests {
         fn run_updated(&self, _run: &Run) {}
         fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
         fn request_updated(&self, _request: &HumanRequest) {}
+    }
+
+    #[tokio::test]
+    async fn a_newer_card_sends_the_answers_its_run_held() {
+        let dir = std::env::temp_dir().join(format!("omegastar-replace-held-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let ada = employee(Clearance::Supervised);
+        let card = |q: &str, key: &str| Card::new(q, None, Some(key.into()), CardAsk::Choices { choices: vec!["Go".into(), "Not now".into()], recommended: 0 });
+        let (root, newer) = {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.save_employee(&ada).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+            let mut root = finished(&db, &ada, task("Plan the launch"), 30, "s1", "Two things.");
+            root.cards = vec![card("Launch on Friday?", "ask:launch"), card("Email the list?", "ask:email")];
+            root.cards[1].answer = Some(CardAnswer { at: now(), how: AnswerHow::Tapped, text: "Chose: Go.".into(), held: true });
+            db.save_run(&root).unwrap();
+            let mut newer = finished(&db, &ada, RunKind::Reply { to_run_id: root.id.clone(), label: "Plan the launch".into(), task: true, card: false }, 5, "s1", "One more.");
+            newer.cards = vec![card("Launch on Monday instead?", "ask:monday")];
+            db.save_run(&newer).unwrap();
+            (root, newer)
+        };
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        office.replace_older_cards(&newer).unwrap();
+        let t = office.thread(&root.id).unwrap();
+        assert_eq!(t.root.cards[0].answer.as_ref().map(|a| a.how), Some(AnswerHow::Replaced));
+        assert!(t.root.cards[1].answer.as_ref().is_some_and(|a| !a.held));
+        let sent: Vec<&str> = t.replies.iter().map(|r| r.prompt.as_str()).filter(|p| p.ends_with("Your card: \"Email the list?\"\nChose: Go.")).collect();
+        assert_eq!(sent.len(), 1, "{:?}", t.replies.iter().map(|r| &r.prompt).collect::<Vec<_>>());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

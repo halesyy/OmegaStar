@@ -1336,7 +1336,7 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
 
     fn with_card(mut r: Run, ask: CardAsk, answered: bool) -> Run {
         let mut card = Card::new("Needs you.", None, Some("ask:boost".into()), ask);
-        card.answer = answered.then(|| CardAnswer { at: Utc::now(), how: AnswerHow::Tapped, text: "Chose: Not now.".into() });
+        card.answer = answered.then(|| CardAnswer { at: Utc::now(), how: AnswerHow::Tapped, text: "Chose: Not now.".into(), held: false });
         r.cards = vec![card];
         r
     }

@@ -12,7 +12,7 @@ import { activityAt, didNotFinish, doneHeld, isTeamWeek, latestFinished, rowThre
 import { Icon } from "../components/Icon";
 import { Avatar } from "../components/ui";
 import { kindNames } from "../components/RunRow";
-import { CardView } from "../components/conversation/CardView";
+import { CardList, CardView } from "../components/conversation/CardView";
 import { lines } from "../components/conversation/RowHistory";
 import { DoneButton, SnoozeButton, ThreadView } from "../components/conversation/ThreadView";
 import type { Item } from "../components/conversation/useStatuses";
@@ -47,7 +47,11 @@ function names(ids: string[], employees: EmployeeView[]): string {
 function ask(d: Decision<Item>, who: string, what: string): { title: string; why: string | null } {
   const r = d.run;
   switch (d.type) {
-    case "card": return { title: d.card.message, why: d.card.why };
+    case "card": {
+      if (d.cards.length === 1) return { title: d.cards[0].card.message, why: d.cards[0].card.why };
+      const answered = d.cards.filter((c) => c.card.answer).length;
+      return { title: `${d.cards.length} questions`, why: `${answered} of ${d.cards.length} answered. ${who} hears your answers together, once all are in.` };
+    }
     case "flag":
       return r.kind.type === "tidy" && r.proposed && !r.repliedAt
         ? { title: `Approve ${who}'s skill changes?`, why: lines(r.proposed)[0] ?? null }
@@ -131,7 +135,11 @@ export function DecisionItem({ d, employees, people, open, onToggle, onHover, ac
  *  while a card Done would settle is open (`doneHeld`), it waits for the card instead. */
 function Answer({ d, e, busy, actions }: { d: Decision<Item>; e: EmployeeView; busy: boolean; actions: ItemActions }) {
   const who = firstName(e.name);
-  if (d.type === "card") return <CardView card={d.card} e={e} onAnswer={(reply) => actions.answer(d.run, d.index, reply)} />;
+  if (d.type === "card") {
+    const answer = (index: number, reply: CardReply) => actions.answer(d.run, index, reply);
+    if (d.cards.length > 1) return <div className="card-set"><CardList cards={d.cards} e={e} onAnswer={answer} /></div>;
+    return <CardView card={d.cards[0].card} e={e} onAnswer={(reply) => answer(d.cards[0].index, reply)} />;
+  }
   if (d.type === "blocked") return <Allow run={d.run} who={who} />;
   if (d.type === "flag" && d.run.kind.type === "tidy" && d.run.proposed && !d.run.repliedAt) return <ApproveTidy run={d.run} who={who} />;
   if (doneHeld(d.thread, d.item.thread)) return null;

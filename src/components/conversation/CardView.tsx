@@ -17,6 +17,12 @@ export async function answerCard(run: Run, index: number, reply: CardReply, name
     return false;
   }
   const ask = run.cards[index]?.ask;
+  // The run still asks something else, so it holds this answer back and hears them all at once.
+  const rest = run.cards.filter((c, i) => i !== index && !c.answer).length;
+  if (rest) {
+    toast(`Noted. ${name} hears your answers once you answer ${rest === 1 ? "the other question" : `the other ${rest}`}.`, "ok");
+    return true;
+  }
   const to = replies.length > 1 ? `${name} and ${replies.length - 1} more` : name;
   const said =
     reply.type === "choice" ? `Sent to ${to}: ${ask?.type === "choices" ? ask.choices[reply.index] : ""}.`
@@ -31,8 +37,8 @@ export async function answerCard(run: Run, index: number, reply: CardReply, name
 /** What became of an answered card, as one line. */
 function answered(a: CardAnswer): string {
   switch (a.how) {
-    case "tapped": return `Sent: ${a.text}`;
-    case "dismissed": return "Not now";
+    case "tapped": return a.held ? `${a.text} Sends when the rest are answered.` : `Sent: ${a.text}`;
+    case "dismissed": return a.held ? "Not now. Sends when the rest are answered." : "Not now";
     case "replaced": return "A newer card replaced this one";
     case "typed": return "You answered in the thread";
     case "withdrawn": return a.text ? `Withdrawn: ${a.text}` : "They withdrew it";
@@ -42,11 +48,20 @@ function answered(a: CardAnswer): string {
 /** A run's cards, each with its question and the answer built in, as a thread shows them. */
 export function RunCards({ run, e }: { run: Run; e: EmployeeView }) {
   const name = firstName(e.name);
-  return run.cards.map((c, i) => (
-    <div key={i} className="card-ask">
+  return <CardList cards={run.cards.map((card, index) => ({ card, index }))} e={e} onAnswer={async (i, reply) => { await answerCard(run, i, reply, name); }} />;
+}
+
+/** Cards of one run, each with its question and the answer built in. `index`: the card's place in the run's cards. */
+export function CardList({ cards, e, onAnswer }: {
+  cards: { card: Card; index: number }[];
+  e: EmployeeView;
+  onAnswer: (index: number, reply: CardReply) => Promise<void>;
+}) {
+  return cards.map(({ card: c, index }) => (
+    <div key={index} className="card-ask">
       <div className="card-q">{c.message}</div>
       {c.why ? <div className="card-why">{c.why}</div> : null}
-      <CardView card={c} e={e} onAnswer={async (reply) => { await answerCard(run, i, reply, name); }} />
+      <CardView card={c} e={e} onAnswer={(reply) => onAnswer(index, reply)} />
     </div>
   ));
 }
@@ -55,7 +70,7 @@ export function RunCards({ run, e }: { run: Run; e: EmployeeView }) {
  *  what you did. */
 export function CardView({ card, e, onAnswer }: { card: Card; e: EmployeeView; onAnswer: (reply: CardReply) => Promise<void> }) {
   const [sending, setSending] = useState(false);
-  if (card.answer) return <p className="card-answered">{answered(card.answer)}</p>;
+  if (card.answer) return <p className="card-answered">{card.answer.held ? <Icon name="check" size={12} /> : null}{answered(card.answer)}</p>;
   const name = firstName(e.name);
   const ask = card.ask;
   const send = async (reply: CardReply) => {

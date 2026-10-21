@@ -46,6 +46,10 @@
 .dec-answer { margin-top: 6px; cursor: default; }
 .dec-answer:empty { display: none; }
 .dec-answer .card-choices, .dec-answer .card-items, .dec-answer .card-answered { margin: 0; }
+/* A run's several questions, one under another. */
+.card-set .card-ask { margin: 0; }
+.card-set .card-ask + .card-ask { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.card-set .card-ask .card-choices, .card-set .card-ask .card-items, .card-set .card-ask .card-answered { margin-top: 6px; }
 
 /* ------------------------------------------------ a line in the Archive */
 .feed .item-head { align-items: center; gap: 10px; padding: 7px 12px; }

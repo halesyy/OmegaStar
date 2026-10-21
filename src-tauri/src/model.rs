@@ -1085,6 +1085,10 @@ pub struct CardAnswer {
     pub how: AnswerHow,
     /// The fixed answer sent to the employee, e.g. "Chose: Not now."; empty when nothing was sent.
     pub text: String,
+    /// Not sent yet: its run still asks something else, and hears all your answers in one message once nothing is
+    /// left open.
+    #[serde(default)]
+    pub held: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

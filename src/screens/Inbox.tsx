@@ -105,9 +105,11 @@ export function InboxScreen() {
         await sendAndDone(thread.root.id, name, text, attachments);
         go();
       },
+      // A run asking several things stays until its last card is answered.
       answer: async (run: Run, index: number, reply: CardReply) => {
         const go = leaving();
-        if (await answerCard(run, index, reply, name)) go();
+        const last = !run.cards.some((c, i) => i !== index && !c.answer);
+        if (await answerCard(run, index, reply, name) && last) go();
       },
     };
   };

@@ -225,9 +225,14 @@ impl Office {
     /// joins the thread and the report stays in the Inbox, unless `archive`: "send, and bring the answer
     /// back only if it needs me".
     /// A reply you type answers the thread's open cards too, once it has gone, so their buttons go and the row
-    /// can be archived.
+    /// can be archived. Answers you tapped that were held back for them go with it, ahead of what you typed.
     pub fn reply_to_run(&self, run_id: &str, text: &str, archive: bool, attachments: Vec<NewAttachment>) -> Result<Run> {
-        let reply = self.reply_with(run_id, text, archive, vec![], attachments, ReplyBy::Ceo)?;
+        let held: Vec<String> = {
+            let t = Self::thread_in(&self.db(), run_id)?;
+            std::iter::once(&t.root).chain(&t.replies).flat_map(held_said).collect()
+        };
+        let said = held.into_iter().chain(Some(text.trim().to_string()).filter(|t| !t.is_empty())).collect::<Vec<_>>().join("\n\n");
+        let reply = self.reply_with(run_id, &said, archive, vec![], attachments, ReplyBy::Ceo)?;
         let typed = {
             let db = self.db();
             db.tx(|| answer_typed(&db, run_id, text, now()))?
@@ -238,9 +243,10 @@ impl Office {
         Ok(reply)
     }
 
-    /// Your answer on card `index` of a run. It goes to the run as a fixed message through `reply_with` and
-    /// archives its row. Everyone waiting on the same thing (a chore, or a decision with the same key) hears
-    /// the same answer, and those still working hear it straight away. Returns the reply runs it started.
+    /// Your answer on card `index` of a run. A run still asking something else holds it back; once its last card is
+    /// answered it hears every answer at once, in one fixed message through `reply_with`, and its row is archived.
+    /// Everyone waiting on the same thing (a chore, or a decision with the same key) hears the same answer, and
+    /// those still working hear it straight away. Returns the reply runs it started.
     pub fn answer_card(&self, run_id: &str, index: usize, reply: CardReply) -> Result<Vec<Run>> {
         let at = now();
         let (card, answer, targets) = {
@@ -255,19 +261,19 @@ impl Office {
             }
             let text = cards::answer_text(&card.ask, &reply, &ceo_of(&db)?)?;
             let how = if reply == CardReply::Dismiss { AnswerHow::Dismissed } else { AnswerHow::Tapped };
-            let answer = CardAnswer { at, how, text: text.unwrap_or_default() };
+            let answer = CardAnswer { at, how, text: text.unwrap_or_default(), held: false };
             let mut targets = vec![run];
             if let Some(topic) = card.topic() {
                 targets.extend(db.open_topic_runs(&topic)?.into_iter().filter(|r| r.id != run_id));
             }
-            db.tx(|| answer_cards(&db, &mut targets, Some(index), card.topic().as_deref(), &answer))?;
-            (card, answer, targets)
+            let said = db.tx(|| answer_cards(&db, &mut targets, Some(index), card.topic().as_deref(), &answer))?;
+            (card, answer, targets.into_iter().zip(said).collect::<Vec<_>>())
         };
-        let text = Some(answer.text.as_str()).filter(|t| !t.is_empty());
-        let mut replies = self.send_card_answers(&targets, &card, text);
+        let mut replies = self.send_card_answers(&targets);
         if let Some(topic) = card.topic() {
             // Runs still working on the same thing hear it now, in the turn they are in. Told and marked under one
             // lock, so a run ending meanwhile either keeps the answer or is found by the read below.
+            let text = Some(answer.text.as_str()).filter(|t| !t.is_empty());
             for a in lock(&self.0.active).values_mut() {
                 let Some(i) = a.cards.iter().position(|c| c.is_open() && c.topic().as_deref() == Some(topic.as_str())) else { continue };
                 let told = match text {
@@ -284,33 +290,35 @@ impl Office {
             // A run that finished while the answers above went out was in neither pass.
             let late = {
                 let db = self.db();
-                db.open_topic_runs(&topic).and_then(|mut late| db.tx(|| answer_cards(&db, &mut late, None, Some(&topic), &answer)).map(|_| late))
+                db.open_topic_runs(&topic).and_then(|mut late| {
+                    let said = db.tx(|| answer_cards(&db, &mut late, None, Some(&topic), &answer))?;
+                    Ok(late.into_iter().zip(said).collect::<Vec<_>>())
+                })
             };
             match late {
-                Ok(late) => replies.extend(self.send_card_answers(&late, &card, text)),
+                Ok(late) => replies.extend(self.send_card_answers(&late)),
                 Err(e) => log!("answering the runs that finished waiting on {topic} failed: {e}"),
             }
         }
         Ok(replies)
     }
 
-    /// Sends your answer `text` on `card` to each run and archives its row (but not a conversation you are in),
-    /// carrying on past a run that fails.
-    /// Each run hears it under its own card about the same thing. A run back in the queue after the usage
-    /// limit only keeps its answered card: its retry carries on anyway. Returns the reply runs it started.
-    fn send_card_answers(&self, targets: &[Run], card: &Card, text: Option<&str>) -> Vec<Run> {
+    /// Sends each run what it no longer holds back (`said`: its answers, each under its own card, from `take_held`)
+    /// and archives its row (but not a conversation you are in), carrying on past a run that fails. A run still
+    /// asking something else waits for its last card. A run back in the queue after the usage limit only keeps its
+    /// answered card: its retry carries on anyway. Returns the reply runs it started.
+    pub(super) fn send_card_answers(&self, targets: &[(Run, Option<String>)]) -> Vec<Run> {
         let mut replies = vec![];
-        for t in targets {
+        for (t, said) in targets {
             self.sink().run_updated(t);
-            if t.state == RunState::Queued {
+            if t.state == RunState::Queued || t.has_open_card() {
                 continue;
             }
-            if let Some(text) = text {
-                let own = card.topic().and_then(|k| t.cards.iter().find(|c| c.topic().as_deref() == Some(k.as_str()))).unwrap_or(card);
-                match self.reply_with(&t.id, &card_reply_text(own, text), false, vec![], vec![], ReplyBy::Card) {
+            if let Some(said) = said {
+                match self.reply_with(&t.id, said, false, vec![], vec![], ReplyBy::Card) {
                     Ok(r) => replies.push(r),
                     Err(e) => {
-                        log!("sending your answer on the card of run {} failed: {e}", t.id);
+                        log!("sending your answers on the cards of run {} failed: {e}", t.id);
                         continue;
                     }
                 }
@@ -447,16 +455,20 @@ fn yours(t: &Thread) -> bool {
 }
 
 /// Marks every open card on a finished run of `run_id`'s thread answered by your typed reply (`text`,
-/// clipped), and returns those runs, saved. Call inside a transaction.
+/// clipped), and the answers it held back sent, since they went with the reply. Returns those runs, saved. Call
+/// inside a transaction.
 fn answer_typed(db: &Store, run_id: &str, text: &str, at: Ts) -> Result<Vec<Run>> {
     let t = Office::thread_in(db, run_id)?;
     let mut out = vec![];
     for mut r in std::iter::once(t.root).chain(t.replies) {
-        if !r.state.is_finished() || !r.has_open_card() {
+        if !r.state.is_finished() || (!r.has_open_card() && held_said(&r).is_empty()) {
             continue;
         }
-        for c in r.cards.iter_mut().filter(|c| c.is_open()) {
-            c.answer = Some(CardAnswer { at, how: AnswerHow::Typed, text: claude::clip(text, 300) });
+        for c in &mut r.cards {
+            match &mut c.answer {
+                None => c.answer = Some(CardAnswer { at, how: AnswerHow::Typed, text: claude::clip(text, 300), held: false }),
+                Some(a) => a.held = false,
+            }
         }
         db.save_run(&r)?;
         out.push(r);
@@ -465,18 +477,41 @@ fn answer_typed(db: &Store, run_id: &str, text: &str, at: Ts) -> Result<Vec<Run>
 }
 
 /// Puts `answer` on card `index` of the first run, and on every open card about `topic` in all of them, and
-/// saves them. Call inside a transaction.
-fn answer_cards(db: &Store, runs: &mut [Run], index: Option<usize>, topic: Option<&str>, answer: &CardAnswer) -> Result<()> {
+/// saves them. A finished run still asking something else holds it back. Returns, in the runs' order, what each
+/// now sends (`take_held`). Call inside a transaction.
+fn answer_cards(db: &Store, runs: &mut [Run], index: Option<usize>, topic: Option<&str>, answer: &CardAnswer) -> Result<Vec<Option<String>>> {
+    let mut said = vec![];
     for (n, r) in runs.iter_mut().enumerate() {
+        // A run back in the queue after the usage limit is never sent it: its retry carries on anyway.
+        let held = r.state.is_finished() && !answer.text.is_empty();
         for (i, c) in r.cards.iter_mut().enumerate() {
             let same = topic.is_some() && c.is_open() && c.topic().as_deref() == topic;
             if same || (n == 0 && Some(i) == index) {
-                c.answer = Some(answer.clone());
+                c.answer = Some(CardAnswer { held, ..answer.clone() });
             }
         }
+        said.push(take_held(r));
         db.save_run(r)?;
     }
-    Ok(())
+    Ok(said)
+}
+
+/// What a run's held-back answers say, each under the question it answers.
+fn held_said(run: &Run) -> Vec<String> {
+    run.cards.iter().filter_map(|c| c.answer.as_ref().filter(|a| a.held).map(|a| card_reply_text(c, &a.text))).collect()
+}
+
+/// A run's held-back answers as one message, now marked sent, once it has no open card left. None while it still
+/// asks something, or when it holds nothing. Save the run after.
+pub(super) fn take_held(run: &mut Run) -> Option<String> {
+    if run.has_open_card() {
+        return None;
+    }
+    let said = held_said(run);
+    for a in run.cards.iter_mut().filter_map(|c| c.answer.as_mut()) {
+        a.held = false;
+    }
+    (!said.is_empty()).then(|| said.join("\n\n"))
 }
 
 /// What your answer on `card` says to the run that raised it: a chore's answer as it is, a decision's
@@ -1094,6 +1129,70 @@ mod tests {
         let c = stored(&c);
         assert_eq!(c.cards[0].answer.as_ref().map(|x| (x.how, x.text.as_str())), Some((AnswerHow::Withdrawn, "Merged by hand.")));
         assert!(c.archived_at.is_some());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A finished report of `e` asking two decisions at once: boost the post (Not now / Go), and post the recap.
+    fn two_cards(e: &Employee) -> Run {
+        let mut r = carded(e);
+        r.needs_you.push("Post the recap?".into());
+        r.cards.push(Card::new("Post the recap?", None, Some("ask:recap".into()), CardAsk::Choices { choices: vec!["Post".into(), "Not now".into()], recommended: 0 }));
+        r
+    }
+
+    #[tokio::test]
+    async fn a_runs_answers_go_together_once_its_last_card_is_answered() {
+        let dir = std::env::temp_dir().join(format!("omegastar-card-set-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let report = two_cards(&e);
+        let office = held_office(&dir, &e, &[&report]).await;
+        let stored = || office.db().run(&report.id).unwrap().unwrap().run;
+        assert!(office.answer_card(&report.id, 1, CardReply::Choice { index: 0 }).unwrap().is_empty(), "held for the other card");
+        let s = stored();
+        assert!(s.cards[1].answer.as_ref().is_some_and(|a| a.held) && s.archived_at.is_none());
+        let replies = office.answer_card(&report.id, 0, CardReply::Choice { index: 1 }).unwrap();
+        assert_eq!(replies.len(), 1, "one message for both");
+        let both = "Your card: \"Boost the post?\"\nChose: Go.\n\nYour card: \"Post the recap?\"\nChose: Post.";
+        assert!(replies[0].prompt.ends_with(both), "{}", replies[0].prompt);
+        let s = stored();
+        assert!(s.cards.iter().all(|c| c.answer.as_ref().is_some_and(|a| !a.held)));
+        assert!(s.archived_at.is_some(), "nothing left to ask, so it leaves the Inbox");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_reply_you_type_carries_the_answers_held_for_it() {
+        let dir = std::env::temp_dir().join(format!("omegastar-card-typed-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let report = two_cards(&e);
+        let office = held_office(&dir, &e, &[&report]).await;
+        office.answer_card(&report.id, 1, CardReply::Choice { index: 0 }).unwrap();
+        let reply = office.reply_to_run(&report.id, "Boost it next week.", false, vec![]).unwrap();
+        assert!(reply.prompt.ends_with("Your card: \"Post the recap?\"\nChose: Post.\n\nBoost it next week."), "{}", reply.prompt);
+        let s = office.db().run(&report.id).unwrap().unwrap().run;
+        assert_eq!(s.cards[0].answer.as_ref().map(|a| (a.how, a.text.as_str())), Some((AnswerHow::Typed, "Boost it next week.")));
+        assert!(s.cards[1].answer.as_ref().is_some_and(|a| !a.held), "it went with the reply");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn closing_the_last_open_card_sends_the_answers_held_for_it() {
+        let dir = std::env::temp_dir().join(format!("omegastar-card-closed-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let report = two_cards(&e);
+        let office = held_office(&dir, &e, &[&report]).await;
+        office.answer_card(&report.id, 1, CardReply::Choice { index: 0 }).unwrap();
+        assert_eq!(office.close_ask_tool(&e, "boost", "Boosted it myself.").unwrap()["closed"], 1);
+        let t = office.thread(&report.id).unwrap();
+        assert_eq!(t.replies.len(), 1);
+        assert!(t.replies[0].prompt.ends_with("Your card: \"Post the recap?\"\nChose: Post."), "{}", t.replies[0].prompt);
+        assert!(t.root.cards[1].answer.as_ref().is_some_and(|a| !a.held));
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
