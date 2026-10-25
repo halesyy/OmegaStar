@@ -368,6 +368,10 @@ fn model_args(kind: &RunKind, e: &Employee) -> Vec<String> {
 /// resumes already holds the message it was answering.
 pub const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit stopped you before you could answer. It has reset now, so carry on with the message above.";
 
+/// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
+/// went with it, so it is told to raise again any it still needs.
+pub const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
+
 pub fn prepare(s: &Snapshot, run: &Run) -> Invocation {
     let e = &s.employee;
     let settings_path = s.run_dir.join("settings.json");
@@ -673,6 +677,15 @@ mod tests {
         assert!(inv.stdin.contains(frame_text));
         assert!(inv.stdin.ends_with(&format!("</omega-star>\n\n{LIMIT_RETRY_NOTE}")));
         assert!(!inv.stdin.contains("Archive it."));
+
+        let mut restarted = retried.clone();
+        restarted.restarts = 1;
+        restarted.restarted = true;
+        let inv = prepare(&snapshot(None, true), &restarted);
+        assert!(inv.stdin.contains(frame_text));
+        assert!(inv.stdin.ends_with(&format!("</omega-star>\n\n{RESTART_NOTE}")), "the latest cause, the restart: {}", inv.stdin);
+        let inv = prepare(&snapshot(None, false), &restarted);
+        assert!(inv.stdin.ends_with("Archive it."), "a session that never started hears the message itself");
     }
 
     #[test]

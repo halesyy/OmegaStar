@@ -1134,6 +1134,11 @@ mod tests {
         let cy = employee(&o.db, "Cy", Some(&bo.id));
         let asker = run(&o.db, &bo, RunKind::Manual, "Price the stock.", RunState::Succeeded, 25, None);
         let lost = run(&o.db, &cy, delegated(&asker), "Check the prices.", RunState::Running, 20, None);
+        // Both already went back to the queue as often as a run may, so this restart loses them.
+        for mut r in [parent.clone(), lost.clone()] {
+            r.restarts = RESTART_RETRIES;
+            o.db.save_run(&r).unwrap();
+        }
 
         let office = Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
         assert!(delivered(&o.db, &child), "the lost manager still gets the report that waited for it");
@@ -1142,6 +1147,20 @@ mod tests {
         let to = |id: &str| answered.iter().find(|r| matches!(&r.kind, RunKind::Answered { asked_run_id, .. } if asked_run_id == id)).map(|r| r.employee_id.clone());
         assert_eq!(to(&child.id), Some(ada.id.clone()));
         assert_eq!(to(&lost.id), Some(bo.id.clone()));
+        drop(office);
+    }
+
+    #[tokio::test]
+    async fn a_report_waits_for_a_manager_the_restart_put_back_in_the_queue() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let bo = employee(&o.db, "Bo", Some(&ada.id));
+        let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Running, 30, None);
+        let child = run(&o.db, &bo, delegated(&parent), "Count the stock.", RunState::Succeeded, 20, None);
+
+        let office = Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        assert_eq!(o.db.run(&parent.id).unwrap().unwrap().run.state, RunState::Queued, "it carries on");
+        assert!(!delivered(&o.db, &child), "it collects the report with await_reports, or gets it when it ends");
         drop(office);
     }
 

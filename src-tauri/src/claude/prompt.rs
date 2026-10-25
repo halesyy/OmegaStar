@@ -502,7 +502,9 @@ words quoted above show {ceo} saying it."
 /// build's chat, which never had one.
 /// The note is never stored in `run.prompt`, which holds only what the run was asked.
 pub fn first_message(s: &Snapshot, run: &Run) -> String {
-    let body = if run.limit_retries > 0 && s.resume {
+    let body = if run.restarted && s.resume {
+        RESTART_NOTE.to_string()
+    } else if run.limit_retries > 0 && s.resume {
         LIMIT_RETRY_NOTE.to_string()
     } else {
         with_attachments(&run.prompt, &attachments_dir(&s.employee_dir, &run.id), &run.attachments)
