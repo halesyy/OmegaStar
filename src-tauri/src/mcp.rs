@@ -150,9 +150,10 @@ fn tools() -> Value {
                     "type": "array", "maxItems": 10,
                     "description": "Things to approve one by one, up to 10. Each gets a tick box and an optional note.",
                     "items": obj(json!({
-                        "id": { "type": "string", "description": "A short id they and you can refer to, e.g. 'd1'." },
-                        "text": { "type": "string", "description": "What it is, e.g. the post as it would go out, and anything that decides it, e.g. how old the post it answers is." },
-                        "recommended": { "type": "boolean", "description": "true for the ones you would approve." }
+                        "id": { "type": "string", "description": "A short id they and you can refer to, e.g. 'd1' or the name of who it answers." },
+                        "text": { "type": "string", "description": "Exactly what would go out, in full, at most 2000 characters, e.g. the post. Put what it is about in about, not here." },
+                        "about": { "type": "string", "description": "Optional. One line, at most 200 characters, on what it is about and anything that decides it, shown above text, e.g. the post it answers and how old it is." },
+                        "recommended": { "type": "boolean", "description": "true for the ones you would approve. They start ticked." }
                     }), &["id", "text"])
                 },
                 "itemVerb": { "type": "string", "description": "What a tick means, one word, e.g. 'Post'. Default 'Approve'." },

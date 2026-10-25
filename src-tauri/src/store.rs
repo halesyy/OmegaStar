@@ -1400,7 +1400,7 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
             insert(with_card(r, ask, answered))
         };
         let older = scheduled("s1", 30, choices(), false);
-        let items = CardAsk::Items { verb: "Post".into(), items: vec![CardItem { id: "d1".into(), text: "Draft".into(), recommended: true }] };
+        let items = CardAsk::Items { verb: "Post".into(), items: vec![CardItem { id: "d1".into(), text: "Draft".into(), about: None, recommended: true }] };
         let older_items = scheduled("s1", 20, items, false);
         scheduled("s1", 15, choices(), true);
         scheduled("s1", 12, chrome(), false);

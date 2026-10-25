@@ -24,7 +24,9 @@ const BUILT_IN: [&str; 2] = ["not now", "no"];
 const CHOICE_CHARS: usize = 40;
 const MAX_ITEMS: usize = 10;
 const ITEM_ID_CHARS: usize = 20;
-const ITEM_CHARS: usize = 300;
+/// An item's text in full, never clipped: what you tick is what goes out.
+const ITEM_CHARS: usize = 2000;
+const ABOUT_CHARS: usize = 200;
 const VERB_CHARS: usize = 20;
 const NOTE_CHARS: usize = 300;
 const DEFAULT_VERB: &str = "Approve";
@@ -179,8 +181,18 @@ fn items_ask(raw: &[Value], verb: Option<&str>) -> Result<CardAsk> {
         if text.is_empty() {
             return Err(AppError::invalid(format!("Item '{id}' needs its text.")));
         }
+        let n = text.chars().count();
+        if n > ITEM_CHARS {
+            return Err(AppError::invalid(format!(
+                "Item '{id}': text is at most {ITEM_CHARS} characters (it has {n}). Put a longer draft in a file and ask about it on its own card."
+            )));
+        }
+        let about = Some(one_line(field("about"))).filter(|a| !a.is_empty());
+        if let Some(n) = about.as_ref().map(|a| a.chars().count()).filter(|n| *n > ABOUT_CHARS) {
+            return Err(AppError::invalid(format!("Item '{id}': about is one line of at most {ABOUT_CHARS} characters (it has {n}).")));
+        }
         let recommended = i.get("recommended").and_then(Value::as_bool).unwrap_or(false);
-        items.push(CardItem { id: id.to_string(), text: clip(text, ITEM_CHARS), recommended });
+        items.push(CardItem { id: id.to_string(), text: text.to_string(), about, recommended });
     }
     Ok(CardAsk::Items { verb: verb.to_string(), items })
 }
@@ -280,11 +292,15 @@ mod tests {
 
     #[test]
     fn items_need_short_unique_ids_and_text() {
-        let long = "y".repeat(400);
-        let CardAsk::Items { verb, items } = ask_of(json!({ "items": [{ "id": " d1 ", "text": "Reply to the launch post", "recommended": true }, { "id": "d2", "text": long }], "itemVerb": " Post " })) else { panic!("items") };
+        let long = "y".repeat(2000);
+        let about = " 1 star, 3 May:\n\"Too slow.\" ";
+        let CardAsk::Items { verb, items } = ask_of(json!({ "items": [{ "id": " d1 ", "text": "Reply to the launch post", "about": about, "recommended": true }, { "id": "d2", "text": long, "about": " " }], "itemVerb": " Post " })) else { panic!("items") };
         assert_eq!(verb, "Post");
-        assert_eq!(items[0], CardItem { id: "d1".into(), text: "Reply to the launch post".into(), recommended: true });
-        assert!(!items[1].recommended && items[1].text.chars().count() == 303, "clipped to 300 and an ellipsis");
+        assert_eq!(items[0], CardItem { id: "d1".into(), text: "Reply to the launch post".into(), about: Some("1 star, 3 May: \"Too slow.\"".into()), recommended: true });
+        assert!(!items[1].recommended && items[1].text.chars().count() == 2000, "never clipped");
+        assert_eq!(items[1].about, None, "a blank about counts as left out");
+        assert!(err(json!({ "items": [{ "id": "d1", "text": "y".repeat(2001) }] })).starts_with("Item 'd1': text is at most 2000 characters (it has 2001)"));
+        assert!(err(json!({ "items": [{ "id": "d1", "text": "a", "about": "y".repeat(201) }] })).starts_with("Item 'd1': about is one line of at most 200 characters (it has 201)"));
         let CardAsk::Items { verb, .. } = ask_of(json!({ "items": [{ "id": "a", "text": "One" }] })) else { panic!("items") };
         assert_eq!(verb, "Approve");
         let eleven: Vec<Value> = (0..11).map(|i| json!({ "id": format!("d{i}"), "text": "x" })).collect();
@@ -347,7 +363,7 @@ mod tests {
     }
 
     fn items() -> CardAsk {
-        let item = |id: &str| CardItem { id: id.into(), text: format!("Draft {id}"), recommended: false };
+        let item = |id: &str| CardItem { id: id.into(), text: format!("Draft {id}"), about: None, recommended: false };
         CardAsk::Items { verb: "Post".into(), items: vec![item("d1"), item("d2"), item("d3"), item("d4")] }
     }
 

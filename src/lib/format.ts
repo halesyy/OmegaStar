@@ -2,6 +2,9 @@ import type { Run, RunKind, RunState, SkillChange, UsageWindow } from "../api/ty
 
 const DAY_MS = 86_400_000;
 
+/** The key shortcuts go with: ⌘ on a Mac, Ctrl elsewhere. */
+export const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";

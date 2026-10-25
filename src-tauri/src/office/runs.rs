@@ -1496,7 +1496,7 @@ mod tests {
         let db = Store::open(&dir.join("office.db")).unwrap();
         let e = employee(Clearance::Supervised);
         db.save_employee(&e).unwrap();
-        let items = || CardAsk::Items { verb: "Post".into(), items: vec![CardItem { id: "d1".into(), text: "Draft one".into(), recommended: true }] };
+        let items = || CardAsk::Items { verb: "Post".into(), items: vec![CardItem { id: "d1".into(), text: "Draft one".into(), about: None, recommended: true }] };
         let card = |r: &mut Run, ask: CardAsk| r.cards = vec![Card::new("Post these?", None, Some("ask:drafts".into()), ask)];
         let scheduled = |schedule: &str, ago: i64, ask: CardAsk, replied: bool| {
             let at = now() - chrono::Duration::minutes(ago);

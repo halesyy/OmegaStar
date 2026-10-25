@@ -1077,7 +1077,11 @@ pub enum CardAsk {
 #[serde(rename_all = "camelCase")]
 pub struct CardItem {
     pub id: String,
+    /// What would go out, in full, e.g. the post.
     pub text: String,
+    /// One line on what it is about, e.g. the review it answers, shown above the text.
+    #[serde(default)]
+    pub about: Option<String>,
     #[serde(default)]
     pub recommended: bool,
 }

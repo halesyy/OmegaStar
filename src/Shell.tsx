@@ -11,7 +11,7 @@ import { workLabel } from "./components/RunRow";
 import { Avatar } from "./components/ui";
 import { usePruneMarks, useStatuses } from "./components/conversation/useStatuses";
 import { decisions } from "./lib/decisions";
-import { firstName, initials } from "./lib/format";
+import { firstName, initials, MOD } from "./lib/format";
 import { openMember, openYou, useRoute } from "./lib/router";
 import { conversationOf, threadFocus } from "./lib/threads";
 import { YOU_ID } from "./lib/org";
@@ -38,7 +38,6 @@ type ShellApi = {
 const ShellCtx = createContext<ShellApi>({ hire: () => {}, reviewProposal: () => {}, addPerson: () => {}, palette: () => {} });
 export const useShell = () => useContext(ShellCtx);
 
-const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 const COLLAPSE_KEY = "omega.sidebarCollapsed";
 
 export function Shell() {

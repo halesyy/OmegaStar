@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { Card, CardAnswer, CardItem, CardReply, EmployeeView, Run } from "../../api/types";
-import { firstName } from "../../lib/format";
+import { firstName, MOD } from "../../lib/format";
 import { useQuery } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import { Icon } from "../Icon";
@@ -89,13 +89,14 @@ export function CardView({ card, runId, index, e, onAnswer }: {
     setSending(true);
     try { await onAnswer(reply); } finally { setSending(false); }
   };
-  const decline = (
+  /** Not now, and No in the card's own words. */
+  const decline = (no: string) => (
     <>
       <button className="btn btn-ghost btn-sm" title="Busy, not a no: they bring it back tomorrow" disabled={sending} onClick={() => void send({ type: "dismiss" })}>
         Not now
       </button>
       <button className="btn btn-ghost btn-sm" title="They drop it and don't ask again" disabled={sending} onClick={() => void send({ type: "reject" })}>
-        No
+        {no}
       </button>
     </>
   );
@@ -109,10 +110,10 @@ export function CardView({ card, runId, index, e, onAnswer }: {
               {c}{i === ask.recommended ? <span className="card-rec">Recommended</span> : null}
             </button>
           ))}
-          {decline}
+          {decline("No")}
         </div>
       ) : ask.type === "items" ? (
-        <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={sending} send={send} decline={decline} />
+        <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={sending} send={send} decline={decline(`Don't ${ask.verb.toLowerCase()}`)} />
       ) : (
         <div className="card-choices">
           <button className="btn btn-primary btn-sm" title="You did it. Every run waiting on this carries on." disabled={sending} onClick={() => void send({ type: "done" })}>
@@ -156,7 +157,8 @@ function CardFile({ runId, index, path }: { runId: string; index: number; path: 
   );
 }
 
-/** A list to approve one by one: a tick and an optional note per item, then Send. */
+/** A list to approve one by one, what the employee recommends ticked already: a note on any item, then Send.
+ *  On a focused item, arrows move, Space ticks, Enter shows it all and N adds a note; Cmd or Ctrl + Enter sends. */
 function ItemsCard({ verb, items, name, sending, send, decline }: {
   verb: string;
   items: CardItem[];
@@ -165,45 +167,94 @@ function ItemsCard({ verb, items, name, sending, send, decline }: {
   send: (reply: CardReply) => Promise<void>;
   decline: ReactNode;
 }) {
-  const [ticks, setTicks] = useState<Record<string, boolean>>({});
+  const [ticks, setTicks] = useState<Record<string, boolean>>(() => Object.fromEntries(items.map((i) => [i.id, i.recommended])));
+  const [touched, setTouched] = useState(false);
   const [notes, setNotes] = useState<Record<string, string | undefined>>({});
+  const list = useRef<HTMLUListElement>(null);
   const ticked = items.filter((i) => ticks[i.id]).length;
-  const ready = ticked > 0 || items.some((i) => notes[i.id]?.trim());
-  const picks = items.map((i) => ({ id: i.id, tick: !!ticks[i.id], note: notes[i.id]?.trim() || null }));
+  const noted = items.some((i) => notes[i.id]?.trim());
+  const ready = !sending && (ticked > 0 || noted);
+  const go = () => {
+    if (ready) void send({ type: "items", picks: items.map((i) => ({ id: i.id, tick: !!ticks[i.id], note: notes[i.id]?.trim() || null })) });
+  };
   return (
-    <div className="card-items">
-      <ul>
-        {items.map((i) => (
-          <li key={i.id}>
-            <div className="card-item">
-              <label>
-                <input
-                  type="checkbox" checked={!!ticks[i.id]} disabled={sending} title={`${verb} ${i.id}`}
-                  onChange={(ev) => setTicks((t) => ({ ...t, [i.id]: ev.target.checked }))}
-                />
-                <b>{i.id}</b>
-                <span>{i.text}</span>
-                {i.recommended ? <span className="card-rec">Recommended</span> : null}
-              </label>
-              {notes[i.id] === undefined ? (
-                <button className="btn btn-ghost btn-sm" disabled={sending} onClick={() => setNotes((n) => ({ ...n, [i.id]: "" }))}>Note</button>
-              ) : null}
-            </div>
-            {notes[i.id] !== undefined ? (
-              <input
-                className="input" autoFocus maxLength={300} placeholder={`Note for ${name} (optional)`} value={notes[i.id]} disabled={sending}
-                onChange={(ev) => setNotes((n) => ({ ...n, [i.id]: ev.target.value }))}
-              />
-            ) : null}
-          </li>
+    <div className="card-items" onKeyDown={(ev) => { if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) { ev.preventDefault(); go(); } }}>
+      <ul ref={list}>
+        {items.map((i, n) => (
+          <ItemRow
+            key={i.id} item={i} verb={verb} name={name} sending={sending} ticked={!!ticks[i.id]} note={notes[i.id]}
+            onTick={() => { setTicks((t) => ({ ...t, [i.id]: !t[i.id] })); setTouched(true); }}
+            onNote={(note) => setNotes((x) => ({ ...x, [i.id]: note }))}
+            onMove={(by) => (list.current?.children[n + by] as HTMLElement | undefined)?.focus()}
+          />
         ))}
       </ul>
       <div className="card-items-foot">
-        <span className="faint">{ticked} of {items.length} ticked</span>
-        <span className="grow" />
+        <span className="faint grow">{touched || !items.some((i) => i.recommended) ? `${ticked} of ${items.length} ticked` : `${name}'s picks are ticked`}</span>
         {decline}
-        <button className="btn btn-primary btn-sm" disabled={sending || !ready} onClick={() => void send({ type: "items", picks })}>Send</button>
+        <button className="btn btn-primary btn-sm" disabled={!ready} onClick={go}>
+          {ticked ? `${verb} ${ticked}` : noted ? "Send notes" : verb}<span className="card-kbd">{MOD} ↵</span>
+        </button>
       </div>
     </div>
+  );
+}
+
+/** One item: its id and what it is about, then the text that would go out, three lines until Show all. Note shows
+ *  on hover or focus. `note`: undefined until you add one. */
+function ItemRow({ item, verb, name, sending, ticked, note, onTick, onNote, onMove }: {
+  item: CardItem;
+  verb: string;
+  name: string;
+  sending: boolean;
+  ticked: boolean;
+  note: string | undefined;
+  onTick: () => void;
+  onNote: (note: string | undefined) => void;
+  onMove: (by: 1 | -1) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [clipped, setClipped] = useState({ about: false, text: false });
+  const row = useRef<HTMLLIElement>(null);
+  const about = useRef<HTMLParagraphElement>(null);
+  const text = useRef<HTMLDivElement>(null);
+  const noteInput = useRef<HTMLInputElement>(null);
+  // Measured while closed, so an open item keeps its Show less.
+  useLayoutEffect(() => {
+    const over = (el: HTMLElement | null) => !!el && el.scrollHeight > el.clientHeight + 1;
+    if (!open) setClipped({ about: over(about.current), text: over(text.current) });
+  }, [item.about, item.text, open]);
+  const long = clipped.about || clipped.text;
+  const expand = () => { if (long && !open) setOpen(true); };
+  const onKey = (ev: KeyboardEvent<HTMLLIElement>) => {
+    if (ev.target !== ev.currentTarget || ev.metaKey || ev.ctrlKey || ev.altKey || sending) return;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") onMove(ev.key === "ArrowDown" ? 1 : -1);
+    else if (ev.key === " ") onTick();
+    else if (ev.key === "Enter" && long) setOpen(!open);
+    else if (ev.key.toLowerCase() === "n") { if (note === undefined) onNote(""); else noteInput.current?.focus(); }
+    else return;
+    ev.preventDefault();
+  };
+  return (
+    <li ref={row} className={`card-item ${ticked ? "card-item-on" : ""} ${open ? "card-item-open" : ""}`} tabIndex={0} onKeyDown={onKey}>
+      <input type="checkbox" tabIndex={-1} checked={ticked} disabled={sending} aria-label={`${verb} ${item.id}`} onChange={onTick} />
+      <div className="card-item-main">
+        <p ref={about} className="card-item-about" onClick={expand}><b>{item.id}</b>{item.about}</p>
+        <div ref={text} className={`card-item-text ${clipped.text && !open ? "card-item-fade" : ""}`} onClick={expand}>{item.text}</div>
+        {long ? (
+          <button className="card-item-more" tabIndex={-1} onClick={() => setOpen(!open)}>
+            {open ? "Show less" : "Show all"} <Icon name="chevronDown" size={12} />
+          </button>
+        ) : null}
+        {note !== undefined ? (
+          <input
+            ref={noteInput} className="input" autoFocus maxLength={300} placeholder={`Note for ${name} (optional)`} value={note} disabled={sending}
+            onChange={(ev) => onNote(ev.target.value)}
+            onKeyDown={(ev) => { if (ev.key === "Escape" && !note) { ev.preventDefault(); onNote(undefined); row.current?.focus(); } }}
+          />
+        ) : null}
+      </div>
+      {note === undefined ? <button className="btn btn-ghost btn-sm card-item-note" tabIndex={-1} disabled={sending} onClick={() => onNote("")}>Note</button> : null}
+    </li>
   );
 }

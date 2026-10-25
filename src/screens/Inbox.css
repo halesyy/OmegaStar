@@ -96,14 +96,29 @@
 .card-rec { margin-left: 6px; font-size: var(--t-xs); font-weight: 500; opacity: 0.7; }
 .card-items { margin: 4px 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
 .card-items ul { list-style: none; margin: 0; padding: 0; }
-.card-items li { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 8px 12px; }
-.card-items li + li { border-top: 1px solid var(--line); }
-.card-item { display: flex; align-items: flex-start; gap: 8px; }
-.card-item label { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; font-size: 13px; line-height: 1.5; cursor: pointer; }
-.card-item input { flex: none; align-self: center; }
-.card-item b { flex: none; font-weight: 600; }
-.card-item .card-rec { flex: none; color: var(--ok-text); opacity: 1; }
-.card-items-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; border-top: 1px solid var(--line); font-size: var(--t-sm); }
+/* An item: its id and what it is about, then the text that would go out, three lines until Show all. */
+.card-item { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; outline: none; transition: background var(--d-ui) var(--ease); }
+.card-item + .card-item { border-top: 1px solid var(--line); }
+.card-item:hover, .card-item:focus-visible { background: var(--raised); }
+.card-item:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--ink) 22%, transparent); }
+.card-item > input { flex: none; margin: 2px 0 0; cursor: pointer; }
+.card-item-main { flex: 1; min-width: 0; padding-right: 48px; }
+.card-item-about { margin: 0; font-size: var(--t-sm); line-height: 1.5; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card-item-about b { margin-right: 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
+/* The rule beside the text darkens when it is ticked: this goes out. */
+.card-item-text { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-strong); font-size: var(--t-base); line-height: 1.55; color: var(--ink-2); white-space: pre-line; overflow-wrap: anywhere; max-height: calc(1.55em * 3); overflow: hidden; transition: border-color var(--d-ui) var(--ease); }
+.card-item-on .card-item-text { border-color: var(--muted); }
+.card-item-fade { cursor: pointer; -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent); mask-image: linear-gradient(to bottom, #000 45%, transparent); }
+.card-item-open .card-item-about { display: block; }
+.card-item-open .card-item-text { max-height: none; }
+.card-item-more { display: inline-flex; align-items: center; gap: 3px; margin: 5px 0 0 12px; font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
+.card-item-more:hover { color: var(--ink); }
+.card-item-open .card-item-more svg { transform: rotate(180deg); }
+.card-item-main .input { margin-top: 8px; }
+.card-item-note { position: absolute; top: 7px; right: 8px; opacity: 0; transition: opacity var(--d-ui) var(--ease); }
+.card-item:hover .card-item-note, .card-item:focus-visible .card-item-note, .card-item-open .card-item-note { opacity: 1; }
+.card-items-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; border-top: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm); }
+.card-kbd { margin-left: 6px; font-size: var(--t-xs); opacity: 0.55; }
 .card-answered { margin: 4px 0 12px; font-size: var(--t-sm); color: var(--muted); }
 /* The file a card is about, e.g. a draft: its first lines, the rest on Show all. */
 .card-file { margin: 6px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }

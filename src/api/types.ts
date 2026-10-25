@@ -163,7 +163,7 @@ export type Denial = { tool: string; brief: string; suggestedRule: string };
 export type SkillChangeKind = "added" | "modified" | "removed";
 export type SkillChange = { skill: string; file: string; change: SkillChangeKind };
 /** What a run asks you with the answer built in. A run can ask several; each message is also in needsYou. */
-export type CardItem = { id: string; text: string; recommended: boolean };
+export type CardItem = { id: string; text: string; about: string | null; recommended: boolean };   // text: what goes out; about: one line on what it answers
 export type CardAsk =
   | { type: "choices"; choices: string[]; recommended: number }   // recommended: the index of the one they recommend
   | { type: "items"; verb: string; items: CardItem[] }            // verb: what a tick means, e.g. "Post"
