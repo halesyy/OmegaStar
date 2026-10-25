@@ -126,7 +126,7 @@ fn parse_auth(stdout: &str) -> Option<Account> {
     })
 }
 
-/// Through the CLI proxy (`env`), Claude Code reports itself signed in, with no email.
+/// The claude.ai account Claude Code is signed in to. The CLI proxy (`env`) leaves the sign-in alone.
 pub async fn auth_status(program: &Path, env: &[(String, String)]) -> Option<Account> {
     parse_auth(&capture(program, env, &["auth", "status"]).await?)
 }

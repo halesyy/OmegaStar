@@ -201,7 +201,7 @@ function ProxyCard({ settings: s, save }: { settings: AppSettings; save: (next: 
   const edit = (key: keyof ProxySettings) => (e: { target: { value: string } }) => setDraft({ ...draft, [key]: e.target.value });
   const changed = (["url", "apiKey", "managementKey"] as const).some((k) => draft[k].trim() !== s.proxy[k]);
   const status = s.proxy.url
-    ? `Runs go through ${s.proxy.url}. Employees can't use claude.ai connectors while they do.`
+    ? `Runs go through ${s.proxy.url}. Claude in Chrome and claude.ai connectors still use Claude Code's own sign-in.`
     : "Off. Runs use the account Claude Code is signed in to.";
   return (
     <SettingsGroup title="CLI proxy" sub="Send every run through a CLIProxyAPI server, so employees share its pool of Claude accounts.">
