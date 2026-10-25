@@ -68,9 +68,9 @@ fn parse_judge(stdout: &str) -> Result<(Verdict, String)> {
 
 /// Asks the judge whether the messages in `prompt` answer the ask. `cwd` is an empty folder, so no
 /// handbook or skills load. Never gated by usage room: one small call, and replies are time-sensitive.
-pub async fn judge(program: &Path, cwd: &Path, prompt: &str) -> Result<(Verdict, String)> {
+pub async fn judge(program: &Path, env: &[(String, String)], cwd: &Path, prompt: &str) -> Result<(Verdict, String)> {
     let mut c = command(program);
-    c.args(judge_args()).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    c.args(judge_args()).envs(env.iter().cloned()).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     c.process_group(0);
     let mut child = c.spawn().map_err(|e| AppError::internal(format!("could not start Claude Code: {e}")))?;

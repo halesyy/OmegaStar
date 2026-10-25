@@ -1542,6 +1542,8 @@ pub struct AppSettings {
     pub backup: BackupSettings,
     /// Absent from settings saved before requests were watched.
     pub watch: WatchSettings,
+    /// Absent from settings saved before the CLI proxy existed.
+    pub proxy: ProxySettings,
 }
 
 impl Default for AppSettings {
@@ -1553,7 +1555,35 @@ impl Default for AppSettings {
             paused: false,
             backup: BackupSettings::default(),
             watch: WatchSettings::default(),
+            proxy: ProxySettings::default(),
         }
+    }
+}
+
+/// A CLI proxy (CLIProxyAPI) that Claude Code goes through instead of the signed-in account, so runs
+/// share the proxy's pool of accounts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ProxySettings {
+    /// Its address, e.g. `http://127.0.0.1:8317`. Empty = no proxy.
+    pub url: String,
+    /// One of its API keys, which Claude Code sends as its auth token.
+    pub api_key: String,
+    /// Its management key, to read each account's usage limits. Empty = none are shown.
+    pub management_key: String,
+}
+
+impl ProxySettings {
+    /// The variables that send Claude Code through the proxy; none when there is no proxy.
+    pub fn env(&self) -> Vec<(String, String)> {
+        if self.url.is_empty() {
+            return vec![];
+        }
+        let mut env = vec![("ANTHROPIC_BASE_URL".to_string(), self.url.clone())];
+        if !self.api_key.is_empty() {
+            env.push(("ANTHROPIC_AUTH_TOKEN".into(), self.api_key.clone()));
+        }
+        env
     }
 }
 

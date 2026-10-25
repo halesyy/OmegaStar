@@ -8,9 +8,11 @@ impl Office {
     }
 
     pub async fn setup_status(&self, background: bool) -> Result<SetupStatus> {
-        let path = claude::locate(self.settings()?.claude_path.as_deref());
+        let settings = self.settings()?;
+        let path = claude::locate(settings.claude_path.as_deref());
+        let proxy_env = settings.proxy.env();
         let (version, account) = match &path {
-            Some(p) => tokio::join!(claude::version(p), claude::auth_status(p)),
+            Some(p) => tokio::join!(claude::version(p), claude::auth_status(p, &proxy_env)),
             None => (None, None),
         };
         Ok(SetupStatus {
@@ -30,8 +32,9 @@ impl Office {
         if company_name.trim().is_empty() || ceo_name.trim().is_empty() {
             return Err(AppError::invalid("company name and your name are required"));
         }
-        let email = match claude::locate(self.settings()?.claude_path.as_deref()) {
-            Some(p) => claude::auth_status(&p).await.and_then(|a| a.email),
+        let settings = self.settings()?;
+        let email = match claude::locate(settings.claude_path.as_deref()) {
+            Some(p) => claude::auth_status(&p, &settings.proxy.env()).await.and_then(|a| a.email),
             None => None,
         };
         let c = Self::edit_org(&self.db(), |org| {
@@ -83,7 +86,15 @@ impl Office {
         s.backup.keep = s.backup.keep.clamp(1, 100);
         s.backup.dir = s.backup.dir.trim().to_string();
         s.watch.validate()?;
-        let old = self.settings()?.backup;
+        let p = &mut s.proxy;
+        p.url = p.url.trim().trim_end_matches('/').to_string();
+        p.api_key = p.api_key.trim().to_string();
+        p.management_key = p.management_key.trim().to_string();
+        if !p.url.is_empty() && !p.url.starts_with("http://") && !p.url.starts_with("https://") {
+            return Err(AppError::invalid("the CLI proxy address must start with http:// or https://"));
+        }
+        let prev = self.settings()?;
+        let old = prev.backup;
         // Only a changed folder, or turning backups on, is checked: an unusable default folder must
         // not block unrelated settings.
         let enabling = old.frequency == BackupFrequency::Off && s.backup.frequency != BackupFrequency::Off;
@@ -94,6 +105,14 @@ impl Office {
         self.sink().settings_changed(&s);
         if s.backup != old {
             self.sink().backup_updated(&self.backup_status()?);
+        }
+        if s.proxy != prev.proxy {
+            // Probed again even when a probe is in flight: it may still be reading the old source.
+            let office = self.clone();
+            self.0.rt.spawn(async move {
+                let _probing = office.0.probing.lock().await;
+                office.probe_usage().await;
+            });
         }
         self.pump();
         Ok(s)
@@ -239,11 +258,17 @@ impl Office {
         self.usage_limits()
     }
 
-    /// Callers hold `probing`.
+    /// Callers hold `probing`. Behind a CLI proxy, its accounts' limits are the office's, not those of
+    /// the account Claude Code is signed in to.
     pub(super) async fn probe_usage(&self) {
         let Ok(settings) = self.settings() else { return };
-        let Some(program) = claude::locate(settings.claude_path.as_deref()) else { return };
-        if let Some(sample) = claude::probe_usage(&program, &self.0.data_dir).await {
+        let sample = if settings.proxy.url.is_empty() {
+            let Some(program) = claude::locate(settings.claude_path.as_deref()) else { return };
+            claude::probe_usage(&program, &self.0.data_dir).await
+        } else {
+            proxy::usage(&settings.proxy).await
+        };
+        if let Some(sample) = sample {
             self.observe_usage(sample, true);
         }
     }
@@ -308,9 +333,9 @@ impl Office {
     /// Asks Claude Code which account it is signed in to and caches the answer, `None` when it
     /// could not tell. The only `claude auth status` cache in the app.
     pub(super) async fn refresh_account(&self) {
-        let program = self.settings().ok().and_then(|s| claude::locate(s.claude_path.as_deref()));
-        let account = match program {
-            Some(p) => claude::auth_status(&p).await,
+        let settings = self.settings().unwrap_or_default();
+        let account = match claude::locate(settings.claude_path.as_deref()) {
+            Some(p) => claude::auth_status(&p, &settings.proxy.env()).await,
             None => None,
         };
         *lock(&self.0.account) = Some((now(), account.clone()));
@@ -341,8 +366,9 @@ impl Office {
 
     /// Makes the account Claude Code is signed in to now the office's own, which ends an account pause.
     pub async fn use_signed_in_account(&self) -> Result<Company> {
-        let account = match claude::locate(self.settings()?.claude_path.as_deref()) {
-            Some(p) => claude::auth_status(&p).await,
+        let settings = self.settings()?;
+        let account = match claude::locate(settings.claude_path.as_deref()) {
+            Some(p) => claude::auth_status(&p, &settings.proxy.env()).await,
             None => None,
         };
         let email = account

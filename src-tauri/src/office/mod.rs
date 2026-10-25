@@ -19,6 +19,7 @@ use crate::log::log;
 use crate::model::*;
 use crate::org::Org;
 use crate::own_skills;
+use crate::proxy;
 use crate::reader::{self, ReadError};
 use crate::schedule::{self, Due};
 use crate::store::{RequestFilter, RunRecord, Store};

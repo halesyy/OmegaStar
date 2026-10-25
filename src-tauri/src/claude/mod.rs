@@ -76,7 +76,8 @@ pub fn locate(override_path: Option<&str>) -> Option<PathBuf> {
 }
 
 /// A child process with no console window, the login shell's PATH and none of the inherited
-/// Anthropic credentials or provider settings, so a run always uses the signed-in account.
+/// Anthropic credentials or provider settings, so a run uses the signed-in account unless the CLI
+/// proxy's variables are added back.
 pub(crate) fn command(program: &Path) -> tokio::process::Command {
     let mut c = tokio::process::Command::new(program);
     if let Some(p) = child_path() {
@@ -101,15 +102,15 @@ fn scrubbed_vars<'a>(names: impl Iterator<Item = &'a OsStr>) -> Vec<OsString> {
         .collect()
 }
 
-async fn capture(program: &Path, args: &[&str]) -> Option<String> {
-    let fut = command(program).args(args).stdin(Stdio::null()).output();
+async fn capture(program: &Path, env: &[(String, String)], args: &[&str]) -> Option<String> {
+    let fut = command(program).args(args).envs(env.iter().cloned()).stdin(Stdio::null()).output();
     let out = tokio::time::timeout(std::time::Duration::from_secs(20), fut).await.ok()?.ok()?;
     // `auth status` exits non-zero when logged out but still prints JSON.
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 pub async fn version(program: &Path) -> Option<String> {
-    let s = capture(program, &["--version"]).await?;
+    let s = capture(program, &[], &["--version"]).await?;
     let v = s.split_whitespace().next()?.to_string();
     (!v.is_empty()).then_some(v)
 }
@@ -125,8 +126,9 @@ fn parse_auth(stdout: &str) -> Option<Account> {
     })
 }
 
-pub async fn auth_status(program: &Path) -> Option<Account> {
-    parse_auth(&capture(program, &["auth", "status"]).await?)
+/// Through the CLI proxy (`env`), Claude Code reports itself signed in, with no email.
+pub async fn auth_status(program: &Path, env: &[(String, String)]) -> Option<Account> {
+    parse_auth(&capture(program, env, &["auth", "status"]).await?)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -186,6 +188,8 @@ pub struct Snapshot {
     pub employee_dir: PathBuf,
     pub run_dir: PathBuf,
     pub mcp_url: String,
+    /// The CLI proxy's variables; empty when there is no proxy.
+    pub proxy_env: Vec<(String, String)>,
     /// `true` when the session already exists and must be resumed.
     pub resume: bool,
     pub session: String,
@@ -396,11 +400,13 @@ pub fn prepare(s: &Snapshot, run: &Run) -> Invocation {
         args.extend(["--add-dir".into(), w.clone()]);
     }
     let mcp = json!({ "mcpServers": { "omega": { "type": "http", "url": s.mcp_url } } });
+    let mut env = vec![("MCP_TOOL_TIMEOUT".into(), "900000".into())];
+    env.extend(s.proxy_env.iter().cloned());
     Invocation {
         program: s.claude.clone(),
         args,
         cwd: s.employee_dir.clone(),
-        env: vec![("MCP_TOOL_TIMEOUT".into(), "900000".into())],
+        env,
         stdin: first_message(s, run),
         files: vec![
             (s.employee_dir.join("CLAUDE.md"), handbook(s)),
@@ -437,6 +443,7 @@ pub(crate) fn test_snapshot(company: Company, employee: Employee, opening: Optio
         run_dir: PathBuf::from("/office/runs/r1"),
         employee_dir,
         mcp_url: "http://127.0.0.1:1/mcp/t".into(),
+        proxy_env: vec![],
         resume,
         session: "s1".into(),
         employee,

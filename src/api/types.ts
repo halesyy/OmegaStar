@@ -269,7 +269,10 @@ export type SetupStatus = {
   background: boolean;
   build: Build;
 };
-export type AppSettings = { maxConcurrentRuns: number; claudePath: string | null; dataDir: string; paused: boolean; backup: BackupSettings; watch: WatchSettings };
+export type AppSettings = { maxConcurrentRuns: number; claudePath: string | null; dataDir: string; paused: boolean; backup: BackupSettings; watch: WatchSettings; proxy: ProxySettings };
+
+/** A CLI proxy (CLIProxyAPI) that runs go through; an empty url means none. */
+export type ProxySettings = { url: string; apiKey: string; managementKey: string };
 
 export type CheckFrequency = "eager" | "normal" | "relaxed";
 export type IsoWeekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;

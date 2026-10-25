@@ -408,6 +408,7 @@ impl Office {
             employee_dir,
             run_dir: self.run_dir(&run.id),
             mcp_url: format!("http://127.0.0.1:{}/mcp/{token}", self.0.mcp_port),
+            proxy_env: settings.as_ref().map(|s| s.proxy.env()).unwrap_or_default(),
             company,
             employee: e,
             manager,
@@ -660,6 +661,8 @@ impl Office {
 
         let snap = self.gather(run, &token)?;
         let inv = claude::prepare(&snap, run);
+        // Behind a CLI proxy a run reports only the pool account it used: the proxy reports the pool.
+        let proxied = !snap.proxy_env.is_empty();
         let skills_dir = own_skills::skills_dir(&snap.employee_dir);
         own_skills::ensure_skill_link(&snap.employee_dir)?;
         own_skills::install_craft(&skills_dir)?;
@@ -771,7 +774,7 @@ impl Office {
                             None => o,
                         });
                     }
-                    if let Some(u) = parsed.usage {
+                    if let Some(u) = parsed.usage.filter(|_| !proxied) {
                         self.observe_usage(u, false);
                     }
                     pending.extend(parsed.events.into_iter().filter(|e| tasks.keep(e)));

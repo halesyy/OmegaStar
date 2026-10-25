@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { call, errorMessage } from "../api/client";
-import type { AppSettings, BackupFrequency, BackupSettings, BackupStatus, BuildChannel, BusinessHours, CheckFrequency, IsoWeekday, SetupStatus, WatchSettings } from "../api/types";
+import type { AppSettings, BackupFrequency, BackupSettings, BackupStatus, BuildChannel, BusinessHours, CheckFrequency, IsoWeekday, ProxySettings, SetupStatus, WatchSettings } from "../api/types";
 import { refreshOrg, rescanSkills, useQuery, useSkillScan, type SkillScan } from "../lib/hooks";
 import { toast } from "../lib/toasts";
 import { clockHM, relTime, whenShort } from "../lib/format";
@@ -95,9 +95,15 @@ export function SettingsScreen() {
                   <button className="btn" type="submit" disabled={(s.claudePath ?? "") === path.trim()}>Save</button>
                 </form>
               </Row>
-              <Row title="Account" desc={st.account?.loggedIn ? <>{st.account.email} · {st.account.orgName}{st.account.plan ? ` · ${st.account.plan}` : null}</> : "Not signed in. Run this in a terminal, then come back."}>
-                {st.account?.loggedIn ? <span className="pill pill-ok"><Icon name="check" size={11} /> Signed in</span> : <CopyCommand command="claude auth login" />}
-              </Row>
+              {s.proxy.url ? (
+                <Row title="Account" desc="Runs use the CLI proxy's accounts, not the one Claude Code is signed in to.">
+                  <span className="pill">CLI proxy</span>
+                </Row>
+              ) : (
+                <Row title="Account" desc={st.account?.loggedIn ? <>{st.account.email} · {st.account.orgName}{st.account.plan ? ` · ${st.account.plan}` : null}</> : "Not signed in. Run this in a terminal, then come back."}>
+                  {st.account?.loggedIn ? <span className="pill pill-ok"><Icon name="check" size={11} /> Signed in</span> : <CopyCommand command="claude auth login" />}
+                </Row>
+              )}
               <Row title="Documentation" desc="How Claude Code works, from Anthropic.">
                 <button className="btn" onClick={() => void openHelp()}><Icon name="external" size={13} /> Open</button>
               </Row>
@@ -108,6 +114,8 @@ export function SettingsScreen() {
                 </div>
               </Row>
             </SettingsGroup>
+
+            <ProxyCard settings={s} save={async (next, msg) => { await save(next, msg); status.reload(); }} />
 
             <SettingsGroup title="Running">
               <Row title="Keep Omega Star running in the background" desc="Schedules only run while Omega Star is open. With this on, it starts at login and stays in the tray.">
@@ -184,6 +192,35 @@ function aboutDesc(st: SetupStatus): string {
   if (version) return `${app} Claude Code ${version}.`;
   if (org) return `${app} Signed in to ${org}.`;
   return app;
+}
+
+/** Sends every run through a CLI proxy (CLIProxyAPI) instead of the signed-in account. */
+function ProxyCard({ settings: s, save }: { settings: AppSettings; save: (next: AppSettings, msg?: string) => Promise<void> }) {
+  const [draft, setDraft] = useState<ProxySettings>(s.proxy);
+  useEffect(() => { setDraft(s.proxy); }, [s.proxy]);
+  const edit = (key: keyof ProxySettings) => (e: { target: { value: string } }) => setDraft({ ...draft, [key]: e.target.value });
+  const changed = (["url", "apiKey", "managementKey"] as const).some((k) => draft[k].trim() !== s.proxy[k]);
+  const status = s.proxy.url
+    ? `Runs go through ${s.proxy.url}. Employees can't use claude.ai connectors while they do.`
+    : "Off. Runs use the account Claude Code is signed in to.";
+  return (
+    <SettingsGroup title="CLI proxy" sub="Send every run through a CLIProxyAPI server, so employees share its pool of Claude accounts.">
+      <form onSubmit={(e) => { e.preventDefault(); void save({ ...s, proxy: draft }, "Saved"); }}>
+        <Row title="Address" desc="Leave empty to turn the proxy off.">
+          <input className="input mono set-path" value={draft.url} onChange={edit("url")} placeholder="http://127.0.0.1:8317" aria-label="CLI proxy address" />
+        </Row>
+        <Row title="API key" desc="One of the keys in the proxy's config.">
+          <input className="input mono set-path" type="password" value={draft.apiKey} onChange={edit("apiKey")} aria-label="CLI proxy API key" />
+        </Row>
+        <Row title="Management key" desc="Optional. Lets the sidebar show Claude usage averaged across the proxy's accounts.">
+          <input className="input mono set-path" type="password" value={draft.managementKey} onChange={edit("managementKey")} aria-label="CLI proxy management key" />
+        </Row>
+        <Row title="Status" desc={status}>
+          <button className="btn" type="submit" disabled={!changed}>Save</button>
+        </Row>
+      </form>
+    </SettingsGroup>
+  );
 }
 
 const FREQUENCIES: { value: BackupFrequency; label: string }[] = [

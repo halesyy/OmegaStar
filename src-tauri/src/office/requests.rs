@@ -455,6 +455,7 @@ has to start that work, hand it back with what they need to start it instead of 
         self.publish(&changed, &[], &notices);
 
         let program = claude::locate(settings.claude_path.as_deref());
+        let proxy_env = settings.proxy.env();
         let cwd = self.0.data_dir.join("judge");
         if !judging.is_empty() {
             fs::create_dir_all(&cwd)?;
@@ -470,7 +471,7 @@ has to start that work, hand it back with what they need to start it instead of 
                 .collect();
             let prompt = claude::judge_prompt(&j.request.message, j.request.kind, &j.employee, &j.person, d.sent_at, &said);
             let verdict = match &program {
-                Some(p) => claude::judge(p, &cwd, &prompt).await,
+                Some(p) => claude::judge(p, &proxy_env, &cwd, &prompt).await,
                 None => Err(AppError::invalid("Claude Code was not found")),
             };
             let Some(newest) = j.replies.last() else { continue };
