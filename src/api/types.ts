@@ -172,8 +172,9 @@ export type AnswerHow = "tapped" | "typed" | "dismissed" | "replaced" | "withdra
 // held: not sent yet, since its run still asks something else; it goes with the rest once nothing is left open
 export type CardAnswer = { at: string; how: AnswerHow; text: string; held: boolean };   // text: the fixed answer sent, empty when nothing was
 /** message: the question. why: one line on why it matters. key: what it is about (`ask:<name>` or `chore:<subject>`),
- *  so the same question from anyone is one Inbox item; null on cards asked before keys. */
-export type Card = { message: string; why: string | null; key: string | null; ask: CardAsk; answer: CardAnswer | null };
+ *  so the same question from anyone is one Inbox item; null on cards asked before keys. file: the markdown or text
+ *  file it is about, e.g. a draft, as a full path; `card_file` reads it. */
+export type Card = { message: string; why: string | null; key: string | null; file: string | null; ask: CardAsk; answer: CardAnswer | null };
 /** A weekly review's one number, for Activity's week in numbers. */
 export type Score = { metric: string; value: string; change: string; note: string };
 /** Your answer on a card. */
@@ -349,6 +350,8 @@ export type Commands = {
   approve_blocked: { args: { runId: string; rules: string[]; always: boolean }; ret: Run };
   /** Your answer on a run's card (`card`: its index in `cards`). It goes to every run asking the same thing. Returns the replies it started. */
   answer_card: { args: { runId: string; card: number; answer: CardReply }; ret: Run[] };
+  /** The text of the file a run's card shows (`card`: its index in `cards`), as it is now. */
+  card_file: { args: { runId: string; card: number }; ret: string };
   /** Colleague asks still in flight (queued, running, or answered and not yet collected), oldest first. */
   open_asks: { args: Record<string, never>; ret: Run[] };
   /** Weekly reviews from the last eight days, oldest first. */

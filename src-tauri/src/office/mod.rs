@@ -412,7 +412,8 @@ impl Office {
             let home = self.employee_dir(&r.employee_id);
             let path = run_dir.join("transcript.jsonl");
             let transcript = fs::read_to_string(&path).unwrap_or_default();
-            let supervised = db.employee(&r.employee_id)?.is_some_and(|e| e.clearance == Clearance::Supervised);
+            let employee = db.employee(&r.employee_id)?;
+            let supervised = employee.as_ref().is_some_and(|e| e.clearance == Clearance::Supervised);
             let before_path = run_dir.join(BEFORE_SNAPSHOT);
             let skills = own_skills::load_snapshot(&before_path).map(|before| {
                 let mut after = own_skills::snapshot(&own_skills::skills_dir(&home));
@@ -431,6 +432,11 @@ impl Office {
                 skills,
             };
             let changes = settle(&mut r, left, lost);
+            // A card's file as notify checks it, so a card read back from the transcript shows it only if it passes.
+            let workspaces = employee.map(|e| e.workspaces).unwrap_or_default();
+            for c in &mut r.cards {
+                c.file = c.file.take().and_then(|f| tools::card_file_path(&home, &workspaces, &f).ok()).map(|p| p.to_string_lossy().into_owned());
+            }
             db.tx(|| {
                 for fc in changes {
                     db.insert_revision(&r.employee_id, &own_skills::revision(fc, Some(r.id.clone()), now()))?;

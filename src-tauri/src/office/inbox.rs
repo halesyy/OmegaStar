@@ -243,6 +243,20 @@ impl Office {
         Ok(reply)
     }
 
+    /// The text of the file card `index` of a run shows, as it is now, so you read what would go out.
+    pub fn card_file(&self, run_id: &str, index: usize) -> Result<String> {
+        let run = self.db().run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
+        let path = run.cards.get(index).and_then(|c| c.file.clone()).ok_or_else(|| AppError::invalid("That card shows no file."))?;
+        // Still the file the card was given, not a link put in its place since.
+        if fs::canonicalize(&path).ok().as_deref() != Some(Path::new(&path)) {
+            return Err(AppError::not_found(format!("Nothing is at {path} any more.")));
+        }
+        if fs::metadata(&path)?.len() > cards::FILE_BYTES {
+            return Err(AppError::invalid(format!("It is now over {} KB, too long to show here. Open it instead.", cards::FILE_BYTES / 1024)));
+        }
+        fs::read_to_string(&path).map_err(|_| AppError::invalid("It is no longer plain text. Open it instead."))
+    }
+
     /// Your answer on card `index` of a run. A run still asking something else holds it back; once its last card is
     /// answered it hears every answer at once, in one fixed message through `reply_with`, and its row is archived.
     /// Everyone waiting on the same thing (a chore, or a decision with the same key) hears the same answer, and

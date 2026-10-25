@@ -1,9 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { Card, CardAnswer, CardItem, CardReply, EmployeeView, Run } from "../../api/types";
 import { firstName } from "../../lib/format";
+import { useQuery } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import { Icon } from "../Icon";
+import { Markdown } from "../Markdown";
 import "../../screens/Inbox.css";
 
 /** Sends your answer on the card at `index` of `run`'s cards and says what went. Resolves false, having said why,
@@ -48,11 +50,12 @@ function answered(a: CardAnswer): string {
 /** A run's cards, each with its question and the answer built in, as a thread shows them. */
 export function RunCards({ run, e }: { run: Run; e: EmployeeView }) {
   const name = firstName(e.name);
-  return <CardList cards={run.cards.map((card, index) => ({ card, index }))} e={e} onAnswer={async (i, reply) => { await answerCard(run, i, reply, name); }} />;
+  return <CardList runId={run.id} cards={run.cards.map((card, index) => ({ card, index }))} e={e} onAnswer={async (i, reply) => { await answerCard(run, i, reply, name); }} />;
 }
 
-/** Cards of one run, each with its question and the answer built in. `index`: the card's place in the run's cards. */
-export function CardList({ cards, e, onAnswer }: {
+/** Cards of run `runId`, each with its question and the answer built in. `index`: the card's place in the run's cards. */
+export function CardList({ runId, cards, e, onAnswer }: {
+  runId: string;
   cards: { card: Card; index: number }[];
   e: EmployeeView;
   onAnswer: (index: number, reply: CardReply) => Promise<void>;
@@ -61,14 +64,20 @@ export function CardList({ cards, e, onAnswer }: {
     <div key={index} className="card-ask">
       <div className="card-q">{c.message}</div>
       {c.why ? <div className="card-why">{c.why}</div> : null}
-      <CardView card={c} e={e} onAnswer={(reply) => onAnswer(index, reply)} />
+      <CardView card={c} runId={runId} index={index} e={e} onAnswer={(reply) => onAnswer(index, reply)} />
     </div>
   ));
 }
 
-/** A card's answer built in: buttons for a decision, a tick list, or Done for a chore. Once answered, one line on
- *  what you did. */
-export function CardView({ card, e, onAnswer }: { card: Card; e: EmployeeView; onAnswer: (reply: CardReply) => Promise<void> }) {
+/** A card's answer built in: buttons for a decision, a tick list, or Done for a chore, under the file it is about
+ *  if it has one. Once answered, one line on what you did. `index`: its place in run `runId`'s cards. */
+export function CardView({ card, runId, index, e, onAnswer }: {
+  card: Card;
+  runId: string;
+  index: number;
+  e: EmployeeView;
+  onAnswer: (reply: CardReply) => Promise<void>;
+}) {
   const [sending, setSending] = useState(false);
   if (card.answer) return <p className="card-answered">{card.answer.held ? <Icon name="check" size={12} /> : null}{answered(card.answer)}</p>;
   const name = firstName(e.name);
@@ -84,6 +93,7 @@ export function CardView({ card, e, onAnswer }: { card: Card; e: EmployeeView; o
   );
   return (
     <div onClick={(ev) => ev.stopPropagation()}>
+      {card.file ? <CardFile runId={runId} index={index} path={card.file} /> : null}
       {ask.type === "choices" ? (
         <div className="card-choices">
           {ask.choices.map((c, i) => (
@@ -102,6 +112,37 @@ export function CardView({ card, e, onAnswer }: { card: Card; e: EmployeeView; o
           </button>
           <button className="btn btn-ghost btn-sm" disabled={sending} onClick={() => void send({ type: "dismiss" })}>Not now</button>
         </div>
+      )}
+    </div>
+  );
+}
+
+/** The file a card is about, e.g. a draft, read as it is now so you see what would go out: its first lines, and the
+ *  rest on Show all. Read again whenever a run changes, so a draft the employee reworked shows the new version. */
+function CardFile({ runId, index, path }: { runId: string; index: number; path: string }) {
+  const file = useQuery(() => call("card_file", { runId, card: index }), [runId, index, path], ["run:updated"]);
+  const [all, setAll] = useState(false);
+  const [long, setLong] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (body.current && !all) setLong(body.current.scrollHeight > body.current.clientHeight + 1);
+  }, [file.data, all]);
+  const open = () => call("open_report_path", { path }).catch((err) => toast(errorMessage(err), "err"));
+  return (
+    <div className="card-file">
+      <div className="card-file-head">
+        <Icon name="file" size={13} />
+        <span className="card-file-name" title={path}>{path.split("/").pop()}</span>
+        <span className="grow" />
+        <button className="btn btn-ghost btn-sm" title="Open in its app" onClick={() => void open()}><Icon name="external" size={12} /> Open</button>
+      </div>
+      {file.error ? <p className="card-file-note">{file.error}</p> : file.data === undefined ? null : (
+        <>
+          <div ref={body} className={`card-file-body ${all ? "" : "card-file-clip"} ${long && !all ? "card-file-fade" : ""}`}>
+            {/\.txt$/i.test(path) ? <pre className="card-file-text">{file.data}</pre> : <Markdown text={file.data} breaks />}
+          </div>
+          {long ? <button className="btn btn-ghost btn-sm card-file-more" onClick={() => setAll(!all)}>{all ? "Show less" : "Show all"}</button> : null}
+        </>
       )}
     </div>
   );

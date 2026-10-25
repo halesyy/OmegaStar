@@ -1001,6 +1001,10 @@ pub struct Card {
     /// `ask:<what the employee named it>`, or `chore:<subject>`. None on cards asked before keys.
     #[serde(default)]
     pub key: Option<String>,
+    /// The file it is about, e.g. a draft to approve, which the card shows as it is now: a full path in the
+    /// employee's folder or one of their workspaces.
+    #[serde(default)]
+    pub file: Option<String>,
     pub ask: CardAsk,
     #[serde(default)]
     pub answer: Option<CardAnswer>,
@@ -1012,7 +1016,7 @@ impl Card {
             CardAsk::Chore { subject } => Some(format!("chore:{subject}")),
             _ => key,
         };
-        Card { message: message.to_string(), why, key, ask, answer: None }
+        Card { message: message.to_string(), why, key, file: None, ask, answer: None }
     }
 
     pub fn is_open(&self) -> bool {
@@ -1852,7 +1856,7 @@ mod tests {
         let v = serde_json::to_value(&card).unwrap();
         assert_eq!(
             v,
-            json!({ "message": "Boost it?", "why": null, "key": null, "ask": { "type": "choices", "choices": ["Not now", "Try it"], "recommended": 0 }, "answer": null })
+            json!({ "message": "Boost it?", "why": null, "key": null, "file": null, "ask": { "type": "choices", "choices": ["Not now", "Try it"], "recommended": 0 }, "answer": null })
         );
         assert_eq!(serde_json::from_value::<Card>(v).unwrap(), card);
         assert_eq!(Card::new("Open Chrome.", None, Some("ignored".into()), CardAsk::Chore { subject: "chrome".into() }).key.as_deref(), Some("chore:chrome"));

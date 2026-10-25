@@ -6,6 +6,7 @@ use crate::claude::{clip, one_line};
 use crate::model::*;
 use serde_json::Value;
 use std::collections::HashSet;
+use std::path::Path;
 
 /// The chore of reconnecting Claude in Chrome.
 pub const CHROME: &str = "chrome";
@@ -25,6 +26,10 @@ const ITEM_CHARS: usize = 300;
 const VERB_CHARS: usize = 20;
 const NOTE_CHARS: usize = 300;
 const DEFAULT_VERB: &str = "Approve";
+/// Kinds of file a card shows: markdown and plain text.
+const FILE_KINDS: &[&str] = &["md", "markdown", "txt"];
+/// Largest file a card shows.
+pub const FILE_BYTES: u64 = 200 * 1024;
 
 /// The chore of signing in to `site`.
 pub fn sign_in(site: &str) -> String {
@@ -61,8 +66,8 @@ pub fn key_label(key: &str) -> &str {
 }
 
 /// The card `notify`'s arguments ask for: exactly one of choices, items and chore, a short question, an
-/// optional line on why, and for a choice or a list a key naming what it is about. An empty list or text
-/// counts as left out.
+/// optional line on why, and for a choice or a list a key naming what it is about and optionally the markdown
+/// or text file it is about, as given (the caller checks where it is). An empty list or text counts as left out.
 pub fn card(args: &Value) -> Result<Card> {
     let list = |k: &str| args.get(k).and_then(Value::as_array).filter(|a| !a.is_empty());
     let text = |k: &str| args.get(k).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
@@ -104,7 +109,21 @@ Put the reason in why, at most {WHY_CHARS}."
             ))
         }
     };
-    Ok(Card::new(message, why, key, ask))
+    let file = text("file");
+    if file.is_some() && matches!(ask, CardAsk::Chore { .. }) {
+        return Err(AppError::invalid("file goes with choices or items: the draft or page the decision is about."));
+    }
+    if file.is_some_and(|f| !shows_file(f)) {
+        return Err(AppError::invalid("file must be a markdown or text file (.md or .txt), so it shows on the card."));
+    }
+    let mut card = Card::new(message, why, key, ask);
+    card.file = file.map(String::from);
+    Ok(card)
+}
+
+/// Whether a card shows the file at `path`, by its name.
+fn shows_file(path: &str) -> bool {
+    Path::new(path).extension().and_then(|e| e.to_str()).is_some_and(|e| FILE_KINDS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 fn choices_ask(raw: &[Value]) -> Result<CardAsk> {
@@ -280,6 +299,19 @@ mod tests {
         assert!(card(&json!({ "message": "Merge PR #12?", "choices": yes_no })).unwrap_err().message.starts_with("Add a key"));
         let chore = card(&json!({ "message": "Reconnect Chrome.", "chore": "chrome" })).unwrap();
         assert_eq!(chore.key.as_deref(), Some("chore:chrome"), "a chore needs no key of its own");
+    }
+
+    #[test]
+    fn a_card_can_show_the_text_file_it_is_about() {
+        let yes_no = json!([{ "label": "Send", "recommended": true }, { "label": "Not now" }]);
+        let c = card(&asked(json!({ "choices": yes_no, "file": " workspace/drafts/Reply.MD " }))).unwrap();
+        assert_eq!(c.file.as_deref(), Some("workspace/drafts/Reply.MD"));
+        assert_eq!(card(&asked(json!({ "choices": yes_no, "file": "" }))).unwrap().file, None);
+        assert!(card(&asked(json!({ "items": [{ "id": "d1", "text": "One" }], "file": "/tmp/notes.txt" }))).is_ok());
+        for bad in ["workspace/drafts/reply.pdf", "workspace/drafts", "notes.md.sh"] {
+            assert!(err(json!({ "choices": yes_no, "file": bad })).starts_with("file must be a markdown or text file"), "{bad}");
+        }
+        assert!(card(&json!({ "message": "Reconnect Chrome.", "chore": "chrome", "file": "a.md" })).unwrap_err().message.starts_with("file goes with choices or items"));
     }
 
     #[test]

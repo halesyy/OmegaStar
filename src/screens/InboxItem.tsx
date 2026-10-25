@@ -137,8 +137,8 @@ function Answer({ d, e, busy, actions }: { d: Decision<Item>; e: EmployeeView; b
   const who = firstName(e.name);
   if (d.type === "card") {
     const answer = (index: number, reply: CardReply) => actions.answer(d.run, index, reply);
-    if (d.cards.length > 1) return <div className="card-set"><CardList cards={d.cards} e={e} onAnswer={answer} /></div>;
-    return <CardView card={d.cards[0].card} e={e} onAnswer={(reply) => answer(d.cards[0].index, reply)} />;
+    if (d.cards.length > 1) return <div className="card-set"><CardList runId={d.run.id} cards={d.cards} e={e} onAnswer={answer} /></div>;
+    return <CardView card={d.cards[0].card} runId={d.run.id} index={d.cards[0].index} e={e} onAnswer={(reply) => answer(d.cards[0].index, reply)} />;
   }
   if (d.type === "blocked") return <Allow run={d.run} who={who} />;
   if (d.type === "flag" && d.run.kind.type === "tidy" && d.run.proposed && !d.run.repliedAt) return <ApproveTidy run={d.run} who={who} />;

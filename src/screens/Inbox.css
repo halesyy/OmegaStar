@@ -105,6 +105,18 @@
 .card-item .card-rec { flex: none; color: var(--ok-text); opacity: 1; }
 .card-items-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; border-top: 1px solid var(--line); font-size: var(--t-sm); }
 .card-answered { margin: 4px 0 12px; font-size: var(--t-sm); color: var(--muted); }
+/* The file a card is about, e.g. a draft: its first lines, the rest on Show all. */
+.card-file { margin: 6px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.dec-answer .card-file { margin-top: 0; }
+.card-file-head { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 12px; border-bottom: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }
+.card-file-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); }
+.card-file-body { padding: 10px 12px; }
+.card-file-body .md { font-size: 13px; }
+.card-file-clip { max-height: 240px; overflow: hidden; }
+.card-file-fade { -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
+.card-file-text { margin: 0; font: inherit; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.card-file-note { margin: 0; padding: 10px 12px; font-size: var(--t-sm); color: var(--muted); }
+.card-file-more { margin: 0 6px 6px; }
 /* A card in a thread: its question and why above the answer. */
 .card-ask { margin: 4px 0 12px; }
 .card-q { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.5; }

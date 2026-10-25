@@ -54,8 +54,8 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   }
 });
 
-function renderMarkdown(src: string): string {
-  const html = md.parse(src) as string;
+function renderMarkdown(src: string, breaks: boolean): string {
+  const html = md.parse(src, { breaks }) as string;
   return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
 }
 
@@ -71,8 +71,9 @@ export function splitFrontmatter(src: string): { meta: Record<string, string>; b
   return { meta, body: src.slice(m[0].length) };
 }
 
-export function Markdown({ text, className }: { text: string; className?: string }) {
-  const html = useMemo(() => renderMarkdown(text), [text]);
+/** `breaks`: a single line break stays one, as in a draft whose sign-off is on lines of its own. */
+export function Markdown({ text, className, breaks = false }: { text: string; className?: string; breaks?: boolean }) {
+  const html = useMemo(() => renderMarkdown(text, breaks), [text, breaks]);
   const ref = useRef<HTMLDivElement>(null);
   // A layout effect, so cached images swap in before paint and streamed re-renders do not flicker.
   useLayoutEffect(() => {

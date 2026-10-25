@@ -478,7 +478,10 @@ impl Office {
     /// your Inbox with the answer built in. A question someone already asked you (same key, or the same chore)
     /// joins that item and notifies nobody again.
     pub fn notify_tool(&self, caller_run: &str, caller: &Employee, args: &Value) -> Result<Value> {
-        let card = cards::card(args)?;
+        let mut card = cards::card(args)?;
+        if let Some(raw) = &card.file {
+            card.file = Some(card_file_path(&self.employee_dir(&caller.id), &caller.workspaces, raw)?.to_string_lossy().into_owned());
+        }
         let ceo = {
             let db = self.db();
             // A turn of an older build's chat: a card there would never reach them.
@@ -768,6 +771,32 @@ you as a new run. Never create the hire any other way."
         self.sink().proposal_updated(&p);
         Ok(json!({ "withdrawn": p.id }))
     }
+}
+
+/// Where the file a card shows is, as a full path: `raw` is full, or from the employee's folder as their runs see
+/// it. Links are followed first, so one cannot lead out of their folder and workspaces. It must be plain text of at
+/// most `cards::FILE_BYTES`, so the card can show it.
+pub(super) fn card_file_path(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<PathBuf> {
+    let path = fs::canonicalize(employee_dir.join(raw))
+        .ok()
+        .filter(|p| p.is_file())
+        .ok_or_else(|| AppError::invalid(format!("No file at '{raw}'. Pass the path of the file you wrote, e.g. 'workspace/drafts/reply.md'.")))?;
+    let mut roots = std::iter::once(employee_dir.to_path_buf()).chain(workspaces.iter().map(|w| employee_dir.join(w))).filter_map(|r| fs::canonicalize(r).ok());
+    if !roots.any(|r| path.starts_with(r)) {
+        return Err(AppError::invalid("file must be in your folder or one of your workspaces."));
+    }
+    let len = fs::metadata(&path)?.len();
+    if len > cards::FILE_BYTES {
+        return Err(AppError::invalid(format!(
+            "'{raw}' is {} KB, and a card shows files up to {} KB. Point at a shorter file, or leave file out.",
+            len.div_ceil(1024),
+            cards::FILE_BYTES / 1024
+        )));
+    }
+    if fs::read_to_string(&path).is_err() {
+        return Err(AppError::invalid(format!("'{raw}' is not plain text, so the card cannot show it.")));
+    }
+    Ok(path)
 }
 
 /// The note `delegate` and `ask_colleague` return: the hand-off comes back either way, so wait only
@@ -1147,6 +1176,85 @@ mod tests {
         let to = |id: &str| answered.iter().find(|r| matches!(&r.kind, RunKind::Answered { asked_run_id, .. } if asked_run_id == id)).map(|r| r.employee_id.clone());
         assert_eq!(to(&child.id), Some(ada.id.clone()));
         assert_eq!(to(&lost.id), Some(bo.id.clone()));
+        drop(office);
+    }
+
+    #[test]
+    fn a_card_shows_only_text_files_in_the_employees_folders() {
+        let o = office();
+        let home = o.dir.join("employees").join("e1");
+        let repo = o.dir.join("repo");
+        fs::create_dir_all(home.join("workspace/drafts")).unwrap();
+        fs::create_dir_all(&repo).unwrap();
+        fs::write(home.join("workspace/drafts/reply.md"), "Hi").unwrap();
+        fs::write(repo.join("notes.txt"), "Notes").unwrap();
+        fs::write(o.dir.join("outside.md"), "Not theirs").unwrap();
+        fs::write(home.join("big.md"), "x".repeat(cards::FILE_BYTES as usize + 1)).unwrap();
+        fs::write(home.join("binary.md"), [0xff, 0xfe, 0x00]).unwrap();
+        std::os::unix::fs::symlink(o.dir.join("outside.md"), home.join("link.md")).unwrap();
+        let workspaces = vec![repo.to_string_lossy().into_owned()];
+        let at = |raw: &str| card_file_path(&home, &workspaces, raw);
+        let real = |p: PathBuf| fs::canonicalize(p).unwrap();
+        assert_eq!(at("workspace/drafts/reply.md").unwrap(), real(home.join("workspace/drafts/reply.md")));
+        assert_eq!(at(&repo.join("notes.txt").to_string_lossy()).unwrap(), real(repo.join("notes.txt")));
+        for (raw, why) in [
+            ("workspace/drafts/gone.md", "No file at"),
+            ("workspace/drafts", "No file at"),
+            ("../../outside.md", "file must be in your folder"),
+            ("link.md", "file must be in your folder"),
+            ("big.md", "KB, and a card shows files up to 200 KB"),
+            ("binary.md", "is not plain text"),
+        ] {
+            assert!(at(raw).unwrap_err().message.contains(why), "{raw}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_card_shows_its_file_as_it_is_now() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let r = run(&o.db, &ada, RunKind::Manual, "Draft the reply.", RunState::Succeeded, 5, None);
+        let office = Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let draft = office.employee_dir(&ada.id).join("workspace/reply.md");
+        fs::create_dir_all(draft.parent().unwrap()).unwrap();
+        fs::write(&draft, "First go").unwrap();
+        let args = json!({ "message": "Send the reply?", "key": "reply", "file": "workspace/reply.md", "choices": [{ "label": "Send", "recommended": true }, { "label": "Not now" }] });
+        office.notify_tool(&r.id, &ada, &args).unwrap();
+        let card = o.db.run(&r.id).unwrap().unwrap().run.cards.remove(0);
+        assert_eq!(card.file, Some(fs::canonicalize(&draft).unwrap().to_string_lossy().into_owned()), "kept as a full path");
+
+        fs::write(&draft, "Second go").unwrap();
+        assert_eq!(office.card_file(&r.id, 0).unwrap(), "Second go", "what would go out now");
+        assert_eq!(office.card_file(&r.id, 1).unwrap_err().message, "That card shows no file.");
+        fs::remove_file(&draft).unwrap();
+        assert!(office.card_file(&r.id, 0).unwrap_err().message.starts_with("Nothing is at"));
+        std::os::unix::fs::symlink(o.dir.join("office.db"), &draft).unwrap();
+        assert!(office.card_file(&r.id, 0).unwrap_err().message.starts_with("Nothing is at"), "a link put in its place is not followed");
+        drop(office);
+    }
+
+    #[tokio::test]
+    async fn a_card_read_back_after_a_restart_shows_its_file_only_if_notify_would_have() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let r = run(&o.db, &ada, RunKind::Manual, "Draft the replies.", RunState::Running, 10, None);
+        let home = o.dir.join("employees").join(&ada.id);
+        fs::create_dir_all(home.join("workspace")).unwrap();
+        fs::write(home.join("workspace/reply.md"), "Hi").unwrap();
+        fs::write(o.dir.join("outside.md"), "Not theirs").unwrap();
+        let ask = |key: &str, file: &str| {
+            let input = json!({ "message": "Send it?", "key": key, "file": file, "choices": [{ "label": "Send", "recommended": true }, { "label": "Not now" }] });
+            json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": key, "name": "mcp__omega__notify", "input": input }] } }).to_string()
+        };
+        let done = json!({ "type": "result", "subtype": "success", "is_error": false, "num_turns": 2, "duration_ms": 900, "result": "Drafted.", "permission_denials": [] });
+        let transcript = [ask("ours", "workspace/reply.md"), ask("theirs", "../../outside.md"), done.to_string()].join("\n");
+        fs::create_dir_all(o.dir.join("runs").join(&r.id)).unwrap();
+        fs::write(o.dir.join("runs").join(&r.id).join("transcript.jsonl"), transcript).unwrap();
+
+        let office = Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let cards = o.db.run(&r.id).unwrap().unwrap().run.cards;
+        let files: Vec<_> = cards.iter().map(|c| c.file.clone()).collect();
+        assert_eq!(files, vec![Some(fs::canonicalize(home.join("workspace/reply.md")).unwrap().to_string_lossy().into_owned()), None]);
         drop(office);
     }
 
