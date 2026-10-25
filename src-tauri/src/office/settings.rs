@@ -462,8 +462,9 @@ impl Office {
 /// windows it reports. A `/usage` probe replaces both; its reset time is only text, so a still
 /// future exact reset time from an earlier run is kept.
 ///
-/// The hold and the account issue carry over, except that a probe showing both windows under 100%
-/// ends the hold.
+/// The hold and the account issue carry over, except that a probe showing room in every window the
+/// account has ends the hold. A window it does not report holds nothing back: a pool of Team seats has
+/// no 7-day limit.
 fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool, now: Ts) -> UsageLimits {
     let subscription = sample.five_hour.is_some() || sample.seven_day.is_some();
     let account_issue = old.account_issue.clone();
@@ -471,8 +472,8 @@ fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool,
     if from_probe && !subscription {
         return UsageLimits { five_hour: None, seven_day: None, observed_at: Some(now), subscription: false, held_until: old.held_until, account_issue, proxy_issue };
     }
-    let under = |w: &Option<UsageWindow>| w.as_ref().is_some_and(|w| w.percent < 100.0);
-    let held_until = if from_probe && under(&sample.five_hour) && under(&sample.seven_day) { None } else { old.held_until };
+    let room = |w: &Option<UsageWindow>| w.as_ref().is_none_or(|w| w.percent < 100.0);
+    let held_until = if from_probe && room(&sample.five_hour) && room(&sample.seven_day) { None } else { old.held_until };
     let fold = |old: &Option<UsageWindow>, new: Option<UsageWindow>| match new {
         None if from_probe => None,
         None => old.clone(),
@@ -527,6 +528,10 @@ mod tests {
         assert_eq!((full.held_until, full.account_issue.as_ref()), (old.held_until, Some(&issue)));
         let room = merge_usage(&old, claude::UsageSample { five_hour: window(12.0), seven_day: window(40.0) }, true, at);
         assert_eq!((room.held_until, room.account_issue), (None, Some(issue)));
+        let no_week = merge_usage(&old, claude::UsageSample { five_hour: window(20.0), seven_day: None }, true, at);
+        assert_eq!(no_week.held_until, None, "an account with no 7-day window is not held for one");
+        let full_week = merge_usage(&old, claude::UsageSample { five_hour: None, seven_day: window(100.0) }, true, at);
+        assert_eq!(full_week.held_until, old.held_until);
     }
 
     fn account(logged_in: bool, email: Option<&str>) -> Account {
