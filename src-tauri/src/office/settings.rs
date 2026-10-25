@@ -386,7 +386,8 @@ impl Office {
                 return;
             }
         };
-        let issue = account_issue(recorded.as_deref(), account.as_ref());
+        // Behind the CLI proxy, runs work whichever account Claude Code is signed in to, or none.
+        let issue = if settings.proxy.url.is_empty() { account_issue(recorded.as_deref(), account.as_ref()) } else { None };
         let changed = {
             let mut u = lock(&self.0.usage);
             (u.account_issue != issue).then(|| {

@@ -1585,21 +1585,23 @@ impl Default for AppSettings {
 pub struct ProxySettings {
     /// Its address, e.g. `http://127.0.0.1:8317`. Empty = no proxy.
     pub url: String,
-    /// One of its API keys, which Claude Code sends as its auth token.
+    /// One of its API keys, which Claude Code sends in an `x-api-key` header.
     pub api_key: String,
     /// Its management key, to read each account's usage limits. Empty = none are shown.
     pub management_key: String,
 }
 
 impl ProxySettings {
-    /// The variables that send Claude Code through the proxy; none when there is no proxy.
+    /// The variables that send Claude Code through the proxy; none when there is no proxy. The key
+    /// goes in a header because ANTHROPIC_AUTH_TOKEN would replace the claude.ai sign-in, and
+    /// Claude in Chrome and claude.ai connectors only load with that sign-in.
     pub fn env(&self) -> Vec<(String, String)> {
         if self.url.is_empty() {
             return vec![];
         }
         let mut env = vec![("ANTHROPIC_BASE_URL".to_string(), self.url.clone())];
         if !self.api_key.is_empty() {
-            env.push(("ANTHROPIC_AUTH_TOKEN".into(), self.api_key.clone()));
+            env.push(("ANTHROPIC_CUSTOM_HEADERS".into(), format!("x-api-key: {}", self.api_key)));
         }
         env
     }
@@ -1949,5 +1951,15 @@ mod tests {
         assert_eq!(came.lane(), Lane::Chat);
         let task: RunKind = serde_json::from_value(json!({ "type": "task", "label": "Draft it", "from": "your chat", "context": "- 2:15 pm, Pat: Hi.\n" })).unwrap();
         assert_eq!(task, RunKind::Task { label: "Draft it".into(), from: Some("your chat".into()), context: "- 2:15 pm, Pat: Hi.\n".into() });
+    }
+
+    #[test]
+    fn a_proxy_key_goes_in_a_header_so_runs_keep_the_claude_ai_sign_in() {
+        let proxy = ProxySettings { url: "http://127.0.0.1:8317".into(), api_key: "k1".into(), management_key: String::new() };
+        let env = |vars: &[(&str, &str)]| vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        assert_eq!(proxy.env(), env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8317"), ("ANTHROPIC_CUSTOM_HEADERS", "x-api-key: k1")]));
+        let keyless = ProxySettings { api_key: String::new(), ..proxy };
+        assert_eq!(keyless.env(), env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8317")]));
+        assert!(ProxySettings::default().env().is_empty());
     }
 }
