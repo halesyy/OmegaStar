@@ -1218,7 +1218,7 @@ mod tests {
         let draft = office.employee_dir(&ada.id).join("workspace/reply.md");
         fs::create_dir_all(draft.parent().unwrap()).unwrap();
         fs::write(&draft, "First go").unwrap();
-        let args = json!({ "message": "Send the reply?", "key": "reply", "file": "workspace/reply.md", "choices": [{ "label": "Send", "recommended": true }, { "label": "Not now" }] });
+        let args = json!({ "message": "Send the reply?", "key": "reply", "file": "workspace/reply.md", "choices": [{ "label": "Send", "recommended": true }] });
         office.notify_tool(&r.id, &ada, &args).unwrap();
         let card = o.db.run(&r.id).unwrap().unwrap().run.cards.remove(0);
         assert_eq!(card.file, Some(fs::canonicalize(&draft).unwrap().to_string_lossy().into_owned()), "kept as a full path");
@@ -1243,7 +1243,7 @@ mod tests {
         fs::write(home.join("workspace/reply.md"), "Hi").unwrap();
         fs::write(o.dir.join("outside.md"), "Not theirs").unwrap();
         let ask = |key: &str, file: &str| {
-            let input = json!({ "message": "Send it?", "key": key, "file": file, "choices": [{ "label": "Send", "recommended": true }, { "label": "Not now" }] });
+            let input = json!({ "message": "Send it?", "key": key, "file": file, "choices": [{ "label": "Send", "recommended": true }] });
             json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": key, "name": "mcp__omega__notify", "input": input }] } }).to_string()
         };
         let done = json!({ "type": "result", "subtype": "success", "is_error": false, "num_turns": 2, "duration_ms": 900, "result": "Drafted.", "permission_denials": [] });

@@ -30,8 +30,9 @@ export async function answerCard(run: Run, index: number, reply: CardReply, name
     reply.type === "choice" ? `Sent to ${to}: ${ask?.type === "choices" ? ask.choices[reply.index] : ""}.`
     : reply.type === "items" ? `Sent to ${to}.`
     : reply.type === "done" ? (replies.length > 1 ? `Done. ${replies.length} runs carry on.` : `Done. ${name} carries on.`)
+    : reply.type === "reject" ? `No. ${name} drops it.`
     : ask?.type === "chore" ? "Not now."
-    : `Not now. ${name} leaves it as it is.`;
+    : `Not now. ${name} brings it back tomorrow.`;
   toast(said, "ok");
   return true;
 }
@@ -40,7 +41,9 @@ export async function answerCard(run: Run, index: number, reply: CardReply, name
 function answered(a: CardAnswer): string {
   switch (a.how) {
     case "tapped": return a.held ? `${a.text} Sends when the rest are answered.` : `Sent: ${a.text}`;
-    case "dismissed": return a.held ? "Not now. Sends when the rest are answered." : "Not now";
+    // A dismissed chore sends nothing and does not come back.
+    case "dismissed": return `Not now${a.text ? " (back in a day)" : ""}${a.held ? ". Sends when the rest are answered." : ""}`;
+    case "rejected": return a.held ? "No. Sends when the rest are answered." : "No";
     case "replaced": return "A newer card replaced this one";
     case "typed": return "You answered in the thread";
     case "withdrawn": return a.text ? `Withdrawn: ${a.text}` : "They withdrew it";
@@ -86,10 +89,15 @@ export function CardView({ card, runId, index, e, onAnswer }: {
     setSending(true);
     try { await onAnswer(reply); } finally { setSending(false); }
   };
-  const dismiss = (
-    <button className="btn btn-ghost btn-sm" title="They leave it as it is and don't ask again" disabled={sending} onClick={() => void send({ type: "dismiss" })}>
-      Not now
-    </button>
+  const decline = (
+    <>
+      <button className="btn btn-ghost btn-sm" title="Busy, not a no: they bring it back tomorrow" disabled={sending} onClick={() => void send({ type: "dismiss" })}>
+        Not now
+      </button>
+      <button className="btn btn-ghost btn-sm" title="They drop it and don't ask again" disabled={sending} onClick={() => void send({ type: "reject" })}>
+        No
+      </button>
+    </>
   );
   return (
     <div onClick={(ev) => ev.stopPropagation()}>
@@ -101,10 +109,10 @@ export function CardView({ card, runId, index, e, onAnswer }: {
               {c}{i === ask.recommended ? <span className="card-rec">Recommended</span> : null}
             </button>
           ))}
-          {dismiss}
+          {decline}
         </div>
       ) : ask.type === "items" ? (
-        <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={sending} send={send} dismiss={dismiss} />
+        <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={sending} send={send} decline={decline} />
       ) : (
         <div className="card-choices">
           <button className="btn btn-primary btn-sm" title="You did it. Every run waiting on this carries on." disabled={sending} onClick={() => void send({ type: "done" })}>
@@ -149,13 +157,13 @@ function CardFile({ runId, index, path }: { runId: string; index: number; path: 
 }
 
 /** A list to approve one by one: a tick and an optional note per item, then Send. */
-function ItemsCard({ verb, items, name, sending, send, dismiss }: {
+function ItemsCard({ verb, items, name, sending, send, decline }: {
   verb: string;
   items: CardItem[];
   name: string;
   sending: boolean;
   send: (reply: CardReply) => Promise<void>;
-  dismiss: ReactNode;
+  decline: ReactNode;
 }) {
   const [ticks, setTicks] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState<Record<string, string | undefined>>({});
@@ -193,7 +201,7 @@ function ItemsCard({ verb, items, name, sending, send, dismiss }: {
       <div className="card-items-foot">
         <span className="faint">{ticked} of {items.length} ticked</span>
         <span className="grow" />
-        {dismiss}
+        {decline}
         <button className="btn btn-primary btn-sm" disabled={sending || !ready} onClick={() => void send({ type: "items", picks })}>Send</button>
       </div>
     </div>

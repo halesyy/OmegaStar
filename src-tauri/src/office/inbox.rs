@@ -261,9 +261,10 @@ impl Office {
     /// answered it hears every answer at once, in one fixed message through `reply_with`, and its row is archived.
     /// Everyone waiting on the same thing (a chore, or a decision with the same key) hears the same answer, and
     /// those still working hear it straight away. Returns the reply runs it started.
+    /// Not now on a decision is not a no: its asker gets a check to bring it back a day later.
     pub fn answer_card(&self, run_id: &str, index: usize, reply: CardReply) -> Result<Vec<Run>> {
         let at = now();
-        let (card, answer, targets) = {
+        let (card, answer, targets, back) = {
             let db = self.db();
             let run = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
             let card = run.cards.get(index).cloned().ok_or_else(|| AppError::invalid("That run has no such card."))?;
@@ -273,16 +274,30 @@ impl Office {
             if !run.state.is_finished() {
                 return Err(AppError::conflict("It is still working, so answer the card when it finishes."));
             }
-            let text = cards::answer_text(&card.ask, &reply, &ceo_of(&db)?)?;
-            let how = if reply == CardReply::Dismiss { AnswerHow::Dismissed } else { AnswerHow::Tapped };
+            let ceo = ceo_of(&db)?;
+            let text = cards::answer_text(&card.ask, &reply, &ceo)?;
+            let how = match reply {
+                CardReply::Dismiss => AnswerHow::Dismissed,
+                CardReply::Reject => AnswerHow::Rejected,
+                _ => AnswerHow::Tapped,
+            };
             let answer = CardAnswer { at, how, text: text.unwrap_or_default(), held: false };
+            let back = (reply == CardReply::Dismiss && !matches!(card.ask, CardAsk::Chore { .. })).then(|| bring_back(&run, &card, &ceo, at));
             let mut targets = vec![run];
             if let Some(topic) = card.topic() {
                 targets.extend(db.open_topic_runs(&topic)?.into_iter().filter(|r| r.id != run_id));
             }
-            let said = db.tx(|| answer_cards(&db, &mut targets, Some(index), card.topic().as_deref(), &answer))?;
-            (card, answer, targets.into_iter().zip(said).collect::<Vec<_>>())
+            let said = db.tx(|| {
+                if let Some(c) = &back {
+                    db.save_check(c)?;
+                }
+                answer_cards(&db, &mut targets, Some(index), card.topic().as_deref(), &answer)
+            })?;
+            (card, answer, targets.into_iter().zip(said).collect::<Vec<_>>(), back)
         };
+        if back.is_some() {
+            self.sink().org_changed();
+        }
         let mut replies = self.send_card_answers(&targets);
         if let Some(topic) = card.topic() {
             // Runs still working on the same thing hear it now, in the turn they are in. Told and marked under one
@@ -508,6 +523,30 @@ fn answer_cards(db: &Store, runs: &mut [Run], index: Option<usize>, topic: Optio
         db.save_run(r)?;
     }
     Ok(said)
+}
+
+/// The check that brings back a decision you said Not now to: due a day after `at`, for the employee whose `run`
+/// asked it, so they raise it again if it still needs you.
+fn bring_back(run: &Run, card: &Card, ceo: &str, at: Ts) -> Check {
+    let again = match &card.key {
+        Some(k) => format!("raise it again with notify and key '{}'", cards::key_label(k)),
+        None => "raise it again with notify".into(),
+    };
+    Check {
+        id: uuid::Uuid::new_v4().to_string(),
+        employee_id: run.employee_id.clone(),
+        what: format!("Ask {ceo} again: {}", card.message),
+        how: format!(
+            "{ceo} pressed Not now on your card \"{}\" a day ago: busy, not a no. If it still needs them, {again}, with anything that changed. If it was settled meanwhile, leave it.",
+            card.message
+        ),
+        due_at: at + chrono::Duration::days(1),
+        state: CheckState::Open,
+        created_at: at,
+        run_id: Some(run.id.clone()),
+        closed_at: None,
+        result: None,
+    }
 }
 
 /// What a run's held-back answers say, each under the question it answers.
@@ -1207,6 +1246,33 @@ mod tests {
         assert_eq!(t.replies.len(), 1);
         assert!(t.replies[0].prompt.ends_with("Your card: \"Post the recap?\"\nChose: Post."), "{}", t.replies[0].prompt);
         assert!(t.root.cards[1].answer.as_ref().is_some_and(|a| !a.held));
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn not_now_brings_a_decision_back_a_day_later_and_no_drops_it() {
+        let dir = std::env::temp_dir().join(format!("omegastar-not-now-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let later = carded(&e);
+        let mut no = carded(&e);
+        no.cards[0].key = Some("ask:recap".into());
+        let chore = chrome_wait(&e, RunState::Succeeded);
+        let office = held_office(&dir, &e, &[&later, &no, &chore]).await;
+        let at = now();
+        office.answer_card(&later.id, 0, CardReply::Dismiss).unwrap();
+        office.answer_card(&no.id, 0, CardReply::Reject).unwrap();
+        office.answer_card(&chore.id, 0, CardReply::Dismiss).unwrap();
+        let how = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.cards[0].answer.as_ref().map(|a| (a.how, a.text.clone()));
+        assert_eq!(how(&later), Some((AnswerHow::Dismissed, cards::NOT_NOW.into())));
+        assert_eq!(how(&no), Some((AnswerHow::Rejected, cards::REJECTED.into())));
+        let checks = office.db().checks(&e.id, Some(CheckState::Open)).unwrap();
+        assert_eq!(checks.len(), 1, "only Not now on a decision comes back");
+        let c = &checks[0];
+        assert_eq!((c.what.as_str(), c.run_id.as_deref()), ("Ask the person you work for again: Boost the post?", Some(later.id.as_str())));
+        assert!(c.how.contains("raise it again with notify and key 'boost'"), "{}", c.how);
+        assert!((c.due_at - at - chrono::Duration::days(1)).num_seconds().abs() < 60, "due a day later");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

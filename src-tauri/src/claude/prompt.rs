@@ -180,7 +180,7 @@ creates one or changes one by id, `unschedule(id)` removes one. Cron is five fie
 frequent, simple check can run lighter (`model: \"haiku\"`, `effort: \"low\"`); work that needs judgement or research \
 keeps your usual model and effort.\n\
 - `notify` puts one decision in front of {ceo} as a card in their Inbox, with the answer built in, and sends a desktop \
-notification. Give `choices` (2 to 4 buttons; mark the one you recommend), `items` for a list they approve one by one, or \
+notification. Give `choices` (1 to 4 ways to go ahead; mark the one you recommend), `items` for a list they approve one by one, or \
 `chore` for something only they can do (reconnect Chrome, sign in to a site). The card is all they read, so it stands alone:\n\
   - `message`: the question, at most 80 characters, e.g. \"Merge PR #12, the pricing page?\"\n\
   - `why`: one line, at most 140 characters: what it changes or costs.\n\
@@ -189,8 +189,9 @@ one item, and asking again replaces your earlier card. When it is settled withou
 it with `close_ask(key, reason)`.\n\
   One decision per card; a run may raise up to five. Never for updates or results: those go in your report. Going ahead is never \
 the answer you assume for spending, public posts, customer messages, deleting data, new vendors or payment details. Their answers \
-come back to this conversation as one short message, once they have answered every card the run raised. Dismissed means not now: leave it as it is and do not ask again unless \
-something changes.\n\
+come back to this conversation as one short message, once they have answered every card the run raised. Every choices and items \
+card has Not now and No built in, so never add those yourself. Not now is not a no: leave it as it is, and Omega Star brings it \
+back to you the next day as a check, to ask again if it still matters. No means do not do it, and do not ask again.\n\
 - `check_later(what, how, inDays)` is how you keep a promise: on its due date Omega Star starts a quiet run of yours to \
 do it, whether or not anything else runs. Use it instead of writing \"I'll check\" in a report or \"verify later\" in a \
 skill or notes file. `my_checks` lists yours; `check_done(id, result)` closes one, and the finding goes into its home.\n\

@@ -19,6 +19,8 @@ const KEY_CHARS: usize = 60;
 /// What a key an employee names is stored under, so it never meets a chore's.
 const ASK: &str = "ask:";
 const MAX_CHOICES: usize = 4;
+/// The buttons every decision card has already, so never one of its choices.
+const BUILT_IN: [&str; 2] = ["not now", "no"];
 const CHOICE_CHARS: usize = 40;
 const MAX_ITEMS: usize = 10;
 const ITEM_ID_CHARS: usize = 20;
@@ -95,7 +97,7 @@ Put the reason in why, at most {WHY_CHARS}."
         (None, None, Some(c)) => CardAsk::Chore { subject: chore_subject(c)? },
         (None, None, None) => {
             return Err(AppError::invalid(
-                "notify asks for a decision: add choices (e.g. Merge / Not now), items, or chore. Updates and results go in your report.",
+                "notify asks for a decision: add choices (e.g. Merge), items, or chore. Updates and results go in your report.",
             ))
         }
         _ => return Err(AppError::invalid("Use one of choices, items or chore in a card, not several.")),
@@ -127,8 +129,8 @@ fn shows_file(path: &str) -> bool {
 }
 
 fn choices_ask(raw: &[Value]) -> Result<CardAsk> {
-    if !(2..=MAX_CHOICES).contains(&raw.len()) {
-        return Err(AppError::invalid(format!("Give 2 to {MAX_CHOICES} choices.")));
+    if !(1..=MAX_CHOICES).contains(&raw.len()) {
+        return Err(AppError::invalid(format!("Give 1 to {MAX_CHOICES} choices.")));
     }
     let mut choices: Vec<String> = vec![];
     let mut recommended = vec![];
@@ -136,6 +138,9 @@ fn choices_ask(raw: &[Value]) -> Result<CardAsk> {
         let label = c.get("label").and_then(Value::as_str).map(str::trim).unwrap_or("");
         if label.is_empty() || label.chars().count() > CHOICE_CHARS {
             return Err(AppError::invalid(format!("Each choice needs a label of 1 to {CHOICE_CHARS} characters.")));
+        }
+        if BUILT_IN.contains(&label.trim_end_matches(['.', '!']).to_lowercase().as_str()) {
+            return Err(AppError::invalid("Every card has Not now and No built in: give only the ways to go ahead."));
         }
         if choices.iter().any(|x| x.to_lowercase() == label.to_lowercase()) {
             return Err(AppError::invalid(format!("Each choice must differ: '{label}' is there twice.")));
@@ -147,6 +152,7 @@ fn choices_ask(raw: &[Value]) -> Result<CardAsk> {
     }
     match recommended[..] {
         [i] => Ok(CardAsk::Choices { choices, recommended: i }),
+        [] if choices.len() == 1 => Ok(CardAsk::Choices { choices, recommended: 0 }),
         _ => Err(AppError::invalid("Mark exactly one choice with recommended: true: the one you recommend.")),
     }
 }
@@ -179,8 +185,10 @@ fn items_ask(raw: &[Value], verb: Option<&str>) -> Result<CardAsk> {
     Ok(CardAsk::Items { verb: verb.to_string(), items })
 }
 
-/// What a dismissed decision tells the employee.
-pub const NOT_NOW: &str = "Not now. Leave it as it is, and do not ask again unless something changes.";
+/// What Not now on a decision tells the employee.
+pub const NOT_NOW: &str = "Not now: busy, not a no. Leave it as it is. Omega Star brings it back tomorrow, to ask again if it still matters.";
+/// What No on a decision tells the employee.
+pub const REJECTED: &str = "No. Do not do it, and do not ask again.";
 
 /// The fixed message your answer sends to the employee, or None when it sends nothing (a dismissed chore).
 pub fn answer_text(ask: &CardAsk, reply: &CardReply, ceo: &str) -> Result<Option<String>> {
@@ -189,6 +197,7 @@ pub fn answer_text(ask: &CardAsk, reply: &CardReply, ceo: &str) -> Result<Option
         (CardAsk::Choices { choices, .. }, CardReply::Choice { index }) => format!("Chose: {}.", choices.get(*index).ok_or_else(unfit)?),
         (CardAsk::Items { verb, items }, CardReply::Items { picks }) => items_text(verb, items, picks, ceo)?,
         (CardAsk::Choices { .. } | CardAsk::Items { .. }, CardReply::Dismiss) => NOT_NOW.into(),
+        (CardAsk::Choices { .. } | CardAsk::Items { .. }, CardReply::Reject) => REJECTED.into(),
         (CardAsk::Chore { subject }, CardReply::Done) => match subject.strip_prefix(SIGN_IN) {
             Some(site) => format!("{ceo} signed in to {site}. Carry on with what was waiting on it."),
             None => format!("{ceo} reconnected Chrome. Carry on with what was waiting on it."),
@@ -252,14 +261,18 @@ mod tests {
     }
 
     #[test]
-    fn choices_need_two_to_four_distinct_labels_and_one_recommendation() {
-        let ok = ask_of(json!({ "choices": [{ "label": " Not now ", "recommended": true }, { "label": "Try it for a week" }] }));
-        assert_eq!(ok, CardAsk::Choices { choices: vec!["Not now".into(), "Try it for a week".into()], recommended: 0 });
-        assert_eq!(err(json!({ "choices": [{ "label": "Yes", "recommended": true }] })), "Give 2 to 4 choices.");
+    fn choices_need_one_to_four_distinct_labels_and_one_recommendation() {
+        let ok = ask_of(json!({ "choices": [{ "label": " Try it for a day " }, { "label": "Try it for a week", "recommended": true }] }));
+        assert_eq!(ok, CardAsk::Choices { choices: vec!["Try it for a day".into(), "Try it for a week".into()], recommended: 1 });
+        assert_eq!(ask_of(json!({ "choices": [{ "label": "Merge" }] })), CardAsk::Choices { choices: vec!["Merge".into()], recommended: 0 }, "one choice is the one recommended");
         let five: Vec<Value> = (0..5).map(|i| json!({ "label": format!("Option {i}"), "recommended": i == 0 })).collect();
-        assert_eq!(err(json!({ "choices": five })), "Give 2 to 4 choices.");
-        assert_eq!(err(json!({ "choices": [{ "label": "Yes" }, { "label": "No" }] })), "Mark exactly one choice with recommended: true: the one you recommend.");
-        assert_eq!(err(json!({ "choices": [{ "label": "Yes", "recommended": true }, { "label": "No", "recommended": true }] })), "Mark exactly one choice with recommended: true: the one you recommend.");
+        assert_eq!(err(json!({ "choices": five })), "Give 1 to 4 choices.");
+        assert_eq!(err(json!({ "choices": [{ "label": "Yes" }, { "label": "Later" }] })), "Mark exactly one choice with recommended: true: the one you recommend.");
+        assert_eq!(err(json!({ "choices": [{ "label": "Yes", "recommended": true }, { "label": "Later", "recommended": true }] })), "Mark exactly one choice with recommended: true: the one you recommend.");
+        for built_in in ["Not now", " not now. ", "No", "NO!"] {
+            let e = err(json!({ "choices": [{ "label": "Merge", "recommended": true }, { "label": built_in }] }));
+            assert_eq!(e, "Every card has Not now and No built in: give only the ways to go ahead.", "{built_in}");
+        }
         assert!(err(json!({ "choices": [{ "label": "Yes", "recommended": true }, { "label": "yes" }] })).contains("'yes' is there twice"));
         assert!(err(json!({ "choices": [{ "label": "Yes", "recommended": true }, { "label": " " }] })).starts_with("Each choice needs a label"));
         assert!(err(json!({ "choices": [{ "label": "Yes", "recommended": true }, { "label": "x".repeat(41) }] })).starts_with("Each choice needs a label"));
@@ -284,7 +297,7 @@ mod tests {
 
     #[test]
     fn a_card_asks_one_short_decision() {
-        let yes_no = json!([{ "label": "Merge", "recommended": true }, { "label": "Not now" }]);
+        let yes_no = json!([{ "label": "Merge", "recommended": true }]);
         assert!(err(json!({ "message": "FYI: signups are up." })).starts_with("notify asks for a decision"), "an update is not a card");
         assert!(err(json!({ "choices": [], "chore": "" })).starts_with("notify asks for a decision"));
         assert_eq!(
@@ -303,7 +316,7 @@ mod tests {
 
     #[test]
     fn a_card_can_show_the_text_file_it_is_about() {
-        let yes_no = json!([{ "label": "Send", "recommended": true }, { "label": "Not now" }]);
+        let yes_no = json!([{ "label": "Send", "recommended": true }]);
         let c = card(&asked(json!({ "choices": yes_no, "file": " workspace/drafts/Reply.MD " }))).unwrap();
         assert_eq!(c.file.as_deref(), Some("workspace/drafts/Reply.MD"));
         assert_eq!(card(&asked(json!({ "choices": yes_no, "file": "" }))).unwrap().file, None);
@@ -344,12 +357,13 @@ mod tests {
 
     #[test]
     fn answers_are_fixed_text() {
-        let choices = CardAsk::Choices { choices: vec!["Not now".into(), "Try it".into()], recommended: 0 };
-        assert_eq!(answer_text(&choices, &CardReply::Choice { index: 0 }, "Pat").unwrap().as_deref(), Some("Chose: Not now."));
+        let choices = CardAsk::Choices { choices: vec!["Try it".into(), "Try it for a week".into()], recommended: 0 };
+        assert_eq!(answer_text(&choices, &CardReply::Choice { index: 0 }, "Pat").unwrap().as_deref(), Some("Chose: Try it."));
         assert_eq!(answer_text(&choices, &CardReply::Choice { index: 2 }, "Pat").unwrap_err().message, "That answer does not fit this card.");
-        let dismissed = NOT_NOW;
-        assert_eq!(answer_text(&choices, &CardReply::Dismiss, "Pat").unwrap().as_deref(), Some(dismissed));
-        assert_eq!(answer_text(&items(), &CardReply::Dismiss, "Pat").unwrap().as_deref(), Some(dismissed));
+        for ask in [&choices, &items()] {
+            assert_eq!(answer_text(ask, &CardReply::Dismiss, "Pat").unwrap().as_deref(), Some(NOT_NOW));
+            assert_eq!(answer_text(ask, &CardReply::Reject, "Pat").unwrap().as_deref(), Some(REJECTED));
+        }
         assert!(answer_text(&choices, &CardReply::Done, "Pat").is_err());
 
         let picks = vec![pick("d1", true, None), pick("d2", false, Some("too late")), pick("d3", true, Some(" ")), pick("d4", false, None)];
@@ -367,6 +381,7 @@ mod tests {
         let acme = CardAsk::Chore { subject: sign_in("acme") };
         assert_eq!(answer_text(&acme, &CardReply::Done, "Pat").unwrap().as_deref(), Some("Pat signed in to acme. Carry on with what was waiting on it."));
         assert_eq!(answer_text(&acme, &CardReply::Dismiss, "Pat").unwrap(), None);
+        assert!(answer_text(&acme, &CardReply::Reject, "Pat").is_err(), "a chore is done or not now");
         assert!(answer_text(&acme, &CardReply::Choice { index: 0 }, "Pat").is_err());
     }
 }

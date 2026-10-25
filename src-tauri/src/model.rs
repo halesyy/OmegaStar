@@ -1102,7 +1102,10 @@ pub enum AnswerHow {
     Tapped,
     /// You replied in the thread instead.
     Typed,
+    /// You pressed Not now: busy, not a no. A decision comes back to its asker a day later.
     Dismissed,
+    /// You pressed No: drop it.
+    Rejected,
     /// A newer card from the same routine or thread, or about the same thing, took its place.
     Replaced,
     /// The employee closed it: it was settled without you.
@@ -1116,7 +1119,10 @@ pub enum CardReply {
     Choice { index: usize },
     Items { picks: Vec<ItemPick> },
     Done,
+    /// Not now.
     Dismiss,
+    /// No, on a decision.
+    Reject,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]

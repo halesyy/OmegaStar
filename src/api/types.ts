@@ -168,7 +168,7 @@ export type CardAsk =
   | { type: "choices"; choices: string[]; recommended: number }   // recommended: the index of the one they recommend
   | { type: "items"; verb: string; items: CardItem[] }            // verb: what a tick means, e.g. "Post"
   | { type: "chore"; subject: string };                           // "chrome" or "sign-in:<site>"
-export type AnswerHow = "tapped" | "typed" | "dismissed" | "replaced" | "withdrawn";
+export type AnswerHow = "tapped" | "typed" | "dismissed" | "rejected" | "replaced" | "withdrawn";   // dismissed: Not now; rejected: No
 // held: not sent yet, since its run still asks something else; it goes with the rest once nothing is left open
 export type CardAnswer = { at: string; how: AnswerHow; text: string; held: boolean };   // text: the fixed answer sent, empty when nothing was
 /** message: the question. why: one line on why it matters. key: what it is about (`ask:<name>` or `chore:<subject>`),
@@ -179,7 +179,7 @@ export type Card = { message: string; why: string | null; key: string | null; fi
 export type Score = { metric: string; value: string; change: string; note: string };
 /** Your answer on a card. */
 export type ItemPick = { id: string; tick: boolean; note?: string | null };
-export type CardReply = { type: "choice"; index: number } | { type: "items"; picks: ItemPick[] } | { type: "done" } | { type: "dismiss" };
+export type CardReply = { type: "choice"; index: number } | { type: "items"; picks: ItemPick[] } | { type: "done" } | { type: "dismiss" } | { type: "reject" };
 export type Run = {
   id: string; employeeId: string; kind: RunKind; prompt: string;
   omegaWrote: boolean;         // Omega Star wrote the prompt (an approval, a returned report), not you
