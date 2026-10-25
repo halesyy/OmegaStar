@@ -1498,6 +1498,8 @@ pub enum RunEvent {
     Requested { request_id: String, person_id: String, kind: RequestKind, message: String },
     ProposedHire { proposal_id: String, name: String, title: String },
     SkillChanged { skill: String, file: String, change: ChangeKind },
+    /// A page the employee showed (`show`), saved as `runs/<run id>/visuals/<id>.html`.
+    Visual { id: String, title: String },
     /// A sub-agent started (an `Agent` call). `name` is the description it was launched with.
     TaskStarted { task_id: String, tool_use_id: String, name: String },
     /// A sub-agent's latest activity and running totals. Only the newest per task is worth keeping.

@@ -169,6 +169,17 @@ ul, ol { margin: 0; }
 .md a { text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 2px; }
 .md .md-path { cursor: pointer; text-decoration: underline; }
 .md-img { display: block; max-width: 100%; height: auto; max-height: 360px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; cursor: zoom-in; }
+/* Images after their captions, one full size or a grid of two or three across. */
+.md-gallery { display: grid; gap: 12px 10px; margin: 2px 0 12px; }
+.md-gallery-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.md-gallery-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.md-fig { margin: 0; min-width: 0; }
+.md-fig .md-img { margin: 0; background: var(--sunken); transition: border-color var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease); }
+.md-fig .md-img:hover { border-color: var(--line-strong); box-shadow: var(--shadow-card); }
+.md-gallery-2 .md-img, .md-gallery-3 .md-img { width: 100%; max-height: none; aspect-ratio: 16 / 10; object-fit: cover; }
+.md-fig > code[data-image-path]:not(.md-img-missing) { display: block; width: 100%; max-height: 360px; aspect-ratio: 16 / 10; padding: 0; border-radius: 8px; color: transparent; overflow: hidden; }
+.md-fig > code.md-img-missing { display: block; white-space: normal; }
+.md-fig figcaption { margin-top: 6px; font-size: var(--t-sm); line-height: 1.45; color: var(--muted); }
 
 /* ------------------------------------------------ misc */
 .empty {

@@ -197,6 +197,40 @@ export function Popover({ anchor, open, onClose, children, align = "end", width 
   );
 }
 
+// ---------------------------------------------------------------- Overlay
+
+/** Something seen full-window (an image, a page) on a dark scrim. Escape, the close button or a click on the scrim
+ *  closes it; `onKey` gets the other keys first. */
+export function Overlay({ label, onClose, onKey, children }: {
+  label: string; onClose: () => void; onKey?: (e: KeyboardEvent) => void; children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const latest = useRef({ onClose, onKey });
+  latest.current = { onClose, onKey };
+  useEffect(() => {
+    const last = document.activeElement;
+    ref.current?.focus({ preventScroll: true });
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return latest.current.onKey?.(e);
+      e.preventDefault();
+      e.stopPropagation();
+      latest.current.onClose();
+    };
+    document.addEventListener("keydown", key, true);
+    return () => {
+      document.removeEventListener("keydown", key, true);
+      if (last instanceof HTMLElement) last.focus({ preventScroll: true });
+    };
+  }, []);
+  return createPortal(
+    <div ref={ref} className="overlay" role="dialog" aria-modal aria-label={label} tabIndex={-1} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      {children}
+      <button className="overlay-close" aria-label="Close" onClick={onClose}><Icon name="close" size={16} /></button>
+    </div>,
+    document.body,
+  );
+}
+
 // ---------------------------------------------------------------- Toasts
 
 export function Toasts() {

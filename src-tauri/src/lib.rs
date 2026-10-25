@@ -144,6 +144,23 @@ fn autostart() -> tauri::plugin::TauriPlugin<Wry> {
     b.build()
 }
 
+/// A page an employee showed, for its sealed frame: `omega-visual://localhost/<run id>%2F<page id>?theme=dark`
+/// (`http://omega-visual.localhost/...` on Windows).
+fn visual_page(app: &AppHandle, req: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    let path = req.uri().path().trim_start_matches('/').replace("%2F", "/").replace("%2f", "/");
+    let dark = req.uri().query().is_some_and(|q| q.split('&').any(|kv| kv == "theme=dark"));
+    let page = match (path.split_once('/'), app.try_state::<Office>()) {
+        (Some((run_id, id)), Some(office)) => office.visual_page(run_id, id, dark),
+        _ => Err(model::AppError::not_found("No such page.")),
+    };
+    let res = tauri::http::Response::builder().header("Content-Security-Policy", office::PAGE_CSP);
+    match page {
+        Ok(body) => res.header("Content-Type", "text/html; charset=utf-8").body(body),
+        Err(e) => res.status(404).header("Content-Type", "text/plain; charset=utf-8").body(e.message.into_bytes()),
+    }
+    .unwrap_or_default()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     log::catch_crashes();
@@ -169,6 +186,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .register_uri_scheme_protocol("omega-visual", |ctx, req| visual_page(ctx.app_handle(), &req))
         .setup(move |app| {
             let data_dir = office::default_data_dir();
             if let Err(e) = std::fs::create_dir_all(&data_dir).and_then(|_| log::to_file(&data_dir.join("omega.log"))) {

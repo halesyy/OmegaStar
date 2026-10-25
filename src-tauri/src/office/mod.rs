@@ -10,6 +10,9 @@ mod schedules;
 mod settings;
 mod skills;
 mod tools;
+mod visuals;
+
+pub use visuals::{image_data_url, image_mime, PAGE_CSP};
 
 use crate::backup;
 use crate::catalog;

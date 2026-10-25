@@ -10,6 +10,7 @@ import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
 import { DelegatedCard, ProposedRow, RequestedRow, SkillChip, ToolRows, toItems, type TranscriptItem } from "../Transcript";
 import { SubAgents } from "../SubAgents";
+import { Visual } from "../Visual";
 import { Avatar, ErrorNote } from "../ui";
 import "./ChatTab.css";
 
@@ -51,6 +52,7 @@ export function Turn({ turn, e, withReport = false }: { turn: LiveRun; e: Employ
       case "delegated": return <DelegatedCard key={it.key} childRunId={it.childRunId} employeeId={it.employeeId} task={it.task} asked={it.asked} handoff={it.handoff} employees={snap?.employees ?? []} child={turn.children.find((c) => c.id === it.childRunId)} />;
       case "requested": return <RequestedRow key={it.key} personId={it.personId} reqKind={it.reqKind} message={it.message} people={snap?.people ?? []} />;
       case "proposed": return <ProposedRow key={it.key} name={it.name} title={it.title} proposal={proposals?.find((p) => p.id === it.proposalId)} />;
+      case "visual": return <Visual key={it.key} runId={turn.run.id} id={it.id} title={it.title} />;
       case "result": return !it.ok && it.text ? <ErrorNote key={it.key} text={it.text} /> : null;
       case "user": case "stderr": case "init": return null;
     }

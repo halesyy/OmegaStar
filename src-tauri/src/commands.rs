@@ -2,7 +2,7 @@
 
 use crate::backup;
 use crate::model::*;
-use crate::office::Office;
+use crate::office::{self, Office};
 use crate::update;
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
@@ -109,36 +109,21 @@ pub async fn open_attachment(app: AppHandle, office: O<'_>, run_id: String, name
     app.opener().open_path(path, None::<&str>).map_err(|e| AppError::internal(format!("Could not open {name}: {e}")))
 }
 
-const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
-
-/// The MIME type of a local image an agent mentioned by its absolute path.
-fn image_mime(path: &str) -> Result<&'static str> {
-    let p = Path::new(path);
-    let mime = match p.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
-        Some("png") => Some("image/png"),
-        Some("jpg" | "jpeg") => Some("image/jpeg"),
-        Some("gif") => Some("image/gif"),
-        Some("webp") => Some("image/webp"),
-        _ => None,
-    };
-    mime.filter(|_| p.is_absolute()).ok_or_else(|| AppError::invalid(format!("{path} is not a local image")))
+/// A local image an agent mentioned by its full path.
+fn image_path(path: &str) -> Result<std::path::PathBuf> {
+    let full = report_path(path)?;
+    office::image_mime(&full).map(|_| full).ok_or_else(|| AppError::invalid(format!("{path} is not a local image")))
 }
 
 #[tauri::command]
 pub async fn read_image(path: String) -> Result<String> {
-    use base64::Engine;
-    let mime = image_mime(&path)?;
-    let meta = std::fs::metadata(&path).map_err(|_| AppError::not_found(format!("No image at {path}")))?;
-    if meta.len() > MAX_IMAGE_BYTES {
-        return Err(AppError::invalid(format!("{path} is larger than {} MB", MAX_IMAGE_BYTES / (1024 * 1024))));
-    }
-    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(std::fs::read(&path)?)))
+    office::image_data_url(&image_path(&path)?)
 }
 
 #[tauri::command]
 pub async fn open_image(app: AppHandle, path: String) -> Result<()> {
-    image_mime(&path)?;
-    app.opener().open_path(&path, None::<&str>).map_err(|e| AppError::internal(format!("Could not open {path}: {e}")))
+    let full = image_path(&path)?;
+    app.opener().open_path(full.to_string_lossy(), None::<&str>).map_err(|e| AppError::internal(format!("Could not open {path}: {e}")))
 }
 
 /// Kinds of file a click on a report path opens in their app. Anything else is shown in Finder.

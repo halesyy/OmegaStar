@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
-import type { EmployeeView, NewAttachment, Run, Thread } from "../../api/types";
+import type { EmployeeView, NewAttachment, Run, RunEvent, Thread } from "../../api/types";
 import { dateLong, firstName, relTime, whenShort } from "../../lib/format";
 import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
 import { snoozePresets } from "../../lib/status";
@@ -12,6 +12,7 @@ import { BlockedCard } from "../BlockedCard";
 import { TidyProposal } from "../TidyProposal";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
+import { Visual } from "../Visual";
 import { Avatar, ErrorNote, Popover, Skeleton, SkillsGrew } from "../ui";
 import { ChatSurface, type ChatSurfaceHandle } from "../panel/ChatSurface";
 import { Turn } from "../panel/ChatTurn";
@@ -105,7 +106,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
         <div className="chat-inner">
           {row && row.related.length ? <RowHistory t={row} employees={snap?.employees ?? []} people={snap?.people ?? []} /> : null}
           {earlier ? <button className="btn btn-ghost btn-sm thread-earlier" onClick={() => setAll(true)}>Show {earlier} earlier</button> : null}
-          {showReport ? <ReportTurn root={root} e={e} blocked={tail.id === root.id && !archived} archived={archived} /> : null}
+          {showReport ? <ReportTurn root={root} events={turns[0].events} e={e} blocked={tail.id === root.id && !archived} archived={archived} /> : null}
           {visible.map((t, i) => (
             <div key={t.run.id} className="stack" style={{ gap: 10 }}>
               <Turn turn={t} e={e} withReport />
@@ -134,8 +135,8 @@ function Flags({ run }: { run: Run }) {
   );
 }
 
-/** The report that started the thread, as the employee's first message. */
-function ReportTurn({ root, e, blocked, archived }: { root: Run; e: EmployeeView; blocked: boolean; archived: boolean }) {
+/** The report that started the thread, as the employee's first message, with the pages its run showed above it. */
+function ReportTurn({ root, events, e, blocked, archived }: { root: Run; events: RunEvent[]; e: EmployeeView; blocked: boolean; archived: boolean }) {
   const failed = didNotFinish(root);
   return (
     <div className="turn">
@@ -149,6 +150,7 @@ function ReportTurn({ root, e, blocked, archived }: { root: Run; e: EmployeeView
           </div>
           <Flags run={root} />
           <RunCards run={root} e={e} />
+          {events.map((ev, i) => ev.type === "visual" ? <Visual key={i} runId={root.id} id={ev.id} title={ev.title} /> : null)}
           {root.summary ? <Markdown text={root.summary} /> : <p className="muted">{failed ? root.error ?? "This run didn't finish." : "No report."}</p>}
           {root.skillChanges.length ? <SkillsGrew run={root} /> : null}
           {blocked && root.denials.length > 0 ? <BlockedCard run={root} employee={e} /> : null}

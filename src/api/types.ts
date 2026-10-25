@@ -249,6 +249,7 @@ export type RunEvent =
   | { type: "requested"; requestId: string; personId: string; kind: RequestKind; message: string }
   | { type: "proposedHire"; proposalId: string; name: string; title: string }
   | { type: "skillChanged"; skill: string; file: string; change: SkillChangeKind }
+  | { type: "visual"; id: string; title: string }   // a page the employee showed (show), served on omega-visual
   // A sub-agent's lifecycle. These never reach a transcript list: they update a task by taskId (see foldEvent).
   | { type: "taskStarted"; taskId: string; toolUseId: string; name: string }
   | { type: "taskProgress"; taskId: string; activity: string; lastTool: string | null; toolUses: number; tokens: number; durationMs: number }

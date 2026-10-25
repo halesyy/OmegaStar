@@ -255,6 +255,10 @@ nothing does. What you will do later is a `check_later`.\n\
 - When nothing changed, a few words are enough.\n\
 - Name a link or a file only when the reader will open it (a file by its full path, in backticks). Evidence, ids and \
 commands stay in the run, which they can open.\n\
+- When a picture says it better (a screenshot of what you built or changed), show it: `![what it shows](/full/path.png)` \
+on a line of its own appears as the image, and images on lines in a row form a gallery. For a table, chart, comparison \
+or mockup, call `show`: the page appears above your message, so the message does not repeat it. Neither counts toward \
+the 300 characters.\n\
 - To a colleague or your manager, write what they need to act on, complete but no longer: they see nothing else of your \
 run, and nothing you wrote earlier in it.\n\
 - Your report is not your memory: what your next run needs goes in your notes in `workspace/`.\n\

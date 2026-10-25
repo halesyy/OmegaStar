@@ -37,7 +37,7 @@ async fn respond(office: &Office, token: &str, msg: Value) -> Option<Value> {
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2025-06-18")),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "omega", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "Omega Star office tools: your recurring schedules, putting decisions to the person you work for, moving and retiring your skills, your team (delegate, await reports), proposing hires, and the people you can ask for help. Omega Star runs your schedules even when no Claude session is open, and watches your requests to people for replies.",
+            "instructions": "Omega Star office tools: your recurring schedules, putting decisions to the person you work for, showing them a page in your message, moving and retiring your skills, your team (delegate, await reports), proposing hires, and the people you can ask for help. Omega Star runs your schedules even when no Claude session is open, and watches your requests to people for replies.",
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
@@ -99,6 +99,7 @@ async fn call(office: &Office, token: &str, name: &str, args: &Value) -> Result<
         "check_done" => office.check_done_tool(&me, s("id"), s("result")),
         "move_skill" => office.move_skill_tool(&me, s("from"), s("to")),
         "retire_skill" => office.retire_skill_tool(&run_id, &me, s("name")),
+        "show" => office.show_tool(&run_id, args),
         _ => Err(AppError::invalid(format!("unknown tool '{name}'"))),
     }
 }
@@ -159,6 +160,14 @@ fn tools() -> Value {
                 "itemVerb": { "type": "string", "description": "What a tick means, one word, e.g. 'Post'. Default 'Approve'." },
                 "chore": { "type": "string", "description": "Something only they can do, as one of: 'chrome' (reconnect Claude in Chrome) or 'sign-in:<site>' (sign in to a site, e.g. 'sign-in:acme'). They press Done and every run waiting on it carries on. Needs no key." }
             }), &["message"]),
+        },
+        {
+            "name": "show",
+            "description": "Show a page in your message: a chart, table, comparison, diagram, timeline or mockup that says more than words. Write one complete, self-contained HTML document with inline <style> and <script>. It cannot load anything from the internet (no CDNs, web fonts or remote images), so draw charts with inline SVG or canvas. Local images written as full paths (src=\"/Users/me/shot.png\", url(/Users/me/bg.webp) or a string in a script) are embedded for you. Omega Star shows it above your message, as wide as the message column (450 to 700 pixels, so keep the layout fluid) and as tall as the page. Leave the page background transparent, and let the content set the height: never use vh units or height: 100%. Omega Star's look comes as CSS variables that follow light and dark mode: --ink (text), --ink-2, --muted and --faint (quieter text), --canvas, --surface, --raised and --sunken (backgrounds), --line and --line-strong (borders), --live (the one blue), --ok, --warn and --err (each with a -soft background), --font-ui, --font-mono, --r-card and --r-inner (corner radii). Then write your message without repeating what the page shows.",
+            "inputSchema": obj(json!({
+                "title": { "type": "string", "description": "What the page shows, at most 80 characters, e.g. 'Signups by week'." },
+                "html": { "type": "string", "description": "The page, up to 2 MB." }
+            }), &["title", "html"]),
         },
         {
             "name": "close_ask",

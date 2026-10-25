@@ -64,7 +64,7 @@ pub fn omega_line(ev: &RunEvent) -> String {
 }
 
 const BRIEF_KEYS: &[&str] = &[
-    "command", "file_path", "notebook_path", "path", "pattern", "url", "query", "skill", "description", "prompt", "task", "person",
+    "command", "file_path", "notebook_path", "path", "pattern", "url", "query", "skill", "description", "prompt", "task", "person", "title",
 ];
 const PATH_KEYS: &[&str] = &["file_path", "notebook_path", "path"];
 

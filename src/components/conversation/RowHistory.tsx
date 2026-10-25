@@ -17,6 +17,8 @@ function plain(line: string): string {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+[.)])\s+/, "")
     .replace(/[*_`~]/g, "")
+    // An image path at the end of the line (shown as the image in the message), with the colon that led into it.
+    .replace(/(?:^|:?\s+)(?:\/|~\/|[A-Za-z]:[\\/])\S[^\n]*?\.(?:png|jpe?g|gif|webp)[.,;)]?\s*$/i, "")
     .replace(/\|/g, " ")
     .replace(/\s+/g, " ")
     .trim();

@@ -11,6 +11,7 @@ import { kindNames } from "../components/RunRow";
 import { Icon } from "../components/Icon";
 import { Markdown } from "../components/Markdown";
 import { SubAgents } from "../components/SubAgents";
+import { Visual } from "../components/Visual";
 import { TidyProposal } from "../components/TidyProposal";
 import { DelegatedCard, ProposedRow, RequestedRow, SkillChip, ToolRows, toItems } from "../components/Transcript";
 import { Avatar, ConfirmButton, ErrorNote, Skeleton, StatePill } from "../components/ui";
@@ -105,6 +106,7 @@ export function RunView({ runId }: { runId: string }) {
                 case "delegated": return <DelegatedCard key={it.key} childRunId={it.childRunId} employeeId={it.employeeId} task={it.task} asked={it.asked} handoff={it.handoff} employees={snap?.employees ?? []} child={detail.children.find((c) => c.id === it.childRunId)} />;
                 case "requested": return <RequestedRow key={it.key} personId={it.personId} reqKind={it.reqKind} message={it.message} people={snap?.people ?? []} request={requests.data?.find((r) => r.id === it.requestId)} />;
                 case "proposed": return <ProposedRow key={it.key} name={it.name} title={it.title} proposal={proposals?.find((p) => p.id === it.proposalId)} />;
+                case "visual": return <Visual key={it.key} runId={run.id} id={it.id} title={it.title} />;
                 case "stderr": return <pre key={it.key} className="rv-stderr mono">{it.text}</pre>;
                 case "result": return null;
               }

@@ -34,7 +34,7 @@
         "object-src": "'none'",
         "base-uri": "'none'",
         "form-action": "'none'",
-        "frame-src": "'none'"
+        "frame-src": "omega-visual: http://omega-visual.localhost"
       },
       "devCsp": {
         "default-src": "'self'",
@@ -46,7 +46,7 @@
         "object-src": "'none'",
         "base-uri": "'none'",
         "form-action": "'none'",
-        "frame-src": "'none'"
+        "frame-src": "omega-visual: http://omega-visual.localhost"
       }
     }
   },

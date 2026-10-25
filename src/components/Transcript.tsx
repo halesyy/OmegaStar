@@ -15,6 +15,7 @@ export type TranscriptItem =
   | { kind: "delegated"; key: string; childRunId: string; employeeId: string; task: string; asked: boolean; handoff: boolean }
   | { kind: "requested"; key: string; requestId: string; personId: string; reqKind: RequestKind; message: string }
   | { kind: "proposed"; key: string; proposalId: string; name: string; title: string }
+  | { kind: "visual"; key: string; id: string; title: string }
   | { kind: "init"; key: string; model: string; skills: string[] }
   | { kind: "result"; key: string; ok: boolean; text: string; turns: number; durationMs: number }
   | { kind: "stderr"; key: string; text: string };
@@ -48,6 +49,7 @@ export function toItems(events: RunEvent[]): TranscriptItem[] {
       case "asked": out.push({ kind: "delegated", key, childRunId: ev.childRunId, employeeId: ev.employeeId, task: ev.question, asked: true, handoff: !!ev.task }); break;
       case "requested": out.push({ kind: "requested", key, requestId: ev.requestId, personId: ev.personId, reqKind: ev.kind, message: ev.message }); break;
       case "proposedHire": out.push({ kind: "proposed", key, proposalId: ev.proposalId, name: ev.name, title: ev.title }); break;
+      case "visual": out.push({ kind: "visual", key, id: ev.id, title: ev.title }); break;
       case "init": out.push({ kind: "init", key, model: ev.model, skills: ev.skills }); break;
       case "result": out.push({ kind: "result", key, ok: ev.ok, text: ev.text, turns: ev.turns, durationMs: ev.durationMs }); break;
       case "stderr": out.push({ kind: "stderr", key, text: ev.text }); break;
@@ -73,6 +75,7 @@ const FRIENDLY: Record<string, { label: string; icon: IconName }> = {
   mcp__omega__propose_hire: { label: "Propose a hire", icon: "userPlus" },
   mcp__omega__my_proposals: { label: "Check proposals", icon: "userPlus" },
   mcp__omega__withdraw_proposal: { label: "Withdraw proposal", icon: "userPlus" },
+  mcp__omega__show: { label: "Show a page", icon: "image" },
   Agent: { label: "Sub-agent", icon: "branch" },
   Skill: { label: "Skill", icon: "layers" },
   Read: { label: "Read", icon: "file" },
