@@ -93,6 +93,9 @@ impl Office {
         if !p.url.is_empty() && !p.url.starts_with("http://") && !p.url.starts_with("https://") {
             return Err(AppError::invalid("the CLI proxy address must start with http:// or https://"));
         }
+        if !p.management_key.is_empty() && p.management_key == p.api_key {
+            return Err(AppError::invalid("the management key is the proxy's management secret, not one of its API keys"));
+        }
         let prev = self.settings()?;
         let old = prev.backup;
         // Only a changed folder, or turning backups on, is checked: an unusable default folder must
@@ -107,6 +110,7 @@ impl Office {
             self.sink().backup_updated(&self.backup_status()?);
         }
         if s.proxy != prev.proxy {
+            self.proxy_changed(s.proxy.url != prev.proxy.url);
             // Probed again even when a probe is in flight: it may still be reading the old source.
             let office = self.clone();
             self.0.rt.spawn(async move {
@@ -266,11 +270,47 @@ impl Office {
             let Some(program) = claude::locate(settings.claude_path.as_deref()) else { return };
             claude::probe_usage(&program, &self.0.data_dir).await
         } else {
-            proxy::usage(&settings.proxy).await
+            let read = proxy::usage(&settings.proxy).await;
+            self.0.proxy_refused.store(read.as_ref().is_err_and(|f| f.refused), Ordering::Relaxed);
+            self.set_proxy_issue(read.as_ref().err().map(|f| f.message.clone()));
+            read.ok()
         };
         if let Some(sample) = sample {
             self.observe_usage(sample, true);
         }
+    }
+
+    fn set_proxy_issue(&self, issue: Option<String>) {
+        let next = {
+            let mut u = lock(&self.0.usage);
+            if u.proxy_issue == issue {
+                return;
+            }
+            u.proxy_issue = issue;
+            u.clone()
+        };
+        self.sink().usage_updated(&next);
+    }
+
+    /// The proxy settings changed, so a key it refused may work now. With another source of limits
+    /// (`new_source`), the old one's readings and hold mean nothing: a run that meets a limit holds again.
+    fn proxy_changed(&self, new_source: bool) {
+        self.0.proxy_refused.store(false, Ordering::Relaxed);
+        let next = {
+            let mut u = lock(&self.0.usage);
+            *u = if new_source {
+                UsageLimits { account_issue: u.account_issue.take(), ..UsageLimits::default() }
+            } else {
+                UsageLimits { proxy_issue: None, ..u.clone() }
+            };
+            u.clone()
+        };
+        if new_source {
+            if let Err(e) = self.db().set_held_until(None) {
+                log!("could not clear the usage hold: {e}");
+            }
+        }
+        self.sink().usage_updated(&next);
     }
 
     pub(super) fn observe_usage(&self, sample: claude::UsageSample, from_probe: bool) {
@@ -427,8 +467,9 @@ impl Office {
 fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool, now: Ts) -> UsageLimits {
     let subscription = sample.five_hour.is_some() || sample.seven_day.is_some();
     let account_issue = old.account_issue.clone();
+    let proxy_issue = old.proxy_issue.clone();
     if from_probe && !subscription {
-        return UsageLimits { five_hour: None, seven_day: None, observed_at: Some(now), subscription: false, held_until: old.held_until, account_issue };
+        return UsageLimits { five_hour: None, seven_day: None, observed_at: Some(now), subscription: false, held_until: old.held_until, account_issue, proxy_issue };
     }
     let under = |w: &Option<UsageWindow>| w.as_ref().is_some_and(|w| w.percent < 100.0);
     let held_until = if from_probe && under(&sample.five_hour) && under(&sample.seven_day) { None } else { old.held_until };
@@ -449,6 +490,7 @@ fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool,
         subscription: true,
         held_until,
         account_issue,
+        proxy_issue,
     }
 }
 
@@ -489,6 +531,42 @@ mod tests {
 
     fn account(logged_in: bool, email: Option<&str>) -> Account {
         Account { logged_in, email: email.map(String::from), org_name: None, plan: None }
+    }
+
+    struct NoSink;
+    impl EventSink for NoSink {
+        fn org_changed(&self) {}
+        fn run_updated(&self, _run: &Run) {}
+        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
+        fn request_updated(&self, _request: &HumanRequest) {}
+    }
+
+    #[tokio::test]
+    async fn turning_on_a_proxy_drops_the_old_hold_and_a_refused_key_stops_the_monitor() {
+        let dir = std::env::temp_dir().join(format!("omegastar-proxy-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        Store::open(&dir.join("office.db")).unwrap().set_held_until(Some(Utc::now() + chrono::Duration::hours(3))).unwrap();
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let url = proxy::fake_proxy().await;
+        let with = |api_key: &str, management_key: &str| AppSettings {
+            proxy: ProxySettings { url: url.clone(), api_key: api_key.into(), management_key: management_key.into() },
+            ..office.settings().unwrap()
+        };
+
+        assert!(office.save_settings(with("api-key", "api-key")).is_err(), "an API key is not the management key");
+        office.save_settings(with("api-key", "wrong-key")).unwrap();
+        assert_eq!(office.usage_limits().held_until, None, "the signed-in account's hold means nothing for the pool");
+        assert_eq!(office.db().held_until().unwrap(), None);
+        office.refresh_usage().await;
+        assert!(office.0.proxy_refused.load(Ordering::Relaxed));
+        assert!(office.usage_limits().proxy_issue.is_some_and(|i| i.contains("invalid management key")));
+
+        office.save_settings(with("api-key", "right-key")).unwrap();
+        assert!(!office.0.proxy_refused.load(Ordering::Relaxed));
+        office.refresh_usage().await;
+        let u = office.usage_limits();
+        assert_eq!((u.proxy_issue, u.five_hour.map(|w| w.percent)), (None, Some(60.0)));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

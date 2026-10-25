@@ -83,6 +83,7 @@ export function UsageCard() {
         <Window label="7-day" w={week} now={now} known={known} />
         {held ? <div className="usage-note usage-note-warn">Work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}, when the limit resets.</div> : null}
         {usage?.accountIssue ? <AccountIssue message={usage.accountIssue.message} signedInAs={usage.accountIssue.signedInAs} /> : null}
+        {usage?.proxyIssue ? <div className="usage-note usage-note-warn">{usage.proxyIssue}</div> : null}
       </div>
       <button className="usage-mini" onClick={refresh} data-tip={`5-hour ${pct(five)} · 7-day ${pct(week)}`} aria-label={`Claude usage: 5-hour ${pct(five)}, 7-day ${pct(week)}. Refresh`}>
         <span className={`usage-mini-bar ${level(five)}`}><span style={{ width: `${five ? Math.min(100, five.percent) : 0}%` }} /></span>

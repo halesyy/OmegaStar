@@ -1748,12 +1748,14 @@ pub struct UsageLimits {
     pub held_until: Option<Ts>,
     /// Claude Code is signed out or on another account than the one set up: routines wait.
     pub account_issue: Option<AccountIssue>,
+    /// Why the CLI proxy could not report its accounts' usage, when it could not.
+    pub proxy_issue: Option<String>,
 }
 
 impl Default for UsageLimits {
     fn default() -> Self {
         // Unknown until the first probe; assume a subscription so the UI waits rather than switching to spend.
-        UsageLimits { five_hour: None, seven_day: None, observed_at: None, subscription: true, held_until: None, account_issue: None }
+        UsageLimits { five_hour: None, seven_day: None, observed_at: None, subscription: true, held_until: None, account_issue: None, proxy_issue: None }
     }
 }
 

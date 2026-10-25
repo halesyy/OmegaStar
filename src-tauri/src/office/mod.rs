@@ -123,6 +123,9 @@ struct Inner {
     usage: Mutex<UsageLimits>,
     /// Held while a `/usage` probe runs, so probes never overlap.
     probing: tokio::sync::Mutex<()>,
+    /// The CLI proxy turned down the management key, so the usage monitor stops asking (each try
+    /// brings the proxy's ban closer) until the proxy settings change or you refresh.
+    proxy_refused: AtomicBool,
     /// Held while a backup runs, so backups never overlap.
     backing_up: tokio::sync::Mutex<()>,
     /// Held while the reply monitor makes a pass, so passes never overlap.
@@ -206,6 +209,7 @@ impl Office {
             finished: tokio::sync::watch::channel(0).0,
             usage: Mutex::new(UsageLimits { held_until, ..UsageLimits::default() }),
             probing: tokio::sync::Mutex::new(()),
+            proxy_refused: AtomicBool::new(false),
             backing_up: tokio::sync::Mutex::new(()),
             watching: tokio::sync::Mutex::new(()),
             build,
@@ -278,6 +282,9 @@ impl Office {
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 every.tick().await;
+                if office.0.proxy_refused.load(Ordering::Relaxed) {
+                    continue;
+                }
                 if let Ok(_probing) = office.0.probing.try_lock() {
                     office.probe_usage().await;
                 }

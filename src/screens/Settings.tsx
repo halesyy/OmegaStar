@@ -212,7 +212,7 @@ function ProxyCard({ settings: s, save }: { settings: AppSettings; save: (next: 
         <Row title="API key" desc="One of the keys in the proxy's config.">
           <input className="input mono set-path" type="password" value={draft.apiKey} onChange={edit("apiKey")} aria-label="CLI proxy API key" />
         </Row>
-        <Row title="Management key" desc="Optional. Lets the sidebar show Claude usage averaged across the proxy's accounts.">
+        <Row title="Management key" desc={<>Optional, and not an API key: the <span className="mono">secret-key</span> under <span className="mono">management</span> in the proxy's config. Lets the sidebar show Claude usage averaged across the proxy's accounts.</>}>
           <input className="input mono set-path" type="password" value={draft.managementKey} onChange={edit("managementKey")} aria-label="CLI proxy management key" />
         </Row>
         <Row title="Status" desc={status}>

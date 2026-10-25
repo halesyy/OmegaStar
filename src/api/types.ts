@@ -300,6 +300,7 @@ export type UsageLimits = {
   fiveHour: UsageWindow | null; sevenDay: UsageWindow | null; observedAt: string | null; subscription: boolean;
   heldUntil: string | null;    // no run starts until the usage limit resets then
   accountIssue: { message: string; signedInAs: string | null } | null;   // routines wait for the right account
+  proxyIssue: string | null;   // why the CLI proxy could not report its accounts' usage
 };
 
 export type ApiError = { code: string; message: string };
