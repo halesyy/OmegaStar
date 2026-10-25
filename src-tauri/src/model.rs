@@ -1182,6 +1182,12 @@ pub struct Run {
     /// It failed because the usage limit stopped it once too often: nothing you can do, so it never needs you.
     #[serde(default)]
     pub limited: bool,
+    /// Times the run went back to the queue because Omega Star stopped while it was in progress.
+    #[serde(default)]
+    pub restarts: u32,
+    /// It last went back to the queue because Omega Star stopped, not the usage limit; its next attempt is told which.
+    #[serde(default)]
+    pub restarted: bool,
     /// For a weekly review: the number it measured, for the team's scoreboard.
     #[serde(default)]
     pub score: Option<Score>,
@@ -1219,6 +1225,8 @@ impl Run {
             build: None,
             limit_retries: 0,
             limited: false,
+            restarts: 0,
+            restarted: false,
             score: None,
             context_tokens: None,
         }

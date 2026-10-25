@@ -63,6 +63,9 @@ pub(crate) const RUNNING_MARKER: &str = "omega.running";
 /// In a run's folder while it works: its employee's skills as they were when it started, so a run the
 /// app lost can still have its edits recorded.
 const BEFORE_SNAPSHOT: &str = "before.json";
+/// Times a run Omega Star stopped mid-turn goes back to the queue before it is lost, so one that keeps
+/// crashing the app cannot loop.
+const RESTART_RETRIES: u32 = 3;
 const DEFAULT_PROMPT: &str = "Work toward your objective. Start from your role skill, pick the most valuable next step, do it, and report.";
 
 /// OMEGASTAR_DATA_DIR, or the channel's own folder: only a release build opens the real office, since an
@@ -131,6 +134,8 @@ struct Inner {
     account: Mutex<Option<(Ts, Option<Account>)>>,
     /// The Mac is in a full wake, not a Power Nap dark wake: background runs may start.
     awake: AtomicBool,
+    /// Quit has begun: runs it kills stay running for the next start to put back in the queue, and none start.
+    closing: AtomicBool,
     /// When you last saved the company page in You. The save writes no revision, so a run's guard asks here.
     company_saved: Mutex<Option<Ts>>,
 }
@@ -207,10 +212,15 @@ impl Office {
             crashed,
             account: Mutex::new(None),
             awake: AtomicBool::new(true),
+            closing: AtomicBool::new(false),
             company_saved: Mutex::new(None),
         }));
         office.adopt_chat_turns()?;
         for mut run in office.recover()? {
+            // Back in the queue to carry on: its end finds its sends and reports it, as for any run.
+            if run.state == RunState::Queued {
+                continue;
+            }
             // The run never reached its end, where its sends are normally found.
             if let Err(e) = office.capture_deliveries(&run.id, true) {
                 log!("run {}: finding the requests it sent failed: {e}", run.id);
@@ -383,8 +393,9 @@ impl Office {
     }
 
     /// Settles the runs a previous session left running: a run whose transcript ends in a result is
-    /// finished from it, the rest are lost. Either way the skill edits since its start are recorded
-    /// when its snapshot survived. Returns the runs.
+    /// finished from it, the rest go back to the queue to carry on in their session, or are lost once they
+    /// have too often. Either way the skill edits since its start are recorded when its snapshot survived.
+    /// Returns the runs.
     fn recover(&self) -> Result<Vec<Run>> {
         let lost = if self.0.crashed { "Omega Star closed unexpectedly while this run was in progress." } else { "Omega Star stopped while this run was in progress." };
         let db = self.db();
@@ -420,6 +431,9 @@ impl Office {
                 db.save_run(&r)
             })?;
             let _ = fs::remove_file(&before_path);
+            if r.state == RunState::Queued {
+                log!("requeued {} after Omega Star stopped (attempt {})", r.id, r.restarts);
+            }
             settled.push(r);
         }
         db.lose_unreadable_running(now(), lost)?;
@@ -441,8 +455,9 @@ struct Leftover<'a> {
     skills: Option<(own_skills::Snapshot, own_skills::Snapshot)>,
 }
 
-/// Finishes a run from its transcript when its turn had ended, or marks it lost with `lost`, and returns
-/// the skill edits it made. Pure.
+/// Finishes a run from its transcript when its turn had ended. Otherwise puts it back in the queue, as if it
+/// never started, to carry on in its session, or marks it lost with `lost` once it has been back
+/// `RESTART_RETRIES` times. Returns the skill edits it made. Pure.
 fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<own_skills::FileChange> {
     match claude::transcript_outcome(left.transcript, left.home) {
         Some(o) => {
@@ -471,6 +486,12 @@ fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<own_skills::File
                 });
             }
             run.proposed = claude::office_calls(left.transcript, "mcp__omega__propose_changes").last().and_then(|c| text(c, "plan"));
+        }
+        None if run.restarts < RESTART_RETRIES => {
+            run.state = RunState::Queued;
+            run.started_at = None;
+            run.restarts += 1;
+            run.restarted = true;
         }
         None => {
             run.state = RunState::Lost;
@@ -581,11 +602,21 @@ mod tests {
     }
 
     #[test]
-    fn a_transcript_cut_mid_turn_is_lost() {
+    fn a_transcript_cut_mid_turn_goes_back_to_the_queue() {
         let transcript = [assistant("Reading."), result("Line one.", 1), assistant("Now the second part.")].join("\n");
         let mut r = running();
+        r.limit_retries = 1;
         settle(&mut r, left(&transcript, None), LOST);
-        assert_eq!((r.state, r.error.as_deref(), r.summary), (RunState::Lost, Some(LOST), None));
+        assert_eq!((r.state, r.started_at, r.ended_at, r.error, r.summary), (RunState::Queued, None, None, None, None));
+        assert_eq!((r.restarts, r.restarted, r.limit_retries), (1, true, 1), "it is told it was the restart, not the limit");
+    }
+
+    #[test]
+    fn a_run_cut_off_too_often_is_lost() {
+        let mut r = running();
+        r.restarts = RESTART_RETRIES;
+        settle(&mut r, left(&assistant("Reading."), None), LOST);
+        assert_eq!((r.state, r.error.as_deref(), r.restarts), (RunState::Lost, Some(LOST), RESTART_RETRIES));
     }
 
     #[test]
@@ -610,7 +641,7 @@ mod tests {
         let after = own_skills::snapshot(&dir.join("skills"));
         let mut r = running();
         let changes = settle(&mut r, left("", Some((before, after))), LOST);
-        assert_eq!(r.state, RunState::Lost);
+        assert_eq!(r.state, RunState::Queued, "edits made before the restart are recorded, though the run goes again");
         assert_eq!(changes.len(), 1);
         assert_eq!(r.skill_changes, vec![SkillChange { skill: "tester-notes".into(), file: "SKILL.md".into(), change: ChangeKind::Modified }]);
         let _ = fs::remove_dir_all(&dir);

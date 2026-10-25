@@ -145,6 +145,7 @@ impl Office {
 
     /// Kills every live run (on Quit): children would otherwise outlive the Office.
     pub fn shutdown(&self) {
+        self.0.closing.store(true, Ordering::SeqCst);
         let pids: Vec<u32> = lock(&self.0.active).values_mut().filter_map(|a| {
             a.cancelled = true;
             a.pid
@@ -160,6 +161,9 @@ impl Office {
     /// conversations with you run beside it and never wait for the cap (`Run::uncapped`). Delegated runs
     /// whose parent is running bypass the cap too: the parent is blocked on them, so capping them could deadlock.
     pub(super) fn pump(&self) {
+        if self.0.closing.load(Ordering::SeqCst) {
+            return;
+        }
         let (started, dropped) = match self.claim_runnable() {
             Ok(v) => v,
             Err(e) => {
@@ -432,6 +436,10 @@ impl Office {
 
     async fn execute(self, mut run: Run) {
         let ended = self.drive(&run).await;
+        // Quit killed it: saved as cancelled it would report back and never carry on, so the next start settles it.
+        if self.0.closing.load(Ordering::SeqCst) {
+            return;
+        }
         let (cancelled, needs_you, cards, score, proposed, verdict) =
             lock(&self.0.active).remove(&run.id).map(|a| (a.cancelled, a.needs_you, a.cards, a.score, a.proposed, a.verdict)).unwrap_or_default();
         run.needs_you.extend(needs_you);
@@ -951,6 +959,7 @@ fn reset_for_requeue(run: &mut Run, changes: &[SkillChange]) {
     run.duration_ms = None;
     run.denials.clear();
     run.limit_retries += 1;
+    run.restarted = false;
     run.skill_changes.extend(changes.iter().cloned());
 }
 
@@ -1428,6 +1437,8 @@ mod tests {
         run.started_at = Some(now());
         run.summary = Some("You have hit your limit.".into());
         run.denials = vec![Denial { tool: "Bash".into(), brief: "ls".into(), suggested_rule: "Bash(ls:*)".into() }];
+        run.restarts = 1;
+        run.restarted = true;
         db.save_run(&run).unwrap();
 
         let fc = own_skills::FileChange {
@@ -1444,10 +1455,37 @@ mod tests {
 
         let saved = db.run(&run.id).unwrap().unwrap().run;
         assert_eq!((saved.state, saved.limit_retries, saved.started_at, saved.summary), (RunState::Queued, 1, None, None));
+        assert_eq!((saved.restarts, saved.restarted), (1, false), "it is told it was the limit, not the earlier restart");
         assert!(saved.denials.is_empty());
         assert_eq!(saved.skill_changes.len(), 1);
         assert_eq!(db.revisions(&e.id).unwrap().iter().filter(|r| r.run_id.as_deref() == Some(run.id.as_str())).count(), 1);
         drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_run_cut_off_by_a_restart_carries_on_without_reporting_back() {
+        let dir = std::env::temp_dir().join(format!("omegastar-restart-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let ada = employee(Clearance::Supervised);
+        let child = {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.save_employee(&ada).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+            let parent = finished(&db, &ada, task("Plan the launch"), 30, "s1", "Handed the post over.");
+            let mut child = Run::new(&ada.id, RunKind::Delegated { parent_run_id: parent.id.clone() }, "Draft the launch post.".into(), now());
+            assert!(db.insert_run(&child, &child.id).unwrap());
+            child.state = RunState::Running;
+            child.started_at = Some(now());
+            db.save_run(&child).unwrap();
+            child
+        };
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let saved = office.run(&child.id).unwrap();
+        assert_eq!((saved.state, saved.restarts, saved.restarted, saved.delivered_at), (RunState::Queued, 1, true, None));
+        let runs = office.runs(None, 100).unwrap();
+        assert!(!runs.iter().any(|r| matches!(r.kind, RunKind::Answered { .. })), "it reports back when it really ends: {runs:?}");
+        drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
 
