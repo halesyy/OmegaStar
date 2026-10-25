@@ -1950,4 +1950,14 @@ mod tests {
         let task: RunKind = serde_json::from_value(json!({ "type": "task", "label": "Draft it", "from": "your chat", "context": "- 2:15 pm, Pat: Hi.\n" })).unwrap();
         assert_eq!(task, RunKind::Task { label: "Draft it".into(), from: Some("your chat".into()), context: "- 2:15 pm, Pat: Hi.\n".into() });
     }
+
+    #[test]
+    fn a_proxy_key_goes_in_a_header_so_runs_keep_the_claude_ai_sign_in() {
+        let proxy = ProxySettings { url: "http://127.0.0.1:8317".into(), api_key: "k1".into(), management_key: String::new() };
+        let env = |vars: &[(&str, &str)]| vars.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>();
+        assert_eq!(proxy.env(), env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8317"), ("ANTHROPIC_CUSTOM_HEADERS", "x-api-key: k1")]));
+        let keyless = ProxySettings { api_key: String::new(), ..proxy };
+        assert_eq!(keyless.env(), env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8317")]));
+        assert!(ProxySettings::default().env().is_empty());
+    }
 }
