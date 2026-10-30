@@ -675,6 +675,11 @@ mod tests {
     }
 
     #[test]
+    fn the_skill_craft_has_no_em_dash() {
+        assert!(!CRAFT.contains('\u{2014}'));
+    }
+
+    #[test]
     fn company_page_is_seeded_once() {
         let dir = temp_dir();
         seed_company_page(&dir).unwrap();

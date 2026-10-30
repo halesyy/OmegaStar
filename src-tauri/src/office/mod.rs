@@ -157,7 +157,8 @@ struct Inner {
     closing: AtomicBool,
     /// When you last saved the company page in You. The save writes no revision, so a run's guard asks here.
     company_saved: Mutex<Option<Ts>>,
-    /// Rate limits in a row since a run last succeeded: each new hold for one waits longer (`runs::backoff`).
+    /// Rate limits in a row since a run last succeeded: each new hold for one waits longer (`runs::backoff`). Kept in
+    /// the store with `transient_hold` (`save_rate_limits`), so a restart keeps both.
     transient_limits: AtomicU32,
     /// The hold on work is for a rate limit, which a usage probe cannot see end: only its own time ends it.
     transient_hold: AtomicBool,
@@ -219,6 +220,7 @@ impl Office {
         }
         let store = Store::open(&data_dir.join("office.db"))?;
         let held_until = store.held_until().ok().flatten().filter(|t| *t > now());
+        let (rate_limits, rate_hold) = store.rate_limits().unwrap_or_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
         let office = Office(Arc::new(Inner {
@@ -240,8 +242,8 @@ impl Office {
             awake: AtomicBool::new(true),
             closing: AtomicBool::new(false),
             company_saved: Mutex::new(None),
-            transient_limits: AtomicU32::new(0),
-            transient_hold: AtomicBool::new(false),
+            transient_limits: AtomicU32::new(rate_limits),
+            transient_hold: AtomicBool::new(rate_hold && held_until.is_some()),
             disk_full: AtomicBool::new(false),
         }));
         office.adopt_chat_turns()?;
@@ -523,9 +525,12 @@ struct Leftover<'a> {
 
 /// Finishes a run from its transcript when its turn had ended. Otherwise puts it back in the queue, as if it
 /// never started, to carry on in its session, or marks it lost with `lost` once it has been back
-/// `RESTART_RETRIES` times. Returns the skill edits it saw, its own being those its calls wrote. Pure.
+/// `RESTART_RETRIES` times. A run back in the queue before is judged by its last attempt's lines alone
+/// (`Run::attempt_from`): an earlier attempt's result, such as the limit that sent it back, is not how this one
+/// ended. Returns the skill edits it saw, its own being those its calls wrote. Pure.
 fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<runs::Seen> {
-    match claude::transcript_outcome(left.transcript, left.home) {
+    let attempt = left.transcript.get(run.attempt_from as usize..).unwrap_or(left.transcript);
+    match claude::transcript_outcome(attempt, left.home) {
         Some(o) => {
             let (state, error) = runs::state_of(&o, left.stderr_tail);
             let ended = left.modified.unwrap_or(left.now);
@@ -558,6 +563,7 @@ fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<runs::Seen> {
             run.started_at = None;
             run.restarts += 1;
             run.restarted = true;
+            run.attempt_from = left.transcript.len() as u64;
         }
         None => {
             run.state = RunState::Lost;
@@ -725,6 +731,29 @@ mod tests {
         settle(&mut r, left(&transcript, None), LOST);
         assert_eq!((r.state, r.started_at, r.ended_at, r.error, r.summary), (RunState::Queued, None, None, None, None));
         assert_eq!((r.restarts, r.restarted, r.limit_retries), (1, true, 1), "it is told it was the restart, not the limit");
+    }
+
+    #[test]
+    fn a_requeued_run_is_judged_by_its_last_attempt_alone() {
+        let limited = json!({ "type": "result", "subtype": "success", "is_error": true, "num_turns": 1, "duration_ms": 500,
+            "result": "API Error: Server is temporarily limiting requests.", "permission_denials": [], "api_error_status": 429 })
+        .to_string();
+        let first = format!("{}\n{limited}\n", assistant("Reading."));
+        // The limit sent it back to the queue, and Omega Star stopped before its next attempt wrote a line.
+        let mut r = running();
+        r.limit_retries = 1;
+        r.attempt_from = first.len() as u64;
+        settle(&mut r, left(&first, None), LOST);
+        assert_eq!((r.state, r.error, r.restarts), (RunState::Queued, None, 1), "the 429 was the last attempt's, not this one's");
+        assert_eq!(r.attempt_from, first.len() as u64, "its next attempt starts after it");
+
+        // An attempt that ended is finished from its own lines.
+        let both = format!("{first}{}\n{}", assistant("Reading again."), result("Swept the inbox.", 2));
+        let mut r = running();
+        r.limit_retries = 1;
+        r.attempt_from = first.len() as u64;
+        settle(&mut r, left(&both, None), LOST);
+        assert_eq!((r.state, r.summary.as_deref(), r.turns), (RunState::Succeeded, Some("Swept the inbox."), Some(2)));
     }
 
     #[test]

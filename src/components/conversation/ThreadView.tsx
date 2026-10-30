@@ -5,7 +5,7 @@ import { dateLong, firstName, relTime, whenShort } from "../../lib/format";
 import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
 import { snoozePresets } from "../../lib/status";
 import { toast } from "../../lib/toasts";
-import { didNotFinish, flags, isLive, startedByYou } from "../../lib/threads";
+import { didNotFinish, flags, isLive, isOpen, startedByYou } from "../../lib/threads";
 import { RunCards } from "./CardView";
 import { RowHistory } from "./RowHistory";
 import { BlockedCard } from "../BlockedCard";
@@ -142,8 +142,8 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   );
 }
 
-/** The run has a card still waiting on your answer. */
-const waiting = (run: Run) => run.cards.some((c) => !c.answer);
+/** The run has a card still waiting on your answer. News waits on nothing. */
+const waiting = (run: Run) => run.cards.some(isOpen);
 
 /** What Omega Star flagged on a run, apart from its cards. */
 function Flags({ run }: { run: Run }) {

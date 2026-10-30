@@ -319,9 +319,9 @@ pub fn going_on(t: &Thread) -> bool {
 
 /// A conversation you are in: one going on (`going_on`) that you started (an older build's chat message an
 /// answer came back into too) or typed into. Turns Omega Star wrote from a tap (a card's answer, an approval)
-/// alone do not make one.
+/// alone do not make one, nor do questions you asked about a card (`Run::about_card`).
 pub fn talking(t: &Thread) -> bool {
-    going_on(t) && (matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || t.replies.iter().any(|r| !r.omega_wrote))
+    going_on(t) && (matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || t.replies.iter().any(|r| !r.omega_wrote && !r.about_card))
 }
 
 /// A row as `view` shows it: the thread it is about, with its other threads in `related`, oldest first.

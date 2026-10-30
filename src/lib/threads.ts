@@ -75,21 +75,25 @@ export function isTeamWeek(t: Thread): boolean {
 /** A card waiting on your answer: the run that asked it and its index in the run's `cards`. */
 export type OpenCard = { run: Run; index: number; card: Card };
 
-/** The cards in a thread waiting on your answer, newest run first. */
+/** The card waits on your answer. News waits on nothing: unseen, it holds back no answer and no Archive. Mirrors Rust
+ *  `Card::is_open`. */
+export const isOpen = (c: Card): boolean => !c.answer && c.ask.type !== "news";
+
+/** The cards in a thread you have not answered, news you have not seen included, newest run first. */
 export const openCards = (t: Thread): OpenCard[] =>
   [...t.replies].reverse().concat(t.root).flatMap((run) => run.cards.flatMap((card, index) => (card.answer ? [] : [{ run, index, card }])));
 
 /** A conversation you are in: one going on (not archived, with replies) that you started or typed into. Turns Omega
  *  Star wrote from a tap alone do not make one. Mirrors Rust `threads::talking`. */
 export const talking = (t: Thread): boolean =>
-  !t.root.archivedAt && t.replies.length > 0 && (isTask(t) || t.replies.some((r) => !r.omegaWrote));
+  !t.root.archivedAt && t.replies.length > 0 && (isTask(t) || t.replies.some((r) => !r.omegaWrote && !r.aboutCard));
 
 /** A card waiting on you holds up Archive on `thread`, a thread of the Inbox row `row`: a card in the thread itself, or
  *  in another member Archive would file with it. Another conversation you are in goes on in its own chip, so a card
- *  there does not. Mirrors Rust `Office::set_archived`. */
+ *  there does not, and news never does. Mirrors Rust `Office::set_archived`. */
 export const doneHeld = (thread: Thread, row: Thread): boolean =>
-  openCards(thread).length > 0
-  || rowThreads(row).some((x) => x.root.id !== thread.root.id && !talking(x) && openCards(x).length > 0);
+  openCards(thread).some((c) => isOpen(c.card))
+  || rowThreads(row).some((x) => x.root.id !== thread.root.id && !talking(x) && openCards(x).some((c) => isOpen(c.card)));
 
 /** Archive can file `thread`, a thread of the Inbox row `row`, now: it is not working and no card holds it up. */
 export const archivable = (thread: Thread, row: Thread): boolean => !threadBusy(thread) && !doneHeld(thread, row);

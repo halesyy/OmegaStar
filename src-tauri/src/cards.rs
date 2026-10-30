@@ -324,12 +324,12 @@ pub const REJECTED: &str = "No. Do not do it, and do not ask again.";
 /// What Later tells the employee: busy, not a no, and the day the card comes back to you by itself.
 pub fn later_text(ceo: &str, until: Ts) -> String {
     let day = until.with_timezone(&Local).format("%A, %-d %B");
-    format!("Not now: {ceo} is busy, not a no. The card comes back to them on {day} by itself. Leave it as it is.")
+    format!("Later: {ceo} is busy, not a no. The card comes back to them on {day} by itself. Leave it as it is.")
 }
 
 /// What Later tells the employee about a card that came back once already: it is parked.
 pub fn parked_text(ceo: &str) -> String {
-    format!("Not now again: {ceo} parked it in their Parked list. It no longer comes back by itself.")
+    format!("Later again: {ceo} parked it in their Parked list. It no longer comes back by itself.")
 }
 
 /// 9 am on the day after `at`, on your local calendar: when Not now on a decision brings it back.
@@ -340,10 +340,10 @@ pub fn tomorrow_morning(at: Ts) -> Ts {
 
 /// Puts your `reply` on `card` at `at`, as the employee is to hear it (`answer_text`). Later, and Not now on anything but
 /// a chore (Later until 9 am tomorrow), sets when the card comes back, or parks it once it came back already. Any answer
-/// on a parked card takes the place of its Not now. A proposal's own answers say what Omega Star did with it. When the
-/// answer does not fit, the card is left as it was.
+/// on a card put off with Later (`Card::put_off`), waiting to come back or parked, takes the place of its Later. A
+/// proposal's own answers say what Omega Star did with it. When the answer does not fit, the card is left as it was.
 pub fn answer(card: &mut Card, reply: &CardReply, ceo: &str, at: Ts) -> Result<()> {
-    if card.answer.is_some() && !card.parked {
+    if !card.waiting() {
         return Err(AppError::conflict("That card was already answered."));
     }
     let later = match reply {
@@ -673,13 +673,18 @@ mod tests {
         let a = c.answer.clone().unwrap();
         assert_eq!((a.how, a.text.as_str(), c.back_at, c.parked), (AnswerHow::Dismissed, later_text("Pat", until).as_str(), Some(until), false));
         let day = until.with_timezone(&Local).format("%A, %-d %B").to_string();
-        assert_eq!(a.text, format!("Not now: Pat is busy, not a no. The card comes back to them on {day} by itself. Leave it as it is."));
-        assert_eq!(answer(&mut c, &CardReply::Choice { index: 0 }, "Pat", at).unwrap_err().message, "That card was already answered.");
+        assert_eq!(a.text, format!("Later: Pat is busy, not a no. The card comes back to them on {day} by itself. Leave it as it is."));
+        // Put off, it still waits: an answer before its day takes the place of Later, so it never comes back.
+        let mut early = c.clone();
+        answer(&mut early, &CardReply::Choice { index: 0 }, "Pat", at).unwrap();
+        assert_eq!((early.answer.clone().map(|a| (a.how, a.text)), early.back_at), (Some((AnswerHow::Tapped, "Chose: Book it.".into())), None));
+        assert_eq!(answer(&mut early, &CardReply::Choice { index: 0 }, "Pat", at).unwrap_err().message, "That card was already answered.");
 
         // It came back once, so Later parks it.
         (c.answer, c.back_at, c.times_back) = (None, None, 1);
         answer(&mut c, &CardReply::Later { until }, "Pat", at).unwrap();
         assert_eq!((c.answer.as_ref().map(|a| a.text.clone()), c.back_at, c.parked), (Some(parked_text("Pat")), None, true));
+        assert_eq!(parked_text("Pat"), "Later again: Pat parked it in their Parked list. It no longer comes back by itself.");
         assert_eq!(answer(&mut c, &CardReply::Later { until }, "Pat", at).unwrap_err().message, "That card is parked already: answer it, or leave it in Parked.");
         answer(&mut c, &CardReply::Choice { index: 0 }, "Pat", at).unwrap();
         assert_eq!((c.answer.as_ref().map(|a| (a.how, a.text.clone())), c.parked), (Some((AnswerHow::Tapped, "Chose: Book it.".into())), false), "any answer takes its place");
@@ -694,6 +699,12 @@ mod tests {
         let mut chore = Card::new("Reconnect Chrome.", None, None, CardAsk::Chore { subject: CHROME.into(), url: None });
         answer(&mut chore, &CardReply::Dismiss, "Pat", at).unwrap();
         assert_eq!((chore.answer.as_ref().map(|a| a.text.as_str()), chore.back_at), (Some(""), None), "a chore's Not now sends nothing and never comes back");
+    }
+
+    #[test]
+    fn no_card_text_has_an_em_dash() {
+        // Every text here reaches an employee or you: the answers, Later's words, and what a card that does not fit says.
+        assert!(!include_str!("cards.rs").contains('\u{2014}'));
     }
 
     #[test]

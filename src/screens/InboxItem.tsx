@@ -8,12 +8,12 @@ import { lastMoved, useMarkSeen } from "../lib/marks";
 import { openMember } from "../lib/router";
 import { toolName } from "../lib/rules";
 import { toast } from "../lib/toasts";
-import { activityAt, archivable, didNotFinish, doneHeld, isTeamWeek, latestFinished, rowThreads, STREAK, threadBusy, threadFocus, type OpenCard } from "../lib/threads";
+import { activityAt, archivable, didNotFinish, doneHeld, isLive, isOpen, isTeamWeek, latestFinished, rowThreads, STREAK, threadBusy, threadFocus, type OpenCard } from "../lib/threads";
 import { Icon } from "../components/Icon";
 import { Markdown } from "../components/Markdown";
 import { Avatar, Popover } from "../components/ui";
 import { kindNames } from "../components/RunRow";
-import { answerCard, CardList, CardView } from "../components/conversation/CardView";
+import { answerCard, CardList, CardView, usePendingAnswers } from "../components/conversation/CardView";
 import { lines } from "../components/conversation/RowHistory";
 import { DoneButton, RetryButton, SnoozeButton, ThreadView } from "../components/conversation/ThreadView";
 import type { Item } from "../components/conversation/useStatuses";
@@ -72,8 +72,10 @@ function ask(d: Decision<Item>, who: string, name: string | null): { title: stri
   switch (d.type) {
     case "card": {
       if (d.cards.length === 1) return { title: d.cards[0].card.message, why: d.cards[0].card.why };
+      // News asks nothing, so they do not wait for it.
       const answered = d.cards.filter((c) => c.card.answer).length;
-      return { title: `${d.cards.length} questions`, why: `${answered} of ${d.cards.length} answered. ${who} hears your answers together, once all are in.` };
+      const asked = answered + d.cards.filter((c) => isOpen(c.card)).length;
+      return { title: `${d.cards.length} questions`, why: asked > 1 ? `${answered} of ${asked} answered. ${who} hears your answers together, once all are in.` : null };
     }
     case "flag":
       return r.kind.type === "tidy" && r.proposed && !r.approvedAt
@@ -97,7 +99,8 @@ function ask(d: Decision<Item>, who: string, name: string | null): { title: stri
 /** One decision in the Inbox: who, what about, the question, why it matters, the report behind it on request, and the
  *  buttons that answer it. It opens in place into its whole thread, or for runs that didn't finish together into the
  *  list of them. Hovering shows Later (Wake now while it is away; a card has a Later of its own) and the way to the
- *  employee's panel. `settled`: it left while the pointer was over the list, so it keeps its place, faded. */
+ *  employee's panel. `settled`: it left while the pointer was over the list, so it keeps its place, faded and inert,
+ *  without its card's buttons, which would offer it again once its answer is no longer on its way. */
 export function DecisionItem({ d, employees, people, open, onToggle, actions, settled = false }: {
   d: Decision<Item>;
   employees: EmployeeView[];
@@ -138,9 +141,11 @@ export function DecisionItem({ d, employees, people, open, onToggle, actions, se
           </span>
           {why ? <span className="item-why">{why}</span> : null}
           {report ? <ReportPreview text={report} /> : null}
-          <div className="dec-answer" onClick={(ev) => ev.stopPropagation()}>
-            <Answer d={d} e={e} busy={busy} employees={employees} actions={actions} />
-          </div>
+          {settled && d.type === "card" ? null : (
+            <div className="dec-answer" onClick={(ev) => ev.stopPropagation()}>
+              <Answer d={d} e={e} busy={busy} employees={employees} actions={actions} />
+            </div>
+          )}
         </div>
         <div className="item-side">
           {settled ? <span className="faint item-when"><Icon name="check" size={12} /> Cleared</span> : (
@@ -167,30 +172,35 @@ export function DecisionItem({ d, employees, people, open, onToggle, actions, se
 }
 
 /** The buttons that answer a decision. A card is answered on the card: a run's several questions as a short list
- *  (`CardSet`), and beside a question the cards of others asking it with other choices. Anything that is not a card or
+ *  (`CardSet`), and under a question the cards of others asking it with other choices. Anything that is not a card or
  *  a block is dealt with by reading it, so Archive; while a card Archive would settle is open (`doneHeld`), it waits for
  *  the card instead. A run that didn't finish can be tried again, unless it is a routine failing time after time, which
- *  its next run tries anyway; runs that didn't finish on the same error are tried again, or archived, all together. */
+ *  its next run tries anyway; runs that didn't finish on the same error are tried again, or archived, all together. A
+ *  tidy's proposal is approved here until you approve it: asking about it decides nothing, and until you ask, Approve
+ *  is all it offers. */
 function Answer({ d, e, busy, employees, actions }: { d: Decision<Item>; e: EmployeeView; busy: boolean; employees: EmployeeView[]; actions: ItemActions }) {
   const who = firstName(e.name);
   if (d.type === "card") {
-    if (d.cards.length > 1) return <CardSet d={d} e={e} actions={actions} />;
     const c = d.cards[0];
     return (
       <>
-        <CardView card={c.card} runId={c.run.id} index={c.index} e={e} onAnswer={(reply) => actions.answer(c.run, c.index, reply)} />
+        {d.cards.length > 1
+          ? <CardSet d={d} e={e} actions={actions} />
+          : <CardView card={c.card} runId={c.run.id} index={c.index} e={e} working={isLive(c.run)} onAnswer={(reply) => actions.answer(c.run, c.index, reply)} />}
         {d.differ.length ? <OtherChoices cards={d.differ} employees={employees} actions={actions} /> : null}
       </>
     );
   }
   if (d.type === "blocked") return <Allow run={d.run} who={who} />;
-  if (d.type === "flag" && d.run.kind.type === "tidy" && d.run.proposed && !d.run.approvedAt) return <ApproveTidy run={d.run} who={who} />;
   if (d.type === "failures") return <RetryAll d={d} onArchive={actions.done} />;
-  const retry = d.type === "broken" && d.thread.root.kind.type !== "scheduled";
-  const done = !doneHeld(d.thread, d.item.thread);
-  if (!retry && !done) return null;
+  const root = d.thread.root;
+  const approve = root.kind.type === "tidy" && !!root.proposed && !root.approvedAt && !root.archivedAt;
+  const retry = d.type === "broken" && root.kind.type !== "scheduled";
+  const done = !(approve && d.type === "flag") && !doneHeld(d.thread, d.item.thread);
+  if (!approve && !retry && !done) return null;
   return (
     <div className="card-choices">
+      {approve ? <ApproveTidy run={root} who={who} /> : null}
       {retry ? <RetryButton run={d.run} name={who} disabled={busy} /> : null}
       {done ? <DoneButton name={who} disabled={busy} onDone={actions.done} /> : null}
     </div>
@@ -198,10 +208,13 @@ function Answer({ d, e, busy, employees, actions }: { d: Decision<Item>; e: Empl
 }
 
 /** A run's several questions as a short list, each with the answer its employee recommends; a click shows that card,
- *  to answer it there. Answer all recommended sends each choice card its recommended choice, once you confirm. */
+ *  to answer it there. Answer all recommended sends each choice card its recommended choice, once you confirm, leaving
+ *  out news, which asks nothing, and the cards you answered yourself that are still on their way. While the run is
+ *  still working, nothing is answered yet. */
 function CardSet({ d, e, actions }: { d: CardDecision<Item>; e: EmployeeView; actions: ItemActions }) {
   const [shown, setShown] = useState<number | null>(null);
-  const open = d.cards.filter((c) => !c.card.answer);
+  const going = usePendingAnswers();
+  const open = d.cards.filter((c) => isOpen(c.card) && !isLive(c.run) && !going.some((p) => p.runId === c.run.id && p.index === c.index));
   const all = open.filter((c) => recommended(c.card));
   return (
     <div className="card-set">
@@ -220,7 +233,7 @@ function CardSet({ d, e, actions }: { d: CardDecision<Item>; e: EmployeeView; ac
               {on ? (
                 <div className="card-ask">
                   {c.card.why ? <div className="card-why">{c.card.why}</div> : null}
-                  <CardView card={c.card} runId={c.run.id} index={c.index} e={e} onAnswer={(reply) => actions.answer(c.run, c.index, reply)} />
+                  <CardView card={c.card} runId={c.run.id} index={c.index} e={e} working={isLive(c.run)} onAnswer={(reply) => actions.answer(c.run, c.index, reply)} />
                 </div>
               ) : null}
             </li>
@@ -257,7 +270,7 @@ function OtherChoices({ cards, employees, actions }: { cards: OpenCard[]; employ
           <div key={`${c.run.id}:${c.index}`} className="card-ask">
             <div className="card-q"><span className="muted">{firstName(e.name)} asks:</span> {c.card.message}</div>
             {c.card.why ? <div className="card-why">{c.card.why}</div> : null}
-            <CardView card={c.card} runId={c.run.id} index={c.index} e={e} onAnswer={(reply) => actions.answer(c.run, c.index, reply)} />
+            <CardView card={c.card} runId={c.run.id} index={c.index} e={e} working={isLive(c.run)} onAnswer={(reply) => actions.answer(c.run, c.index, reply)} />
           </div>
         );
       })}
@@ -315,7 +328,8 @@ function AnswerAll({ label, who, cards, left = 0, align = "end", onConfirm }: {
 }
 
 /** One employee's choice cards about the same thing under one heading, with Approve all recommended. `live`: those
- *  still waiting on you; the rest left while the pointer was over the list and keep their place. */
+ *  still waiting on you; the rest left while the pointer was over the list and keep their place. Approve all leaves out
+ *  a card you answered yourself that is still on its way, and one whose run is still working. */
 export function DecisionGroup({ g, employees, live, onApprove, children }: {
   g: Group<Item>;
   employees: EmployeeView[];
@@ -323,10 +337,11 @@ export function DecisionGroup({ g, employees, live, onApprove, children }: {
   onApprove: (cards: OpenCard[]) => Promise<void>;
   children: ReactNode;
 }) {
+  const going = usePendingAnswers();
   const e = employees.find((x) => x.id === g.employeeId);
   const who = e ? firstName(e.name) : "Someone";
   const what = `${live.length} ${live.length === 1 ? "decision" : "decisions"} about ${g.about}`;
-  const cards = live.map((d) => d.cards[0]);
+  const cards = live.map((d) => d.cards[0]).filter((c) => !isLive(c.run) && !going.some((p) => p.runId === c.run.id && p.index === c.index));
   return (
     <div className="dec-group" role="group" aria-label={`${who}: ${what}`}>
       <div className={`dec-group-head ${live.length ? "" : "item-settled"}`}>
@@ -394,11 +409,7 @@ function ApproveTidy({ run, who }: { run: Run; who: string }) {
       setBusy(false);
     }
   };
-  return (
-    <div className="card-choices">
-      <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void approve()}><Icon name="check" size={12} /> Approve</button>
-    </div>
-  );
+  return <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void approve()}><Icon name="check" size={12} /> Approve</button>;
 }
 
 /** Retry all and Archive all, for runs that didn't finish on the same error. Each retry carries on where it stopped. */
@@ -407,8 +418,10 @@ function RetryAll({ d, onArchive }: { d: Failures; onArchive: () => Promise<void
   const retry = async () => {
     setTrying(true);
     const tries = await Promise.allSettled(d.failures.map((f) => call("retry_run", { runId: f.run.id })));
-    const went = tries.filter((t) => t.status === "fulfilled").length;
-    const failed = tries.find((t) => t.status === "rejected");
+    // An answer Omega Star already sent again is on its way: nothing to retry, and nothing went wrong.
+    const again = (t: PromiseSettledResult<unknown>) => t.status === "rejected" && /already went again/.test(errorMessage(t.reason));
+    const went = tries.filter((t) => t.status === "fulfilled" || again(t)).length;
+    const failed = tries.find((t) => t.status === "rejected" && !again(t));
     if (went) toast(`Trying ${went === 1 ? "1 run" : `${went} runs`} again`, "ok");
     if (failed?.status === "rejected") toast(errorMessage(failed.reason), "err");
     if (!went) setTrying(false);
@@ -458,6 +471,7 @@ export function ParkedItem({ run, employees, people }: { run: Run; employees: Em
   const cards = run.cards.flatMap((card, index) => (card.parked ? [{ card, index }] : []));
   const answer = async (index: number, reply: CardReply) => { await answerCard(run, index, reply, who); };
   const one = cards.length === 1 ? cards[0] : null;
+  const working = isLive(run);
   const at = run.endedAt ?? run.createdAt;
   return (
     <article className="item dec" data-entry={run.id} tabIndex={-1} aria-label={`${who}: ${one ? one.card.message : `${cards.length} questions`}`}>
@@ -470,8 +484,8 @@ export function ParkedItem({ run, employees, people }: { run: Run; employees: Em
           {run.summary ? <ReportPreview text={run.summary} /> : null}
           <div className="dec-answer">
             {one
-              ? <CardView card={one.card} runId={run.id} index={one.index} e={e} onAnswer={(reply) => answer(one.index, reply)} />
-              : <div className="card-set"><CardList runId={run.id} cards={cards} e={e} onAnswer={answer} /></div>}
+              ? <CardView card={one.card} runId={run.id} index={one.index} e={e} working={working} onAnswer={(reply) => answer(one.index, reply)} />
+              : <div className="card-set"><CardList runId={run.id} cards={cards} e={e} working={working} onAnswer={answer} /></div>}
           </div>
         </div>
         <div className="item-side"><span className="faint item-when" title={dateLong(at)}>{relTime(at)}</span></div>

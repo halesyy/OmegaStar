@@ -101,7 +101,7 @@ async fn call(office: &Office, token: &str, name: &str, args: &Value) -> Result<
         "move_skill" => office.move_skill_tool(&me, s("from"), s("to")),
         "retire_skill" => office.retire_skill_tool(&run_id, &me, s("name")),
         "show" => office.show_tool(&run_id, args),
-        "open" => office.open_tool(&me, s("target")),
+        "open" => office.open_tool(&run_id, &me, s("target")),
         "name_thread" => office.name_thread_tool(&run_id, s("title")),
         _ => Err(AppError::invalid(format!("unknown tool '{name}'"))),
     }
@@ -194,7 +194,7 @@ fn tools() -> Value {
         },
         {
             "name": "open",
-            "description": "Open something on the screen of the person you work for, when they ask to see it: a file in its app, a folder in a window, or a web page in their browser. A file that could run a program is shown in its folder instead. Pass a full path in your folder, one of your workspaces or the folder that holds the company page, or an https link. Returns whether it opened.",
+            "description": "Open something on the screen of the person you work for, when they ask to see it: a file in its app, a folder in a window, or a web page in their browser. It works only in a conversation they are in; anywhere else, put the link on your card instead, such as a sign-in page in the chore's url. A file that could run a program is shown in its folder instead. Pass a full path in your folder, one of your workspaces or the folder that holds the company page, or an https link. Returns whether it opened.",
             "inputSchema": obj(json!({
                 "target": { "type": "string", "description": "The full path of a file or folder, or an https link, e.g. 'https://acme.example/sign-in'." }
             }), &["target"]),
@@ -240,7 +240,7 @@ fn tools() -> Value {
         },
         {
             "name": "check_later",
-            "description": "Set yourself a check: something you must find out or do later and cannot now (a change that needs a day to show up, a follow-up you promised). On its due date Omega Star starts a quiet run of yours with what and how as its instruction, whether or not anything else runs; set in a conversation that is still open, it comes back into that conversation. Use it for anything you will do later, instead of writing 'I'll check' in a report or 'verify later' in a skill or notes file. Max 20 open at once.",
+            "description": "Set yourself a check: something you must find out or do later and cannot now (a change that needs a day to show up, a follow-up you promised). On its due date Omega Star starts a quiet run of yours with what and how as its instruction, whether or not anything else runs; set in a conversation that is still open, it comes back into that conversation. Do what you can now: use it only for what must wait for time to pass, instead of writing 'I'll check' in a report or 'verify later' in a skill or notes file. Max 20 open at once.",
             "inputSchema": obj(json!({
                 "what": { "type": "string", "description": "What you will find out, in one sentence." },
                 "how": { "type": "string", "description": "Where or how you will look: the command, the page, who to ask. Specific enough that a future run can do it cold." },
@@ -383,4 +383,38 @@ fn tools() -> Value {
             }), &["id", "state"]),
         },
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every string in `v`: the tools' names, descriptions and choices.
+    fn strings(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::String(s) => out.push(s.clone()),
+            Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
+            Value::Object(o) => o.values().for_each(|x| strings(x, out)),
+            _ => {}
+        }
+    }
+
+    fn description(tool: &str) -> String {
+        let tools = tools();
+        let t = tools.as_array().unwrap().iter().find(|t| t["name"] == tool).unwrap();
+        t["description"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn no_tool_text_has_an_em_dash_or_the_old_wording() {
+        let mut texts = vec![];
+        strings(&tools(), &mut texts);
+        assert!(texts.len() > 100, "every tool and argument: {}", texts.len());
+        for t in &texts {
+            assert!(!t.contains('\u{2014}'), "{t}");
+            assert!(!t.to_lowercase().contains("anything you will do later"), "{t}");
+        }
+        assert!(description("check_later").contains("Do what you can now: use it only for what must wait for time to pass"));
+        assert!(description("open").contains("It works only in a conversation they are in; anywhere else, put the link on your card instead, such as a sign-in page in the chore's url."));
+    }
 }

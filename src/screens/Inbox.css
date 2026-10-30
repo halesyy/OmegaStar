@@ -167,6 +167,9 @@
 .card-items-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; border-top: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm); }
 .card-kbd { margin-left: 6px; font-size: var(--t-xs); opacity: 0.55; }
 .card-answered { margin: 4px 0 12px; font-size: var(--t-sm); color: var(--muted); }
+/* Above the answers of a card whose run is still working: they wait until it finishes. */
+.card-wait { margin: 0 0 6px; font-size: var(--t-sm); color: var(--muted); }
+.card-ask .card-wait { margin-top: 6px; }
 /* Under an open card: your answer in your own words, or a question that leaves it open. */
 .card-text { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .card-text .input { height: 28px; font-size: var(--t-sm); }

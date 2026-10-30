@@ -404,8 +404,14 @@ fn one_liner(text: &str) -> bool {
 /// Joins two result segments of one run: a message steered into a working turn ends it with a result
 /// of its own, and so does a background task's notice the run answers after its turn. A trailing one-liner
 /// is added to a real report instead of replacing it, and so is what answered a notice: the report that
-/// answered you stays first.
+/// answered you stays first. A notice that failed after the report succeeded, a limit included, leaves the run
+/// as the report left it: its work was done.
 pub fn merge_outcome(prev: Outcome, next: Outcome) -> Outcome {
+    if next.notice && !next.ok && prev.ok {
+        let mut denials = prev.denials;
+        denials.extend(next.denials);
+        return Outcome { turns: prev.turns + next.turns, denials, limit: None, ..prev };
+    }
     let text = if next.text.trim().is_empty() {
         prev.text
     } else if (next.notice && !prev.text.trim().is_empty()) || (one_liner(&next.text) && !one_liner(&prev.text)) {
@@ -1053,6 +1059,15 @@ mod tests {
         let long = "y".repeat(250);
         assert_eq!(merge_outcome(outcome(report, 3), outcome(&long, 1)).text, long, "a message you steered in gets its own answer");
         assert_eq!(merge_outcome(outcome("", 1), Outcome { notice: true, ..outcome("Only the notice.", 1) }).text, "Only the notice.");
+
+        // A limit that stops the notice's answer after the report was written keeps the report, and requeues nothing.
+        for limit in [Limit::Transient, Limit::Usage] {
+            let failed = Outcome { ok: false, notice: true, limit: Some(limit), subtype: "error_during_execution".into(), ..outcome("API Error: 429", 1) };
+            let m = merge_outcome(outcome(report, 3), failed);
+            assert_eq!((m.ok, m.limit, m.text.as_str(), m.turns), (true, None, report, 4), "{limit:?}");
+        }
+        let steered = Outcome { ok: false, limit: Some(Limit::Transient), ..outcome("API Error: 429", 1) };
+        assert_eq!(merge_outcome(outcome(report, 3), steered).limit, Some(Limit::Transient), "a message you sent in still needs its answer");
 
         let noticed = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"duration_ms":700,"result":"The sub-agent finished; the report above stands.\nNo changes.","permission_denials":[],"origin":{"kind":"task-notification","producer":"session-task","runId":"bg-1"},"result_index":1,"session_id":"sess-1"}"#;
         let first = MULTI_RESULT.lines().take(2).collect::<Vec<_>>().join("\n");

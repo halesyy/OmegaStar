@@ -222,7 +222,7 @@ impl Office {
         let dir = backup::validate_dir(&settings.dir, self.data_dir())?;
         fs::create_dir_all(&dir).map_err(|e| AppError::invalid(format!("Could not create the backup folder {}: {e}", dir.display())))?;
         let last_bytes = self.db().backup_status()?.unwrap_or_default().last_bytes;
-        backup::make_room(&dir, settings.keep, last_bytes, free_bytes)?;
+        backup::make_room(&dir, settings.keep, last_bytes, free_bytes, backup::on_disk)?;
         let mut stamp = at.with_timezone(&Local);
         while dir.join(backup::file_name(stamp)).exists() {
             stamp += chrono::Duration::seconds(1);
@@ -406,6 +406,7 @@ impl Office {
         if let Err(e) = self.db().set_held_until(next.held_until) {
             log!("could not save the usage hold: {e}");
         }
+        self.save_rate_limits();
         self.sink().usage_updated(&next);
         if new {
             log!("holding work for {} until {}", why.as_str(), until.with_timezone(&Local).format("%Y-%m-%d %H:%M"));
@@ -414,6 +415,15 @@ impl Office {
                 Limit::Usage => self.sink().notify("Waiting for the usage limit", &format!("Work starts again at {time}, when the limit resets.")),
                 Limit::Transient => self.sink().notify("Waiting out a rate limit", &format!("Claude is turning requests away for now, so work starts again at {time}.")),
             }
+        }
+    }
+
+    /// Keeps the rate limits in a row and whether the hold is for one in the store, so a restart keeps the backoff and a
+    /// usage check after it cannot end a rate limit's hold.
+    pub(super) fn save_rate_limits(&self) {
+        let (n, holding) = (self.0.transient_limits.load(Ordering::SeqCst), self.0.transient_hold.load(Ordering::SeqCst));
+        if let Err(e) = self.db().set_rate_limits(n, holding) {
+            log!("could not save the rate limits: {e}");
         }
     }
 

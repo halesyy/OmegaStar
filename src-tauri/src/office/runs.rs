@@ -138,6 +138,10 @@ impl Office {
         match queued {
             Some(r) => {
                 self.sink().run_updated(&r);
+                // As a run's end does: an ask it brought is stamped, and reports an earlier attempt took in are held again.
+                if let Err(e) = self.deliver_answers(&r) {
+                    log!("delivering answers after cancelling run {} failed: {e}", r.id);
+                }
                 self.0.finished.send_modify(|n| *n += 1);
                 self.sink().org_changed();
             }
@@ -173,9 +177,9 @@ impl Office {
     /// Starts every queued run that is free to go, within the global cap. A conversation takes turns (one
     /// run per session at a time), and an employee does one piece of background work at a time, or two if you
     /// allow it (`Employee::lanes`); a colleague's answer or question runs beside it (`fast_lane`), and so do
-    /// their conversations with you, which never wait for the cap (`Run::uncapped`). Delegated runs whose
-    /// parent is running bypass the cap too: the parent is blocked on them, so capping them could deadlock.
-    /// Nothing starts while the disk is nearly full.
+    /// their conversations with you, which never wait for the cap (`Run::uncapped`). A routine never runs twice at
+    /// once, though, whatever the lanes. Delegated runs whose parent is running bypass the cap too: the parent is
+    /// blocked on them, so capping them could deadlock. Nothing starts while the disk is nearly full.
     pub(super) fn pump(&self) {
         if self.0.closing.load(Ordering::SeqCst) || self.disk_full() {
             return;
@@ -227,7 +231,9 @@ impl Office {
                 *working.entry(r.run.employee_id.clone()).or_default() += 1;
             }
             let running_ids: HashSet<String> = running.iter().map(|r| r.run.id.clone()).collect();
-            let mut talking: HashSet<String> = running.iter().filter(|r| r.run.kind.is_conversation()).map(|r| r.run.employee_id.clone()).collect();
+            // Employees with anything going, which a tidy waits out, and the routines going.
+            let mut busy: HashSet<String> = running.iter().map(|r| r.run.employee_id.clone()).collect();
+            let mut routines: HashSet<String> = running.iter().filter_map(|r| routine_of(&r.run.kind)).collect();
             let mut capped = running.iter().filter(|r| !r.run.uncapped()).count();
             let mut started = vec![];
             let mut dropped = vec![];
@@ -246,13 +252,13 @@ impl Office {
                 if r.not_before.is_some_and(|t| t > at) {
                     continue;
                 }
-                if gate(&r, held, account_ok, talking.contains(&r.employee_id), awake) == Gate::Skip {
+                if gate(&r, held, account_ok, busy.contains(&r.employee_id), awake) == Gate::Skip {
                     continue;
                 }
-                let background = !r.kind.is_conversation();
                 let lane = takes_a_lane(&r.kind);
                 let free = working.get(&r.employee_id).copied().unwrap_or(0) < lanes.get(&r.employee_id).copied().unwrap_or(1);
-                if sessions.contains(&session) || (lane && !free) {
+                let routine = routine_of(&r.kind);
+                if sessions.contains(&session) || (lane && !free) || routine.as_ref().is_some_and(|s| routines.contains(s)) {
                     continue;
                 }
                 let exempt = r.uncapped() || r.parent_run_id().map(|p| running_ids.contains(p)).unwrap_or(false);
@@ -269,9 +275,8 @@ impl Office {
                 if lane {
                     *working.entry(r.employee_id.clone()).or_default() += 1;
                 }
-                if !background {
-                    talking.insert(r.employee_id.clone());
-                }
+                busy.insert(r.employee_id.clone());
+                routines.extend(routine);
                 if !r.uncapped() {
                     capped += 1;
                 }
@@ -352,14 +357,14 @@ impl Office {
     /// Your words to a run you are watching from its page. While it works they go straight in, saying who is speaking
     /// unless it is a conversation with you. While it waits to start for the first time they join what it starts with.
     /// Otherwise (it finished, or could not take a message just then) they are your reply in its thread, which is also
-    /// how a conversation turn takes them, as its composer sends them. A run you steered or added to keeps its report
-    /// for you in the Inbox (`Run::steered`).
+    /// how a conversation turn takes them, as its composer sends them. Whichever way they went, a run that is not a
+    /// conversation keeps its report for you in the Inbox (`Run::steered`).
     pub fn steer_run(&self, run_id: &str, text: &str) -> Result<SteerHow> {
         let text = text.trim();
         if text.is_empty() {
             return Err(AppError::invalid("message is empty"));
         }
-        {
+        let watched = {
             let db = self.db();
             let mut run = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
             if !run.kind.is_conversation() {
@@ -383,8 +388,20 @@ impl Office {
                     _ => {}
                 }
             }
-        }
+            !run.kind.is_conversation()
+        };
         let reply = self.reply_to_run(run_id, text, false, vec![])?;
+        // Your words reached it all the same, as your reply in its thread, so its report waits for you too.
+        if watched {
+            let marked = {
+                let db = self.db();
+                let run = db.run(run_id)?.map(|r| r.run).filter(|r| !r.steered).map(|r| Run { steered: true, ..r });
+                run.map(|r| db.save_run(&r).map(|_| r)).transpose()?
+            };
+            if let Some(r) = marked {
+                self.sink().run_updated(&r);
+            }
+        }
         // A run that just started can take it after all: the reply went into it.
         Ok(if reply.id == run_id { SteerHow::Steered } else { SteerHow::Replied })
     }
@@ -549,14 +566,21 @@ impl Office {
 
     async fn execute(self, mut run: Run) {
         let ended = self.drive(&run).await;
+        // It never started, so the news its opening note took in reaches the next run instead.
+        if ended.is_err() {
+            if let Err(e) = self.db().unread_news_of(&run.id) {
+                log!("run {}: could not give back the news it never showed: {e}", run.id);
+            }
+        }
         // Quit killed it: saved as cancelled it would report back and never carry on, so the next start settles it.
         if self.0.closing.load(Ordering::SeqCst) {
             return;
         }
         let (cancelled, needs_you, cards, score, proposed, verdict, title) =
             lock(&self.0.active).remove(&run.id).map(|a| (a.cancelled, a.needs_you, a.cards, a.score, a.proposed, a.verdict, a.title)).unwrap_or_default();
-        // You may have written into it as it worked (`steer_run`), after this copy of it was taken.
-        run.steered |= self.db().run(&run.id).ok().flatten().is_some_and(|r| r.run.steered);
+        if let Some(stored) = self.db().run(&run.id).ok().flatten() {
+            keep_yours(&mut run, &stored.run);
+        }
         run.needs_you.extend(needs_you);
         // Before the limit requeue, so cards raised before the limit stopped the run survive it. The live run
         // started with the run's own cards, so its list holds them all.
@@ -609,8 +633,8 @@ impl Office {
         run.error = error;
         // A rate limit that outlasts the retries breaks the run as any failure does, so it reaches you.
         run.limited = limit == Some(Limit::Usage);
-        if state == RunState::Succeeded {
-            self.0.transient_limits.store(0, Ordering::SeqCst);
+        if state == RunState::Succeeded && self.0.transient_limits.swap(0, Ordering::SeqCst) != 0 {
+            self.save_rate_limits();
         }
         let ended_at = now();
         run.ended_at = Some(ended_at);
@@ -707,6 +731,8 @@ impl Office {
         // Recorded from the attempt that saw them, which `reset_for_requeue` forgets.
         let since = run.started_at.unwrap_or(run.created_at);
         reset_for_requeue(&mut run, &own_changes(&e.changes).collect::<Vec<_>>(), limit);
+        // The next attempt's lines follow this one's, which ended in the limit.
+        run.attempt_from = fs::metadata(self.run_dir(&run.id).join("transcript.jsonl")).map_or(0, |m| m.len());
         let saved = {
             let db = self.db();
             db.tx(|| {
@@ -1245,6 +1271,13 @@ struct Ended {
     cost: Option<f64>,
 }
 
+/// What you did to a run while it worked, after the copy its end holds was taken: you wrote into it (`steer_run`), or
+/// replied in its thread (`reply_to_run`). Kept when its end saves that copy over `stored`. Pure.
+fn keep_yours(run: &mut Run, stored: &Run) {
+    run.steered |= stored.steered;
+    run.replied_at = run.replied_at.max(stored.replied_at);
+}
+
 /// A colleague's answer coming back, and a colleague's question (not a task): short runs that never wait behind
 /// their employee's other background work, though they still keep to the cap and to their session. Pure.
 pub(super) fn fast_lane(kind: &RunKind) -> bool {
@@ -1256,6 +1289,15 @@ pub(super) fn takes_a_lane(kind: &RunKind) -> bool {
     !kind.is_conversation() && !fast_lane(kind)
 }
 
+/// The routine a run is a slot of: its schedule, or a due check's own run's check, so it never runs twice at once.
+/// None for anything else. Pure.
+fn routine_of(kind: &RunKind) -> Option<String> {
+    match kind {
+        RunKind::Scheduled { schedule_id, .. } => Some(schedule_id.clone()),
+        _ => None,
+    }
+}
+
 /// Whether a queued run may start now, by what holds it back.
 #[derive(Debug, PartialEq)]
 enum Gate {
@@ -1264,17 +1306,17 @@ enum Gate {
 }
 
 /// The office-wide holds on a queued run, in order: the usage limit holds every run (a conversation would
-/// fail the same way); work you are not in waits for the right account; a tidy waits while its employee is
-/// talking with you, so it never tidies a skill the conversation is still changing; and a dark wake
-/// starts no work you are not in. An answer coming back into a conversation is not you: nobody may be
-/// watching when it lands. Pure.
+/// fail the same way); work you are not in waits for the right account; a tidy waits while anything else of its
+/// employee's runs (`busy`), so it never tidies a skill a conversation, an answer or the other lane is still using
+/// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
+/// you: nobody may be watching when it lands. Pure.
 /// Off until omega.log shows its "dark wake" lines only during real dark wakes (`pmset -g log`), never
 /// while the display merely sleeps in a full wake: a wrong reading would hold every routine overnight.
 const GATE_DARK_WAKE: bool = false;
 
-fn gate(run: &Run, held: bool, account_ok: bool, talking: bool, awake: bool) -> Gate {
+fn gate(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> Gate {
     let background = !skills::ceo_present(run);
-    if held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && talking) || (background && !awake) {
+    if held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake) {
         Gate::Skip
     } else {
         Gate::Claim
@@ -1356,17 +1398,20 @@ fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
     }
 }
 
-/// The open decision and item cards `newer` replaces, marked Replaced and saved: those of the same routine's
-/// earlier runs, which also leave the Inbox unless you replied to them or wrote into them, and the employee's
-/// earlier cards about the same thing as one of its own, in its thread or anywhere else. A card about something
-/// else stays open, so answers that come back into one conversation leave each other's cards alone. A due check's
-/// run replaces nothing of its routine. Call inside a transaction.
+/// The decision and item cards still waiting on you that `newer` replaces, put off with Later too, marked Replaced and
+/// saved, so none comes back: those of the same routine's earlier runs, which also leave the Inbox unless you replied
+/// to them, wrote into them or have not seen their news, or they still wait in the queue; and the employee's earlier
+/// cards about the same thing as one of its own, in its thread or anywhere else. A card about something else stays
+/// open, so answers that come back into one conversation leave each other's cards alone. A due check's run replaces
+/// nothing of its routine. Call inside a transaction.
 fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
-    let decision = |c: &Card| c.is_open() && !matches!(c.ask, CardAsk::Chore { .. });
+    let decision = |c: &Card| (c.is_open() || c.put_off()) && !matches!(c.ask, CardAsk::Chore { .. });
+    // What still needs you, or has yet to run, stays where it is.
+    let files = |r: &Run| r.replied_at.is_none() && !r.steered && !r.has_news() && r.state.is_finished();
     let mut out: Vec<(Run, bool)> = vec![];
     if let (RunKind::Scheduled { schedule_id, .. }, None) = (&newer.kind, newer.kind.check_id()) {
         for mut r in db.open_cards_of_schedule(schedule_id, newer.created_at)?.into_iter().filter(|r| r.id != newer.id && r.cards.iter().any(decision)) {
-            if r.replied_at.is_none() && !r.steered {
+            if files(&r) {
                 r.archived_at = Some(at);
             }
             out.push((r, true));
@@ -1386,9 +1431,10 @@ fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
     for (r, all) in &mut out {
         for c in r.cards.iter_mut().filter(|c| decision(c) && (*all || c.topic().is_some_and(|k| topics.contains(&k)))) {
             c.answer = Some(CardAnswer { at, how: AnswerHow::Replaced, text: String::new(), held: false });
+            (c.back_at, c.parked) = (None, false);
         }
         // A run whose cards all went to a newer one has nothing left to ask, unless you replied to it or wrote into it.
-        if !*all && !r.has_open_card() && r.replied_at.is_none() && !r.steered && !thread.contains(&r.id) {
+        if !*all && !r.has_open_card() && files(r) && !thread.contains(&r.id) {
             r.archived_at = Some(at);
         }
         db.save_run(r)?;
@@ -1764,11 +1810,14 @@ mod tests {
         assert_eq!(office.steer_run(&again.id, "Only the overdue ones.").unwrap(), SteerHow::Replied);
         assert_eq!(office.run(&again.id).unwrap().prompt, "Pay the invoices.");
         assert_eq!(office.thread(&again.id).unwrap().replies.len(), 1);
+        assert!(office.run(&again.id).unwrap().steered, "you wrote into it, so its report waits for you");
 
         // Finished, they follow up its report in its thread.
+        assert!(!office.run(&done.id).unwrap().steered);
         assert_eq!(office.steer_run(&done.id, "Why that hall?").unwrap(), SteerHow::Replied);
         let t = office.thread(&done.id).unwrap();
         assert!(matches!(&t.replies[..], [r] if r.prompt.ends_with("Pat's reply:\n\nWhy that hall?")), "{:?}", t.replies);
+        assert!(t.root.steered);
         assert_eq!(office.steer_run(&done.id, "  ").unwrap_err().message, "message is empty");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
@@ -1943,6 +1992,42 @@ mod tests {
         assert!(office.run(&third.id).unwrap().state == RunState::Queued, "both lanes are busy");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_routine_never_runs_twice_at_once_and_a_tidy_waits_for_quiet() {
+        let dir = std::env::temp_dir().join(format!("omegastar-one-routine-{}", uuid::Uuid::new_v4()));
+        let ada = Employee { lanes: 2, ..employee(Clearance::Supervised) };
+        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), chat_session: "chat-bo".into(), ..employee(Clearance::Supervised) };
+        let office = claiming_office(&dir, &[&ada, &bo]).await;
+        let tidy = || RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
+        let routine = |id: &str, slot: i64| RunKind::Scheduled { schedule_id: id.into(), slot: now() + chrono::Duration::minutes(slot), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
+        queue(&office, &ada, routine("s1", 0), None, RunState::Running);
+        let again = queue(&office, &ada, routine("s1", 1), None, RunState::Queued);
+        let other = queue(&office, &ada, routine("s2", 2), None, RunState::Queued);
+        // Bo has only a colleague's answer going, beside which a tidy would once have started.
+        let answer = RunKind::Answered { asked_run_id: "a1".into(), from: ada.id.clone(), task: false, chat: false, thread: None };
+        queue(&office, &bo, answer, None, RunState::Running);
+        let tidying = queue(&office, &bo, tidy(), None, RunState::Queued);
+        let (started, _) = office.claim_runnable().unwrap();
+        assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![other.id.as_str()], "{started:?}");
+        assert_eq!(office.run(&again.id).unwrap().state, RunState::Queued, "the second lane never runs the same routine twice at once");
+        assert_eq!(office.run(&tidying.id).unwrap().state, RunState::Queued, "a tidy waits until nothing else of Bo's runs");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_runs_end_keeps_your_reply_and_your_words_from_while_it_worked() {
+        let at = now();
+        let taken = Run::new("e1", RunKind::Manual, "Sweep.".into(), at - chrono::Duration::minutes(5));
+        let stored = Run { replied_at: Some(at), steered: true, ..taken.clone() };
+        let mut ended = taken.clone();
+        keep_yours(&mut ended, &stored);
+        assert_eq!((ended.replied_at, ended.steered), (Some(at), true));
+        let mut later = Run { replied_at: Some(at + chrono::Duration::minutes(1)), ..taken };
+        keep_yours(&mut later, &stored);
+        assert_eq!(later.replied_at, Some(at + chrono::Duration::minutes(1)), "the newer reply");
     }
 
     #[tokio::test]
@@ -2157,8 +2242,8 @@ mod tests {
         let scheduled = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
         let tidy = RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
         let talk = task("Draft it");
-        let gate = |kind: &RunKind, held, account_ok, talking, awake| gate(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, talking, awake);
-        // gate(run, held, account_ok, talking, awake)
+        let gate = |kind: &RunKind, held, account_ok, busy, awake| gate(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, busy, awake);
+        // gate(run, held, account_ok, busy, awake)
         assert_eq!(gate(&talk, true, true, false, true), Gate::Skip);
         assert_eq!(gate(&talk, false, false, false, true), Gate::Claim);
         assert_eq!(gate(&scheduled, false, false, false, true), Gate::Skip);
@@ -2219,20 +2304,29 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omegastar-rate-hold-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
-        let held_for = || office.usage_limits().held_until.map(|t| ((t - now()).num_seconds() as f64 / 60.0).round() as i64);
+        let held_for = |office: &Office| office.usage_limits().held_until.map(|t| ((t - now()).num_seconds() as f64 / 60.0).round() as i64);
         office.hold_for_transient_limit();
-        assert_eq!(held_for(), Some(5));
+        assert_eq!(held_for(&office), Some(5));
         office.hold_for_transient_limit();
-        assert_eq!(held_for(), Some(5), "a run that meets it while held waits with the rest");
+        assert_eq!(held_for(&office), Some(5), "a run that meets it while held waits with the rest");
         let room = || claude::UsageSample { five_hour: window(12.0), seven_day: window(30.0) };
         office.observe_usage(room(), true);
-        assert_eq!(held_for(), Some(5), "the usage windows say nothing about a rate limit");
+        assert_eq!(held_for(&office), Some(5), "the usage windows say nothing about a rate limit");
         assert!(office.release_hold(now() + chrono::Duration::minutes(6)));
         office.hold_for_transient_limit();
-        assert_eq!(held_for(), Some(10), "it came back before any run succeeded");
+        assert_eq!(held_for(&office), Some(10), "it came back before any run succeeded");
         assert_eq!(office.db().held_until().unwrap(), office.usage_limits().held_until, "kept across a restart");
 
+        // After a restart it is still a rate limit's hold, which a usage check cannot end, and the next waits longer.
+        drop(office);
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        office.observe_usage(room(), true);
+        assert_eq!(held_for(&office), Some(10));
         assert!(office.release_hold(now() + chrono::Duration::minutes(11)));
+        office.hold_for_transient_limit();
+        assert_eq!(held_for(&office), Some(20));
+
+        assert!(office.release_hold(now() + chrono::Duration::minutes(21)));
         office.hold_until(now() + chrono::Duration::hours(2), Limit::Usage);
         office.observe_usage(room(), true);
         assert_eq!(office.usage_limits().held_until, None, "a usage check still ends a usage hold");
@@ -2402,6 +2496,59 @@ mod tests {
         assert_eq!(how(&asked).map(|h| h.0), Some(AnswerHow::Replaced));
         assert!(saved(&asked).archived_at.is_some());
         assert_eq!(how(&other), None, "another key is another question");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_newer_card_replaces_ones_put_off_and_files_only_what_needs_nothing() {
+        let (dir, db) = opening_store();
+        let e = employee(Clearance::Supervised);
+        db.save_employee(&e).unwrap();
+        let choices = || CardAsk::Choices { choices: vec!["Post".into()], recommended: 0 };
+        let routine = |ago: i64, state: RunState| {
+            let at = now() - chrono::Duration::minutes(ago);
+            let kind = RunKind::Scheduled { schedule_id: "s1".into(), slot: at, label: "Drafts".into(), quiet: true, model: None, effort: None, review: false };
+            let mut r = Run::new(&e.id, kind, "go".into(), at);
+            r.state = state;
+            r.ended_at = state.is_finished().then_some(at);
+            r.cards = vec![Card::new("Post these?", None, Some("ask:drafts".into()), choices())];
+            r
+        };
+        let put_off = |r: &mut Run, parked: bool| {
+            r.cards[0].answer = Some(CardAnswer { at: now(), how: AnswerHow::Dismissed, text: "Later.".into(), held: false });
+            (r.cards[0].back_at, r.cards[0].parked) = if parked { (None, true) } else { (Some(now() + chrono::Duration::days(1)), false) };
+        };
+        let insert = |r: Run| {
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r
+        };
+        // Put off with Later, back in the queue after a limit, and with news you have not seen.
+        let mut later = routine(60, RunState::Succeeded);
+        put_off(&mut later, false);
+        let later = insert(later);
+        let waiting = insert(routine(50, RunState::Queued));
+        let mut news = routine(40, RunState::Succeeded);
+        news.cards.push(Card::new("The sale is live.", None, Some("ask:sale".into()), CardAsk::News));
+        let news = insert(news);
+        // Parked elsewhere, about the same thing.
+        let mut parked = Run::new(&e.id, RunKind::Manual, "go".into(), now() - chrono::Duration::minutes(30));
+        parked.state = RunState::Succeeded;
+        parked.cards = vec![Card::new("Post the drafts?", None, Some("ask:drafts".into()), choices())];
+        put_off(&mut parked, true);
+        let parked = insert(parked);
+        let newer = insert(routine(5, RunState::Succeeded));
+
+        let replaced = db.tx(|| replace_older_cards_in(&db, &newer, now())).unwrap();
+        assert_eq!(replaced.len(), 4);
+        let saved = |r: &Run| db.run(&r.id).unwrap().unwrap().run;
+        for r in [&later, &waiting, &news, &parked] {
+            let c = saved(r).cards.remove(0);
+            assert_eq!((c.answer.map(|a| a.how), c.back_at, c.parked), (Some(AnswerHow::Replaced), None, false), "it never comes back: {:?}", r.kind);
+        }
+        assert!(saved(&later).archived_at.is_some() && saved(&parked).archived_at.is_some());
+        assert!(saved(&waiting).archived_at.is_none(), "still to run, so not in the Archive");
+        assert!(saved(&news).archived_at.is_none() && saved(&news).has_news(), "news you have not seen keeps its row");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }

@@ -8,10 +8,11 @@ use crate::threads::View;
 const ARCHIVE_ROWS: u32 = 200;
 
 /// Who wrote a reply: you, or Omega Star from something you did in the app (an approval, or your answer
-/// on a card).
+/// on a card). `Question` is you too, asking about a card (`Run::about_card`).
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum ReplyBy {
     Ceo,
+    Question,
     App,
     Card,
 }
@@ -217,7 +218,7 @@ impl Office {
     /// there does too. A tap answers only its card, so a thread that still asks you something else stays too, news you
     /// have not seen included. Unseen news never holds up Done: archiving a thread counts as seeing it.
     /// Returns the runs it moved.
-    fn archive_row(&self, run_id: &str, archived: bool, spare_own: bool) -> Result<Vec<Run>> {
+    pub(super) fn archive_row(&self, run_id: &str, archived: bool, spare_own: bool) -> Result<Vec<Run>> {
         let (changed, turns) = {
             let db = self.db();
             let t = Self::thread_in(&db, run_id)?;
@@ -286,36 +287,50 @@ impl Office {
 
     /// Tries again a finished run that failed, was lost or was stopped. A hand-off (a colleague's ask, delegated work,
     /// or an answer brought back) runs again as it was, in its session if that started, so its report still goes to
-    /// whoever handed it over. Anything else carries on in its thread, told how the last attempt stopped. Either way
-    /// it leaves the Inbox, unless you are in it or it still asks you something, and the retry brings it back only if
-    /// it needs you. Returns the new run.
+    /// whoever handed it over: an answer Omega Star already queued again by itself (`queued_again`) goes now instead.
+    /// Anything else carries on in its thread, told how the last attempt stopped. Either way it leaves the Inbox, unless
+    /// you are in it or it still asks you something, and the retry brings it back only if it needs you. Returns the new run.
     pub fn retry_run(&self, run_id: &str) -> Result<Run> {
-        let (run, session, archive) = {
+        let (run, session, archive, queued) = {
             let db = self.db();
             let rec = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?;
             if !matches!(rec.run.state, RunState::Failed | RunState::Lost | RunState::Cancelled) {
                 return Err(AppError::conflict("Only a run that did not finish can be retried."));
             }
+            let queued = queued_again(&db, &rec.run)?;
             let t = Self::thread_in(&db, run_id)?;
-            if t.replies.last().unwrap_or(&t.root).id != run_id {
+            // In a conversation, the answer queued again is the later turn.
+            if queued.is_none() && t.replies.last().unwrap_or(&t.root).id != run_id {
                 return Err(AppError::conflict("It already carried on in a later turn."));
             }
             db.employee(&rec.run.employee_id)?.ok_or_else(|| AppError::not_found("that employee no longer works here"))?;
+            if let Some(q) = &queued {
+                db.save_run(q)?;
+            }
             let session = db.session_started(&rec.session)?.then_some(rec.session);
-            (rec.run, session, !yours(&t) && !threads::asks_you(&t))
+            (rec.run, session, !yours(&t) && !threads::asks_you(&t), queued)
         };
-        if !matches!(run.kind, RunKind::Asked { .. } | RunKind::Delegated { .. } | RunKind::Answered { .. }) {
-            let stopped = match run.error.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
-                Some(e) => format!("Your last attempt stopped with an error: {}", claude::clip(&claude::one_line(e), 500)),
-                None => "Your last attempt was stopped before it finished.".to_string(),
-            };
-            let text = format!("{stopped}\n\nCarry on from where you left off and finish.");
-            return self.reply_with(run_id, &text, archive, vec![], vec![], ReplyBy::App);
-        }
-        let mut again = Run::new(&run.employee_id, run.kind.clone(), run.prompt.clone(), now());
-        again.omega_wrote = run.omega_wrote;
-        let session = session.unwrap_or_else(|| again.id.clone());
-        let again = self.enqueue(again, session)?;
+        let again = match queued {
+            Some(q) => {
+                self.sink().run_updated(&q);
+                self.pump();
+                q
+            }
+            None if !matches!(run.kind, RunKind::Asked { .. } | RunKind::Delegated { .. } | RunKind::Answered { .. }) => {
+                let stopped = match run.error.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+                    Some(e) => format!("Your last attempt stopped with an error: {}", claude::clip(&claude::one_line(e), 500)),
+                    None => "Your last attempt was stopped before it finished.".to_string(),
+                };
+                let text = format!("{stopped}\n\nCarry on from where you left off and finish.");
+                return self.reply_with(run_id, &text, archive, vec![], vec![], ReplyBy::App);
+            }
+            None => {
+                let mut again = Run::new(&run.employee_id, run.kind.clone(), run.prompt.clone(), now());
+                again.omega_wrote = run.omega_wrote;
+                let session = session.unwrap_or_else(|| again.id.clone());
+                self.enqueue(again, session)?
+            }
+        };
         // The new run reports on its own, so the one it replaces leaves the Inbox: a turn of a conversation stays in it.
         if archive && run.reply_to().is_none() {
             let filed = {
@@ -389,7 +404,7 @@ impl Office {
             // Runs still working on the same thing hear it now, in the turn they are in, where it fits their card. Told
             // and marked under one lock, so a run ending meanwhile either keeps the answer or is found by the read below.
             for a in lock(&self.0.active).values_mut() {
-                let Some(i) = a.cards.iter().position(|c| c.pending() && c.topic().as_deref() == Some(topic.as_str())) else { continue };
+                let Some(i) = a.cards.iter().position(|c| c.waiting() && c.topic().as_deref() == Some(topic.as_str())) else { continue };
                 let mut c = a.cards[i].clone();
                 let Some(fits) = cards::same_reply(&card.ask, &reply, &c.ask) else { continue };
                 let Some(answer) = cards::answer(&mut c, &fits, &ceo, at).ok().and(c.answer.clone()) else { continue };
@@ -400,10 +415,12 @@ impl Office {
                     a.cards[i] = c;
                 }
             }
-            // A run that finished while the answers above went out was in neither pass.
+            // A run that finished while the answers above went out was in neither pass. One the first pass answered
+            // may still wait (Later puts a card off), so it is left out.
             let late = {
                 let db = self.db();
                 db.open_topic_runs(&topic).and_then(|mut late| {
+                    late.retain(|r| !targets.iter().any(|(t, _)| t.id == r.id));
                     let said = db.tx(|| answer_cards(&db, &mut late, None, &card, &reply, &ceo, at))?;
                     Ok(late.into_iter().zip(said).collect::<Vec<_>>())
                 })
@@ -465,18 +482,19 @@ impl Office {
     }
 
     /// Your question about card `index` of a run, sent now as your reply in its thread. The card stays open, and the
-    /// answers its run holds back stay held for it. Returns the reply.
+    /// answers its run holds back stay held for it. The question leaves the thread as it was (`Run::about_card`), so a
+    /// later tap still files it. Returns the reply.
     fn ask_about_card(&self, run_id: &str, index: usize, text: &str) -> Result<Run> {
         let text = text.trim();
         if text.is_empty() {
             return Err(AppError::invalid("Type your question first."));
         }
         let card = self.run(run_id)?.cards.get(index).cloned().ok_or_else(|| AppError::invalid("That run has no such card."))?;
-        if card.answer.is_some() && !card.parked {
+        if !card.waiting() {
             return Err(AppError::conflict("That card was already answered."));
         }
         let said = format!("About your card \"{}\", which stays open until I answer it:\n\n{text}", claude::clip(&card.message, 300));
-        self.reply_with(run_id, &said, false, vec![], vec![], ReplyBy::Ceo)
+        self.reply_with(run_id, &said, false, vec![], vec![], ReplyBy::Question)
     }
 
     /// Sends each run what it no longer holds back (`said`: its answers, each under its own card, from `take_held`)
@@ -512,10 +530,11 @@ impl Office {
     /// saves the rules to the employee; otherwise they apply to the retry run only. The rules must
     /// come from what the run was denied: its own suggested rule, or every tool of the same MCP server.
     pub fn approve_blocked(&self, run_id: &str, rules: Vec<String>, always: bool) -> Result<Run> {
-        let (original, employee, ceo, mine) = {
+        let (original, employee, ceo, stays) = {
             let db = self.db();
             let original = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
-            let mine = yours(&Self::thread_in(&db, run_id)?);
+            let t = Self::thread_in(&db, run_id)?;
+            let stays = yours(&t) || std::iter::once(&t.root).chain(&t.replies).any(Run::has_news);
             if original.denials.is_empty() {
                 return Err(AppError::conflict("nothing was blocked in that run"));
             }
@@ -524,7 +543,7 @@ impl Office {
             }
             let employee = db.employee(&original.employee_id)?.ok_or_else(|| AppError::not_found("that employee no longer works here"))?;
             let ceo = ceo_of(&db)?;
-            (original, employee, ceo, mine)
+            (original, employee, ceo, stays)
         };
         let mut rules: Vec<String> = rules.into_iter().map(|r| r.trim().to_string()).filter(|r| !r.is_empty()).collect();
         rules.dedup();
@@ -550,8 +569,8 @@ Approval covers only what is listed, so if something else is blocked, stop and s
             rules.join(", ")
         );
         // Decided, so it leaves the Inbox: the retry comes back only if it needs you again. A conversation you are
-        // in goes on instead.
-        let reply = self.reply_with(run_id, &text, !mine, rules, vec![], ReplyBy::App)?;
+        // in goes on instead, and news you have not seen keeps the thread where you will see it.
+        let reply = self.reply_with(run_id, &text, !stays, rules, vec![], ReplyBy::App)?;
         Ok(reply)
     }
 
@@ -575,7 +594,8 @@ Approval covers only what is listed, so if something else is blocked, stop and s
             return Err(AppError::invalid("reply is empty"));
         }
         let files = Self::decode_attachments(&attachments)?;
-        let plain = files.is_empty() && allow_once.is_empty() && by == ReplyBy::Ceo;
+        let own_words = matches!(by, ReplyBy::Ceo | ReplyBy::Question);
+        let plain = files.is_empty() && allow_once.is_empty() && own_words;
         let (root, mut reply, session, turns) = {
             let db = self.db();
             let t = Self::thread_in(&db, run_id)?;
@@ -618,7 +638,8 @@ Approval covers only what is listed, so if something else is blocked, stop and s
             let mut reply = Run::new(&e.id, RunKind::Reply { to_run_id: root.id.clone(), label, task, card }, prompt, now());
             reply.allow_once = allow_once;
             // The never-started wrapper quotes your reply in full, so it still counts as your words.
-            reply.omega_wrote = by != ReplyBy::Ceo;
+            reply.omega_wrote = !own_words;
+            reply.about_card = by == ReplyBy::Question;
             let session = if session.is_empty() { reply.id.clone() } else { session };
             root.replied_at = Some(at);
             root.archived_at = archive.then_some(at);
@@ -673,6 +694,19 @@ pub(super) fn yours(t: &Thread) -> bool {
     matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || threads::talking(t) || t.root.steered
 }
 
+/// For an answer brought back (`RunKind::Answered`) that did not finish: the copy Omega Star queued again by itself
+/// (`tools::redeliver`), made due now, so a retry sends that rather than a second copy. Err once a copy is running or
+/// brought it, as a retry would bring the same answer twice. None for anything else. Save the run it returns.
+fn queued_again(db: &Store, failed: &Run) -> Result<Option<Run>> {
+    let RunKind::Answered { asked_run_id, .. } = &failed.kind else { return Ok(None) };
+    let copies: Vec<Run> =
+        db.answers_to(asked_run_id)?.into_iter().filter(|r| r.id != failed.id && r.prompt == failed.prompt && r.created_at >= failed.created_at).collect();
+    if copies.iter().any(|r| matches!(r.state, RunState::Running | RunState::Succeeded)) {
+        return Err(AppError::conflict("This answer already went again, so there is nothing to retry."));
+    }
+    Ok(copies.into_iter().find(|r| r.state == RunState::Queued).map(|r| Run { not_before: None, ..r }))
+}
+
 /// Marks the answers the finished runs of `run_id`'s thread held back sent, since they went with your typed reply.
 /// Their open cards stay open. Returns those runs, saved. Call inside a transaction.
 fn send_held(db: &Store, run_id: &str) -> Result<Vec<Run>> {
@@ -691,10 +725,10 @@ fn send_held(db: &Store, run_id: &str) -> Result<Vec<Run>> {
     Ok(out)
 }
 
-/// Puts your `reply` on `card`, card `index` of the first run, and on every other card about the same thing in all of
-/// them where it fits (`cards::same_reply`), each worded for its own card (`cards::answer`), and saves them. A finished
-/// run still asking something else holds it back. Returns, in the runs' order, what each now sends (`take_held`). Call
-/// inside a transaction.
+/// Puts your `reply` on `card`, card `index` of the first run, and on every other card about the same thing still waiting
+/// on you in all of them, put off with Later included, where it fits (`cards::same_reply`), each worded for its own card
+/// (`cards::answer`), and saves them. A finished run still asking something else holds it back. Returns, in the runs'
+/// order, what each now sends (`take_held`). Call inside a transaction.
 fn answer_cards(db: &Store, runs: &mut [Run], index: Option<usize>, card: &Card, reply: &CardReply, ceo: &str, at: Ts) -> Result<Vec<Option<String>>> {
     let topic = card.topic();
     let mut said = vec![];
@@ -704,7 +738,7 @@ fn answer_cards(db: &Store, runs: &mut [Run], index: Option<usize>, card: &Card,
         for (i, c) in r.cards.iter_mut().enumerate() {
             if n == 0 && Some(i) == index {
                 cards::answer(c, reply, ceo, at)?;
-            } else if topic.is_some() && c.pending() && c.topic() == topic {
+            } else if topic.is_some() && c.waiting() && c.topic() == topic {
                 let Some(fits) = cards::same_reply(&card.ask, reply, &c.ask) else { continue };
                 if cards::answer(c, &fits, ceo, at).is_err() {
                     continue;
@@ -1687,10 +1721,114 @@ mod tests {
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0].kind, RunKind::Reply { to_run_id: report.id.clone(), label: "Manual run".into(), task: false, card: false });
         assert!(!asked[0].omega_wrote, "your own words");
+        assert!(asked[0].about_card, "about the card, so it leaves the thread as it was");
         assert!(asked[0].prompt.ends_with("About your card \"Boost the post?\", which stays open until I answer it:\n\nWhat does a boost cost?"), "{}", asked[0].prompt);
         let s = office.db().run(&report.id).unwrap().unwrap().run;
         assert!(s.cards[0].is_open(), "still yours to answer");
         assert!(s.cards[1].answer.as_ref().is_some_and(|a| a.held), "the tap still waits for it");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_question_about_a_card_leaves_a_later_tap_to_file_the_row() {
+        let dir = std::env::temp_dir().join(format!("omegastar-card-ask-tap-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let report = carded(&e);
+        let office = held_office(&dir, &e, &[&report]).await;
+        office.answer_card(&report.id, 0, CardReply::Ask { text: "What does a boost cost?".into() }).unwrap();
+        assert!(!yours(&office.thread(&report.id).unwrap()), "a question about the card is no conversation you are in");
+        office.answer_card(&report.id, 0, CardReply::Choice { index: 1 }).unwrap();
+        assert!(office.db().run(&report.id).unwrap().unwrap().run.archived_at.is_some(), "the tap files it, as it would without the question");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_card_put_off_still_waits_until_it_is_settled() {
+        let dir = std::env::temp_dir().join(format!("omegastar-put-off-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let keyed = |key: &str| {
+            let mut r = carded(&e);
+            r.cards[0].key = Some(key.into());
+            r
+        };
+        let (put_off, asked_again, settled) = (keyed("ask:boost"), keyed("ask:boost"), keyed("ask:recap"));
+        let mut news = with_news(&e, true);
+        news.cards[0].key = Some("ask:ads".into());
+        let office = held_office(&dir, &e, &[&put_off, &asked_again, &settled, &news]).await;
+        let stored = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run;
+        let until = now() + chrono::Duration::days(2);
+        office.answer_card(&put_off.id, 0, CardReply::Later { until }).unwrap();
+        office.answer_card(&settled.id, 0, CardReply::Later { until }).unwrap();
+        assert_eq!(stored(&asked_again).cards[0].back_at, Some(until), "Later reaches the other card asked the same thing too");
+
+        // An answer about the same thing reaches a card put off, and close_ask withdraws one.
+        office.answer_card(&asked_again.id, 0, CardReply::Choice { index: 1 }).unwrap();
+        let c = stored(&put_off).cards.remove(0);
+        assert_eq!((c.answer.map(|a| a.text), c.back_at), (Some("Chose: Go.".into()), None));
+        assert_eq!(office.close_ask_tool(&e, "recap", "Posted it myself.").unwrap()["closed"], 1);
+        let c = stored(&settled).cards.remove(0);
+        assert_eq!((c.answer.map(|a| a.how), c.back_at), (Some(AnswerHow::Withdrawn), None));
+        assert_eq!(office.bring_back_cards(until + chrono::Duration::minutes(1)).unwrap(), 0, "settled, so nothing comes back");
+
+        // Closing a card leaves news you have not seen where you will see it.
+        assert_eq!(office.close_ask_tool(&e, "ads", "Paused the ads.").unwrap()["closed"], 1);
+        let n = stored(&news);
+        assert!(n.archived_at.is_none() && n.has_news(), "{:?}", n.cards);
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn approving_a_block_keeps_news_you_have_not_seen() {
+        let dir = std::env::temp_dir().join(format!("omegastar-approve-news-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let mut blocked = with_news(&e, false);
+        blocked.denials = vec![Denial { tool: "Bash".into(), brief: "git push".into(), suggested_rule: "Bash(git push:*)".into() }];
+        let office = held_office(&dir, &e, &[&blocked]).await;
+        office.approve_blocked(&blocked.id, vec!["Bash(git push:*)".into()], false).unwrap();
+        let s = office.db().run(&blocked.id).unwrap().unwrap().run;
+        assert!(s.archived_at.is_none() && s.has_news(), "the retry goes, and the news waits to be seen");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn retry_sends_an_answer_once_whatever_omega_star_queued_again() {
+        let dir = std::env::temp_dir().join(format!("omegastar-retry-answer-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let ada = tester();
+        let answer = |asked: &str, mins: i64, state: RunState| {
+            let came = RunKind::Answered { asked_run_id: asked.into(), from: "e-bo".into(), task: false, chat: false, thread: None };
+            let mut r = Run::new(&ada.id, came, format!("Bo answered your question {asked}."), now() - chrono::Duration::minutes(mins));
+            (r.state, r.omega_wrote) = (state, true);
+            r.ended_at = state.is_finished().then(now);
+            r
+        };
+        // The answer failed, and Omega Star queued it again for ten minutes on.
+        let failed = answer("a1", 2, RunState::Failed);
+        let mut copy = answer("a1", 1, RunState::Queued);
+        copy.not_before = Some(now() + chrono::Duration::minutes(10));
+        // Here the copy failed too, and Retry all retries both.
+        let (first, second) = (answer("a2", 2, RunState::Failed), answer("a2", 1, RunState::Failed));
+        let office = held_office(&dir, &ada, &[&failed, &copy, &first, &second]).await;
+
+        let again = office.retry_run(&failed.id).unwrap();
+        assert_eq!((again.id.as_str(), again.not_before), (copy.id.as_str(), None), "the copy goes now, rather than a second one");
+        assert!(office.db().run(&failed.id).unwrap().unwrap().run.archived_at.is_some());
+        let mut done = office.run(&copy.id).unwrap();
+        (done.state, done.ended_at) = (RunState::Succeeded, Some(now()));
+        office.db().save_run(&done).unwrap();
+        assert_eq!(office.retry_run(&failed.id).unwrap_err().message, "This answer already went again, so there is nothing to retry.");
+
+        let one = office.retry_run(&first.id).unwrap();
+        let two = office.retry_run(&second.id).unwrap();
+        assert_eq!(one.id, two.id, "one new run brings it");
+        assert_eq!(office.db().answers_to("a2").unwrap().len(), 3);
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

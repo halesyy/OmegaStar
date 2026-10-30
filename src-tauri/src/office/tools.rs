@@ -5,18 +5,23 @@ use crate::cards;
 
 /// How many cards one run may have waiting on you.
 const CARDS_PER_RUN: usize = 5;
-/// The loop guard: once a chain holds PAIR_HANDOFFS hand-offs between the same two employees within PAIR_WINDOW,
-/// or CHAIN_HANDOFFS in all, the next hand-off waits PAUSE and goes as a chain of its own. Answers never count.
+/// The loop guard: once a chain holds PAIR_HANDOFFS asks between the same two employees within PAIR_WINDOW, or
+/// CHAIN_HANDOFFS hand-offs in all, the next hand-off waits PAUSE and goes as a chain of its own. Answers never count,
+/// and delegated work counts only toward the chain: the daily cap on tasks covers it. Once it paused PAUSES_PER_DAY
+/// asks between the same two employees in a day, it stops the next one between them.
 const PAIR_HANDOFFS: usize = 6;
 const PAIR_WINDOW: chrono::Duration = chrono::Duration::hours(2);
 const CHAIN_HANDOFFS: usize = 40;
 const PAUSE: chrono::Duration = chrono::Duration::hours(1);
+const PAUSES_PER_DAY: u32 = 2;
 /// Most runs the walk up a chain of hand-offs goes through, against a damaged trail.
 const CHAIN_HOPS: usize = 64;
 /// Most tasks a manager hands one report in a day.
 const TASKS_PER_DAY: u32 = 4;
-/// Reports held for a manager reach them in one run once this long passes without another.
+/// Reports held for a manager reach them in one run once this long passes without another, and never later than
+/// HOLD_MAX after the first.
 const HOLD: chrono::Duration = chrono::Duration::minutes(30);
+const HOLD_MAX: chrono::Duration = chrono::Duration::hours(2);
 /// An answer resumes the asker's session only while that is under a day old and its context under this.
 const FRESH_TOKENS: u64 = 120_000;
 /// An answer whose run failed goes again this many more times, each after REDELIVER_AFTER.
@@ -94,7 +99,7 @@ impl Office {
                 )));
             }
             let mut run = Run::new(&report.id, RunKind::Delegated { parent_run_id: caller_run.to_string() }, task.trim().to_string(), at);
-            guard(&db, &mut run, chain, &caller.id)?;
+            guard(&db, &mut run, chain, caller, &report)?;
             let ahead = queue_ahead(&db, &run, at)?;
             (report, run, ahead, conversation)
         };
@@ -186,7 +191,7 @@ impl Office {
                 None => {
                     let kind = RunKind::Asked { parent_run_id: caller_run.to_string(), asked_by: caller.id.clone(), task };
                     let mut run = Run::new(&colleague.id, kind, question.trim().to_string(), at);
-                    guard(&db, &mut run, chain, &caller.id)?;
+                    guard(&db, &mut run, chain, caller, &colleague)?;
                     (run, false)
                 }
             };
@@ -226,7 +231,7 @@ impl Office {
             let at = now();
             db.tx(|| {
                 for e in &to {
-                    let news = News { id: uuid::Uuid::new_v4().to_string(), employee_id: e.id.clone(), from: caller.id.clone(), text: text.to_string(), created_at: at, read_at: None };
+                    let news = News { id: uuid::Uuid::new_v4().to_string(), employee_id: e.id.clone(), from: caller.id.clone(), text: text.to_string(), created_at: at, read_at: None, read_in: None };
                     db.save_news(&news)?;
                 }
                 Ok(())
@@ -682,10 +687,10 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
         Ok((first, notified))
     }
 
-    /// The caller's own cards about `topic` with no answer yet, oldest first: on their runs that finished (or went back to
-    /// the queue) and on those still working, this one included.
+    /// The caller's own cards about `topic` still waiting on you (`Card::waiting`), oldest first: on their runs that
+    /// finished (or went back to the queue) and on those still working, this one included.
     fn own_pending(&self, caller: &Employee, topic: &str) -> Result<Vec<Card>> {
-        let about = |c: &Card| c.pending() && c.topic().as_deref() == Some(topic);
+        let about = |c: &Card| c.waiting() && c.topic().as_deref() == Some(topic);
         let mut out: Vec<Card> = self.db().open_topic_runs(topic)?.into_iter().filter(|r| r.employee_id == caller.id).flat_map(|r| r.cards).filter(about).collect();
         out.extend(lock(&self.0.active).values().filter(|a| a.employee_id == caller.id).flat_map(|a| a.cards.iter().filter(|c| about(c)).cloned()));
         Ok(out)
@@ -696,7 +701,7 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
     /// on the same thing, so this is the first time you are asked. No desktop notification.
     pub(super) fn raise_card(&self, run_id: &str, card: Card) -> Result<bool> {
         let topic = card.topic();
-        let same = |c: &Card| c.pending() && topic.is_some() && c.topic() == topic;
+        let same = |c: &Card| c.waiting() && topic.is_some() && c.topic() == topic;
         let waiting = match &topic {
             Some(t) => self.db().open_topic_runs(t)?.iter().any(|r| r.id != run_id),
             None => false,
@@ -756,15 +761,16 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
         Ok(first)
     }
 
-    /// Closes the caller's cards about `key` still waiting on you, parked ones too: it was settled without you. Rows
-    /// left with nothing open leave your Inbox.
+    /// Closes the caller's cards about `key` still waiting on you (`Card::waiting`), ones put off with Later too: it was
+    /// settled without you, so they never come back. Rows left with nothing open leave your Inbox, news you have not
+    /// seen aside.
     pub fn close_ask_tool(&self, caller: &Employee, key: &str, reason: &str) -> Result<Value> {
         let topic = cards::ask_key(key)?;
         let answer = CardAnswer { at: now(), how: AnswerHow::Withdrawn, text: claude::clip(&claude::one_line(reason), 300), held: false };
-        let about = |c: &Card| (c.pending() || c.parked) && c.topic().as_deref() == Some(topic.as_str());
+        let about = |c: &Card| c.waiting() && c.topic().as_deref() == Some(topic.as_str());
         let close = |c: &mut Card| {
             c.answer = Some(answer.clone());
-            c.parked = false;
+            (c.back_at, c.parked) = (None, false);
         };
         let mut closed = 0;
         let (runs, said) = {
@@ -801,7 +807,8 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
         for (r, _) in &runs {
             self.sink().run_updated(r);
             if r.state.is_finished() {
-                match self.set_archived(&r.id, true) {
+                // As a tap files it, so news nobody has seen keeps its row.
+                match self.archive_row(&r.id, true, true) {
                     Err(e) if e.code != crate::error::ErrorCode::Conflict => log!("archiving run {} after closing its card failed: {e}", r.id),
                     _ => {}
                 }
@@ -996,10 +1003,20 @@ you as a new run. Never create the hire any other way."
     }
 
     /// Opens a file, a folder or a page on your screen for the caller (`open_target` says what they may open), and
-    /// says whether it worked.
-    pub fn open_tool(&self, caller: &Employee, target: &str) -> Result<Value> {
+    /// says whether it worked. Only in a conversation you are in (`skills::ceo_present`): from a run nobody watches,
+    /// a tab or a window would appear out of nowhere.
+    pub fn open_tool(&self, caller_run: &str, caller: &Employee, target: &str) -> Result<Value> {
+        let ceo = {
+            let db = self.db();
+            let ceo = ceo_of(&db)?;
+            if !db.run(caller_run)?.is_some_and(|r| skills::ceo_present(&r.run)) {
+                return Err(AppError::invalid(format!(
+                    "{ceo} is not in this run, so nothing opens on their screen. Put the link on your card instead: a sign-in page goes in the chore's url."
+                )));
+            }
+            ceo
+        };
         let target = open_target(&self.employee_dir(&caller.id), &caller.workspaces, target.trim())?;
-        let ceo = ceo_of(&self.db())?;
         if let Err(e) = self.sink().open(&target) {
             return Err(AppError::internal(format!("It did not open: {e}. Tell {ceo} where it is instead.")));
         }
@@ -1127,13 +1144,22 @@ fn waiting_up(up: &[Run], employee_id: &str) -> bool {
     up.iter().any(|r| !r.state.is_finished() && r.employee_id == employee_id)
 }
 
-/// The loop guard on a new hand-off `run` from `from` in the chain `chain`: it joins the chain, unless the chain
-/// already holds PAIR_HANDOFFS between the same two employees within PAIR_WINDOW, or CHAIN_HANDOFFS in all. Then it
-/// waits PAUSE and starts a chain of its own.
-fn guard(db: &Store, run: &mut Run, chain: String, from: &str) -> Result<()> {
+/// The loop guard on a new hand-off `run` from `from` to `to` in the chain `chain`: it joins the chain, unless it is an
+/// ask and the chain already holds PAIR_HANDOFFS asks between the same two employees within PAIR_WINDOW, or the chain
+/// holds CHAIN_HANDOFFS hand-offs in all. Then it waits PAUSE and starts a chain of its own. An ask is refused, in words
+/// that blame nobody, once PAUSES_PER_DAY asks between the two were paused today.
+fn guard(db: &Store, run: &mut Run, chain: String, from: &Employee, to: &Employee) -> Result<()> {
+    let ask = matches!(run.kind, RunKind::Asked { .. });
+    if ask && db.paused_asks(&from.id, &to.id, day_start(run.created_at))? >= PAUSES_PER_DAY {
+        return Err(AppError::invalid(format!(
+            "Omega Star stopped this hand-off: {} and {} have passed this back and forth all day. Finish with what you have and say in your report what is still open.",
+            from.name, to.name
+        )));
+    }
     let handoffs = db.chain_handoffs(&chain)?;
-    let (to, since) = (run.employee_id.as_str(), run.created_at - PAIR_WINDOW);
-    let pair = handoffs.iter().filter(|(a, b, at)| *at > since && ((a == from && b == to) || (a == to && b == from))).count();
+    let since = run.created_at - PAIR_WINDOW;
+    let between = |a: &String, b: &String| (*a == from.id && *b == to.id) || (*a == to.id && *b == from.id);
+    let pair = handoffs.iter().filter(|(a, b, at, delegated)| ask && !delegated && *at > since && between(a, b)).count();
     if pair < PAIR_HANDOFFS && handoffs.len() < CHAIN_HANDOFFS {
         run.chain = Some(chain);
     } else {
@@ -1189,8 +1215,9 @@ fn own_work(kind: &RunKind) -> bool {
 }
 
 /// What came in for the employee since their last run, for this run's opening note: news from colleagues, now
-/// read; when the run is their own work (`own_work`), the reports held for them, which it brings in place of their
-/// queued run (`Run::noted_in`); and their cards a newer card replaced. A tidy takes in none of it.
+/// read in this run (`News::read_in`); when the run is their own work (`own_work`), the reports held for them, which
+/// it brings in place of their queued run (`Run::noted_in`); and their cards a newer card replaced. A tidy takes in
+/// none of it.
 pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut claude::Opening) -> Result<()> {
     if matches!(run.kind, RunKind::Tidy { .. }) {
         return Ok(());
@@ -1200,6 +1227,7 @@ pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut cl
         for mut n in db.unread_news(&run.employee_id)? {
             o.news.push((n.created_at, name(&n.from), n.text.clone()));
             n.read_at = Some(o.now);
+            n.read_in = Some(run.id.clone());
             db.save_news(&n)?;
         }
         let batch = db.active_runs_of(&run.employee_id)?.into_iter().find(|r| r.id != run.id && untouched(r) && !r.reports.is_empty());
@@ -1230,7 +1258,7 @@ pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut cl
 /// when it was one, whose asker's run has finished too, each with the session it runs in. Each is
 /// stamped delivered as it is found, so a second call finds nothing; a direct report's finished task is held
 /// for its manager instead (`hold`). When `ended` failed or was lost, an answer it brought goes again
-/// (`redeliver`), and the reports its opening note brought are held again.
+/// (`redeliver`); when it failed, was lost or you stopped it, the reports its opening note brought are held again.
 pub(super) fn due_answers(db: &Store, ended: &Run) -> Result<Vec<(Run, String)>> {
     let ceo = ceo_of(db)?;
     let at = now();
@@ -1278,8 +1306,9 @@ pub(super) fn due_answers(db: &Store, ended: &Run) -> Result<Vec<(Run, String)>>
             due.push(d);
         }
     }
-    if matches!(ended.state, RunState::Failed | RunState::Lost) {
-        due.extend(redeliver(db, ended, at)?);
+    due.extend(redeliver(db, ended, at)?);
+    // Taken in by a run that did not finish, they would reach nobody: the manager's next run brings them after all.
+    if matches!(ended.state, RunState::Failed | RunState::Lost | RunState::Cancelled) {
         for mut r in db.noted_in(&ended.id)? {
             r.noted_in = None;
             db.save_run(&r)?;
@@ -1298,9 +1327,9 @@ fn held(db: &Store, handed: &Run, parent: &RunRecord) -> Result<bool> {
 }
 
 /// Holds a direct report's finished task for its manager, in the one queued run that brings them every report
-/// held for them (`Run::reports`). It starts once HOLD passes without another, unless a run of the manager's own
-/// work takes them in first (`catch_up`). Written here, under the lock that looks for it, so reports that come
-/// back together share one run.
+/// held for them (`Run::reports`). It starts once HOLD passes without another, or HOLD_MAX after the first, so a
+/// steady trickle never holds them for good, unless a run of the manager's own work takes them in first
+/// (`catch_up`). Written here, under the lock that looks for it, so reports that come back together share one run.
 fn hold(db: &Store, ceo: &str, handed: &Run, parent: &RunRecord, at: Ts) -> Result<()> {
     let manager = &parent.run.employee_id;
     if db.employee(manager)?.is_none() {
@@ -1320,7 +1349,7 @@ fn hold(db: &Store, ceo: &str, handed: &Run, parent: &RunRecord, at: Ts) -> Resu
         }
     };
     run.reports.push(handed.id.clone());
-    run.not_before = Some(at + HOLD);
+    run.not_before = Some((at + HOLD).min(run.created_at + HOLD_MAX));
     run.prompt = held_prompt(db, ceo, &run.reports, &session)?;
     if new {
         db.insert_run(&run, &session)?;
@@ -2289,6 +2318,78 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
     }
 
     #[tokio::test]
+    async fn a_pair_paused_twice_today_is_stopped_and_tasks_count_only_toward_the_chain() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let bo = employee(&o.db, "Bo", Some(&ada.id));
+        let cy = employee(&o.db, "Cy", None);
+        let root = run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Running, 0, None);
+        // Six tasks Ada handed Bo in this chain just now: the daily cap covers those, so they never pause an ask.
+        for _ in 0..6 {
+            handed(&o.db, &bo, delegated(&root), &root, 0);
+        }
+        let theirs = run(&o.db, &cy, RunKind::Manual, "Price the stock.", RunState::Running, 0, None);
+        // Two asks between Ada and Cy were paused today, one each way: each started a chain of its own.
+        for (from, to) in [(&root, &cy), (&theirs, &ada)] {
+            let mut r = run(&o.db, to, asked(from, false), "Which supplier?", RunState::Succeeded, 0, None);
+            r.chain = Some(r.id.clone());
+            o.db.save_run(&r).unwrap();
+        }
+        let office = held_office(&o).await;
+        let ask = office.ask_colleague(&root.id, &ada, "Bo", "Which shelf?", "question").unwrap();
+        assert_eq!(saved(&o.db, &run_id(&ask)).not_before, None, "{ask}");
+
+        let stopped = office.ask_colleague(&root.id, &ada, "Cy", "And the till?", "question").unwrap_err();
+        assert_eq!(
+            stopped.message,
+            "Omega Star stopped this hand-off: Ada and Cy have passed this back and forth all day. Finish with what you have and say in your report what is still open."
+        );
+        let back = office.ask_colleague(&theirs.id, &cy, "Ada", "Can you check the till?", "task").unwrap_err();
+        assert!(back.message.starts_with("Omega Star stopped this hand-off: Cy and Ada have passed this back and forth all day."), "{}", back.message);
+        drop(office);
+    }
+
+    #[test]
+    fn held_reports_wait_two_hours_at_most_however_often_one_comes() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let bo = employee(&o.db, "Bo", Some(&ada.id));
+        let morning = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 300, None);
+        let parent = o.db.run(&morning.id).unwrap().unwrap();
+        let report = |task: &str| run(&o.db, &bo, delegated(&morning), task, RunState::Succeeded, 0, None);
+        let batch = || o.db.active_runs_of(&ada.id).unwrap().remove(0);
+        let first = now() - chrono::Duration::minutes(110);
+        hold(&o.db, "Pat", &report("Count the shelf."), &parent, first).unwrap();
+        assert_eq!(batch().not_before, Some(first + HOLD));
+        // Another every 20 minutes would put it off for good: it goes two hours after the first.
+        hold(&o.db, "Pat", &report("Count the till."), &parent, first + chrono::Duration::minutes(100)).unwrap();
+        let b = batch();
+        assert_eq!((b.not_before, b.reports.len()), (Some(first + HOLD_MAX), 2));
+    }
+
+    #[tokio::test]
+    async fn reports_a_run_took_in_are_held_again_when_you_stop_it() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let bo = employee(&o.db, "Bo", Some(&ada.id));
+        let morning = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 60, None);
+        let shelf = run(&o.db, &bo, delegated(&morning), "Count the shelf.", RunState::Succeeded, 20, None);
+        assert!(due_answers(&o.db, &shelf).unwrap().is_empty(), "held for Ada");
+        // Ada's next run took it in, then went back to the queue for the usage limit, where you stop it.
+        let next = run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
+        assert_eq!(caught_up(&o.db, &[ada.clone(), bo.clone()], &next).held.len(), 1);
+        let mut back = saved(&o.db, &next.id);
+        (back.state, back.limit_retries) = (RunState::Queued, 1);
+        o.db.save_run(&back).unwrap();
+        let office = held_office(&o).await;
+        office.cancel_run(&next.id).unwrap();
+        let held: Vec<Vec<String>> = o.db.active_runs_of(&ada.id).unwrap().into_iter().map(|r| r.reports).collect();
+        assert_eq!(held, vec![vec![shelf.id.clone()]], "Ada's next run brings it after all");
+        assert_eq!(saved(&o.db, &shelf.id).noted_in, None);
+        drop(office);
+    }
+
+    #[tokio::test]
     async fn a_long_chain_pauses_a_task_and_a_report_takes_four_a_day() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
@@ -2389,6 +2490,10 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         assert_eq!(news, vec![("Ada".into(), "The new opening hours are up.".into()), ("Ada".into(), "We close at noon on Friday.".into())]);
         assert!(o.db.unread_news(&bo.id).unwrap().is_empty(), "read once shown");
         assert_eq!(o.db.unread_news(&cy.id).unwrap().len(), 1);
+        // A run that never started gives back the news it took in, so the next one shows it.
+        assert_eq!(o.db.unread_news_of(&next.id).unwrap(), 2);
+        let again = Run::new(&bo.id, RunKind::Manual, "Go.".into(), now());
+        assert_eq!(caught_up(&o.db, &employees, &again).news.len(), 2);
     }
 
     #[test]
@@ -2596,6 +2701,12 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         fs::write(o.dir.join("outside.md"), "Not theirs").unwrap();
         let ada = Employee { workspaces: vec![repo.to_string_lossy().into_owned()], ..employee(&o.db, "Ada", None) };
         let bo = employee(&o.db, "Bo", None);
+        // Finished, so nothing is left to start: whether Pat is in a run depends on its kind alone.
+        let talking = run(&o.db, &ada, talk("The report"), "Show me the report.", RunState::Succeeded, 1, None);
+        let sweep = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 1, None);
+        let back = RunKind::Reply { to_run_id: talking.id.clone(), label: "The report".into(), task: true, card: false };
+        let check = Run { check: Some("c1".into()), state: RunState::Succeeded, ..Run::new(&ada.id, back, "Check.".into(), now()) };
+        assert!(o.db.insert_run(&check, &talking.id).unwrap());
         let screen = Arc::new(Screen::default());
         let office = Office::open(o.dir.clone(), screen.clone(), Build::new("0.0.0".into())).await.unwrap();
         let home = office.employee_dir(&ada.id);
@@ -2607,7 +2718,14 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         fs::write(theirs.join("draft.md"), "Bo's draft").unwrap();
         std::os::unix::fs::symlink(o.dir.join("outside.md"), home.join("link.md")).unwrap();
         let real = |p: PathBuf| fs::canonicalize(p).unwrap().to_string_lossy().into_owned();
-        let open = |target: &str| office.open_tool(&ada, target);
+        let open = |target: &str| office.open_tool(&talking.id, &ada, target);
+
+        // Only where Pat is in the run: a routine, or a check back in the conversation, has nobody watching.
+        for unseen in [&sweep, &check] {
+            let err = office.open_tool(&unseen.id, &ada, "https://acme.example/sign-in").unwrap_err().message;
+            assert_eq!(err, "Pat is not in this run, so nothing opens on their screen. Put the link on your card instead: a sign-in page goes in the chore's url.");
+        }
+        assert!(lock(&screen.0).is_empty());
 
         assert_eq!(open("https://acme.example/sign-in").unwrap(), json!({ "opened": true, "note": "It is open on Pat's screen." }));
         open(&home.join("workspace/report.pdf").to_string_lossy()).unwrap();
@@ -2639,7 +2757,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         drop(office);
 
         let office = held_office(&o).await;
-        assert!(office.open_tool(&ada, "workspace").unwrap_err().message.starts_with("It did not open: there is no screen to open it on."));
+        assert!(office.open_tool(&talking.id, &ada, "workspace").unwrap_err().message.starts_with("It did not open: there is no screen to open it on."));
         drop(office);
     }
 }

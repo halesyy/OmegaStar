@@ -128,6 +128,9 @@ impl Store {
         if store.meta::<Ts>("skill_use_since")?.is_none() {
             store.set_meta("skill_use_since", &chrono::Utc::now())?;
         }
+        if store.meta::<Ts>("typed_answers_since")?.is_none() {
+            store.set_meta("typed_answers_since", &chrono::Utc::now())?;
+        }
         Ok(store)
     }
 
@@ -239,6 +242,14 @@ impl Store {
     }
     pub fn set_held_until(&self, t: Option<Ts>) -> Result<()> {
         self.set_meta("held_until", &t)
+    }
+    /// Rate limits in a row since a run last succeeded, and whether the hold on work is for one, so a restart keeps
+    /// the backoff and a usage check cannot end the hold.
+    pub fn rate_limits(&self) -> Result<(u32, bool)> {
+        Ok(self.meta::<(u32, bool)>("rate_limits")?.unwrap_or_default())
+    }
+    pub fn set_rate_limits(&self, in_a_row: u32, holding: bool) -> Result<()> {
+        self.set_meta("rate_limits", &(in_a_row, holding))
     }
     /// Whether every employee hired before weekly reviews existed has been given one.
     pub fn reviews_seeded(&self) -> Result<bool> {
@@ -775,27 +786,51 @@ impl Store {
         )
     }
 
-    /// Work runs with a card about `topic` (`Card::topic`) you have not answered yet, oldest first: finished
-    /// ones, and ones the usage limit sent back to the queue with the cards they raised.
+    /// Work runs with a card about `topic` (`Card::topic`) still waiting on you (`Card::waiting`: no answer yet, or put
+    /// off with Later), oldest first: finished ones, and ones the usage limit sent back to the queue with the cards
+    /// they raised.
     pub fn open_topic_runs(&self, topic: &str) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE json_valid(data)
                AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
-                           WHERE json_extract(c.value, '$.key') = ? AND json_extract(c.value, '$.answer') IS NULL)
+                           WHERE json_extract(c.value, '$.key') = ? AND (json_extract(c.value, '$.answer') IS NULL
+                             OR json_extract(c.value, '$.backAt') IS NOT NULL OR json_extract(c.value, '$.parked') = 1))
                AND state != 'running' AND lane = 'work'
              ORDER BY created_at, rowid",
             &[&topic],
         )
     }
 
-    /// Every hand-off (delegated or asked run) in the chain `chain` (`Run::chain`): who handed it over, to whom, and when.
-    pub fn chain_handoffs(&self, chain: &str) -> Result<Vec<(String, String, Ts)>> {
+    /// Every run bringing back the answer or report of the hand-off `asked_run_id`, oldest first.
+    pub fn answers_to(&self, asked_run_id: &str) -> Result<Vec<Run>> {
+        self.runs_where(
+            "WHERE json_valid(data) AND json_extract(data, '$.kind.type') = 'answered' AND json_extract(data, '$.kind.askedRunId') = ?
+             ORDER BY created_at, rowid",
+            &[&asked_run_id],
+        )
+    }
+
+    /// Every hand-off (delegated or asked run) in the chain `chain` (`Run::chain`): who handed it over, to whom, when,
+    /// and whether it was delegated work.
+    pub fn chain_handoffs(&self, chain: &str) -> Result<Vec<(String, String, Ts, bool)>> {
         let mut st = self.conn.prepare(
-            "SELECT p.employee_id, r.employee_id, r.created_at FROM runs r JOIN runs p ON p.id = r.parent_run_id
+            "SELECT p.employee_id, r.employee_id, r.created_at, json_extract(r.data, '$.kind.type') = 'delegated' FROM runs r JOIN runs p ON p.id = r.parent_run_id
              WHERE r.parent_run_id IS NOT NULL AND json_valid(r.data) AND json_extract(r.data, '$.chain') = ?",
         )?;
-        let rows = st.query_map([chain], |r| Ok((r.get(0)?, r.get(1)?, Ts::from_timestamp_millis(r.get::<_, i64>(2)?).unwrap_or_default())))?;
+        let rows = st.query_map([chain], |r| Ok((r.get(0)?, r.get(1)?, Ts::from_timestamp_millis(r.get::<_, i64>(2)?).unwrap_or_default(), r.get(3)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// How many asks between `a` and `b`, either way, the loop guard paused since `since`: each paused one starts a
+    /// chain of its own (`Run::chain`).
+    pub fn paused_asks(&self, a: &str, b: &str, since: Ts) -> Result<u32> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM runs r JOIN runs p ON p.id = r.parent_run_id
+             WHERE r.created_at >= ?3 AND ((p.employee_id = ?1 AND r.employee_id = ?2) OR (p.employee_id = ?2 AND r.employee_id = ?1))
+               AND json_valid(r.data) AND json_extract(r.data, '$.kind.type') = 'asked' AND json_extract(r.data, '$.chain') = r.id",
+            params![a, b, ms(since)],
+            |r| r.get(0),
+        )?)
     }
 
     /// How many tasks `manager_id`'s runs handed `report_id` since `since`, leaving out the ones you stopped.
@@ -858,8 +893,11 @@ impl Store {
     }
 
     /// An employee's decision and item cards you answered after `since` (a tap, your own words or No), newest first,
-    /// leaving out the runs of `session`, which heard them already, and answers still held back for their run.
+    /// leaving out the runs of `session`, which heard them already, and answers still held back for their run. Your own
+    /// words count only from when this build first opened the office: an older build put one typed reply on every card
+    /// open in its thread, so an answer typed before then may not be about its card at all.
     pub fn answered_cards(&self, employee_id: &str, since: Ts, session: &str) -> Result<Vec<Card>> {
+        let typed_since = self.meta::<Ts>("typed_answers_since")?.unwrap_or(since);
         // The stored times compare as text: a second's leeway keeps every later one, and the exact test is below.
         let after = serde_json::to_value(since - chrono::Duration::seconds(1))?;
         let runs = self.runs_where(
@@ -873,6 +911,7 @@ impl Store {
             .flat_map(|r| r.cards)
             .filter(|c| !matches!(c.ask, CardAsk::Chore { .. }))
             .filter(|c| c.answer.as_ref().is_some_and(|a| matches!(a.how, AnswerHow::Tapped | AnswerHow::Typed | AnswerHow::Rejected) && !a.held && a.at > since))
+            .filter(|c| c.answer.as_ref().is_some_and(|a| a.how != AnswerHow::Typed || a.at > typed_since))
             .collect();
         v.sort_by_key(|c| std::cmp::Reverse(c.answer.as_ref().map(|a| a.at)));
         Ok(v)
@@ -917,12 +956,14 @@ impl Store {
         Ok(runs.iter().flat_map(|r| &r.cards).any(withdrawn))
     }
 
-    /// A schedule's runs from before `before` with a decision or item card still open, oldest first.
+    /// A schedule's runs from before `before` with a decision or item card still waiting on you (`Card::waiting`),
+    /// oldest first.
     pub fn open_cards_of_schedule(&self, schedule_id: &str, before: Ts) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE schedule_id = ? AND created_at < ? AND json_valid(data)
                AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
-                           WHERE json_extract(c.value, '$.ask.type') IN ('choices', 'items') AND json_extract(c.value, '$.answer') IS NULL)
+                           WHERE json_extract(c.value, '$.ask.type') IN ('choices', 'items') AND (json_extract(c.value, '$.answer') IS NULL
+                             OR json_extract(c.value, '$.backAt') IS NOT NULL OR json_extract(c.value, '$.parked') = 1))
              ORDER BY created_at, rowid",
             &[&schedule_id, &ms(before)],
         )
@@ -1175,6 +1216,14 @@ impl Store {
         let mut st = self.conn.prepare("SELECT data FROM news WHERE employee_id = ? AND read_at IS NULL ORDER BY created_at, rowid")?;
         let v = readable("news", st.query_map([employee_id], |r| from_row(r, 0))?)?;
         Ok(v)
+    }
+
+    /// Makes the news `run_id`'s opening note showed unread again, for a run that never started. Returns how many.
+    pub fn unread_news_of(&self, run_id: &str) -> Result<usize> {
+        Ok(self.conn.execute(
+            "UPDATE news SET read_at = NULL, data = json_remove(data, '$.readAt', '$.readIn') WHERE json_valid(data) AND json_extract(data, '$.readIn') = ?",
+            [run_id],
+        )?)
     }
 
     // ---- skill use ----
@@ -1579,6 +1628,7 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
             text: text.into(),
             created_at: Utc::now() - chrono::Duration::minutes(mins),
             read_at: None,
+            read_in: None,
         };
         let (later, earlier) = (news("The till is counted.", 5), news("The shelf is counted.", 10));
         db.save_news(&later).unwrap();
@@ -1586,8 +1636,13 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
         let unread: Vec<String> = db.unread_news(&bo.id).unwrap().into_iter().map(|n| n.text).collect();
         assert_eq!(unread, vec!["The shelf is counted.", "The till is counted."], "oldest first");
         assert!(db.unread_news(&ada.id).unwrap().is_empty());
-        db.save_news(&News { read_at: Some(Utc::now()), ..earlier }).unwrap();
-        assert_eq!(db.unread_news(&bo.id).unwrap(), vec![later]);
+        db.save_news(&News { read_at: Some(Utc::now()), read_in: Some("r1".into()), ..earlier.clone() }).unwrap();
+        assert_eq!(db.unread_news(&bo.id).unwrap(), vec![later.clone()]);
+
+        // The run that showed it never started, so the next one shows it again.
+        assert_eq!(db.unread_news_of("r2").unwrap(), 0);
+        assert_eq!(db.unread_news_of("r1").unwrap(), 1);
+        assert_eq!(db.unread_news(&bo.id).unwrap(), vec![earlier, later]);
 
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1604,11 +1659,14 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
             c
         };
         let choices = || CardAsk::Choices { choices: vec!["Book".into()], recommended: 0 };
+        // This build first opened the office 25 minutes ago.
+        db.set_meta("typed_answers_since", &(Utc::now() - chrono::Duration::minutes(25))).unwrap();
         let mut r = run(&ada, RunKind::Manual, RunState::Succeeded);
         r.cards = vec![
             card("Book the room?", choices(), AnswerHow::Tapped, 30, false),
             card("Order lunch?", choices(), AnswerHow::Rejected, 10, false),
             card("Which caterer?", choices(), AnswerHow::Typed, 20, false),
+            card("Which florist?", choices(), AnswerHow::Typed, 40, false),
             card("Print menus?", choices(), AnswerHow::Dismissed, 5, false),
             card("Move chairs?", choices(), AnswerHow::Replaced, 5, false),
             card("Hang the sign?", choices(), AnswerHow::Withdrawn, 5, false),
@@ -1620,6 +1678,7 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
         let week = Utc::now() - chrono::Duration::days(7);
         let found: Vec<String> = db.answered_cards(&ada.id, week, "s2").unwrap().into_iter().map(|c| c.message).collect();
         assert_eq!(found, ["Order lunch?", "Which caterer?", "Book the room?"], "your taps, words and noes this week, newest first");
+        assert!(!found.contains(&"Which florist?".to_string()), "words typed before this build may be an older build's reply put on every card");
         assert!(db.answered_cards(&ada.id, week, "s1").unwrap().is_empty(), "the session they came back to heard them");
         assert!(db.answered_cards(&employee("Bo", None).id, week, "s2").unwrap().is_empty());
 
@@ -1834,11 +1893,15 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         let items = CardAsk::Items { verb: "Post".into(), items: vec![CardItem { id: "d1".into(), text: "Draft".into(), about: None, recommended: true }] };
         let older_items = scheduled("s1", 20, items, false);
         scheduled("s1", 15, choices(), true);
+        // Put off with Later, it still waits on you.
+        let mut put_off = scheduled("s1", 14, choices(), true);
+        put_off.cards[0].back_at = Some(at(-60));
+        db.save_run(&put_off).unwrap();
         scheduled("s1", 12, chrome(), false);
         scheduled("s2", 10, choices(), false);
         let newer = scheduled("s1", 5, choices(), false);
         let found = db.open_cards_of_schedule("s1", newer.created_at).unwrap();
-        assert_eq!(found.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![older.id, older_items.id]);
+        assert_eq!(found.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![older.id, older_items.id, put_off.id]);
 
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1862,13 +1925,15 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         // Due a moment ago, a fraction of a second from now, and tomorrow; one is due but still working.
         let due = insert(&ada, RunState::Succeeded, 30, &|c| c.back_at = Some(now - chrono::Duration::milliseconds(1500)));
         let just = insert(&ada, RunState::Succeeded, 20, &|c| c.back_at = Some(now + chrono::Duration::milliseconds(300)));
-        insert(&ada, RunState::Succeeded, 10, &|c| c.back_at = Some(now + chrono::Duration::days(1)));
+        let tomorrow = insert(&ada, RunState::Succeeded, 10, &|c| c.back_at = Some(now + chrono::Duration::days(1)));
         insert(&ada, RunState::Running, 5, &|c| c.back_at = Some(now - chrono::Duration::hours(1)));
         assert_eq!(ids(&db.cards_due_back(now).unwrap()), ids(std::slice::from_ref(&due)));
-        assert_eq!(ids(&db.cards_due_back(now + chrono::Duration::seconds(1)).unwrap()), ids(&[due, just]));
+        assert_eq!(ids(&db.cards_due_back(now + chrono::Duration::seconds(1)).unwrap()), ids(&[due.clone(), just.clone()]));
 
         let older = insert(&ada, RunState::Succeeded, 40, &|c| c.parked = true);
         let newer = insert(&bo, RunState::Succeeded, 1, &|c| c.parked = true);
+        // Put off or parked, a card still waits on you: a newer one about the same thing replaces it, and an answer reaches it.
+        assert_eq!(ids(&db.open_topic_runs("ask:boost").unwrap()), ids(&[due, just, tomorrow, older.clone(), newer.clone()]));
         assert_eq!(db.parked_runs().unwrap().iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![newer.id.clone(), older.id.clone()], "newest first");
         db.depart_employee(&bo.id, now).unwrap();
         assert_eq!(ids(&db.parked_runs().unwrap()), ids(&[older]), "only people still here");

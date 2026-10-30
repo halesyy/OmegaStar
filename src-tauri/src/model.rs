@@ -1104,6 +1104,17 @@ impl Card {
         self.answer.is_none()
     }
 
+    /// You put it off with Later: it comes back by itself (`back_at`), or waits in your Parked list.
+    pub fn put_off(&self) -> bool {
+        self.back_at.is_some() || self.parked
+    }
+
+    /// Still waiting on you: no answer yet, or put off with Later. A newer card about the same thing replaces it,
+    /// `close_ask` withdraws it, and any answer settles it.
+    pub fn waiting(&self) -> bool {
+        self.pending() || self.put_off()
+    }
+
     /// News you have not seen yet.
     pub fn unseen_news(&self) -> bool {
         self.answer.is_none() && self.ask == CardAsk::News
@@ -1306,6 +1317,10 @@ pub struct Run {
     /// whatever kind of run it is.
     #[serde(default)]
     pub steered: bool,
+    /// For a reply: your question about one of the thread's cards (`CardReply::Ask`). Your own words, but it leaves the
+    /// thread as it was: it never makes it a conversation you are in (`threads::talking`), so a later tap still files it.
+    #[serde(default)]
+    pub about_card: bool,
     /// For an Asked or Delegated run: when its answer or report reached whoever handed it over, through
     /// await_reports or an Answered run. Set once, so it is delivered exactly once.
     #[serde(default)]
@@ -1346,6 +1361,10 @@ pub struct Run {
     /// It last went back to the queue because Omega Star stopped, not the usage limit; its next attempt is told which.
     #[serde(default)]
     pub restarted: bool,
+    /// Where its next attempt's lines start in its transcript, which every attempt appends to: set when it goes back to
+    /// the queue, so a restart that finds that attempt working judges it by its own lines alone.
+    #[serde(default)]
+    pub attempt_from: u64,
     /// For a weekly review: the number it measured, for the team's scoreboard.
     #[serde(default)]
     pub score: Option<Score>,
@@ -1398,6 +1417,7 @@ impl Run {
             title: None,
             replied_at: None,
             steered: false,
+            about_card: false,
             delivered_at: None,
             check: None,
             allow_once: vec![],
@@ -1410,6 +1430,7 @@ impl Run {
             limited: false,
             restarts: 0,
             restarted: false,
+            attempt_from: 0,
             score: None,
             context_tokens: None,
             cost_usd: None,
@@ -1667,6 +1688,9 @@ pub struct News {
     pub created_at: Ts,
     #[serde(default)]
     pub read_at: Option<Ts>,
+    /// The run whose opening note showed it, so a run that never started gives it back for the next one.
+    #[serde(default)]
+    pub read_in: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

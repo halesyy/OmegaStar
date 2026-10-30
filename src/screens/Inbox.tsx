@@ -6,12 +6,12 @@ import { dayHeading, firstName } from "../lib/format";
 import { useOrg, useProposals, useQuery } from "../lib/hooks";
 import { setMark } from "../lib/marks";
 import { toast } from "../lib/toasts";
-import { archiveAt, archivable, wasArchived, type OpenCard } from "../lib/threads";
+import { archiveAt, archivable, isOpen, wasArchived, type OpenCard } from "../lib/threads";
 import { ProposalCard } from "../components/ProposalCard";
 import { useShell } from "../Shell";
 import { Icon } from "../components/Icon";
 import { ErrorNote, PageColumn, Popover, Section, Skeleton } from "../components/ui";
-import { answerCard } from "../components/conversation/CardView";
+import { answerCard, answering, undoLatest } from "../components/conversation/CardView";
 import { markDone, reopen, sendAndDone } from "../components/conversation/ThreadView";
 import { toItem, useStatuses, type Item } from "../components/conversation/useStatuses";
 import { DecisionGroup, DecisionItem, FeedItem, ParkedItem, type ItemActions } from "./InboxItem";
@@ -34,10 +34,11 @@ const kbd = (k: string) => <kbd className="kbd">{k}</kbd>;
 const KEYS: [ReactNode, string][] = [
   [<>{kbd("J")} {kbd("K")}</>, "Next or previous entry, as ↓ and ↑ do"],
   [kbd("Enter"), "Open or close the entry"],
-  [kbd("A"), "Answer with the recommended choice"],
+  [kbd("A"), "The recommended choice, or the card's main answer"],
   [<>{kbd("1")} to {kbd("4")}</>, "Pick that choice"],
   [kbd("L"), "Later"],
-  [kbd("X"), "No"],
+  [kbd("X"), "No, Can't or Not now"],
+  [kbd("Z"), "Undo your last answer before it goes"],
   [kbd("R"), "Reply on the card"],
   [kbd("E"), "Archive"],
   [kbd("Esc"), "Close the entry"],
@@ -63,10 +64,11 @@ function after(ids: string[], id: string): string | null {
   return ids[i + 1] ?? ids[i - 1] ?? null;
 }
 
-/** An entry with nothing to answer but Archive: E archives it, runs that didn't finish together all at once. */
+/** An entry with nothing to answer but Archive: E archives it, runs that didn't finish together all at once. A tidy's
+ *  proposal you have not asked about is answered with Approve. */
 const doneable = (d: Decision<Item>): boolean =>
   d.type === "failures" ? d.failures.some((f) => archivable(f.thread, f.item.thread))
-  : (d.type === "flag" ? !d.run.proposed || !!d.run.approvedAt : d.type !== "card" && d.type !== "blocked") && archivable(d.thread, d.item.thread);
+  : (d.type === "flag" ? !d.thread.root.proposed || !!d.thread.root.approvedAt : d.type !== "card" && d.type !== "blocked") && archivable(d.thread, d.item.thread);
 
 /** The entries on the page, in order, leaving out those that only keep their place. */
 const onPage = () => [...document.querySelectorAll<HTMLElement>("[data-entry]:not([inert])")];
@@ -89,12 +91,13 @@ function moveOn(leaving: string[], scroll: boolean) {
 }
 
 /** Answers each card with what its employee recommends, one after another through `answer_card` as a tap does, and
- *  says what went. Resolves how many it answered. */
+ *  says what went. A card you answered yourself keeps that answer, even while you can still take it back. Resolves how
+ *  many it answered. */
 async function answerAll(cards: OpenCard[], who: string): Promise<number> {
   let sent = 0;
   for (const c of cards) {
     const reply = recommended(c.card);
-    if (!reply) continue;
+    if (!reply || answering(c.run.id, c.index)) continue;
     try {
       await call("answer_card", { runId: c.run.id, card: c.index, answer: reply });
       sent++;
@@ -102,9 +105,10 @@ async function answerAll(cards: OpenCard[], who: string): Promise<number> {
       toast(errorMessage(err), "err");
     }
   }
-  // A run still asking something else holds these answers back until that is answered too.
+  // A run still asking something else holds these answers back until that is answered too. An answer on its way
+  // counts as given, and news asks nothing.
   const left = [...new Set(cards.map((c) => c.run))]
-    .reduce((n, run) => n + run.cards.filter((card, i) => !card.answer && !cards.some((c) => c.run === run && c.index === i)).length, 0);
+    .reduce((n, run) => n + run.cards.filter((card, i) => isOpen(card) && !answering(run.id, i) && !cards.some((c) => c.run === run && c.index === i)).length, 0);
   if (sent) {
     toast(left ? `Noted. ${who} hears your answers once you answer ${left === 1 ? "the other question" : `the other ${left}`}.`
       : `Sent ${who} ${sent} ${sent === 1 ? "answer" : "answers"}.`, "ok");
@@ -195,16 +199,19 @@ export function InboxScreen() {
         await sendAndDone(d.thread.root.id, name(d.run), text, attachments);
         go();
       },
-      // A run asking several things stays until its last card is answered.
+      // A run asking several things stays until its last card is answered. An answer still on its way counts, so the
+      // last of several given quickly moves on too, and news asks nothing. Another's card under several questions
+      // answers one of them at most, so they stay.
       answer: async (run, index, reply) => {
         const go = leaving();
-        const last = !run.cards.some((c, i) => i !== index && !c.answer);
+        const last = (run === d.run || (d.type === "card" && d.cards.length === 1))
+          && !run.cards.some((c, i) => i !== index && isOpen(c) && !answering(run.id, i));
         if (last) settle();
         if (await answerCard(run, index, reply, name(run)) && last) go();
       },
       answerAll: async (cards) => {
         const go = leaving();
-        const last = d.type === "card" && d.cards.every((c) => c.card.answer || cards.includes(c));
+        const last = d.type === "card" && d.cards.every((c) => !isOpen(c.card) || answering(c.run.id, c.index) || cards.includes(c));
         if (last) settle();
         if (await answerAll(cards, name(d.run)) === cards.length && last) go();
       },
@@ -224,7 +231,8 @@ export function InboxScreen() {
 
   // Keys act on the focused entry: J and K (or the arrows) move between entries, and A, 1 to 4, L, X and R press what
   // its card offers. E archives it, or in the Archive reopens it; Escape closes the open entry; ? lists the keys. An
-  // entry merely under the pointer is never acted on.
+  // entry merely under the pointer is never acted on. Z takes back your newest answer still waiting to go, wherever
+  // it is.
   const latest = useRef({ entries, feed, view, actionsFor, reopenLine, openId });
   latest.current = { entries, feed, view, actionsFor, reopenLine, openId };
   useEffect(() => {
@@ -234,10 +242,11 @@ export function InboxScreen() {
       if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || typing(e.target) || document.querySelector("[role=dialog]")) return;
       const { entries, feed, view, actionsFor, reopenLine, openId } = latest.current;
       const entry = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>("[data-entry]") : null;
-      // The entry's own card, not one in the thread it opened into.
+      // The entry's own card, not one in the thread it opened into, nor another's asking the same with other choices.
       const head = entry?.querySelector<HTMLElement>(":scope > .item-head") ?? entry;
+      const find = (selector: string) => head?.querySelector<HTMLElement>(`${selector}:not(.dec-others *)`);
       const press = (selector: string) => {
-        const el = head?.querySelector<HTMLElement>(selector);
+        const el = find(selector);
         el?.click();
         return !!el;
       };
@@ -270,8 +279,11 @@ export function InboxScreen() {
         case "x":
           if (!press("[data-card-no]")) return;
           break;
+        case "z":
+          if (!undoLatest()) return;
+          break;
         case "r": {
-          const reply = head?.querySelector<HTMLElement>("[data-card-reply]");
+          const reply = find("[data-card-reply]");
           if (!reply) return;
           reply.focus();
           break;

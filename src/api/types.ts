@@ -222,6 +222,7 @@ export type Run = {
   title: string | null;        // a thread's first run: the name the employee gave the thread with name_thread
   repliedAt: string | null;    // when you last replied to this report
   steered: boolean;            // you wrote into it while it worked or waited to start, so its report waits for you in the Inbox
+  aboutCard?: boolean;         // a question you asked from a card: it does not make the thread a conversation you are in
   deliveredAt: string | null;  // asked and delegated runs: when the answer or report reached whoever handed it over
   check: string | null;        // a due check that came back into the conversation it was set in: the check's id
   allowOnce: string[];         // rules you granted this run only ("Allow once & retry")

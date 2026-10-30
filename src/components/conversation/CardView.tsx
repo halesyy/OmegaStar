@@ -4,6 +4,7 @@ import type { Card, CardAnswer, CardItem, CardReply, EmployeeView, Proposal, Run
 import { firstName, MOD, whenInline } from "../../lib/format";
 import { useQuery } from "../../lib/hooks";
 import { createStore, useStore } from "../../lib/store";
+import { isLive, isOpen } from "../../lib/threads";
 import { toast } from "../../lib/toasts";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
@@ -28,9 +29,19 @@ const onCard = (runId: string, index: number) => (p: PendingAnswer) => p.runId =
 /** Every answer on its way, oldest first. */
 export const usePendingAnswers = () => useStore(pending);
 
+/** An answer on the card at `index` of run `runId`'s cards is on its way. */
+export const answering = (runId: string, index: number): boolean => pending.get().some(onCard(runId, index));
+
 /** Takes back an answer that has not gone yet, so its card is open again. */
 export function undoAnswer(runId: string, index: number) {
   undos.get(`${runId}:${index}`)?.();
+}
+
+/** Takes back the newest answer that has not gone yet. False when none is waiting to go. */
+export function undoLatest(): boolean {
+  const p = pending.get().filter((x) => !x.going).pop();
+  if (p) undoAnswer(p.runId, p.index);
+  return !!p;
 }
 
 /** Your answer on the card at `index` of `run`'s cards. It waits `UNDO_MS`, shown as on its way with Undo, then goes,
@@ -53,8 +64,8 @@ export async function answerCard(run: Run, index: number, reply: CardReply, name
   }
   pending.set(pending.get().map((p) => (mine(p) ? { ...p, going: true } : p)));
   // The run holds this answer back while it asks something you have not answered, and hears them all at once.
-  // Cards you answered since `run` was read are on their way, so they do not count.
-  const rest = run.cards.filter((c, i) => i !== index && !c.answer && !pending.get().some(onCard(run.id, i))).length;
+  // Cards you answered since `run` was read are on their way, so they do not count, and news asks nothing.
+  const rest = run.cards.filter((c, i) => i !== index && isOpen(c) && !answering(run.id, i)).length;
   let replies: Run[];
   try {
     replies = await call("answer_card", { runId: run.id, card: index, answer: reply });
@@ -131,21 +142,23 @@ function answered(c: Card, a: CardAnswer): string {
 /** A run's cards, each with its question and the answer built in, as a thread shows them. */
 export function RunCards({ run, e }: { run: Run; e: EmployeeView }) {
   const name = firstName(e.name);
-  return <CardList runId={run.id} cards={run.cards.map((card, index) => ({ card, index }))} e={e} onAnswer={async (i, reply) => { await answerCard(run, i, reply, name); }} />;
+  return <CardList runId={run.id} cards={run.cards.map((card, index) => ({ card, index }))} e={e} working={isLive(run)} onAnswer={async (i, reply) => { await answerCard(run, i, reply, name); }} />;
 }
 
-/** Cards of run `runId`, each with its question and the answer built in. `index`: the card's place in the run's cards. */
-export function CardList({ runId, cards, e, onAnswer }: {
+/** Cards of run `runId`, each with its question and the answer built in. `index`: the card's place in the run's cards.
+ *  `working`: the run is still working, so they take no answer yet. */
+export function CardList({ runId, cards, e, working, onAnswer }: {
   runId: string;
   cards: { card: Card; index: number }[];
   e: EmployeeView;
+  working: boolean;
   onAnswer: (index: number, reply: CardReply) => Promise<void>;
 }) {
   return cards.map(({ card: c, index }) => (
     <div key={index} className="card-ask">
       <div className="card-q">{c.message}</div>
       {c.why ? <div className="card-why">{c.why}</div> : null}
-      <CardView card={c} runId={runId} index={index} e={e} onAnswer={(reply) => onAnswer(index, reply)} />
+      <CardView card={c} runId={runId} index={index} e={e} working={working} onAnswer={(reply) => onAnswer(index, reply)} />
     </div>
   ));
 }
@@ -153,12 +166,14 @@ export function CardList({ runId, cards, e, onAnswer }: {
 /** A card's answer built in, under the link, images, proposal and file it is about if it has them: buttons for a
  *  decision, a tick list, I've done it for a to-do or a chore, your own words for a question, or Got it for news. Under
  *  most, a line for your own words or a question. An answer shows as on its way, with Undo, until it goes; once
- *  answered, one line on what you did. `index`: its place in run `runId`'s cards. */
-export function CardView({ card, runId, index, e, onAnswer }: {
+ *  answered, one line on what you did. `index`: its place in run `runId`'s cards. `working`: the run is still working,
+ *  so the card takes no answer until it finishes. */
+export function CardView({ card, runId, index, e, working, onAnswer }: {
   card: Card;
   runId: string;
   index: number;
   e: EmployeeView;
+  working: boolean;
   onAnswer: (reply: CardReply) => Promise<void>;
 }) {
   const [sending, setSending] = useState(false);
@@ -170,6 +185,7 @@ export function CardView({ card, runId, index, e, onAnswer }: {
   if (going) return <Sending p={going} />;
   const name = firstName(e.name);
   const ask = card.ask;
+  const busy = sending || working;
   const send = async (reply: CardReply) => {
     setSending(true);
     try { await onAnswer(reply); } finally { setSending(false); }
@@ -188,12 +204,13 @@ export function CardView({ card, runId, index, e, onAnswer }: {
       setSending(false);
     }
   };
-  const later = <LaterMenu timesBack={card.timesBack} disabled={sending} onLater={(until) => void send({ type: "later", until: until.toISOString() })} />;
+  // A parked card had its Later: it takes any other answer.
+  const later = card.parked ? null : <LaterMenu timesBack={card.timesBack} disabled={busy} onLater={(until) => void send({ type: "later", until: until.toISOString() })} />;
   /** Later, and No in the card's own words. */
   const decline = (no: string) => (
     <>
       {later}
-      <button className="btn btn-ghost btn-sm" data-card-no title="They drop it and don't ask again" disabled={sending} onClick={() => void send({ type: "reject" })}>
+      <button className="btn btn-ghost btn-sm" data-card-no title="They drop it and don't ask again" disabled={busy} onClick={() => void send({ type: "reject" })}>
         {no}
       </button>
     </>
@@ -204,12 +221,12 @@ export function CardView({ card, runId, index, e, onAnswer }: {
     <button className="btn btn-primary btn-sm" title={url.href} onClick={() => openWeb(url)}><Icon name="external" size={12} /> {label}</button>
   ) : null;
   const did = (title: string) => (
-    <button className={`btn btn-sm ${url ? "" : "btn-primary"}`} title={title} disabled={sending} onClick={() => void send({ type: "done" })}>
+    <button className={`btn btn-sm ${url ? "" : "btn-primary"}`} title={title} disabled={busy} data-card-recommended onClick={() => void send({ type: "done" })}>
       <Icon name="check" size={13} /> I've done it
     </button>
   );
   const words = (hint: string) => (
-    <CardText name={name} hint={hint} text={text} setText={setText} sending={sending} onText={(t) => void send({ type: "text", text: t })} onAsk={askAbout} />
+    <CardText name={name} hint={hint} text={text} setText={setText} sending={busy} onText={(t) => void send({ type: "text", text: t })} onAsk={askAbout} />
   );
   const answer = (): ReactNode => {
     switch (ask.type) {
@@ -217,7 +234,7 @@ export function CardView({ card, runId, index, e, onAnswer }: {
         <div className="card-choices">
           {ask.choices.map((c, i) => (
             <button
-              key={i} className={`btn btn-sm ${i === ask.recommended ? "btn-primary" : ""}`} disabled={sending}
+              key={i} className={`btn btn-sm ${i === ask.recommended ? "btn-primary" : ""}`} disabled={busy}
               data-card-choice={i} data-card-recommended={i === ask.recommended || undefined} onClick={() => void send({ type: "choice", index: i })}
             >
               {c}{i === ask.recommended ? <span className="card-rec">Recommended</span> : null}
@@ -226,30 +243,30 @@ export function CardView({ card, runId, index, e, onAnswer }: {
           {decline("No")}
         </div>
       );
-      case "items": return <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={sending} send={send} decline={decline(`Don't ${ask.verb.toLowerCase()}`)} />;
+      case "items": return <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={busy} send={send} decline={decline(`Don't ${ask.verb.toLowerCase()}`)} />;
       case "task": return (
         <>
           {ask.steps.trim() ? <p className="card-steps">{ask.steps.trim()}</p> : null}
           <div className="card-choices">
             {open("Open")}
             {did(`Tells ${name} you did it`)}
-            <button className="btn btn-ghost btn-sm" title={`Tells ${name} you can't do it`} disabled={sending} onClick={() => void send({ type: "cant" })}>Can't</button>
+            <button className="btn btn-ghost btn-sm" title={`Tells ${name} you can't do it`} disabled={busy} data-card-no onClick={() => void send({ type: "cant" })}>Can't</button>
             {later}
           </div>
         </>
       );
       // Your answer is the reply line, so it comes first.
-      case "question": return <>{words("Your answer")}<div className="card-choices">{later}</div></>;
+      case "question": return <>{words("Your answer")}{later ? <div className="card-choices">{later}</div> : null}</>;
       case "news": return (
         <div className="card-choices">
-          <button className="btn btn-primary btn-sm" disabled={sending} onClick={() => void send({ type: "seen" })}><Icon name="check" size={13} /> Got it</button>
+          <button className="btn btn-primary btn-sm" disabled={busy} data-card-recommended onClick={() => void send({ type: "seen" })}><Icon name="check" size={13} /> Got it</button>
         </div>
       );
       case "chore": return (
         <div className="card-choices">
           {open(ask.subject.startsWith("sign-in:") ? "Open sign-in page" : "Open")}
           {did("You did it. Every run waiting on this carries on.")}
-          <button className="btn btn-ghost btn-sm" title="Sends nothing, and it doesn't come back" disabled={sending} onClick={() => void send({ type: "dismiss" })}>Not now</button>
+          <button className="btn btn-ghost btn-sm" title="Sends nothing, and it doesn't come back" disabled={busy} data-card-no onClick={() => void send({ type: "dismiss" })}>Not now</button>
         </div>
       );
     }
@@ -271,6 +288,7 @@ export function CardView({ card, runId, index, e, onAnswer }: {
         </div>
       ) : null}
       {card.file ? <CardFile runId={runId} index={index} path={card.file} label={proposedVersion(proposal, name)} /> : null}
+      {working ? <p className="card-wait">Waiting for {name} to finish</p> : null}
       {answer()}
       {ask.type === "question" || ask.type === "news" ? null : words(`Answer in your own words, or ask ${name} about it`)}
     </div>
@@ -395,7 +413,7 @@ function ItemsCard({ verb, items, name, sending, send, decline }: {
       <div className="card-items-foot">
         <span className="faint grow">{touched || !items.some((i) => i.recommended) ? `${ticked} of ${items.length} ticked` : `${name}'s picks are ticked`}</span>
         {decline}
-        <button className="btn btn-primary btn-sm" disabled={!ready} onClick={go}>
+        <button className="btn btn-primary btn-sm" disabled={!ready} data-card-recommended onClick={go}>
           {ticked ? `${verb} ${ticked}` : noted ? "Send notes" : verb}<span className="card-kbd">{MOD} ↵</span>
         </button>
       </div>
