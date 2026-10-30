@@ -10,16 +10,21 @@ import "./UsageCard.css";
 const level = (w: UsageWindow | null) => (!w ? "" : w.percent >= 95 ? "usage-err" : w.percent >= 80 ? "usage-warn" : "");
 const pct = (w: UsageWindow | null) => (w ? `${Math.round(w.percent)}%` : "–");
 
-/** One window: label, meter, percent. The reset time is in the tooltip, and on screen once the window runs high. */
+/** One window: label, meter, percent. The reset time is in the tooltip, and on screen once the window runs high. A window
+ *  with no reading says so in place of its meter. */
 function Window({ label, w, now, known }: { label: string; w: UsageWindow | null; now: number; known: boolean }) {
   const resets = w ? resetsLabel(w, new Date(now)) : "";
   const lv = level(w);
   return (
     <div className={`usage-row ${lv}`} title={w ? `${label}: ${pct(w)} used${resets ? ` · ${resets}` : ""}` : undefined}>
-      <span>{label}</span>
-      <span className="usage-bar"><span style={{ width: `${w ? Math.min(100, w.percent) : 0}%` }} /></span>
-      <span className="mono num">{pct(w)}</span>
-      {lv && resets ? <span className="usage-sub">{resets}</span> : !w ? <span className="usage-sub">{known ? "Not reported" : "Checking…"}</span> : null}
+      <span className="usage-label">{label}</span>
+      {w ? (
+        <>
+          <span className="usage-bar"><span style={{ width: `${Math.min(100, w.percent)}%` }} /></span>
+          <span className="usage-pct mono num">{pct(w)}</span>
+          {lv && resets ? <span className="usage-sub">{resets}</span> : null}
+        </>
+      ) : <span className="usage-none">{known ? "Not reported" : "Checking…"}</span>}
     </div>
   );
 }
@@ -79,8 +84,10 @@ export function UsageCard() {
             <Icon name="refresh" size={12} />
           </button>
         </div>
-        <Window label="5-hour" w={five} now={now} known={known} />
-        <Window label="7-day" w={week} now={now} known={known} />
+        <div className="usage-rows">
+          <Window label="5-hour" w={five} now={now} known={known} />
+          <Window label="7-day" w={week} now={now} known={known} />
+        </div>
         {held ? <div className="usage-note usage-note-warn">Work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}, when the limit resets.</div> : null}
         {usage?.accountIssue ? <AccountIssue message={usage.accountIssue.message} signedInAs={usage.accountIssue.signedInAs} /> : null}
         {usage?.proxyIssue ? <div className="usage-note usage-note-warn">{usage.proxyIssue}</div> : null}
