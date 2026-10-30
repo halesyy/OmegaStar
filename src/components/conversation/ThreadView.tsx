@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, NewAttachment, Run, RunEvent, Thread } from "../../api/types";
 import { dateLong, firstName, relTime, whenShort } from "../../lib/format";
@@ -20,6 +20,8 @@ import "../panel/ChatTab.css";
 import "../../screens/Inbox.css";
 
 const TEACH_PREFIX = "I want to teach you a new task: ";
+/** What "Where are we?" sends as your message. */
+const WHERE_ARE_WE = "Where are we? In three short lines: what is done, what is next, and what is waiting on whom.";
 
 /**
  * A thread on one of the employee's reports, or a conversation you started, read as a conversation: the report
@@ -46,6 +48,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const { turns, error, reload, appendRun } = thread;
   const surface = useRef<ChatSurfaceHandle>(null);
   const [all, setAll] = useState(false);
+  const [recapping, setRecapping] = useState(false);
   const root = turns?.[0]?.run;
   const replies = turns?.slice(1) ?? [];
   const live = turns?.find((t) => t.run.state === "running") ?? turns?.find((t) => isLive(t.run));
@@ -62,6 +65,10 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const stop = async () => {
     if (!live) return;
     try { await call("cancel_run", { runId: live.run.id }); } catch (err) { toast(errorMessage(err), "err"); }
+  };
+  const recap = async () => {
+    setRecapping(true);
+    try { await send(WHERE_ARE_WE, []); } catch (err) { toast(errorMessage(err), "err"); } finally { setRecapping(false); }
   };
 
   if (error) return <div style={{ padding: 20 }}><ErrorNote text={error} onRetry={reload} /></div>;
@@ -107,7 +114,14 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
       <ChatSurface
         ref={surface} e={e} busy={!!live} live={live} draftKey={`thread:${rootId}`} scrollKey={liveKey}
         placeholder={`Reply to ${name} in this ${place}…`} hint={hint} onSend={send} onSendDone={carded ? undefined : onSendDone ?? undefined} onStop={stop} autoFocus={autoFocus}
-        actions={live ? null : <button className="btn btn-ghost btn-sm" onClick={() => surface.current?.prefill(TEACH_PREFIX)}><Icon name="teach" size={13} /> Teach a new task</button>}
+        actions={(
+          <>
+            {live ? null : <button className="btn btn-ghost btn-sm" onClick={() => surface.current?.prefill(TEACH_PREFIX)}><Icon name="teach" size={13} /> Teach a new task</button>}
+            <button className="btn btn-ghost btn-sm" disabled={recapping} title="Ask for a recap: what is done, what is next, what is waiting on whom" onClick={() => void recap()}>
+              <Icon name="checklist" size={13} /> Where are we?
+            </button>
+          </>
+        )}
       >
         <div className="chat-inner">
           {row && row.related.length ? <RowHistory t={row} employees={snap?.employees ?? []} people={snap?.people ?? []} /> : null}
@@ -142,8 +156,9 @@ function Flags({ run }: { run: Run }) {
   );
 }
 
-/** The report that started the thread, as the employee's first message, with the pages its run showed above it.
- *  `retry`: it did not finish and nothing came after it, so it can be tried again. */
+/** The report that started the thread, as the employee's first message, with the pages its run showed above it and
+ *  what it asks you below it, so you read why before you answer. `retry`: it did not finish and nothing came after it,
+ *  so it can be tried again. */
 function ReportTurn({ root, events, e, blocked, archived, retry }: { root: Run; events: RunEvent[]; e: EmployeeView; blocked: boolean; archived: boolean; retry: boolean }) {
   const failed = didNotFinish(root);
   return (
@@ -156,10 +171,10 @@ function ReportTurn({ root, events, e, blocked, archived, retry }: { root: Run; 
             <span className="grow" />
             {root.endedAt ? <span className="faint thread-time" title={dateLong(root.endedAt)}>{relTime(root.endedAt)}</span> : null}
           </div>
-          <Flags run={root} />
-          <RunCards run={root} e={e} />
           {events.map((ev, i) => ev.type === "visual" ? <Visual key={i} runId={root.id} id={ev.id} title={ev.title} /> : null)}
           {root.summary ? <Markdown text={root.summary} /> : <p className="muted">{failed ? root.error ?? "This run didn't finish." : "No report."}</p>}
+          <Flags run={root} />
+          <RunCards run={root} e={e} />
           {retry ? <div className="card-choices"><RetryButton run={root} name={firstName(e.name)} /></div> : null}
           {root.skillChanges.length ? <SkillsGrew run={root} /> : null}
           {blocked && root.denials.length > 0 ? <BlockedCard run={root} employee={e} /> : null}
@@ -170,25 +185,30 @@ function ReportTurn({ root, events, e, blocked, archived, retry }: { root: Run; 
   );
 }
 
-/** Marks the thread with `rootId` done, which archives it with the rest of its row, except what still needs you. It
- *  leaves at once, with nothing to confirm; when related runs went with it, it says how many, and Undo brings back
- *  exactly what it filed. Resolves false, having said why and put it back, when it failed. */
-export async function markDone(rootId: string): Promise<boolean> {
-  dropConversation(rootId);
-  let filed: string[];
-  try {
-    filed = await call("set_archived", { runId: rootId, archived: true });
-  } catch (err) {
-    refreshConversations();
-    toast(errorMessage(err), "err");
-    return false;
+/** Archives the threads with `rootIds`, each with the rest of its row, except what still needs you. They leave at
+ *  once, with nothing to confirm; when related runs or several threads went, it says how many, and Undo brings back
+ *  exactly what it filed. Resolves false, having said why and put back what it could not file, when any failed. */
+export async function markDone(...rootIds: string[]): Promise<boolean> {
+  rootIds.forEach(dropConversation);
+  const filed: string[] = [];
+  let ok = true;
+  for (const runId of rootIds) {
+    try {
+      filed.push(...(await call("set_archived", { runId, archived: true })));
+    } catch (err) {
+      ok = false;
+      toast(errorMessage(err), "err");
+    }
   }
-  const also = filed.filter((id) => id !== rootId).length;
-  if (also) {
+  if (!ok) refreshConversations();
+  const went = rootIds.filter((id) => filed.includes(id)).length;
+  const also = filed.length - went;
+  if (also || went > 1) {
     const undo = () => void call("unarchive_runs", { runIds: filed }).catch((err) => toast(errorMessage(err), "err"));
-    toast(`Done. Also filed ${also} related ${also === 1 ? "run" : "runs"}`, "ok", { label: "Undo", run: undo });
+    const archived = went > 1 ? `Archived ${went} runs` : "Archived";
+    toast(also ? `${archived}. Also filed ${also} related ${also === 1 ? "run" : "runs"}` : archived, "ok", { label: "Undo", run: undo });
   }
-  return true;
+  return ok;
 }
 
 /** Tries a run that did not finish again: it carries on from where it stopped, or a hand-off runs again for whoever
@@ -212,7 +232,7 @@ export function RetryButton({ run, name, disabled = false }: { run: Run; name: s
   );
 }
 
-/** Brings a thread you marked done back, and offers Undo. */
+/** Brings a thread you archived back, and offers Undo. */
 export async function reopen(rootId: string) {
   try {
     await call("set_archived", { runId: rootId, archived: false });
@@ -230,30 +250,36 @@ export async function sendAndDone(rootId: string, name: string, text: string, at
   toast(`Sent to ${name}. It comes back only if the answer needs you.`, "ok");
 }
 
-/** Done is the archive: the thread leaves the Inbox and the employee's chips, and comes back if the employee raises something new. */
-export function DoneButton({ name, disabled, onDone }: {
+/** Archive files the thread away: it leaves the Inbox and the employee's chips, and comes back if the employee raises
+ *  something new. */
+export function DoneButton({ name, label = "Archive", disabled, onDone }: {
   /** The employee's first name. */
   name: string;
-  /** The thread is still working, so it cannot be done yet. */
+  label?: string;
+  /** The thread is still working, so it cannot be archived yet. */
   disabled: boolean;
   onDone: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   return (
     <button
-      className="btn btn-sm" disabled={disabled || busy} title={disabled ? `${name} is still working on it` : "Mark this conversation done (E)"}
+      className="btn btn-sm" disabled={disabled || busy} title={disabled ? `${name} is still working on it` : "Move it to the Archive (E)"}
       onClick={async () => { setBusy(true); try { await onDone(); } finally { setBusy(false); } }}
     >
-      <Icon name="check" size={13} /> Done <kbd className="kbd">E</kbd>
+      <Icon name="archive" size={13} /> {label} <kbd className="kbd">E</kbd>
     </button>
   );
 }
 
-/** Snooze puts the thread away until a time, then brings it back to the Inbox as unread. While it is snoozed
- *  (`snoozedUntil`), Wake now. */
+/** Later puts the thread away until a time, then brings it back to the Inbox as unread. While it is away
+ *  (`snoozedUntil`), Wake now. Its menu takes focus as it opens, so keys work in it. */
 export function SnoozeButton({ snoozedUntil, onSnooze, onWake }: { snoozedUntil: string | null; onSnooze: (until: Date) => void; onWake: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open) requestAnimationFrame(() => menu.current?.querySelector<HTMLButtonElement>("button")?.focus());
+  }, [open]);
   if (snoozedUntil) {
     return (
       <button className="btn btn-ghost btn-sm" onClick={onWake}>
@@ -264,11 +290,11 @@ export function SnoozeButton({ snoozedUntil, onSnooze, onWake }: { snoozedUntil:
   const presets = open ? snoozePresets(new Date()) : [];
   return (
     <>
-      <button ref={ref} className="btn btn-ghost btn-sm" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <Icon name="clock" size={13} /> Snooze
+      <button ref={ref} className="btn btn-ghost btn-sm" data-later aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Icon name="clock" size={13} /> Later
       </button>
       <Popover anchor={ref} open={open} onClose={() => setOpen(false)} width={232}>
-        <div className="menu" role="menu" aria-label="Snooze until" data-esc-stop>
+        <div ref={menu} className="menu" role="menu" aria-label="Bring it back" data-esc-stop>
           {presets.map((s) => (
             <button key={s.label} type="button" role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSnooze(s.until); }}>
               <span className="grow">{s.label}</span>

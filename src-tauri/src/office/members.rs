@@ -61,10 +61,19 @@ impl Office {
         } else {
             Presence::Idle
         };
-        let next_fire = if paused {
-            None
-        } else {
-            db.schedules(&e.id)?.iter().filter(|s| s.enabled).filter_map(|s| schedule::next_fire(&s.cron, now, &Local)).min()
+        // Nothing runs while schedules are paused, checks included. A routine kept to business hours runs inside them.
+        let hours = db.settings()?.unwrap_or_default().watch.hours;
+        let routines = if paused { vec![] } else { db.schedules(&e.id)? };
+        let slots: Vec<Dated> =
+            routines.iter().filter(|s| s.enabled).filter_map(|s| Some(Dated { at: schedules::next_slot(s, &hours, now, &Local)?, text: s.label.clone() })).collect();
+        let next_fire = slots.iter().map(|d| d.at).min();
+        let check = if paused { None } else { db.checks(&e.id, Some(CheckState::Open))?.into_iter().next() };
+        let check = check.map(|c| Dated { text: format!("Check: {}", claude::clip(&claude::one_line(&c.what), 60)), at: c.due_at });
+        let report = db.last_report(&e.id, now - chrono::Duration::days(REPORT_DAYS))?;
+        let status = EmployeeStatus {
+            number: db.latest_score(&e.id)?.map(|s| number(&s)),
+            last_report: report.and_then(|r| Some(Dated { text: headline(r.summary.as_deref()?)?, at: r.ended_at.unwrap_or(r.created_at) })),
+            next: slots.into_iter().chain(check).min_by_key(|d| d.at),
         };
         Ok(EmployeeView {
             employee: e.clone(),
@@ -75,6 +84,7 @@ impl Office {
             next_fire,
             last_run: recent.first().cloned(),
             last_worked_at,
+            status,
         })
     }
 
@@ -258,8 +268,10 @@ impl Office {
         Ok(p)
     }
 
+    /// Removes a person from the org, and starts a run for each employee whose skills, notes or what they own still
+    /// name them (`names_in_files`), to take them out.
     pub fn remove_person(&self, person_id: &str) -> Result<()> {
-        {
+        let (p, employees, ceo) = {
             let db = self.db();
             let p = db.person(person_id)?.ok_or_else(|| AppError::not_found("person not found"))?;
             Self::edit_org(&db, |org| {
@@ -267,8 +279,14 @@ impl Office {
                 Ok(())
             })?;
             db.remove_person(&p.id, now())?;
-        }
+            (p, db.employees()?, ceo_of(&db)?)
+        };
         self.cancel_open_requests(RequestFilter { person_id: Some(person_id.into()), ..Default::default() })?;
+        for e in employees.iter().filter(|e| names_in_files(&self.employee_dir(&e.id), &p.name)) {
+            if let Err(err) = self.run_now(&e.id, Some(left_instruction(&p.name, &ceo))) {
+                log!("starting {}'s clean-up after a person left failed: {err}", e.slug);
+            }
+        }
         self.sink().org_changed();
         Ok(())
     }
@@ -386,6 +404,52 @@ something changes. Adjust your plan for the gap, and say in a line or two how yo
     }
 }
 
+/// What a run of an employee who still names someone who left is told.
+fn left_instruction(name: &str, ceo: &str) -> String {
+    format!(
+        "{name} has left. Remove them from your skills and notes. If your what-you-own.md names them, write the change there: \
+Omega Star shows it to {ceo} to approve."
+    )
+}
+
+/// The employee's skills, notes (top-level markdown in `workspace/`) or what they own name the person called `name`.
+fn names_in_files(employee_dir: &Path, name: &str) -> bool {
+    let skills = own_skills::snapshot(&own_skills::skills_dir(employee_dir));
+    let notes = own_skills::notes_snapshot(&employee_dir.join("workspace"));
+    let own = fs::read_to_string(employee_dir.join(own_skills::OWN_FILE)).unwrap_or_default();
+    skills.values().chain(notes.values()).chain(std::iter::once(&own)).any(|text| mentions(text, name))
+}
+
+/// `text` names the person called `name`: their first name, which their full name starts with too, as a word of its
+/// own with its capitals. Pure.
+fn mentions(text: &str, name: &str) -> bool {
+    let Some(first) = name.split_whitespace().next() else { return false };
+    text.match_indices(first).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + first.len()..].chars().next();
+        !before.is_some_and(char::is_alphanumeric) && !after.is_some_and(char::is_alphanumeric)
+    })
+}
+
+/// How far back an employee's status looks for their last report: an older one says little about how they are doing.
+const REPORT_DAYS: i64 = 30;
+
+/// A weekly review's number as a status line shows it: "Open tickets 12 (down 3)". Pure.
+fn number(s: &Score) -> String {
+    let (metric, value, change) = (s.metric.trim(), s.value.trim(), s.change.trim());
+    if change.is_empty() { format!("{metric} {value}") } else { format!("{metric} {value} ({change})") }
+}
+
+/// The first line of a report that has words in it, without markdown marks, short enough for a status line. Pure.
+fn headline(report: &str) -> Option<String> {
+    let marks: &[char] = &['#', '>', '-', '*', '|', ' '];
+    report
+        .lines()
+        .map(|l| l.trim().trim_start_matches(marks).replace(['*', '_', '`'], ""))
+        .find(|l| l.chars().any(char::is_alphanumeric))
+        .map(|l| claude::clip(&l, 160))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,5 +516,146 @@ mod tests {
         assert!(idle.live.is_empty());
         assert_eq!(idle.presence, Presence::Idle);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_name_counts_as_a_word_of_its_own_with_its_capitals() {
+        for (text, named) in [
+            ("Ask Sam before a launch.", true),
+            ("Sam Lee signs off posts.", true),
+            ("(Sam's list)", true),
+            ("Samples go to Samantha.", false),
+            ("ask sam first", false),
+            ("BigSam", false),
+            ("", false),
+        ] {
+            assert_eq!(mentions(text, "Sam Lee"), named, "{text}");
+        }
+        assert!(!mentions("Ask Sam.", " "), "no name, no mention");
+    }
+
+    struct NoSink;
+    impl EventSink for NoSink {
+        fn org_changed(&self) {}
+        fn run_updated(&self, _run: &Run) {}
+        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
+        fn request_updated(&self, _request: &HumanRequest) {}
+    }
+
+    #[tokio::test]
+    async fn someone_who_leaves_is_cleaned_out_of_whoever_still_names_them() {
+        let dir = std::env::temp_dir().join(format!("omegastar-left-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let (ada, bo, cy, dee) = (employee("Ada"), employee("Bo"), employee("Cy"), employee("Dee"));
+        let sam = Person {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: "Sam Lee".into(),
+            title: "Designer".into(),
+            description: String::new(),
+            strengths: String::new(),
+            responsibilities: String::new(),
+            channels: vec![],
+            notes: String::new(),
+            manager: PersonManager::You,
+            hue: 0,
+            added_at: now(),
+        };
+        {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+            for e in [&ada, &bo, &cy, &dee] {
+                db.save_employee(e).unwrap();
+            }
+            db.save_person(&sam).unwrap();
+            // Held, so the runs it starts wait.
+            db.set_held_until(Some(now() + chrono::Duration::days(1))).unwrap();
+        }
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let write = |e: &Employee, file: &str, text: &str| {
+            let path = office.employee_dir(&e.id).join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        write(&ada, "skills/ada-launch/SKILL.md", "Sam signs off every launch.\n");
+        write(&bo, "workspace/logo.md", "Waiting on Sam Lee for the new logo.\n");
+        write(&cy, own_skills::OWN_FILE, "Spend over 100 goes to Sam first.\n");
+        write(&dee, "skills/dee-ops/SKILL.md", "Samples go to the shared drive.\n");
+
+        office.remove_person(&sam.id).unwrap();
+        let told = left_instruction("Sam Lee", "Pat");
+        assert_eq!(told, "Sam Lee has left. Remove them from your skills and notes. If your what-you-own.md names them, write the change there: Omega Star shows it to Pat to approve.");
+        let cleanup = |e: &Employee| office.db().active_runs_of(&e.id).unwrap().into_iter().map(|r| (r.kind, r.prompt)).collect::<Vec<_>>();
+        for e in [&ada, &bo, &cy] {
+            assert_eq!(cleanup(e), vec![(RunKind::Manual, told.clone())], "{}", e.name);
+        }
+        assert!(cleanup(&dee).is_empty());
+        assert!(office.org().unwrap().people.is_empty());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_status_says_their_number_their_last_report_and_what_is_next() {
+        let dir = std::env::temp_dir().join(format!("omegastar-status-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada");
+        db.save_employee(&ada).unwrap();
+        let t = now();
+        assert_eq!(Office::presence(&db, &ada, t, false).unwrap().status, EmployeeStatus::default());
+
+        let schedule = |id: &str, label: &str, cron: &str, review: bool| Schedule {
+            id: id.into(),
+            employee_id: ada.id.clone(),
+            label: label.into(),
+            cron: cron.into(),
+            instruction: "Go.".into(),
+            enabled: true,
+            misfire: Misfire::CatchUp,
+            quiet: !review,
+            model: None,
+            effort: None,
+            review,
+            active_hours: false,
+            next_fire: None,
+        };
+        db.save_schedule(&schedule("r1", "Weekly review", "30 7 * * 1", true), t).unwrap();
+        db.save_schedule(&schedule("s1", "Inbox sweep", "0 * * * *", false), t).unwrap();
+        let day = chrono::Duration::days(1);
+        let kind = RunKind::Scheduled { schedule_id: "r1".into(), slot: t - day, label: "Weekly review".into(), quiet: false, model: None, effort: None, review: true };
+        let mut review = Run::new(&ada.id, kind, "go".into(), t - day);
+        (review.state, review.ended_at) = (RunState::Succeeded, Some(t - day));
+        review.score = Some(Score { metric: "Signups".into(), value: "42".into(), change: "+3".into(), note: String::new() });
+        assert!(db.insert_run(&review, &review.id).unwrap());
+        let mut report = Run::new(&ada.id, RunKind::Manual, "go".into(), t - chrono::Duration::hours(2));
+        (report.state, report.ended_at) = (RunState::Succeeded, Some(t - chrono::Duration::hours(1)));
+        report.summary = Some("\n**Paused** both `campaigns`.\n- More below.".into());
+        assert!(db.insert_run(&report, &report.id).unwrap());
+
+        let v = Office::presence(&db, &ada, t, false).unwrap();
+        let hour = schedules::next_slot(&schedule("s1", "Inbox sweep", "0 * * * *", false), &BusinessHours::default(), t, &Local).unwrap();
+        assert_eq!(v.status.number.as_deref(), Some("Signups 42 (+3)"));
+        assert_eq!(v.status.last_report, Some(Dated { text: "Paused both campaigns.".into(), at: t - chrono::Duration::hours(1) }));
+        assert_eq!((v.next_fire, v.status.next), (Some(hour), Some(Dated { text: "Inbox sweep".into(), at: hour })), "the next whole hour");
+
+        let due = t - chrono::Duration::hours(1);
+        let c = Check { id: "c1".into(), employee_id: ada.id.clone(), what: "Did the\nfix hold?".into(), how: "Rerun it".into(), due_at: due, state: CheckState::Open, created_at: due - day, run_id: None, closed_at: None, result: None };
+        db.save_check(&c).unwrap();
+        assert_eq!(Office::presence(&db, &ada, t, false).unwrap().status.next, Some(Dated { text: "Check: Did the fix hold?".into(), at: due }), "a check due sooner");
+
+        let paused = Office::presence(&db, &ada, t, true).unwrap();
+        assert_eq!((paused.next_fire, paused.status.next), (None, None), "nothing runs while schedules are paused");
+        assert_eq!(paused.status.number.as_deref(), Some("Signups 42 (+3)"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_status_line_reads_as_plain_text() {
+        let score = Score { metric: " Open tickets ".into(), value: "12".into(), change: " ".into(), note: "Down from 15.".into() };
+        assert_eq!(number(&score), "Open tickets 12");
+        assert_eq!(headline("# Weekly report\nAll quiet."), Some("Weekly report".into()));
+        assert_eq!(headline("```\n---\n| **Spend** | 40 |"), Some("Spend | 40 |".into()));
+        assert_eq!(headline("  \n---\n"), None);
+        assert_eq!(headline(&"word ".repeat(60)).map(|l| l.chars().count()), Some(162), "clipped at a word, with an ellipsis");
     }
 }

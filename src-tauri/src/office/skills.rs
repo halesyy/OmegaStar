@@ -1,6 +1,7 @@
 //! An employee's own skills: editing, history, importing, organizing and tidying.
 
 use super::*;
+use crate::cards;
 
 impl Office {
     fn employee(&self, id: &str) -> Result<Employee> {
@@ -16,11 +17,11 @@ impl Office {
     pub fn skill_health(&self, employee_id: &str) -> Result<SkillHealth> {
         let e = self.employee(employee_id)?;
         let at = now();
-        let (edits, checks) = {
+        let (edits, checks, (used, counted_since)) = {
             let db = self.db();
-            (db.edits_since(&e.id, at - chrono::Duration::hours(24))?, db.checks(&e.id, Some(CheckState::Open))?)
+            (db.edits_since(&e.id, at - chrono::Duration::hours(24))?, db.checks(&e.id, Some(CheckState::Open))?, db.skill_use(&e.id)?)
         };
-        let mut h = health::check(&self.skills_dir(&e.id), &self.employee_dir(&e.id).join("workspace"), &e.slug, &edits, at);
+        let mut h = health::check(&self.skills_dir(&e.id), &self.employee_dir(&e.id).join("workspace"), &e.slug, &edits, &used, counted_since, at);
         h.findings.extend(health::overdue_checks(&checks, at));
         h.findings.sort_by(|a, b| (a.kind, &a.skill, &a.file).cmp(&(b.kind, &b.skill, &b.file)));
         Ok(h)
@@ -316,8 +317,9 @@ impl Office {
     }
 
     /// Handles a run that changed the company page or what its employee owns while you were not in it:
-    /// `PutBack` writes `before` back (`None` removes the file), and both `PutBack` and `FlagOnly` show you
-    /// what it tried in one headline. `Leave` does nothing.
+    /// `PutBack` writes `before` back (`None` removes the file) and puts the employee's version to you on a card you can
+    /// use with one tap (`propose_guarded`), and `FlagOnly`, or a put-back that removed the file, shows you what it tried
+    /// in one headline. `Leave` does nothing.
     pub(super) fn put_back_guarded(
         &self,
         run: &Run,
@@ -336,6 +338,12 @@ impl Office {
         if put_back {
             let path = own_skills::recorded_path(&self.employee_dir(&e.id), skill, file)?;
             own_skills::write_recorded(&path, skill, before.map(String::as_str))?;
+            if let Some(text) = now {
+                match self.propose_guarded(run, e, skill, before.map(String::as_str), text) {
+                    Ok(()) => return Ok(()),
+                    Err(err) => log!("run {}: proposing {skill}/{file} to you failed: {err}", run.id),
+                }
+            }
         }
         let name = &e.name;
         let parts: Vec<String> = if skill == own_skills::COMPANY {
@@ -358,6 +366,58 @@ impl Office {
             }
         };
         self.flag(&run.id, parts.join(" "));
+        Ok(())
+    }
+
+    /// Saves the version of what they own (`skill` OWN) or of the company page that `e`'s run wrote while nobody was
+    /// watching to `workspace/proposals/` in their folder, and puts it to you on a card on that run: Use it writes it in
+    /// (`carry_out`). A newer proposal about the same file takes the older one's place, with no new notification.
+    fn propose_guarded(&self, run: &Run, e: &Employee, skill: &str, before: Option<&str>, text: &str) -> Result<()> {
+        let (name, key, message, proposal) = if skill == own_skills::COMPANY {
+            ("company-page.md", format!("company-page:{}", e.slug), format!("Use {}'s change to the company page?", e.name), Proposal::CompanyPage)
+        } else {
+            ("what-you-own.md", format!("owns:{}", e.slug), format!("Use {}'s update to what they own?", e.name), Proposal::Owns)
+        };
+        let dir = self.employee_dir(&e.id).join("workspace").join("proposals");
+        fs::create_dir_all(&dir)?;
+        let path = dir.join(name);
+        own_skills::write_recorded(&path, own_skills::NOTES, Some(text))?;
+        let why = match line_changes(before, Some(text)) {
+            (a, r) if a.is_empty() && r.is_empty() => None,
+            (a, r) if r.is_empty() => Some(format!("Adds \"{a}\"")),
+            (a, r) if a.is_empty() => Some(format!("Removes \"{r}\"")),
+            (a, r) => Some(format!("Adds \"{a}\", removes \"{r}\"")),
+        };
+        let why = why.map(|w| claude::clip(&w, cards::WHY_CHARS));
+        let mut card = Card::new(&message, why, Some(key), CardAsk::Choices { choices: vec!["Use it".into()], recommended: 0 });
+        card.file = Some(fs::canonicalize(&path)?.to_string_lossy().into_owned());
+        card.proposal = Some(proposal);
+        self.ask_card(&run.id, e, card, false)?;
+        Ok(())
+    }
+
+    /// Carries out a proposal card `run` raised, now that you went ahead: adds a line to the company page, or writes the
+    /// employee's saved version (the card's file) into what they own or the company page. You decided, so it stands like
+    /// your own edit: a run that changed the same file meanwhile has its change shown to you, not put back over it.
+    pub(super) fn carry_out(&self, db: &Store, run: &Run, card: &Card) -> Result<()> {
+        let page = own_skills::company_page_path(&self.0.data_dir.join("employees"));
+        let saved = || -> Result<String> {
+            let path = card.file.as_deref().ok_or_else(|| AppError::invalid("That proposal has no saved version."))?;
+            fs::read_to_string(path).map_err(|_| AppError::not_found(format!("Nothing is at {path} any more.")))
+        };
+        match &card.proposal {
+            Some(Proposal::CompanyLine { section, line }) => {
+                let text = fs::read_to_string(&page).unwrap_or_default();
+                self.save_company_page(&with_line(&text, section, line))?;
+            }
+            Some(Proposal::CompanyPage) => {
+                self.save_company_page(&saved()?)?;
+            }
+            Some(Proposal::Owns) => {
+                record(db, &self.employee_dir(&run.employee_id), &run.employee_id, own_skills::OWN, own_skills::OWN_FILE, Some(&saved()?))?;
+            }
+            None => {}
+        }
         Ok(())
     }
 
@@ -455,12 +515,14 @@ impl Office {
                 continue;
             }
             let findings = self.skill_health(&e.id)?.findings;
+            let sizes = tidy::sizes(&self.employee_dir(&e.id), &e.slug, &findings);
             // A tidy that failed saw nothing through, so its findings still count as new.
             let seen: Vec<String> = match &last {
                 Some(Run { kind: RunKind::Tidy { signature, .. }, state: RunState::Succeeded, .. }) => signature.clone(),
                 _ => vec![],
             };
-            let situation = tidy::Situation { now: at, findings: &findings, last: last.as_ref().map(|r| (r.created_at, seen.as_slice())), taught };
+            let situation =
+                tidy::Situation { now: at, findings: &findings, last: last.as_ref().map(|r| (r.created_at, seen.as_slice())), taught, slug: &e.slug, sizes: &sizes };
             if let Some(why) = tidy::due(&situation) {
                 match self.enqueue_tidy(&e.id, TidyReason::Auto, &why, None) {
                     Ok(_) => queued += 1,
@@ -510,6 +572,12 @@ pub const PROPOSES: &str = "Proposes bigger changes that need your OK.";
 /// is_conversation(): an answer that came back into a conversation starts from a colleague's report.
 pub(super) fn ceo_in(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. })
+}
+
+/// You are in this run (`ceo_in`), unless it is a due check Omega Star brought back into a conversation: that turn
+/// runs with nobody watching, as a check run does.
+pub(super) fn ceo_present(run: &Run) -> bool {
+    ceo_in(&run.kind) && run.check.is_none()
 }
 
 /// The run's own top-level calls wrote `path`: a Write, Edit or MultiEdit of it (a relative path is taken from
@@ -578,6 +646,45 @@ fn line_changes(before: Option<&str>, now: Option<&str>) -> (String, String) {
     }
     let (b, n) = (lines(before), lines(now));
     (only(&n, &b), only(&b, &n))
+}
+
+/// `page` with `line` as a bullet under its `## <section>` heading (any case): first in a section that says it is
+/// newest first, else after the section's last line. A missing section is added at the end, and a line already
+/// there is not added again. Pure.
+fn with_line(page: &str, section: &str, line: &str) -> String {
+    let bullet = format!("- {line}");
+    let mut lines: Vec<String> = page.lines().map(String::from).collect();
+    let heading = |l: &str| l.strip_prefix("## ").is_some_and(|h| h.trim().eq_ignore_ascii_case(section));
+    let Some(start) = lines.iter().position(|l| heading(l)) else {
+        let mut out = page.trim_end().to_string();
+        if !out.is_empty() {
+            out += "\n\n";
+        }
+        return format!("{out}## {section}\n\n{bullet}\n");
+    };
+    let end = lines[start + 1..].iter().position(|l| l.starts_with("# ") || l.starts_with("## ")).map_or(lines.len(), |i| start + 1 + i);
+    let body = &lines[start + 1..end];
+    if body.iter().any(|l| l.trim() == bullet) {
+        return page.to_string();
+    }
+    let bulleted = |l: &str| l.trim_start().starts_with("- ");
+    let first = body.iter().position(|l| bulleted(l)).filter(|_| body.iter().any(|l| l.to_lowercase().contains("newest first")));
+    let (at, after) = match first {
+        Some(i) => (start + 1 + i, None),
+        None => match body.iter().rposition(|l| !l.trim().is_empty()) {
+            Some(i) => (start + 2 + i, Some(body[i].clone())),
+            None => (start + 1, None),
+        },
+    };
+    // A bullet goes straight under another; after a heading or a line of text, a blank line comes first.
+    let mut add = vec![bullet];
+    if first.is_none() && !after.is_some_and(|l| bulleted(&l)) {
+        add.insert(0, String::new());
+    }
+    for (k, l) in add.into_iter().enumerate() {
+        lines.insert(at + k, l);
+    }
+    lines.join("\n") + "\n"
 }
 
 /// Writes `text` to a recorded file (`None` deletes it) and records the change. `None` when the file
@@ -702,6 +809,81 @@ mod tests {
         assert_eq!(office.approve_tidy(&old.id).unwrap_err().message, "that tidy is archived, so reopen it to approve it");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_change_to_what_they_own_put_back_comes_to_you_as_a_card_to_use() {
+        let dir = std::env::temp_dir().join(format!("omegastar-own-proposal-{}", uuid::Uuid::new_v4()));
+        let e = Employee {
+            id: uuid::Uuid::new_v4().to_string(),
+            slug: "ada".into(),
+            name: "Ada".into(),
+            title: "Tester".into(),
+            description: String::new(),
+            objective: String::new(),
+            manager_id: None,
+            skills: SkillGrant { builtins: false, keys: vec![] },
+            clearance: Clearance::Supervised,
+            allow_rules: vec![],
+            model: None,
+            effort: None,
+            browser: false,
+            auto_tidy: false,
+            lanes: 1,
+            workspaces: vec![],
+            hue: 0,
+            chat_session: "chat-ada".into(),
+            hired_at: now(),
+        };
+        let mut run = Run::new(&e.id, RunKind::Manual, "Review your week.".into(), now());
+        run.state = RunState::Succeeded;
+        run.ended_at = Some(now());
+        {
+            fs::create_dir_all(&dir).unwrap();
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.save_employee(&e).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+            assert!(db.insert_run(&run, &run.id).unwrap());
+        }
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let own = office.employee_dir(&e.id).join(own_skills::OWN_FILE);
+        let (before, theirs) = ("The signups.".to_string(), "The signups and the churn.".to_string());
+        fs::create_dir_all(own.parent().unwrap()).unwrap();
+        fs::write(&own, &theirs).unwrap();
+        let key = (own_skills::OWN.to_string(), own_skills::OWN_FILE.to_string());
+        office.put_back_guarded(&run, &e, &key, Some(&before), Some(&theirs), GuardedAction::PutBack).unwrap();
+        assert_eq!(fs::read_to_string(&own).unwrap(), before, "put back until you decide");
+        let card = office.run(&run.id).unwrap().cards.remove(0);
+        assert_eq!((card.message.as_str(), card.key.as_deref(), card.proposal.clone()), ("Use Ada's update to what they own?", Some("owns:ada"), Some(Proposal::Owns)));
+        assert_eq!(card.why.as_deref(), Some("Adds \"The signups and the churn.\", removes \"The signups.\""));
+        let saved = card.file.clone().unwrap();
+        assert!(saved.ends_with("workspace/proposals/what-you-own.md") && fs::read_to_string(&saved).unwrap() == theirs, "{saved}");
+        assert!(office.run(&run.id).unwrap().flags().next().is_none(), "a card in place of the flag");
+
+        let told = office.answer_card(&run.id, 0, CardReply::Choice { index: 0 }).unwrap();
+        assert_eq!(fs::read_to_string(&own).unwrap(), theirs, "Use it writes their version in");
+        assert!(told[0].prompt.ends_with("Used: your update to what you own is in what-you-own.md now."), "{}", told[0].prompt);
+        assert_eq!(office.skill_history(&e.id).unwrap()[0].after.as_deref(), Some(theirs.as_str()), "recorded, so it can be undone");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_company_line_goes_under_its_heading_newest_first_where_the_section_says_so() {
+        let page = "# Company page\n\nIntro.\n\n## Who to ask\n\n- Bo: refunds.\n\n## Right now\n\nDated lines, newest first.\n\n- 1 Oct: old news.\n";
+        let added = with_line(page, "who to ask", "Cy: the rota.");
+        assert!(added.contains("## Who to ask\n\n- Bo: refunds.\n- Cy: the rota.\n\n## Right now"), "{added}");
+        let newest = with_line(page, "Right now", "2 Oct: new news.");
+        assert!(newest.contains("Dated lines, newest first.\n\n- 2 Oct: new news.\n- 1 Oct: old news.\n"), "{newest}");
+        assert_eq!(with_line(&added, "Who to ask", "Cy: the rota."), added, "a line already there is not added again");
+        let new_section = with_line(page, "Tools", "We use Acme Mail.");
+        assert!(new_section.ends_with("- 1 Oct: old news.\n\n## Tools\n\n- We use Acme Mail.\n"), "{new_section}");
+        assert_eq!(with_line("## What we sell\n\n## Who to ask\n", "What we sell", "Cakes."), "## What we sell\n\n- Cakes.\n\n## Who to ask\n");
+        assert_eq!(
+            with_line("## Right now\n\nDated lines, newest first.\n\n## Decisions\n", "Right now", "3 Oct: moved."),
+            "## Right now\n\nDated lines, newest first.\n\n- 3 Oct: moved.\n\n## Decisions\n"
+        );
+        assert_eq!(with_line("", "Tools", "We use Acme Mail."), "## Tools\n\n- We use Acme Mail.\n");
     }
 
     #[tokio::test]

@@ -17,6 +17,7 @@ const LABEL: Record<HealthKind, string> = {
   churn: "Rewritten repeatedly",
   repeatedEntries: "Diary building up",
   tooLong: "Getting long",
+  unused: "Not used lately",
   datedLines: "Dated lines in a procedure",
   descriptionsHeavy: "Descriptions are heavy",
   description: "Description",

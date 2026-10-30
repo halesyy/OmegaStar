@@ -123,9 +123,13 @@ impl Office {
         schedule::preview(cron, now(), &Local)
     }
 
-    /// One scheduler pass at `now`: due schedule slots, then due checks. Inserting the run row is the
-    /// claim, so a slot or a check's due date fires once however often this runs.
+    /// One scheduler pass at `now`: cards you said Later to whose day has come (paused or not: no run starts for
+    /// them), then due schedule slots and due checks. Inserting the run row is the claim, so a slot or a check's due
+    /// date fires once however often this runs.
     pub fn tick(&self, now: Ts) -> Result<()> {
+        if let Err(e) = self.bring_back_cards(now) {
+            log!("bringing back the cards due by {now} failed: {e}");
+        }
         let created = {
             let db = self.db();
             let settings = db.settings()?.unwrap_or_default();
@@ -159,17 +163,40 @@ impl Office {
                     }
                 }
             }
-            let checks = db.checks_to_run(now)?;
+            // A check set in a conversation you are in, and not archived, comes back into it as its next turn.
+            let (mut checks, mut into) = (vec![], HashMap::new());
+            for c in db.checks_to_run(now)? {
+                let t = Self::set_in(&db, &c)?;
+                if t.as_ref().is_some_and(|t| turned(&c, t)) {
+                    continue;
+                }
+                if let Some(t) = t.filter(|t| t.root.archived_at.is_none() && inbox::yours(t)) {
+                    into.insert(c.id.clone(), t);
+                }
+                checks.push(c);
+            }
             let (mut busy, mut departed) = (HashSet::new(), HashSet::new());
             for id in checks.iter().map(|c| &c.employee_id).collect::<HashSet<_>>() {
                 if db.employee(id)?.is_none() {
                     departed.insert(id.clone());
-                } else if db.active_runs_of(id)?.iter().any(|r| r.kind.check_id().is_some()) {
+                } else if db.active_runs_of(id)?.iter().any(|r| r.check_id().is_some()) {
                     busy.insert(id.clone());
                 }
             }
             for run in due_check_runs(checks, &busy, &departed, &ceo_of(&db)?, now) {
-                if db.insert_run(&run, &run.id)? {
+                let (run, session) = match run.kind.check_id().and_then(|id| into.get(id)) {
+                    Some(t) => {
+                        let (latest, resumes) = Self::next_turn(&db, t)?;
+                        let turn = into_turn(run, t);
+                        let session = if resumes { latest.session } else { turn.id.clone() };
+                        (turn, session)
+                    }
+                    None => {
+                        let session = run.id.clone();
+                        (run, session)
+                    }
+                };
+                if db.insert_run(&run, &session)? {
                     created.push(run);
                 }
             }
@@ -185,6 +212,16 @@ impl Office {
         self.release_hold(now);
         self.pump();
         Ok(())
+    }
+
+    /// The thread of the run that set `c`, while that run and its thread's first run are still there.
+    fn set_in(db: &Store, c: &Check) -> Result<Option<Thread>> {
+        let Some(id) = c.run_id.as_deref() else { return Ok(None) };
+        match Self::thread_in(db, id) {
+            Ok(t) => Ok(Some(t)),
+            Err(e) if e.code == crate::error::ErrorCode::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     // ------------------------------------------------------------------ checks
@@ -228,7 +265,7 @@ impl Office {
             let due_at = at + chrono::Duration::minutes(minutes.max(MIN_CHECK_HOURS * 60));
             let open = db.checks(&caller.id, Some(CheckState::Open))?;
             // The check this run is doing closes with check_done, so setting it again is a new check.
-            let doing = db.run(run_id)?.and_then(|r| r.run.kind.check_id().map(String::from));
+            let doing = db.run(run_id)?.and_then(|r| r.run.check_id().map(String::from));
             match open.iter().find(|c| Some(&c.id) != doing.as_ref() && same_check(&c.what, &what)) {
                 Some(c) => {
                     let c = Check { due_at, ..c.clone() };
@@ -264,7 +301,7 @@ impl Office {
         if moved {
             note.push_str("You already had this check open, so it moved to the new date instead of adding another. ");
         }
-        note.push_str("On its due date Omega Star starts a quiet run of yours to do it. Do not also leave it as a note in a skill or promise it in your report.");
+        note.push_str("On its due date Omega Star starts a quiet run of yours to do it, or brings it back into this conversation if you set it in one that is still open. Do not also leave it as a note in a skill or promise it in your report.");
         Ok(json!({ "check": c, "note": note }))
     }
 
@@ -326,6 +363,21 @@ fn due_check_runs(mut checks: Vec<Check>, busy: &HashSet<String>, departed: &Has
         .collect()
 }
 
+/// A due check's run as the next turn of `t`, the conversation it was set in: a reply Omega Star writes there with
+/// the same instruction, so what it finds shows where the work began. Named as a reply you type there is. Pure.
+fn into_turn(run: Run, t: &Thread) -> Run {
+    let chat = matches!(t.root.kind, RunKind::Chat);
+    let label = if chat { threads::task_label(&t.root.prompt, &t.root.attachments) } else { threads::report_label(&t.root.kind) };
+    let task = chat || matches!(t.root.kind, RunKind::Task { .. });
+    let check = run.kind.check_id().map(String::from);
+    Run { kind: RunKind::Reply { to_run_id: t.root.id.clone(), label, task, card: false }, omega_wrote: true, check, ..run }
+}
+
+/// `c` already came back into `t` for its due date: that turn is its claim, as a check's own run is. Pure.
+fn turned(c: &Check, t: &Thread) -> bool {
+    t.replies.iter().any(|r| r.check.as_deref() == Some(c.id.as_str()) && r.created_at >= c.due_at)
+}
+
 /// Two checks are about the same thing when their `what` reads the same, whatever the case and spacing. Pure.
 fn same_check(a: &str, b: &str) -> bool {
     a.split_whitespace().map(str::to_lowercase).eq(b.split_whitespace().map(str::to_lowercase))
@@ -333,7 +385,7 @@ fn same_check(a: &str, b: &str) -> bool {
 
 /// The next slot `s` runs at after `after`. One kept to business hours skips the slots outside them,
 /// looking up to a year or 20,000 slots ahead (two weeks of a routine that runs every minute). Pure.
-fn next_slot<Tz: chrono::TimeZone>(s: &Schedule, hours: &BusinessHours, after: Ts, tz: &Tz) -> Option<Ts> {
+pub(super) fn next_slot<Tz: chrono::TimeZone>(s: &Schedule, hours: &BusinessHours, after: Ts, tz: &Tz) -> Option<Ts> {
     let mut slots = schedule::parse(&s.cron).ok()?.iter_after(after.with_timezone(tz)).map(|t| t.with_timezone(&Utc));
     if !s.active_hours {
         return slots.next();
@@ -432,19 +484,24 @@ fn review_brief(db: &Store, e: &Employee, ceo: &str, since: Ts) -> Result<String
     let mut sections = vec![];
 
     let routines: Vec<String> = db
-        .routine_counts(&e.id, since)?
+        .routine_counts(Some(&e.id), since)?
         .into_iter()
         .map(|c| {
             let runs = if c.runs == 1 { "1 run".to_string() } else { format!("{} runs", c.runs) };
+            let usage = usd(c.cost_usd).map(|u| format!(", usage {u}")).unwrap_or_default();
             if c.quiet {
-                format!("- {} (quiet): {runs}, {} reached someone, {} failed", c.label, c.reached, c.failed)
+                format!("- {} (quiet): {runs}, {} did something, {} reached someone, {} failed{usage}", c.label, c.useful, c.reached, c.failed)
             } else {
-                format!("- {}: {runs}, each reported to {ceo}", c.label)
+                format!("- {}: {runs}, each reported to {ceo}, {} did something{usage}", c.label, c.useful)
             }
         })
         .collect();
     if !routines.is_empty() {
-        sections.push(format!("Your routines:\n{}", routines.join("\n")));
+        sections.push(format!(
+            "Your routines:\n{}\n\nA run did something when it raised a card, handed work to a colleague, changed a skill or failed. \
+Usage is what the runs cost at API list price.",
+            routines.join("\n")
+        ));
     }
 
     let checks: Vec<String> = db
@@ -497,6 +554,11 @@ money or deleting anything should have been a card: remove it and raise the card
 
 /// How many rule lines a weekly review's brief lists.
 const RULES_LISTED: usize = 40;
+
+/// Usage in US dollars as the brief gives it, or `None` when no run recorded a cost. Pure.
+fn usd(cost: f64) -> Option<String> {
+    (cost > 0.0).then(|| if cost < 0.01 { "under $0.01".to_string() } else { format!("${cost:.2}") })
+}
 
 /// The lines a revision added: lines of `after` not in `before`, trimmed, leaving out blank lines,
 /// headings, anything shorter than four words, and records rather than rules: table rows and lines that
@@ -574,6 +636,20 @@ mod tests {
     }
 
     #[test]
+    fn a_check_back_in_a_report_thread_is_named_like_a_reply_there() {
+        let sweep = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Inbox sweep".into(), quiet: true, model: None, effort: None, review: false };
+        let report = Run::new("ada", sweep, "Sweep.".into(), now() - chrono::Duration::days(2));
+        let c = check("ada", "Did the fix hold", now() - chrono::Duration::hours(1));
+        let run = due_check_runs(vec![c.clone()], &HashSet::new(), &HashSet::new(), "Pat", now()).remove(0);
+        let turn = into_turn(run.clone(), &Thread::new(report.clone(), vec![]));
+        assert_eq!(turn.kind, RunKind::Reply { to_run_id: report.id.clone(), label: "Inbox sweep".into(), task: false, card: false });
+        assert_eq!((&turn.id, &turn.prompt, turn.omega_wrote, turn.check_id()), (&run.id, &run.prompt, true, Some(c.id.as_str())));
+        let back = Thread::new(report, vec![turn]);
+        assert!(turned(&c, &back));
+        assert!(!turned(&Check { due_at: now() + chrono::Duration::days(1), ..c.clone() }, &back), "set again for a later day, it comes back again");
+    }
+
+    #[test]
     fn a_check_label_is_one_short_line() {
         let long = format!("Did the fix\nhold {}", "and more ".repeat(20));
         let runs = due_check_runs(vec![check("ada", &long, now())], &HashSet::new(), &HashSet::new(), "Pat", now());
@@ -587,6 +663,13 @@ mod tests {
         let text = review_instruction("Pat");
         assert!(text.contains("Put each decision only Pat can make on a card of its own"));
         assert!(!text.contains('\u{2014}') && !check_prompt(&check("ada", "x", now()), "Pat").contains('\u{2014}'));
+    }
+
+    #[test]
+    fn the_brief_gives_usage_in_dollars() {
+        assert_eq!(usd(0.0), None, "no run recorded a cost");
+        assert_eq!(usd(0.004).as_deref(), Some("under $0.01"));
+        assert_eq!(usd(12.3).as_deref(), Some("$12.30"));
     }
 
     #[test]
@@ -635,8 +718,12 @@ mod tests {
         assert!(db.insert_run(&routine, &routine.id).unwrap());
         let mut carded = finished(&ada, sweep(50), 50);
         carded.needs_you = vec!["Boost the post?".into()];
+        carded.cost_usd = Some(1.234);
         carded.cards = vec![Card::new("Boost the post?", None, Some("ask:boost".into()), CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 })];
         assert!(db.insert_run(&carded, &carded.id).unwrap());
+        let report = RunKind::Scheduled { schedule_id: "s2".into(), slot: t - chrono::Duration::hours(20), label: "Daily report".into(), quiet: false, model: None, effort: None, review: false };
+        let daily = finished(&ada, report, 20);
+        assert!(db.insert_run(&daily, &daily.id).unwrap());
         let mut c = check(&ada.id, "Did the fix hold", t + chrono::Duration::days(2));
         c.created_at = t - chrono::Duration::days(3);
         db.save_check(&c).unwrap();
@@ -653,7 +740,11 @@ mod tests {
 
         let brief = review_brief(&db, &ada, "Pat", since).unwrap();
         assert!(brief.starts_with(&format!("## What Omega Star counted since {}\n\nYour routines:\n", since.with_timezone(&Local).format("%A %-d %B"))));
-        assert!(brief.contains("- Inbox sweep (quiet): 2 runs, 1 reached someone, 0 failed\n"), "{brief}");
+        assert!(brief.contains("- Inbox sweep (quiet): 2 runs, 1 did something, 1 reached someone, 0 failed, usage $1.23\n"), "{brief}");
+        assert!(
+            brief.contains("- Daily report: 1 run, each reported to Pat, 0 did something\n\nA run did something when it raised a card, handed work"),
+            "{brief}"
+        );
         assert!(brief.contains("Your open checks:\n- \"Did the fix hold\": set 3 days ago, due "), "{brief}");
         assert!(brief.contains("Your cards still waiting on Pat:\n- \"Boost the post?\": raised 2 days ago"), "{brief}");
         assert!(brief.contains("- `ops` SKILL.md: \"Archive security alerts without asking anyone.\" (Inbox sweep, "), "{brief}");
@@ -882,6 +973,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_check_set_in_a_conversation_you_are_in_comes_back_into_it() {
+        let (ada, bo, cy) = (employee("ada"), employee("bo"), employee("cy"));
+        let dir = std::env::temp_dir().join(format!("omegastar-check-back-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+            for e in [&ada, &bo, &cy] {
+                db.save_employee(e).unwrap();
+            }
+            // Held, so nothing a tick queues starts.
+            db.set_held_until(Some(now() + chrono::Duration::days(1))).unwrap();
+        }
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let t = now();
+        let finished = |e: &Employee, kind: RunKind, archived: bool| {
+            let mut r = Run::new(&e.id, kind, "Go.".into(), t - chrono::Duration::hours(30));
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(r.created_at);
+            r.archived_at = archived.then_some(t);
+            assert!(office.db().insert_run(&r, &r.id).unwrap());
+            office.db().mark_inited(&r.id).unwrap();
+            r
+        };
+        let talk = |label: &str| RunKind::Task { label: label.into(), from: None, context: String::new() };
+        let set = |by: &Run, what: &str| {
+            let c = Check { run_id: Some(by.id.clone()), ..check(&by.employee_id, what, t - chrono::Duration::hours(1)) };
+            office.db().save_check(&c).unwrap();
+            c
+        };
+        let listing = finished(&ada, talk("Ship the listing"), false);
+        let live = set(&listing, "Did the listing go live?");
+        let sweep = set(&finished(&bo, RunKind::Manual, false), "Did signups move?");
+        let done = set(&finished(&cy, talk("Fix the price"), true), "Did the price update?");
+        let queued = |e: &Employee| office.db().active_runs_of(&e.id).unwrap();
+
+        office.tick(t).unwrap();
+        let turn = queued(&ada).remove(0);
+        assert_eq!(turn.kind, RunKind::Reply { to_run_id: listing.id.clone(), label: "Ship the listing".into(), task: true, card: false });
+        assert_eq!((turn.omega_wrote, turn.check_id()), (true, Some(live.id.as_str())));
+        assert!(turn.prompt.contains(&format!("check id `{}`", live.id)), "{}", turn.prompt);
+        assert_eq!(office.db().run(&turn.id).unwrap().unwrap().session, listing.id, "it resumes the conversation");
+        assert_eq!(office.thread(&listing.id).unwrap().replies.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![turn.id.clone()]);
+        assert_eq!(queued(&bo)[0].kind.check_id(), Some(sweep.id.as_str()), "set outside a conversation, it runs on its own");
+        assert_eq!(queued(&cy)[0].kind.check_id(), Some(done.id.as_str()), "and so does one set in a conversation you marked done");
+
+        // The turn is the claim on that due date, even once it ended without closing the check and the conversation is done.
+        let mut over = office.db().run(&turn.id).unwrap().unwrap().run;
+        over.state = RunState::Succeeded;
+        over.ended_at = Some(t);
+        office.db().save_run(&over).unwrap();
+        office.set_archived(&listing.id, true).unwrap();
+        office.tick(t).unwrap();
+        assert!(queued(&ada).is_empty(), "{:?}", queued(&ada));
+
+        // Set again from the turn, it is a new check, as from a check's own run.
+        let again = office.check_later_tool(&turn.id, &ada, &json!({ "what": "Did the listing go live?", "how": "Open the store listing", "inDays": 1 })).unwrap();
+        assert_ne!(again["check"]["id"], json!(live.id));
+        assert_eq!(office.db().check(&live.id).unwrap().unwrap().due_at, live.due_at);
+
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn a_schedule_kept_to_business_hours_skips_slots_outside_them() {
         use chrono::TimeZone;
         let ada = employee("ada");
@@ -908,6 +1064,32 @@ mod tests {
         tick(9, 23);
         assert_eq!(runs().len(), 2, "only the routine kept to business hours skips 11 pm");
 
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_tick_brings_back_a_card_whose_day_has_come_even_while_paused() {
+        let ada = employee("ada");
+        let (office, dir) = office_with(&ada).await;
+        office.set_paused(true).unwrap();
+        let until = now() + chrono::Duration::hours(3);
+        let mut r = Run::new(&ada.id, RunKind::Manual, "go".into(), now());
+        r.state = RunState::Succeeded;
+        r.ended_at = Some(now());
+        r.archived_at = Some(now());
+        let mut card = Card::new("Book the hall?", None, Some("ask:hall".into()), CardAsk::Choices { choices: vec!["Book it".into()], recommended: 0 });
+        card.answer = Some(CardAnswer { at: now(), how: AnswerHow::Dismissed, text: "Not now.".into(), held: false });
+        card.back_at = Some(until);
+        r.cards = vec![card];
+        office.db().insert_run(&r, &r.id).unwrap();
+        let stored = || office.db().run(&r.id).unwrap().unwrap().run;
+        office.tick(now()).unwrap();
+        assert!(stored().cards[0].answer.is_some(), "not before its day");
+        office.tick(until).unwrap();
+        let back = stored();
+        assert!(back.cards[0].is_open() && back.archived_at.is_none(), "open again");
+        assert_eq!(office.db().recent_runs(Some(&ada.id), 10).unwrap().len(), 1, "with no run");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

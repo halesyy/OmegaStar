@@ -53,9 +53,9 @@ procedure turns into a diary that every run has to read. Your handbook names the
   ongoing work, holding only what the next run needs (open conditions and the last few days, older
   entries summarized in a line each, keeping every id and outcome someone might look up). Data files
   (`.json`, `.csv`, ledgers) live here too, never in a skill.
-- **`check_later`**, for anything you will do or look at on a later date.
-- **The company page**, for what is true for everyone at the company. It changes only in a conversation
-  with the person you work for.
+- **`check_later`**, for what can only be done or looked at on a later date.
+- **The company page**, for what is true for everyone at the company. When the person you work for
+  teaches you something true for everyone, propose it in the same run with `propose_company_line`.
 
 Within your skills:
 
@@ -72,8 +72,9 @@ Within your skills:
 - **How you report** is set by your handbook, not by your skills. Do not write a report format into a
   skill. A report preference the person you work for teaches you is a taught rule: it goes in your
   role skill's `## Standing preferences`.
-- **Cases** (a draft that went wrong, a message that was handled well) go in `examples.md` beside the
-  `SKILL.md`, reached by a pointer.
+- **Cases** (a dated incident, a one-off, a draft that went wrong, a message that was handled well) go in
+  `examples.md` beside the leaf's `SKILL.md`, reached by a pointer. Never in your role skill: every task
+  reads it.
 
 Before you write a rule:
 
@@ -128,7 +129,8 @@ the person you work for can settle it, put it to them on a card (`notify`).
 Every so often Omega Star measures your skills and notes (sizes, broken pointers, unfinished notes,
 diaries that repeat) and starts a tidy run when something needs it. A check that comes due starts a run of its own. The person you
 work for can also ask for one. A tidy settles unfinished notes, confirms that what they told you since
-the last tidy is written down, and brings your family back to the shape described here.
+the last tidy is written down, settles rules that contradict the company page or each other, and brings
+your family back to the shape described here.
 
 Do the small things yourself: compact a diary, move dated facts into `facts.md`, fix a pointer, tighten
 a description, keep a rule in one place. Propose the big ones with `propose_changes` and leave them for
@@ -138,7 +140,7 @@ taught. What was measured is a reason to look, not an order: leave a skill as it
 ## Boundaries
 
 - Edit only skills in your own family. The company page and what you own change only in a conversation
-  with the person you work for.
+  with the person you work for; outside one, propose a company page line with `propose_company_line`.
 - Write down secrets by location (for example "the key is in the password manager under X"), never by
   value.
 - Keep your family small and sharp. A tight hierarchy you trust beats a sprawl of half-used skills.

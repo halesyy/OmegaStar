@@ -227,6 +227,8 @@ pub struct Opening {
     pub held: Vec<(String, String, String)>,
     /// The employee's cards a newer card replaced since their last run, with when, oldest first.
     pub replaced: Vec<(Ts, Card)>,
+    /// The employee's cards you answered in the last 7 days, outside this session, with your answers, newest first.
+    pub answers: Vec<Card>,
 }
 
 /// The request a reply check, nudge or give-up is about.

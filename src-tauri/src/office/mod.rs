@@ -49,8 +49,14 @@ pub trait EventSink: Send + Sync + 'static {
     fn settings_changed(&self, _settings: &AppSettings) {}
     fn usage_updated(&self, _usage: &UsageLimits) {}
     fn backup_updated(&self, _status: &BackupStatus) {}
-    /// A desktop notification: an employee flagged something that needs you.
+    /// A desktop notification: an employee flagged something that needs you. One titled "<name> needs you" is a
+    /// decision of that employee's, which the sink may show together with their others (`notices`); the sink also
+    /// holds notifications back in quiet hours, or drops them when you turned them off.
     fn notify(&self, _title: &str, _body: &str) {}
+    /// Opens a full path or an https link on your screen (`open`), or says why it could not.
+    fn open(&self, _target: &str) -> std::result::Result<(), String> {
+        Err("there is no screen to open it on".into())
+    }
 }
 
 const TICK: Duration = Duration::from_secs(30);
@@ -110,6 +116,8 @@ struct Active {
     proposed: Option<String>,
     /// For a reply check or nudge: it recorded its finding with `check_result`.
     verdict: bool,
+    /// The name it gave its own thread with `name_thread`, copied onto the run when it ends.
+    title: Option<String>,
     /// Opened when the run starts preparing.
     transcript: Option<Arc<Mutex<File>>>,
     /// The run's open stdin, from its start until its turn ends: `Some` while it still takes messages.
@@ -473,10 +481,11 @@ impl Office {
             let since = r.started_at.unwrap_or(r.created_at);
             let changes = settle(&mut r, left, lost);
             let slug = employee.as_ref().map_or_else(|| r.employee_id.clone(), |e| e.slug.clone());
-            // A card's file as notify checks it, so a card read back from the transcript shows it only if it passes.
+            // A card's file and images as notify checks them, so a card read back from the transcript shows them only if they pass.
             let workspaces = employee.map(|e| e.workspaces).unwrap_or_default();
             for c in &mut r.cards {
                 c.file = c.file.take().and_then(|f| tools::card_file_path(&home, &workspaces, &f).ok()).map(|p| p.to_string_lossy().into_owned());
+                c.images = c.images.iter().filter_map(|i| tools::card_image_path(&home, &workspaces, i).ok()).map(|p| p.to_string_lossy().into_owned()).collect();
             }
             db.tx(|| {
                 runs::record_changes(&db, &r.employee_id, &r.id, since, changes)?;

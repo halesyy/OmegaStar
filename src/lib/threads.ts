@@ -55,7 +55,7 @@ export function archiveAt(t: Thread): string {
   return at;
 }
 
-/** You marked something in the row done, so Reopen has something to bring back. */
+/** You archived something in the row, so Reopen has something to bring back. */
 export const wasArchived = (t: Thread): boolean => rowThreads(t).some((x) => !!x.root.archivedAt);
 
 /** An Inbox row that is one schedule's failures in a row. */
@@ -84,12 +84,15 @@ export const openCards = (t: Thread): OpenCard[] =>
 export const talking = (t: Thread): boolean =>
   !t.root.archivedAt && t.replies.length > 0 && (isTask(t) || t.replies.some((r) => !r.omegaWrote));
 
-/** A card waiting on you holds up Done on `thread`, a thread of the Inbox row `row`: a card in the thread itself, or in
- *  another member Done would archive with it. Another conversation you are in goes on in its own chip, so a card there
- *  does not. Mirrors Rust `Office::set_archived`. */
+/** A card waiting on you holds up Archive on `thread`, a thread of the Inbox row `row`: a card in the thread itself, or
+ *  in another member Archive would file with it. Another conversation you are in goes on in its own chip, so a card
+ *  there does not. Mirrors Rust `Office::set_archived`. */
 export const doneHeld = (thread: Thread, row: Thread): boolean =>
   openCards(thread).length > 0
   || rowThreads(row).some((x) => x.root.id !== thread.root.id && !talking(x) && openCards(x).length > 0);
+
+/** Archive can file `thread`, a thread of the Inbox row `row`, now: it is not working and no card holds it up. */
+export const archivable = (thread: Thread, row: Thread): boolean => !threadBusy(thread) && !doneHeld(thread, row);
 
 /** What a card is about, so the same question from anyone is one decision: its key, or for a chore asked
  *  before keys, `chore:<subject>`. Mirrors Rust `Card::topic`. */

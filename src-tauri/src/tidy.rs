@@ -24,19 +24,102 @@ pub fn signature(findings: &[HealthFinding]) -> Vec<String> {
     findings.iter().map(key).collect::<BTreeSet<_>>().into_iter().collect()
 }
 
+/// How a signature records the size a tidy left a file at: `size|<skill>|<file>|<characters>`.
+const SIZE: &str = "size|";
+
+/// The file a finding points to, as `<skill>|<file>` (no skill for a notes file).
+fn place(f: &HealthFinding) -> Option<String> {
+    Some(format!("{}|{}", f.skill.as_deref().unwrap_or(""), f.file.as_deref()?))
+}
+
+/// How many characters the file at `place` holds; `None` when it is gone.
+fn chars(employee_dir: &Path, place: &str) -> Option<usize> {
+    let (skill, file) = place.split_once('|')?;
+    let path = if skill.is_empty() { employee_dir.join(file) } else { own_skills::skills_dir(employee_dir).join(skill).join(file) };
+    fs::read_to_string(path).ok().map(|t| t.chars().count())
+}
+
+fn role_place(slug: &str) -> String {
+    format!("{slug}|SKILL.md")
+}
+
+/// How long each file a finding points to is now, and the role skill `slug`, by place.
+pub fn sizes(employee_dir: &Path, slug: &str, findings: &[HealthFinding]) -> BTreeMap<String, usize> {
+    findings.iter().filter_map(place).chain([role_place(slug)]).filter_map(|p| Some((p.clone(), chars(employee_dir, &p)?))).collect()
+}
+
+/// Adds to a finished tidy's signature how long it left each file it was shown, and the role skill, so a later
+/// look can tell whether one grew back.
+pub fn note_sizes(signature: &mut Vec<String>, employee_dir: &Path, slug: &str) {
+    signature.retain(|s| !s.starts_with(SIZE));
+    let places: BTreeSet<String> =
+        signature.iter().filter_map(|k| k.split_once('|').map(|(_, p)| p.to_string())).filter(|p| !p.ends_with('|')).chain([role_place(slug)]).collect();
+    for p in places {
+        if let Some(n) = chars(employee_dir, &p) {
+            signature.push(format!("{SIZE}{p}|{n}"));
+        }
+    }
+}
+
+/// The sizes a tidy's signature recorded, by place.
+fn left(signature: &[String]) -> BTreeMap<&str, usize> {
+    signature.iter().filter_map(|s| s.strip_prefix(SIZE)?.rsplit_once('|').and_then(|(p, n)| Some((p, n.parse().ok()?)))).collect()
+}
+
+/// A place as a tidy's reason names it: "`ada`", "`ada-invoices` / reference.md" or "`workspace/state.md`".
+fn named(place: &str) -> String {
+    match place.split_once('|') {
+        Some(("", file)) => format!("`{file}`"),
+        Some((skill, "SKILL.md")) => format!("`{skill}`"),
+        Some((skill, file)) => format!("`{skill}` / {file}"),
+        None => place.to_string(),
+    }
+}
+
 pub struct Situation<'a> {
     pub now: Ts,
     pub findings: &'a [HealthFinding],
-    /// When the last tidy was queued, and which findings it started with.
+    /// When the last tidy was queued, and which findings it started with and file sizes it left, if it succeeded.
     pub last: Option<(Ts, &'a [String])>,
     /// Things the person taught since then.
     pub taught: usize,
+    /// The role skill's name.
+    pub slug: &'a str,
+    /// How long each flagged file and the role skill are now (`sizes`).
+    pub sizes: &'a BTreeMap<String, usize>,
+}
+
+/// Why a tidy should start whatever the cooldown: a flagged file grew by more than half since the last tidy left
+/// it, or the role skill went past 2.5 times its comfortable size since then. A size the last tidy did not
+/// record starts nothing, so a tidy that failed is not retried at once.
+fn outgrown(s: &Situation) -> Option<String> {
+    let left = left(s.last?.1);
+    let grown: BTreeSet<String> = s
+        .findings
+        .iter()
+        .filter_map(place)
+        .filter(|p| matches!((left.get(p.as_str()), s.sizes.get(p)), (Some(then), Some(now)) if now * 2 > then * 3))
+        .collect();
+    if !grown.is_empty() {
+        let names: Vec<String> = grown.iter().map(|p| named(p)).collect();
+        return Some(format!("{} grew by more than half since your last tidy", names.join(", ")));
+    }
+    let role = role_place(s.slug);
+    let huge = |n: usize| n * 2 > crate::health::ROLE_CHARS * 5;
+    match (left.get(role.as_str()), s.sizes.get(&role)) {
+        (Some(then), Some(now)) if huge(*now) && !huge(*then) => Some("your role skill grew past 2.5 times its comfortable size".into()),
+        _ => None,
+    }
 }
 
 /// Why an automatic tidy should start now, if it should. A finding a tidy has already seen does not
-/// start another: a long runbook the employee rightly kept whole is not a reason to tidy every day.
-/// An overdue check never starts one either: a due check is work of its own, not something to tidy.
+/// start another: a long runbook the employee rightly kept whole is not a reason to tidy every day,
+/// unless it grew a lot since (`outgrown`). An overdue check never starts one either: a due check is
+/// work of its own, not something to tidy.
 pub fn due(s: &Situation) -> Option<String> {
+    if let Some(why) = outgrown(s) {
+        return Some(why);
+    }
     if let Some((at, _)) = s.last {
         if s.now - at < chrono::Duration::days(COOLDOWN_DAYS) {
             return None;
@@ -318,13 +401,61 @@ mod tests {
         let ago = |days: i64| now - chrono::Duration::days(days);
         let fresh = [finding(HealthKind::TooLong, "ada-invoices")];
         let none: &[String] = &[];
-        let at = |days, findings: &[HealthFinding], taught| due(&Situation { now, findings, last: Some((ago(days), none)), taught });
+        let sizes = BTreeMap::new();
+        let at = |days, findings: &[HealthFinding], taught| due(&Situation { now, findings, last: Some((ago(days), none)), taught, slug: "ada", sizes: &sizes });
 
         assert_eq!(at(6, &fresh, 3), None, "no tidy within a week of the last, whatever the findings");
         assert!(at(8, &fresh, 0).is_some(), "a fresh finding a week on starts one");
         assert_eq!(at(8, &[finding(HealthKind::OverdueCheck, "ada")], 0), None, "an overdue check starts nothing");
         assert!(at(8, &[], 2).is_some(), "what you taught starts one a week on");
-        assert!(due(&Situation { now, findings: &fresh, last: None, taught: 0 }).is_some(), "the first tidy needs no wait");
+        assert!(due(&Situation { now, findings: &fresh, last: None, taught: 0, slug: "ada", sizes: &sizes }).is_some(), "the first tidy needs no wait");
+    }
+
+    /// An employee folder holding `files` as (path inside it, characters). Returns the folder, which the caller removes.
+    fn folder(files: &[(&str, usize)]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("omegastar-sizes-{}", uuid::Uuid::new_v4()));
+        for (rel, n) in files {
+            fs::create_dir_all(dir.join(rel).parent().unwrap()).unwrap();
+            fs::write(dir.join(rel), "x".repeat(*n)).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn a_tidy_records_what_it_left_and_a_file_that_outgrows_it_starts_one_early() {
+        let now = chrono::Utc::now();
+        let yesterday = now - chrono::Duration::days(1);
+        let long = [finding(HealthKind::TooLong, "ada-invoices"), HealthFinding { kind: HealthKind::Unreachable, skill: Some("ada-old".into()), file: None, detail: String::new() }];
+        let dir = folder(&[("skills/ada/SKILL.md", 3_000), ("skills/ada-invoices/SKILL.md", 12_000)]);
+        let mut seen = signature(&long);
+        note_sizes(&mut seen, &dir, "ada");
+        note_sizes(&mut seen, &dir, "ada");
+        assert_eq!(seen, ["TooLong|ada-invoices|SKILL.md", "Unreachable|ada-old|", "size|ada-invoices|SKILL.md|12000", "size|ada|SKILL.md|3000"], "once each, files only");
+
+        let at = |findings: &[HealthFinding], measured: &BTreeMap<String, usize>| {
+            due(&Situation { now, findings, last: Some((yesterday, seen.as_slice())), taught: 1, slug: "ada", sizes: measured })
+        };
+        assert_eq!(at(&long, &sizes(&dir, "ada", &long)), None, "the same files a day on wait out the week");
+        fs::write(dir.join("skills/ada-invoices/SKILL.md"), "x".repeat(18_001)).unwrap();
+        assert_eq!(at(&long, &sizes(&dir, "ada", &long)).as_deref(), Some("`ada-invoices` grew by more than half since your last tidy"));
+        assert_eq!(at(&[], &sizes(&dir, "ada", &[])), None, "a file nothing flags is left alone");
+
+        let role = [finding(HealthKind::TooLong, "ada")];
+        fs::write(dir.join("skills/ada/SKILL.md"), "x".repeat(4_400)).unwrap();
+        assert_eq!(at(&role, &sizes(&dir, "ada", &role)), None, "a role skill a little longer waits");
+        fs::write(dir.join("skills/ada/SKILL.md"), "x".repeat(10_001)).unwrap();
+        let measured = sizes(&dir, "ada", &role);
+        let left_at = |n: usize| {
+            let seen = [format!("size|ada|SKILL.md|{n}")];
+            due(&Situation { now, findings: &role, last: Some((yesterday, &seen[..])), taught: 0, slug: "ada", sizes: &measured })
+        };
+        assert_eq!(left_at(9_800).as_deref(), Some("your role skill grew past 2.5 times its comfortable size"));
+        assert_eq!(left_at(4_200).as_deref(), Some("`ada` grew by more than half since your last tidy"));
+        assert_eq!(left_at(10_500), None, "the last tidy left it this long");
+        let unrecorded = ["TooLong|ada|SKILL.md".to_string()];
+        let early = due(&Situation { now, findings: &role, last: Some((yesterday, &unrecorded[..])), taught: 0, slug: "ada", sizes: &measured });
+        assert_eq!(early, None, "a tidy that recorded no sizes, or failed, starts nothing early");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -32,10 +32,6 @@ fn next_fires<Tz: TimeZone>(cron: &Cron, after: Ts, tz: &Tz, n: usize) -> Vec<Ts
     cron.iter_after(after.with_timezone(tz)).take(n).map(|t| t.with_timezone(&Utc)).collect()
 }
 
-pub fn next_fire<Tz: TimeZone>(cron: &str, after: Ts, tz: &Tz) -> Option<Ts> {
-    parse(cron).ok().and_then(|c| next_fires(&c, after, tz, 1).into_iter().next())
-}
-
 pub fn preview<Tz: TimeZone>(cron: &str, now: Ts, tz: &Tz) -> CronPreview {
     match parse(cron) {
         Ok(c) => CronPreview::Ok { description: twelve_hour(&c.describe()), next: next_fires(&c, now, tz, 5) },

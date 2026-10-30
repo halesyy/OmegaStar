@@ -28,3 +28,23 @@
 .score-plain { grid-column: span 3; color: var(--muted); }
 .score-value { font-size: var(--t-base); font-weight: 600; color: var(--ink); }
 .score-change { font-size: var(--t-sm); text-align: right; }
+
+/* ------------------------------------------------ the run list's filters, right above it */
+.activity-runs { display: flex; flex-direction: column; gap: 12px; }
+.activity-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.activity-filters .chip { height: 26px; padding: 0 10px; }
+
+/* ------------------------------------------------ today, one line per employee, and this week's usage with each routine under them */
+.digest, .usage { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.digest-row { display: grid; grid-template-columns: 20px 88px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; text-align: left; transition: background var(--d-ui) var(--ease); }
+.usage-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto minmax(56px, auto); align-items: center; gap: 10px; padding: 8px 12px; text-align: left; transition: background var(--d-ui) var(--ease); }
+.digest-row + .digest-row, .usage-group + .usage-group { border-top: 1px solid var(--line); }
+.digest-row:hover, .usage-row:hover { background: var(--sunken); }
+.digest-row:focus-visible, .usage-row:focus-visible { outline: none; box-shadow: var(--focus); }
+.digest-who, .digest-what, .usage-who, .usage-name, .usage-what { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.digest-who, .usage-who { font-weight: 600; }
+.digest-what, .usage-what { color: var(--ink-2); }
+.digest-failed { color: var(--err-text); }
+.digest-usage, .usage-cost { font-size: var(--t-sm); color: var(--muted); text-align: right; }
+.usage-routine { padding-top: 4px; padding-bottom: 6px; }
+.usage-routine .usage-name, .usage-routine .usage-what { color: var(--muted); }

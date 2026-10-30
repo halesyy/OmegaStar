@@ -40,7 +40,8 @@ export function Turn({ turn, e, withReport = false }: { turn: LiveRun; e: Employ
   const failed = turn.run.state === "failed" || turn.run.state === "lost" || turn.run.state === "cancelled";
   const report = turn.run.summary?.trim();
   const showReport = withReport && !running && !!report && !items.some((i) => i.kind === "text" && i.text.trim() === report);
-  // A colleague's report or answer that came back: Omega Star wrote the prompt, so it is not shown as yours.
+  // A colleague's report or answer that came back, or a check that came due: Omega Star wrote the prompt, so it is not
+  // shown as yours.
   const came = turn.run.kind.type === "answered" ? turn.run.kind : null;
   const fromName = came ? snap?.employees.find((x) => x.id === came.from)?.name : undefined;
   const who = fromName ? firstName(fromName) : "A colleague";
@@ -71,6 +72,11 @@ export function Turn({ turn, e, withReport = false }: { turn: LiveRun; e: Employ
       {came ? (
         <details className="msg-came">
           <summary><Icon name="reply" size={13} /> {came.task ? `${who}'s report came back` : `${who} answered`}</summary>
+          <Markdown text={turn.run.prompt} />
+        </details>
+      ) : turn.run.check ? (
+        <details className="msg-came">
+          <summary><Icon name="clock" size={13} /> {firstName(e.name)}'s check came due</summary>
           <Markdown text={turn.run.prompt} />
         </details>
       ) : turn.run.prompt ? <div className="msg-ceo">{turn.run.prompt}</div> : null}

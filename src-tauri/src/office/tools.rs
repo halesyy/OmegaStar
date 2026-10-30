@@ -28,6 +28,12 @@ const AWAIT_LIMIT: Duration = Duration::from_secs(240);
 const SOURCE_HOPS: usize = 12;
 /// What `ask_colleague` takes as `to` for news to every colleague.
 const EVERYONE: &str = "everyone";
+/// The longest name `name_thread` gives a thread.
+const TITLE_CHARS: usize = 60;
+/// A card raised within this long after its employee closed one about the same thing is an edit: no new notification.
+const QUIET_AFTER_CLOSE: chrono::Duration = chrono::Duration::minutes(15);
+/// A card raised in a conversation you sent a message in within this long shows there, with no notification.
+const LIVE: chrono::Duration = chrono::Duration::minutes(15);
 
 impl Office {
     /// The live run a token belongs to, and its employee.
@@ -571,14 +577,17 @@ impl Office {
         Ok(json!({ "deleted": s.id }))
     }
 
-    /// Puts a decision in front of you as a card on the calling run: a desktop notification now, and an item in
-    /// your Inbox with the answer built in. A question someone already asked you (same key, or the same chore)
-    /// joins that item and notifies nobody again.
+    /// Puts something in front of you as a card on the calling run: an item in your Inbox with the answer built in, and a
+    /// desktop notification (`ask_card`). A question someone already asked you (same key, or the same chore) joins that
+    /// item and notifies nobody again, and so does an edit of the caller's own card about the same thing. A list raised
+    /// while the caller's list about the same thing is open grows it (`cards::grow`).
     pub fn notify_tool(&self, caller_run: &str, caller: &Employee, args: &Value) -> Result<Value> {
         let mut card = cards::card(args)?;
+        let home = self.employee_dir(&caller.id);
         if let Some(raw) = &card.file {
-            card.file = Some(card_file_path(&self.employee_dir(&caller.id), &caller.workspaces, raw)?.to_string_lossy().into_owned());
+            card.file = Some(card_file_path(&home, &caller.workspaces, raw)?.to_string_lossy().into_owned());
         }
+        card.images = card.images.iter().map(|raw| Ok(card_image_path(&home, &caller.workspaces, raw)?.to_string_lossy().into_owned())).collect::<Result<_>>()?;
         let ceo = {
             let db = self.db();
             // A turn of an older build's chat: a card there would never reach them.
@@ -587,17 +596,99 @@ impl Office {
             }
             ceo_of(&db)?
         };
-        let first = self.raise_card(caller_run, card.clone())?;
-        if first {
-            self.sink().notify(&format!("{} needs you", caller.name), &card.message);
-        }
-        let note = match (&card.ask, first) {
-            (CardAsk::Chore { .. }, true) => format!("Recorded. {ceo} has been asked. When they press Done, this conversation carries on with a short message. Carry on without it now, or finish."),
-            (CardAsk::Chore { .. }, false) => format!("{ceo} has already been asked to do this for another run. When they press Done, this conversation carries on too. Carry on without it now, or finish."),
-            (_, true) => "Recorded. They answer on the card, and their answers to this run's cards come back to you in this conversation as one short message. Finish this run now; do not wait for it.".to_string(),
-            (_, false) => format!("{ceo} already has this question from another run, so it is one item in their Inbox and their answer comes back to you too. Finish this run now; do not wait for it."),
+        let mine = match card.topic() {
+            Some(t) => self.own_pending(caller, &t)?,
+            None => vec![],
         };
-        Ok(json!({ "notified": first, "note": note }))
+        let open_lists: Vec<Vec<CardItem>> = mine
+            .iter()
+            .filter_map(|c| match &c.ask {
+                CardAsk::Items { items, .. } => Some(items.clone()),
+                _ => None,
+            })
+            .collect();
+        let grown = match &mut card.ask {
+            CardAsk::Items { items, .. } if !open_lists.is_empty() => {
+                *items = cards::grow(open_lists.into_iter().chain([std::mem::take(items)]))?;
+                Some(items.len())
+            }
+            _ => None,
+        };
+        let tip = cards::wants_attachment(&card).then(|| format!("Attach what it is about (file for a draft, link for a pull request) so {ceo} can read it on the card."));
+        let news = card.ask == CardAsk::News;
+        let chore = matches!(card.ask, CardAsk::Chore { .. });
+        let (first, notified) = self.ask_card(caller_run, caller, card, !mine.is_empty())?;
+        let note = match (grown, chore, first) {
+            (Some(n), ..) => format!("Added to your open list about this: the card now holds {n} items, one item in {ceo}'s Inbox, and they were not notified again. Finish this run now; do not wait for it."),
+            (_, true, true) => format!("Recorded. {ceo} has been asked. When they press Done, this conversation carries on with a short message. Carry on without it now, or finish."),
+            (_, true, false) => format!("{ceo} has already been asked to do this for another run. When they press Done, this conversation carries on too. Carry on without it now, or finish."),
+            _ if news => format!("Recorded. {ceo} sees it in their Inbox until they mark it seen. Nothing comes back to you."),
+            (_, _, true) => "Recorded. They answer on the card, and their answers to this run's cards come back to you in this conversation as one short message. Finish this run now; do not wait for it.".to_string(),
+            (_, _, false) => format!("{ceo} already has this question from another run, so it is one item in their Inbox and their answer comes back to you too. Finish this run now; do not wait for it."),
+        };
+        let mut out = json!({ "notified": notified, "note": note });
+        if let Some(tip) = tip {
+            out["tip"] = tip.into();
+        }
+        Ok(out)
+    }
+
+    /// Puts a line for the company page to you on a card from any run (`cards::company_line_card`), as `notify` puts a
+    /// card. Going ahead adds it to the page (`carry_out`).
+    pub fn propose_company_line_tool(&self, caller_run: &str, caller: &Employee, args: &Value) -> Result<Value> {
+        let s = |k: &str| args.get(k).and_then(Value::as_str).unwrap_or("");
+        let card = cards::company_line_card(s("section"), s("line"), s("why"))?;
+        let ceo = ceo_of(&self.db())?;
+        let edit = match card.topic() {
+            Some(t) => !self.own_pending(caller, &t)?.is_empty(),
+            None => false,
+        };
+        let (_, notified) = self.ask_card(caller_run, caller, card, edit)?;
+        let note = format!(
+            "Recorded. {ceo} sees the line on a card, and Omega Star adds it to the page when they tap Add it, so do not write it there \
+yourself. Their answer comes back to you in this conversation. Finish this run now; do not wait for it."
+        );
+        Ok(json!({ "notified": notified, "note": note }))
+    }
+
+    /// Raises `card` on `who`'s run `run_id` (`raise_card`) with a desktop notification, unless someone already asked you
+    /// the same thing, or it shows quietly: an `edit` of their own open card about the same thing, a card raised again
+    /// within QUIET_AFTER_CLOSE of their closing one about the same thing, or a turn of a conversation you sent a message
+    /// in within LIVE, where it shows anyway. Returns whether this is the first time you are asked, and whether you were
+    /// notified.
+    pub(super) fn ask_card(&self, run_id: &str, who: &Employee, card: Card, edit: bool) -> Result<(bool, bool)> {
+        let at = now();
+        let topic = card.topic();
+        let since = at - QUIET_AFTER_CLOSE;
+        let closed = |c: &Card| c.topic() == topic && c.answer.as_ref().is_some_and(|a| a.how == AnswerHow::Withdrawn && a.at > since);
+        let reclosed = match &topic {
+            Some(t) => self.db().withdrew_since(&who.id, t, since)? || lock(&self.0.active).values().any(|a| a.employee_id == who.id && a.cards.iter().any(closed)),
+            None => false,
+        };
+        let live = {
+            let db = self.db();
+            let root = db.run(run_id)?.and_then(|r| r.run.conversation_root().map(String::from));
+            match root.map(|id| db.run(&id)).transpose()?.flatten() {
+                Some(root) => root.run.replied_at.into_iter().chain([root.run.created_at]).max().is_some_and(|t| at - t < LIVE),
+                None => false,
+            }
+        };
+        let message = card.message.clone();
+        let first = self.raise_card(run_id, card)?;
+        let notified = first && !edit && !reclosed && !live;
+        if notified {
+            self.sink().notify(&format!("{} needs you", who.name), &message);
+        }
+        Ok((first, notified))
+    }
+
+    /// The caller's own cards about `topic` with no answer yet, oldest first: on their runs that finished (or went back to
+    /// the queue) and on those still working, this one included.
+    fn own_pending(&self, caller: &Employee, topic: &str) -> Result<Vec<Card>> {
+        let about = |c: &Card| c.pending() && c.topic().as_deref() == Some(topic);
+        let mut out: Vec<Card> = self.db().open_topic_runs(topic)?.into_iter().filter(|r| r.employee_id == caller.id).flat_map(|r| r.cards).filter(about).collect();
+        out.extend(lock(&self.0.active).values().filter(|a| a.employee_id == caller.id).flat_map(|a| a.cards.iter().filter(|c| about(c)).cloned()));
+        Ok(out)
     }
 
     /// Puts `card` on a run: a live run carries it until it ends, a finished one shows it in the Inbox again. A
@@ -605,7 +696,7 @@ impl Office {
     /// on the same thing, so this is the first time you are asked. No desktop notification.
     pub(super) fn raise_card(&self, run_id: &str, card: Card) -> Result<bool> {
         let topic = card.topic();
-        let same = |c: &Card| c.is_open() && topic.is_some() && c.topic() == topic;
+        let same = |c: &Card| c.pending() && topic.is_some() && c.topic() == topic;
         let waiting = match &topic {
             Some(t) => self.db().open_topic_runs(t)?.iter().any(|r| r.id != run_id),
             None => false,
@@ -616,7 +707,7 @@ impl Office {
             if let Some(old) = cards.iter_mut().find(|c| same(c)) {
                 needs_you.retain(|m| *m != old.message);
                 *old = card.clone();
-            } else if cards.iter().filter(|c| c.is_open()).count() >= CARDS_PER_RUN {
+            } else if cards.iter().filter(|c| c.pending()).count() >= CARDS_PER_RUN {
                 return Err(AppError::conflict(format!("This run already has {CARDS_PER_RUN} cards waiting. Put the rest in your report.")));
             } else {
                 cards.push(card.clone());
@@ -658,33 +749,37 @@ impl Office {
             let run = db.run(run_id)?.map(|r| r.run);
             run.and_then(|r| db.employee(&r.employee_id).ok().flatten()).map(|e| e.name).unwrap_or_default()
         };
-        let first = self.raise_card(run_id, Card::new(message, Some(why.to_string()), None, CardAsk::Chore { subject }))?;
+        let first = self.raise_card(run_id, Card::new(message, Some(why.to_string()), None, CardAsk::Chore { subject, url: None }))?;
         if first {
             self.sink().notify(&format!("{name} needs you"), message);
         }
         Ok(first)
     }
 
-    /// Closes the caller's open cards about `key`: it was settled without you. Rows left with nothing open
-    /// leave your Inbox.
+    /// Closes the caller's cards about `key` still waiting on you, parked ones too: it was settled without you. Rows
+    /// left with nothing open leave your Inbox.
     pub fn close_ask_tool(&self, caller: &Employee, key: &str, reason: &str) -> Result<Value> {
         let topic = cards::ask_key(key)?;
         let answer = CardAnswer { at: now(), how: AnswerHow::Withdrawn, text: claude::clip(&claude::one_line(reason), 300), held: false };
+        let about = |c: &Card| (c.pending() || c.parked) && c.topic().as_deref() == Some(topic.as_str());
+        let close = |c: &mut Card| {
+            c.answer = Some(answer.clone());
+            c.parked = false;
+        };
         let mut closed = 0;
-        for a in lock(&self.0.active).values_mut() {
-            for c in a.cards.iter_mut().filter(|c| c.is_open() && c.topic().as_deref() == Some(topic.as_str())) {
-                c.answer = Some(answer.clone());
-                closed += 1;
-            }
-        }
         let (runs, said) = {
             let db = self.db();
             let mut runs: Vec<Run> = db.open_topic_runs(&topic)?.into_iter().filter(|r| r.employee_id == caller.id).collect();
+            for r in db.parked_runs()? {
+                if r.employee_id == caller.id && r.cards.iter().any(about) && !runs.iter().any(|x| x.id == r.id) {
+                    runs.push(r);
+                }
+            }
             let mut said = vec![];
             db.tx(|| {
                 for r in &mut runs {
-                    for c in r.cards.iter_mut().filter(|c| c.is_open() && c.topic().as_deref() == Some(topic.as_str())) {
-                        c.answer = Some(answer.clone());
+                    for c in r.cards.iter_mut().filter(|c| about(c)) {
+                        close(c);
                         closed += 1;
                     }
                     said.push(super::inbox::take_held(r));
@@ -694,6 +789,12 @@ impl Office {
             })?;
             (runs, said)
         };
+        for a in lock(&self.0.active).values_mut().filter(|a| a.employee_id == caller.id) {
+            for c in a.cards.iter_mut().filter(|c| about(c)) {
+                close(c);
+                closed += 1;
+            }
+        }
         // A run left with nothing open hears the answers you gave its other cards, as a tap would have sent them.
         let (sends, runs): (Vec<_>, Vec<_>) = runs.into_iter().zip(said).partition(|(_, s)| s.is_some());
         self.send_card_answers(&sends);
@@ -707,7 +808,7 @@ impl Office {
             }
         }
         if closed == 0 {
-            let open: Vec<String> = self.db().open_cards(&caller.id)?.iter().flat_map(|r| r.open_cards().filter_map(|c| c.key.clone()).collect::<Vec<_>>()).collect();
+            let open: Vec<String> = self.db().open_cards(&caller.id)?.iter().flat_map(|r| r.cards.iter().filter(|c| c.pending()).filter_map(|c| c.key.clone()).collect::<Vec<_>>()).collect();
             let open: Vec<&str> = open.iter().map(|k| cards::key_label(k)).collect();
             let list = if open.is_empty() { "none".to_string() } else { open.join(", ") };
             return Err(AppError::invalid(format!("You have no open card about '{key}'. Your open cards: {list}.")));
@@ -869,20 +970,47 @@ you as a new run. Never create the hire any other way."
         self.sink().proposal_updated(&p);
         Ok(json!({ "withdrawn": p.id }))
     }
+
+    /// Names the thread the calling run is in (`Run::title`, on its first run): the conversation, or the report and
+    /// the replies on it. When that first run is the caller, its end saves the name again, so it keeps it.
+    pub fn name_thread_tool(&self, caller_run: &str, title: &str) -> Result<Value> {
+        let title = claude::one_line(title);
+        if title.is_empty() {
+            return Err(AppError::invalid("Give the thread a name of a few words, e.g. 'Spring sale emails'."));
+        }
+        if title.chars().count() > TITLE_CHARS {
+            return Err(AppError::invalid(format!("title is at most {TITLE_CHARS} characters.")));
+        }
+        let root = {
+            let db = self.db();
+            let mut root = Self::thread_in(&db, caller_run)?.root;
+            root.title = Some(title.clone());
+            db.save_run(&root)?;
+            root
+        };
+        if let Some(a) = lock(&self.0.active).get_mut(&root.id) {
+            a.title = Some(title.clone());
+        }
+        self.sink().run_updated(&root);
+        Ok(json!({ "named": title }))
+    }
+
+    /// Opens a file, a folder or a page on your screen for the caller (`open_target` says what they may open), and
+    /// says whether it worked.
+    pub fn open_tool(&self, caller: &Employee, target: &str) -> Result<Value> {
+        let target = open_target(&self.employee_dir(&caller.id), &caller.workspaces, target.trim())?;
+        let ceo = ceo_of(&self.db())?;
+        if let Err(e) = self.sink().open(&target) {
+            return Err(AppError::internal(format!("It did not open: {e}. Tell {ceo} where it is instead.")));
+        }
+        Ok(json!({ "opened": true, "note": format!("It is open on {ceo}'s screen.") }))
+    }
 }
 
-/// Where the file a card shows is, as a full path: `raw` is full, or from the employee's folder as their runs see
-/// it. Links are followed first, so one cannot lead out of their folder and workspaces. It must be plain text of at
-/// most `cards::FILE_BYTES`, so the card can show it.
+/// Where the file a card shows is, as a full path (`in_folders`). It must be plain text of at most `cards::FILE_BYTES`,
+/// so the card can show it.
 pub(super) fn card_file_path(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<PathBuf> {
-    let path = fs::canonicalize(employee_dir.join(raw))
-        .ok()
-        .filter(|p| p.is_file())
-        .ok_or_else(|| AppError::invalid(format!("No file at '{raw}'. Pass the path of the file you wrote, e.g. 'workspace/drafts/reply.md'.")))?;
-    let mut roots = std::iter::once(employee_dir.to_path_buf()).chain(workspaces.iter().map(|w| employee_dir.join(w))).filter_map(|r| fs::canonicalize(r).ok());
-    if !roots.any(|r| path.starts_with(r)) {
-        return Err(AppError::invalid("file must be in your folder or one of your workspaces."));
-    }
+    let path = in_folders(employee_dir, workspaces, raw)?;
     let len = fs::metadata(&path)?.len();
     if len > cards::FILE_BYTES {
         return Err(AppError::invalid(format!(
@@ -893,6 +1021,49 @@ pub(super) fn card_file_path(employee_dir: &Path, workspaces: &[String], raw: &s
     }
     if fs::read_to_string(&path).is_err() {
         return Err(AppError::invalid(format!("'{raw}' is not plain text, so the card cannot show it.")));
+    }
+    Ok(path)
+}
+
+/// What `open` opens: an https link as it is, or a path (full, or from the employee's folder as their runs see it),
+/// resolved, in one of their workspaces or the folder that holds the company page, which holds every employee's
+/// folder too. Links are followed first, so one cannot lead anywhere else.
+fn open_target(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<String> {
+    if raw.starts_with("https://") {
+        return Ok(raw.to_string());
+    }
+    if raw.is_empty() {
+        return Err(AppError::invalid("Pass the full path of what to open, or an https link."));
+    }
+    let path = fs::canonicalize(employee_dir.join(raw))
+        .map_err(|_| AppError::invalid(format!("Nothing is at '{raw}'. Pass a full path, or an https link.")))?;
+    let company = employee_dir.parent().unwrap_or(employee_dir);
+    let mut roots = std::iter::once(company.to_path_buf()).chain(workspaces.iter().map(|w| employee_dir.join(w))).filter_map(|r| fs::canonicalize(r).ok());
+    if !roots.any(|r| path.starts_with(r)) {
+        return Err(AppError::invalid("You can open what is in your folder, one of your workspaces or the company page's folder, or an https link."));
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Where an image a card shows is, as a full path (`in_folders`): a png, jpg, gif or webp file.
+pub(super) fn card_image_path(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<PathBuf> {
+    let path = in_folders(employee_dir, workspaces, raw)?;
+    if image_mime(&path).is_none() {
+        return Err(AppError::invalid(format!("'{raw}' is not a png, jpg, gif or webp file, so the card cannot show it.")));
+    }
+    Ok(path)
+}
+
+/// A file a card shows, as a full path: `raw` is full, or from the employee's folder as their runs see it. Links are
+/// followed first, so one cannot lead out of their folder and workspaces.
+fn in_folders(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<PathBuf> {
+    let path = fs::canonicalize(employee_dir.join(raw))
+        .ok()
+        .filter(|p| p.is_file())
+        .ok_or_else(|| AppError::invalid(format!("No file at '{raw}'. Pass the path of the file you wrote, e.g. 'workspace/drafts/reply.md'.")))?;
+    let mut roots = std::iter::once(employee_dir.to_path_buf()).chain(workspaces.iter().map(|w| employee_dir.join(w))).filter_map(|r| fs::canonicalize(r).ok());
+    if !roots.any(|r| path.starts_with(r)) {
+        return Err(AppError::invalid("file must be in your folder or one of your workspaces."));
     }
     Ok(path)
 }
@@ -1585,6 +1756,125 @@ mod tests {
         drop(office);
     }
 
+    /// A sink that keeps the desktop notifications, by body.
+    #[derive(Default)]
+    struct Told(std::sync::Mutex<Vec<String>>);
+    impl EventSink for Told {
+        fn org_changed(&self) {}
+        fn run_updated(&self, _run: &Run) {}
+        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
+        fn request_updated(&self, _request: &HumanRequest) {}
+        fn notify(&self, _title: &str, body: &str) {
+            self.0.lock().unwrap().push(body.to_string());
+        }
+    }
+
+    /// The Office on `o`'s store, held so nothing it queues starts, keeping its notifications in the sink it returns.
+    async fn told_office(o: &Office0) -> (Office, Arc<Told>) {
+        o.db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+        let told = Arc::new(Told::default());
+        (Office::open(o.dir.clone(), told.clone(), Build::new("0.0.0".into())).await.unwrap(), told)
+    }
+
+    #[tokio::test]
+    async fn a_list_grows_and_an_edit_notifies_nobody_again() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let first = run(&o.db, &ada, RunKind::Manual, "Review the pull requests.", RunState::Succeeded, 30, None);
+        let later = run(&o.db, &ada, RunKind::Manual, "Review the pull requests.", RunState::Succeeded, 10, None);
+        let (office, told) = told_office(&o).await;
+        let list = |items: &[(&str, &str)]| {
+            let items: Vec<Value> = items.iter().map(|(id, text)| json!({ "id": id, "text": text })).collect();
+            json!({ "message": "Merge these?", "key": "merges", "itemVerb": "Merge", "items": items })
+        };
+        assert_eq!(office.notify_tool(&first.id, &ada, &list(&[("pr:1", "Fix the footer."), ("pr:2", "New prices.")])).unwrap()["notified"], true);
+        let grown = office.notify_tool(&later.id, &ada, &list(&[("pr:2", "New prices, with tax."), ("pr:3", "Faster search.")])).unwrap();
+        assert_eq!(grown["notified"], false, "{grown}");
+        assert!(grown["note"].as_str().unwrap().starts_with("Added to your open list about this: the card now holds 3 items"), "{grown}");
+        let CardAsk::Items { items, .. } = saved(&o.db, &later.id).cards.remove(0).ask else { panic!("items") };
+        let items: Vec<(&str, &str)> = items.iter().map(|i| (i.id.as_str(), i.text.as_str())).collect();
+        assert_eq!(items, vec![("pr:1", "Fix the footer."), ("pr:2", "New prices, with tax."), ("pr:3", "Faster search.")], "the newer text wins");
+
+        // Asking again with the same key edits the card in place, and so does raising it again soon after closing it.
+        let venue = |why: &str| json!({ "message": "Book the hall?", "key": "venue", "why": why, "choices": [{ "label": "Book it" }] });
+        assert_eq!(office.notify_tool(&later.id, &ada, &venue("Cheapest in May.")).unwrap()["notified"], true);
+        assert_eq!(office.notify_tool(&later.id, &ada, &venue("Cheapest in June.")).unwrap()["notified"], false);
+        let venues = |r: &Run| saved(&o.db, &r.id).cards.into_iter().filter(|c| c.key.as_deref() == Some("ask:venue")).collect::<Vec<_>>();
+        assert_eq!(venues(&later).len(), 1, "changed in place");
+        office.close_ask_tool(&ada, "venue", "Asked it wrongly.").unwrap();
+        assert_eq!(office.notify_tool(&later.id, &ada, &venue("Cheapest in July.")).unwrap()["notified"], false, "soon after closing it");
+        assert_eq!(told.0.lock().unwrap().clone(), vec!["Merge these?".to_string(), "Book the hall?".to_string()]);
+        drop(office);
+    }
+
+    #[tokio::test]
+    async fn a_card_in_a_conversation_you_are_in_shows_there_without_a_notification() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let fresh = run(&o.db, &ada, talk("The offsite"), "Plan the offsite.", RunState::Succeeded, 5, None);
+        let old = run(&o.db, &ada, talk("The rota"), "Plan the rota.", RunState::Succeeded, 60, None);
+        let (office, told) = told_office(&o).await;
+        let ask = |message: &str, key: &str| json!({ "message": message, "key": key, "choices": [{ "label": "Go ahead" }] });
+        assert_eq!(office.notify_tool(&fresh.id, &ada, &ask("Book the hall?", "hall")).unwrap()["notified"], false, "you wrote in it 5 minutes ago");
+        assert_eq!(office.notify_tool(&old.id, &ada, &ask("Swap the Friday shift?", "shift")).unwrap()["notified"], true);
+        let mut replied = saved(&o.db, &old.id);
+        replied.replied_at = Some(now() - chrono::Duration::minutes(1));
+        o.db.save_run(&replied).unwrap();
+        assert_eq!(office.notify_tool(&old.id, &ada, &ask("Add a Sunday shift?", "sunday")).unwrap()["notified"], false, "your reply a minute ago");
+        assert_eq!(told.0.lock().unwrap().len(), 1);
+        assert_eq!(saved(&o.db, &fresh.id).cards.len(), 1, "the card is raised all the same");
+        drop(office);
+    }
+
+    #[tokio::test]
+    async fn a_card_carries_a_link_and_images_and_asks_for_what_it_is_about() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let r = run(&o.db, &ada, RunKind::Manual, "Review it.", RunState::Succeeded, 5, None);
+        let office = held_office(&o).await;
+        let home = office.employee_dir(&ada.id);
+        fs::create_dir_all(home.join("workspace/shots")).unwrap();
+        fs::write(home.join("workspace/shots/before.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        fs::write(home.join("workspace/shots/notes.md"), "Notes").unwrap();
+        std::os::unix::fs::symlink(home.join("workspace/shots/notes.md"), home.join("workspace/shots/fake.png")).unwrap();
+        fs::write(o.dir.join("outside.png"), [0u8]).unwrap();
+        let merge = |extra: Value| {
+            let mut args = json!({ "message": "Merge PR #12?", "key": "pr:12", "choices": [{ "label": "Merge" }] });
+            args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            args
+        };
+        let v = office.notify_tool(&r.id, &ada, &merge(json!({ "images": ["workspace/shots/before.png"] }))).unwrap();
+        assert_eq!(v["tip"], "Attach what it is about (file for a draft, link for a pull request) so Pat can read it on the card.");
+        let shot = fs::canonicalize(home.join("workspace/shots/before.png")).unwrap().to_string_lossy().into_owned();
+        assert_eq!(saved(&o.db, &r.id).cards[0].images, vec![shot], "kept as a full path");
+        let v = office.notify_tool(&r.id, &ada, &merge(json!({ "link": "https://example.com/acme/site/pull/12" }))).unwrap();
+        assert!(v.get("tip").is_none(), "{v}");
+        assert_eq!(saved(&o.db, &r.id).cards[0].link.as_deref(), Some("https://example.com/acme/site/pull/12"));
+        for (raw, why) in [("../../outside.png", "file must be in your folder"), ("workspace/shots/gone.png", "No file at"), ("workspace/shots/fake.png", "is not a png, jpg, gif or webp file")] {
+            assert!(office.notify_tool(&r.id, &ada, &merge(json!({ "images": [raw] }))).unwrap_err().message.contains(why), "{raw}");
+        }
+        drop(office);
+    }
+
+    #[tokio::test]
+    async fn a_company_line_is_proposed_on_a_card_from_any_run() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let r = run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Succeeded, 5, None);
+        let (office, told) = told_office(&o).await;
+        let line = json!({ "section": "Who to ask", "line": "Bo signs off refunds.", "why": "Three of us asked this week." });
+        let v = office.propose_company_line_tool(&r.id, &ada, &line).unwrap();
+        assert!(v["note"].as_str().unwrap().starts_with("Recorded. Pat sees the line on a card"), "{v}");
+        assert_eq!(v["notified"], true);
+        let card = saved(&o.db, &r.id).cards.remove(0);
+        assert_eq!((card.message.as_str(), card.proposal), (cards::ADD_LINE, Some(Proposal::CompanyLine { section: "Who to ask".into(), line: "Bo signs off refunds.".into() })));
+        assert_eq!(office.propose_company_line_tool(&r.id, &ada, &line).unwrap()["notified"], false, "the same line again is the same card");
+        assert_eq!(saved(&o.db, &r.id).cards.len(), 1);
+        assert!(office.propose_company_line_tool(&r.id, &ada, &json!({ "section": "Who to ask", "line": " ", "why": "Asked." })).is_err());
+        assert_eq!(told.0.lock().unwrap().len(), 1);
+        drop(office);
+    }
+
     #[tokio::test]
     async fn a_card_read_back_after_a_restart_shows_its_file_only_if_notify_would_have() {
         let o = office();
@@ -2252,5 +2542,104 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let next = run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
         let said: Vec<String> = caught_up(&o.db, std::slice::from_ref(&ada), &next).replaced.into_iter().map(|(_, c)| c.message).collect();
         assert_eq!(said, vec!["Book the bigger room?".to_string()], "the last run heard of the earlier one, and a tidy hears of none");
+    }
+
+    #[tokio::test]
+    async fn name_thread_names_the_thread_its_run_is_in() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let first = run(&o.db, &ada, talk("Can you look at the sale"), "Can you look at the sale?", RunState::Succeeded, 30, None);
+        let reply = Run::new(&ada.id, RunKind::Reply { to_run_id: first.id.clone(), label: "Can you look at the sale".into(), task: true, card: false }, "And the emails?".into(), now());
+        assert!(o.db.insert_run(&reply, &first.id).unwrap());
+        let office = held_office(&o).await;
+
+        assert_eq!(office.name_thread_tool(&reply.id, "  Spring sale\n emails ").unwrap(), json!({ "named": "Spring sale emails" }));
+        assert_eq!(saved(&o.db, &first.id).title.as_deref(), Some("Spring sale emails"), "on the conversation's first run");
+        assert_eq!(saved(&o.db, &reply.id).title, None);
+        assert!(office.name_thread_tool(&reply.id, " ").unwrap_err().message.starts_with("Give the thread a name of a few words"));
+        assert_eq!(office.name_thread_tool(&reply.id, &"x".repeat(61)).unwrap_err().message, "title is at most 60 characters.");
+        office.name_thread_tool(&reply.id, &"x".repeat(60)).unwrap();
+
+        // A report still being written names its own thread, and its end keeps the name.
+        let report = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Running, 5, None);
+        let live = Active { token: "t".into(), employee_id: ada.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec![], cards: vec![], score: None, proposed: None, verdict: false, title: None, transcript: None, input: None };
+        lock(&office.0.active).insert(report.id.clone(), live);
+        office.name_thread_tool(&report.id, "Weekly numbers").unwrap();
+        assert_eq!(saved(&o.db, &report.id).title.as_deref(), Some("Weekly numbers"));
+        assert_eq!(lock(&office.0.active)[&report.id].title.as_deref(), Some("Weekly numbers"));
+        drop(office);
+    }
+
+    /// Records what it opens, and fails on anything ending in `.fail`.
+    #[derive(Default)]
+    struct Screen(Mutex<Vec<String>>);
+    impl EventSink for Screen {
+        fn org_changed(&self) {}
+        fn run_updated(&self, _run: &Run) {}
+        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
+        fn request_updated(&self, _request: &HumanRequest) {}
+        fn open(&self, target: &str) -> std::result::Result<(), String> {
+            if target.ends_with(".fail") {
+                return Err("its app is gone".into());
+            }
+            lock(&self.0).push(target.to_string());
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn open_shows_only_what_is_in_the_office_or_a_workspace() {
+        let o = office();
+        let repo = o.dir.join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        fs::write(repo.join("notes.md"), "Notes").unwrap();
+        fs::write(o.dir.join("outside.md"), "Not theirs").unwrap();
+        let ada = Employee { workspaces: vec![repo.to_string_lossy().into_owned()], ..employee(&o.db, "Ada", None) };
+        let bo = employee(&o.db, "Bo", None);
+        let screen = Arc::new(Screen::default());
+        let office = Office::open(o.dir.clone(), screen.clone(), Build::new("0.0.0".into())).await.unwrap();
+        let home = office.employee_dir(&ada.id);
+        let theirs = office.employee_dir(&bo.id);
+        fs::create_dir_all(home.join("workspace")).unwrap();
+        fs::create_dir_all(&theirs).unwrap();
+        fs::write(home.join("workspace/report.pdf"), "%PDF").unwrap();
+        fs::write(home.join("workspace/broken.fail"), "x").unwrap();
+        fs::write(theirs.join("draft.md"), "Bo's draft").unwrap();
+        std::os::unix::fs::symlink(o.dir.join("outside.md"), home.join("link.md")).unwrap();
+        let real = |p: PathBuf| fs::canonicalize(p).unwrap().to_string_lossy().into_owned();
+        let open = |target: &str| office.open_tool(&ada, target);
+
+        assert_eq!(open("https://acme.example/sign-in").unwrap(), json!({ "opened": true, "note": "It is open on Pat's screen." }));
+        open(&home.join("workspace/report.pdf").to_string_lossy()).unwrap();
+        open("workspace").unwrap();
+        open(&repo.join("notes.md").to_string_lossy()).unwrap();
+        open(&o.dir.join("employees").join("CLAUDE.md").to_string_lossy()).unwrap();
+        open(&theirs.join("draft.md").to_string_lossy()).unwrap();
+        let want = vec![
+            "https://acme.example/sign-in".to_string(),
+            real(home.join("workspace/report.pdf")),
+            real(home.join("workspace")),
+            real(repo.join("notes.md")),
+            real(o.dir.join("employees").join("CLAUDE.md")),
+            real(theirs.join("draft.md")),
+        ];
+        assert_eq!(*lock(&screen.0), want);
+
+        for (target, why) in [
+            ("", "Pass the full path of what to open"),
+            ("http://acme.example", "Nothing is at 'http://acme.example'"),
+            ("workspace/gone.pdf", "Nothing is at"),
+            ("../../outside.md", "You can open what is in your folder"),
+            ("link.md", "You can open what is in your folder"),
+        ] {
+            assert!(open(target).unwrap_err().message.starts_with(why), "{target}");
+        }
+        assert_eq!(open("workspace/broken.fail").unwrap_err().message, "It did not open: its app is gone. Tell Pat where it is instead.");
+        assert_eq!(lock(&screen.0).len(), want.len(), "nothing it refused reached the screen");
+        drop(office);
+
+        let office = held_office(&o).await;
+        assert!(office.open_tool(&ada, "workspace").unwrap_err().message.starts_with("It did not open: there is no screen to open it on."));
+        drop(office);
     }
 }

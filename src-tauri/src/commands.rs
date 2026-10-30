@@ -138,7 +138,7 @@ const OPENS: &[&str] = &[
 
 /// Whether a report path opens in its app, so a click never runs a program
 /// (an .app bundle is a folder, a .command or .sh is a file).
-fn opens_directly(path: &Path, is_dir: bool) -> bool {
+pub(crate) fn opens_directly(path: &Path, is_dir: bool) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => OPENS.contains(&ext.to_ascii_lowercase().as_str()),
         None => is_dir,
@@ -202,6 +202,16 @@ pub async fn runs(office: O<'_>, employee_id: Option<String>, limit: u32) -> Res
 }
 
 #[tauri::command]
+pub async fn search_runs(office: O<'_>, query: String, limit: u32) -> Result<Vec<Run>> {
+    office.search_runs(&query, limit)
+}
+
+#[tauri::command]
+pub async fn run_usage(office: O<'_>, since: Ts) -> Result<RunUsage> {
+    office.run_usage(since)
+}
+
+#[tauri::command]
 pub async fn run_detail(office: O<'_>, run_id: String) -> Result<RunDetail> {
     office.run_detail(&run_id)
 }
@@ -242,6 +252,11 @@ pub async fn reply_to_run(office: O<'_>, run_id: String, text: String, archive: 
 }
 
 #[tauri::command]
+pub async fn steer_run(office: O<'_>, run_id: String, text: String) -> Result<SteerHow> {
+    office.steer_run(&run_id, &text)
+}
+
+#[tauri::command]
 pub async fn approve_blocked(office: O<'_>, run_id: String, rules: Vec<String>, always: bool) -> Result<Run> {
     office.approve_blocked(&run_id, rules, always)
 }
@@ -254,6 +269,11 @@ pub async fn answer_card(office: O<'_>, run_id: String, card: usize, answer: Car
 #[tauri::command]
 pub async fn card_file(office: O<'_>, run_id: String, card: usize) -> Result<String> {
     office.card_file(&run_id, card)
+}
+
+#[tauri::command]
+pub async fn parked_runs(office: O<'_>) -> Result<Vec<Run>> {
+    office.parked_runs()
 }
 
 #[tauri::command]

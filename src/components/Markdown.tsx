@@ -78,7 +78,8 @@ const images = new Map<string, Promise<string>>();
 /** The images that have loaded, so a lightbox shows one at once. */
 const loaded = new Map<string, string>();
 
-function loadImage(path: string): Promise<string> {
+/** Reads a local image once, as a URL an <img> can show; recent ones are kept. */
+export function loadImage(path: string): Promise<string> {
   let p = images.get(path);
   if (!p) {
     p = call("read_image", { path });
@@ -265,7 +266,7 @@ export function Markdown({ text, className, breaks = false }: { text: string; cl
 }
 
 /** The images of one message, full-window. The arrow keys move between them. */
-function Lightbox({ shots, at, onClose }: { shots: Shot[]; at: number; onClose: () => void }) {
+export function Lightbox({ shots, at, onClose }: { shots: Shot[]; at: number; onClose: () => void }) {
   const [i, setI] = useState(at);
   const shot = shots[i];
   const [, loadedOne] = useReducer((n: number) => n + 1, 0);

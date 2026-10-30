@@ -91,6 +91,9 @@ impl Office {
         s.backup.dir = s.backup.dir.trim().to_string();
         s.transcript_days = s.transcript_days.map(|d| d.max(1));
         s.watch.validate()?;
+        if s.notifications.quiet.is_some_and(|q| q.start_minute >= 1440 || q.end_minute >= 1440 || q.start_minute == q.end_minute) {
+            return Err(AppError::invalid("quiet hours must start and end at different times of the day"));
+        }
         let p = &mut s.proxy;
         p.url = p.url.trim().trim_end_matches('/').to_string();
         p.api_key = p.api_key.trim().to_string();
@@ -640,6 +643,22 @@ mod tests {
         office.refresh_usage().await;
         let u = office.usage_limits();
         assert_eq!((u.proxy_issue, u.five_hour.map(|w| w.percent)), (None, Some(60.0)));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn quiet_hours_start_and_end_at_different_times() {
+        let dir = std::env::temp_dir().join(format!("omegastar-quiet-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let with = |start_minute: u16, end_minute: u16| AppSettings {
+            notifications: NotificationSettings { mode: NotifyMode::All, quiet: Some(QuietHours { start_minute, end_minute }) },
+            ..office.settings().unwrap()
+        };
+        assert!(office.save_settings(with(480, 480)).is_err());
+        assert!(office.save_settings(with(1320, 1440)).is_err(), "midnight is minute 0");
+        let saved = office.save_settings(with(1320, 480)).unwrap();
+        assert_eq!(office.settings().unwrap().notifications, saved.notifications, "overnight, 10 pm to 8 am");
         let _ = fs::remove_dir_all(&dir);
     }
 

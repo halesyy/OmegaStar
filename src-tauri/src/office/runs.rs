@@ -95,6 +95,17 @@ impl Office {
         self.db().recent_runs(employee_id, limit.clamp(1, 1000))
     }
 
+    /// The newest runs whose instruction, report or a card's question contains `query`, for the command palette.
+    pub fn search_runs(&self, query: &str, limit: u32) -> Result<Vec<Run>> {
+        self.db().search_runs(query, limit.clamp(1, 200))
+    }
+
+    /// What each employee's runs and each routine did and used since `since`, for Activity.
+    pub fn run_usage(&self, since: Ts) -> Result<RunUsage> {
+        let db = self.db();
+        Ok(RunUsage { employees: db.employee_usage(since)?, routines: db.routine_counts(None, since)? })
+    }
+
     pub fn run(&self, run_id: &str) -> Result<Run> {
         self.db().run(run_id)?.map(|r| r.run).ok_or_else(|| AppError::not_found("run not found"))
     }
@@ -235,7 +246,7 @@ impl Office {
                 if r.not_before.is_some_and(|t| t > at) {
                     continue;
                 }
-                if gate(&r.kind, held, account_ok, talking.contains(&r.employee_id), awake) == Gate::Skip {
+                if gate(&r, held, account_ok, talking.contains(&r.employee_id), awake) == Gate::Skip {
                     continue;
                 }
                 let background = !r.kind.is_conversation();
@@ -291,6 +302,7 @@ impl Office {
                     score: r.score.clone(),
                     proposed: None,
                     verdict: false,
+                    title: None,
                     transcript: None,
                     input: None,
                 },
@@ -317,11 +329,16 @@ impl Office {
     /// Sends your message into a run that is still working: the employee sees it at their next step.
     /// `false` when the run no longer takes messages (its turn is over, or it has not started).
     pub(super) fn steer(&self, run_id: &str, text: &str) -> bool {
+        self.steer_as(run_id, text, text)
+    }
+
+    /// `steer`, where the employee hears `said` and the run's events keep your own words, `text`.
+    fn steer_as(&self, run_id: &str, text: &str, said: &str) -> bool {
         let ev = RunEvent::User { text: text.to_string() };
         {
             let active = lock(&self.0.active);
             let Some(a) = active.get(run_id) else { return false };
-            if !a.input.as_ref().is_some_and(|i| i.send(claude::user_line(text)).is_ok()) {
+            if !a.input.as_ref().is_some_and(|i| i.send(claude::user_line(said)).is_ok()) {
                 return false;
             }
             if let Some(f) = &a.transcript {
@@ -330,6 +347,46 @@ impl Office {
         }
         self.sink().run_events(run_id, &[ev]);
         true
+    }
+
+    /// Your words to a run you are watching from its page. While it works they go straight in, saying who is speaking
+    /// unless it is a conversation with you. While it waits to start for the first time they join what it starts with.
+    /// Otherwise (it finished, or could not take a message just then) they are your reply in its thread, which is also
+    /// how a conversation turn takes them, as its composer sends them. A run you steered or added to keeps its report
+    /// for you in the Inbox (`Run::steered`).
+    pub fn steer_run(&self, run_id: &str, text: &str) -> Result<SteerHow> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(AppError::invalid("message is empty"));
+        }
+        {
+            let db = self.db();
+            let mut run = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
+            if !run.kind.is_conversation() {
+                let ceo = ceo_of(&db)?;
+                match run.state {
+                    // Never started, as `tools::untouched` has it: a run back in the queue resumes past what it started with.
+                    RunState::Queued if run.restarts == 0 && run.limit_retries == 0 => {
+                        run.prompt = format!("{}\n\n{ceo} added before you started: {text}", run.prompt);
+                        run.steered = true;
+                        db.save_run(&run)?;
+                        drop(db);
+                        self.sink().run_updated(&run);
+                        return Ok(SteerHow::Added);
+                    }
+                    // Marked under the store lock, so the run's end, which keeps the mark (`execute`), cannot miss it.
+                    RunState::Running if self.steer_as(run_id, text, &format!("{ceo} is watching this run and says: {text}")) => {
+                        run.steered = true;
+                        db.save_run(&run)?;
+                        return Ok(SteerHow::Steered);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let reply = self.reply_to_run(run_id, text, false, vec![])?;
+        // A run that just started can take it after all: the reply went into it.
+        Ok(if reply.id == run_id { SteerHow::Steered } else { SteerHow::Replied })
     }
 
     /// Writes into a run's open stdin without recording it as your message: for notes Omega Star writes,
@@ -496,8 +553,10 @@ impl Office {
         if self.0.closing.load(Ordering::SeqCst) {
             return;
         }
-        let (cancelled, needs_you, cards, score, proposed, verdict) =
-            lock(&self.0.active).remove(&run.id).map(|a| (a.cancelled, a.needs_you, a.cards, a.score, a.proposed, a.verdict)).unwrap_or_default();
+        let (cancelled, needs_you, cards, score, proposed, verdict, title) =
+            lock(&self.0.active).remove(&run.id).map(|a| (a.cancelled, a.needs_you, a.cards, a.score, a.proposed, a.verdict, a.title)).unwrap_or_default();
+        // You may have written into it as it worked (`steer_run`), after this copy of it was taken.
+        run.steered |= self.db().run(&run.id).ok().flatten().is_some_and(|r| r.run.steered);
         run.needs_you.extend(needs_you);
         // Before the limit requeue, so cards raised before the limit stopped the run survive it. The live run
         // started with the run's own cards, so its list holds them all.
@@ -506,6 +565,9 @@ impl Office {
         }
         if score.is_some() {
             run.score = score;
+        }
+        if title.is_some() {
+            run.title = title;
         }
         // Added to what an attempt the usage limit stopped proposed, so nothing it proposed is lost.
         if let Some(p) = proposed.filter(|p| !p.trim().is_empty()) {
@@ -575,6 +637,12 @@ impl Office {
         }
         if matches!(run.kind, RunKind::Tidy { .. }) && run.state == RunState::Succeeded {
             self.review_tidy(&mut run);
+            // What it left, so a file that grows well past it starts the next tidy early (`tidy::due`).
+            let slug = self.db().employee(&run.employee_id).ok().flatten().map(|e| e.slug).unwrap_or_default();
+            let dir = self.employee_dir(&run.employee_id);
+            if let RunKind::Tidy { signature, .. } = &mut run.kind {
+                tidy::note_sizes(signature, &dir, &slug);
+            }
         }
         // Before the run is seen to finish, so whoever waits for it also sees what it sent.
         if let Err(e) = self.capture_deliveries(&run.id, false) {
@@ -680,16 +748,17 @@ impl Office {
     }
 
     /// A schedule that works again closes its run of failures: the ones since its last success before
-    /// `ok` move to the Archive, unless you replied to one.
+    /// `ok` move to the Archive, unless you replied to one or wrote into it.
     fn archive_streak(&self, schedule_id: &str, ok: &Run) -> Result<()> {
         let cleared = {
             let db = self.db();
             db.tx(|| {
-                let since = db.successes_of_schedule(schedule_id)?.into_iter().filter(|t| *t < ok.created_at).max();
+                // The store keeps milliseconds, so compare in them: else the success that ends the streak counts as its own last one.
+                let since = db.successes_of_schedule(schedule_id)?.into_iter().filter(|t| t.timestamp_millis() < ok.created_at.timestamp_millis()).max();
                 let mut cleared = vec![];
                 for mut f in db.failures_of_schedule(schedule_id)? {
                     let in_streak = f.created_at < ok.created_at && since.is_none_or(|s| f.created_at > s);
-                    if in_streak && f.archived_at.is_none() && f.replied_at.is_none() && !f.has_open_card() {
+                    if in_streak && f.archived_at.is_none() && f.replied_at.is_none() && !f.steered && !f.has_open_card() {
                         f.archived_at = Some(now());
                         db.save_run(&f)?;
                         cleared.push(f);
@@ -932,7 +1001,7 @@ impl Office {
             }
             let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
             let wrote = skills::wrote_file(text, &path, &snap.employee_dir);
-            if !skills::ceo_in(&run.kind) {
+            if !skills::ceo_present(&run) {
                 let who = (skill == own_skills::OWN).then_some(snap.employee.id.as_str());
                 let since = run.started_at.unwrap_or(run.created_at);
                 let seen = {
@@ -983,6 +1052,15 @@ impl Office {
                 .filter(|c| recorded.iter().any(|(s, f)| *s == c.change.skill && *f == c.change.file))
                 .map(|c| Seen { own: true, wrote: true, change: c }),
         );
+        // Which of its skills it used, so a skill no run uses shows up (`health`). Looking after them is not using them.
+        if !matches!(run.kind, RunKind::Tidy { .. } | RunKind::Organize { .. }) {
+            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
+            let own = own_skills::own_skill_names(&skills_dir);
+            let used: HashSet<String> = skills_used(text).into_iter().filter(|s| own.contains(s)).collect();
+            if let Err(e) = self.db().record_skill_use(&run.employee_id, &used, now()) {
+                log!("run {}: could not record the skills it used: {e}", run.id);
+            }
+        }
         let _ = fs::remove_file(&before_path);
         for c in own_changes(&changes) {
             let ev = RunEvent::SkillChanged { skill: c.skill, file: c.file, change: c.change };
@@ -1100,6 +1178,32 @@ pub(super) fn moved_skills(transcript: &str) -> HashSet<String> {
     moves.chain(retires).filter_map(|n| n.as_str().map(String::from)).collect()
 }
 
+/// The skills a run used, its subagents included: invoked with the Skill tool, or a `SKILL.md` read in a skills folder.
+pub(super) fn skills_used(transcript: &str) -> HashSet<String> {
+    let mut used = HashSet::new();
+    let lines = transcript.lines().filter(|l| l.contains("\"tool_use\"")).filter_map(|l| serde_json::from_str::<Value>(l).ok());
+    for v in lines.filter(|v| v["type"] == "assistant") {
+        for call in v["message"]["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_use") {
+            used.extend(match call["name"].as_str() {
+                Some("Skill") => call["input"]["skill"].as_str().map(String::from),
+                Some("Read") => call["input"]["file_path"].as_str().and_then(skill_read),
+                _ => None,
+            });
+        }
+    }
+    used
+}
+
+/// The skill whose `SKILL.md` is at `path`, when it is one in a skills folder.
+fn skill_read(path: &str) -> Option<String> {
+    let path = Path::new(path);
+    let skill = path.parent()?;
+    if path.file_name()? != "SKILL.md" || skill.parent()?.file_name()? != "skills" {
+        return None;
+    }
+    skill.file_name()?.to_str().map(String::from)
+}
+
 /// The changes that are the run's own, as its report lists them.
 pub(super) fn own_changes(changes: &[Seen]) -> impl Iterator<Item = SkillChange> + '_ {
     changes.iter().filter(|c| c.own).map(|c| c.change.change.clone())
@@ -1168,9 +1272,9 @@ enum Gate {
 /// while the display merely sleeps in a full wake: a wrong reading would hold every routine overnight.
 const GATE_DARK_WAKE: bool = false;
 
-fn gate(kind: &RunKind, held: bool, account_ok: bool, talking: bool, awake: bool) -> Gate {
-    let background = !skills::ceo_in(kind);
-    if held || (background && !account_ok) || (matches!(kind, RunKind::Tidy { .. }) && talking) || (background && !awake) {
+fn gate(run: &Run, held: bool, account_ok: bool, talking: bool, awake: bool) -> Gate {
+    let background = !skills::ceo_present(run);
+    if held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && talking) || (background && !awake) {
         Gate::Skip
     } else {
         Gate::Claim
@@ -1253,16 +1357,16 @@ fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
 }
 
 /// The open decision and item cards `newer` replaces, marked Replaced and saved: those of the same routine's
-/// earlier runs, which also leave the Inbox unless you replied to them, and the employee's earlier cards about
-/// the same thing as one of its own, in its thread or anywhere else. A card about something else stays open, so
-/// answers that come back into one conversation leave each other's cards alone. A due check's run replaces
-/// nothing of its routine. Call inside a transaction.
+/// earlier runs, which also leave the Inbox unless you replied to them or wrote into them, and the employee's
+/// earlier cards about the same thing as one of its own, in its thread or anywhere else. A card about something
+/// else stays open, so answers that come back into one conversation leave each other's cards alone. A due check's
+/// run replaces nothing of its routine. Call inside a transaction.
 fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
     let decision = |c: &Card| c.is_open() && !matches!(c.ask, CardAsk::Chore { .. });
     let mut out: Vec<(Run, bool)> = vec![];
     if let (RunKind::Scheduled { schedule_id, .. }, None) = (&newer.kind, newer.kind.check_id()) {
         for mut r in db.open_cards_of_schedule(schedule_id, newer.created_at)?.into_iter().filter(|r| r.id != newer.id && r.cards.iter().any(decision)) {
-            if r.replied_at.is_none() {
+            if r.replied_at.is_none() && !r.steered {
                 r.archived_at = Some(at);
             }
             out.push((r, true));
@@ -1283,8 +1387,8 @@ fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
         for c in r.cards.iter_mut().filter(|c| decision(c) && (*all || c.topic().is_some_and(|k| topics.contains(&k)))) {
             c.answer = Some(CardAnswer { at, how: AnswerHow::Replaced, text: String::new(), held: false });
         }
-        // A run whose cards all went to a newer one has nothing left to ask, unless you replied to it.
-        if !*all && !r.has_open_card() && r.replied_at.is_none() && !thread.contains(&r.id) {
+        // A run whose cards all went to a newer one has nothing left to ask, unless you replied to it or wrote into it.
+        if !*all && !r.has_open_card() && r.replied_at.is_none() && !r.steered && !thread.contains(&r.id) {
             r.archived_at = Some(at);
         }
         db.save_run(r)?;
@@ -1425,6 +1529,7 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
         news: vec![],
         held: vec![],
         replaced: vec![],
+        answers: db.answered_cards(&e.id, now - week, session)?,
     }))
 }
 
@@ -1564,6 +1669,138 @@ mod tests {
         assert!(t.root.cards[1].answer.as_ref().is_some_and(|a| !a.held));
         let sent: Vec<&str> = t.replies.iter().map(|r| r.prompt.as_str()).filter(|p| p.ends_with("Your card: \"Email the list?\"\nChose: Go.")).collect();
         assert_eq!(sent.len(), 1, "{:?}", t.replies.iter().map(|r| &r.prompt).collect::<Vec<_>>());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An office for Pat at Acme whose queue stays held, so nothing a test queues starts Claude Code. `runs` are
+    /// saved once it is open, so one saved as working is not taken for one a restart cut off.
+    async fn held_office(dir: &Path, employees: &[&Employee], runs: &[&Run]) -> Office {
+        fs::create_dir_all(dir).unwrap();
+        {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+            for e in employees {
+                db.save_employee(e).unwrap();
+            }
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+        }
+        let office = Office::open(dir.to_path_buf(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        for r in runs {
+            assert!(office.db().insert_run(r, &r.id).unwrap());
+        }
+        office
+    }
+
+    /// Registers `run` as working, with its transcript, and returns what it hears. `open`: it still takes messages.
+    fn working(office: &Office, run: &Run, open: bool) -> tokio::sync::mpsc::UnboundedReceiver<String> {
+        let (input, heard) = tokio::sync::mpsc::unbounded_channel();
+        fs::create_dir_all(office.run_dir(&run.id)).unwrap();
+        let transcript = Arc::new(Mutex::new(File::create(office.run_dir(&run.id).join("transcript.jsonl")).unwrap()));
+        let a = Active {
+            token: "t".into(),
+            employee_id: run.employee_id.clone(),
+            beside: false,
+            pid: None,
+            cancelled: false,
+            needs_you: vec![],
+            cards: vec![],
+            score: None,
+            proposed: None,
+            verdict: false,
+            title: None,
+            transcript: Some(transcript),
+            input: open.then_some(input),
+        };
+        lock(&office.0.active).insert(run.id.clone(), a);
+        heard
+    }
+
+    #[tokio::test]
+    async fn your_words_reach_a_run_you_watch_however_far_along_it_is() {
+        let dir = std::env::temp_dir().join(format!("omegastar-steer-{}", uuid::Uuid::new_v4()));
+        let ada = employee(Clearance::Supervised);
+        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..employee(Clearance::Supervised) };
+        let run = |kind: RunKind, prompt: &str, state: RunState| {
+            let mut r = Run::new(&ada.id, kind, prompt.into(), now());
+            r.state = state;
+            r
+        };
+        let handed = run(RunKind::Asked { parent_run_id: "r-bo".into(), asked_by: bo.id.clone(), task: true }, "Count the stock.", RunState::Running);
+        let talk = run(task("Draft the memo"), "Draft the memo.", RunState::Running);
+        let waiting = run(RunKind::Manual, "Sweep the inbox.", RunState::Queued);
+        let mut again = run(RunKind::Manual, "Pay the invoices.", RunState::Queued);
+        again.limit_retries = 1;
+        let mut done = run(RunKind::Manual, "Book the venue.", RunState::Succeeded);
+        done.ended_at = Some(now());
+        done.summary = Some("Booked the hall for Friday.".into());
+        let office = held_office(&dir, &[&ada, &bo], &[&handed, &talk, &waiting, &again, &done]).await;
+
+        // Working, it hears you at its next step, told who is speaking, and its events show your own words.
+        let mut heard = working(&office, &handed, true);
+        assert_eq!(office.steer_run(&handed.id, "  Count the back room too. ").unwrap(), SteerHow::Steered);
+        assert_eq!(heard.try_recv().unwrap(), claude::user_line("Pat is watching this run and says: Count the back room too."));
+        let transcript = fs::read_to_string(office.run_dir(&handed.id).join("transcript.jsonl")).unwrap();
+        assert_eq!(claude::steered(&transcript), vec!["Count the back room too.".to_string()]);
+        assert!(office.run(&handed.id).unwrap().steered, "its report waits for you");
+
+        // Once its turn is over, your words are your reply in its thread, which resumes its session.
+        lock(&office.0.active).get_mut(&handed.id).unwrap().input = None;
+        assert_eq!(office.steer_run(&handed.id, "And the shelves.").unwrap(), SteerHow::Replied);
+        assert_eq!(office.thread(&handed.id).unwrap().replies.iter().map(|r| r.prompt.as_str()).collect::<Vec<_>>(), vec!["And the shelves."]);
+
+        // A conversation with you needs nobody named.
+        let mut heard = working(&office, &talk, true);
+        assert_eq!(office.steer_run(&talk.id, "Keep it short.").unwrap(), SteerHow::Steered);
+        assert_eq!(heard.try_recv().unwrap(), claude::user_line("Keep it short."));
+
+        // Waiting to start, your words join what it starts with.
+        assert_eq!(office.steer_run(&waiting.id, "Skip the newsletters.").unwrap(), SteerHow::Added);
+        let w = office.run(&waiting.id).unwrap();
+        assert_eq!(w.prompt, "Sweep the inbox.\n\nPat added before you started: Skip the newsletters.");
+        assert!(w.steered && w.state == RunState::Queued);
+
+        // Back in the queue after a limit, it resumes past what it started with, so they wait as your reply.
+        assert_eq!(office.steer_run(&again.id, "Only the overdue ones.").unwrap(), SteerHow::Replied);
+        assert_eq!(office.run(&again.id).unwrap().prompt, "Pay the invoices.");
+        assert_eq!(office.thread(&again.id).unwrap().replies.len(), 1);
+
+        // Finished, they follow up its report in its thread.
+        assert_eq!(office.steer_run(&done.id, "Why that hall?").unwrap(), SteerHow::Replied);
+        let t = office.thread(&done.id).unwrap();
+        assert!(matches!(&t.replies[..], [r] if r.prompt.ends_with("Pat's reply:\n\nWhy that hall?")), "{:?}", t.replies);
+        assert_eq!(office.steer_run(&done.id, "  ").unwrap_err().message, "message is empty");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_routine_run_you_wrote_into_waits_for_you_when_a_later_one_moves_on() {
+        let dir = std::env::temp_dir().join(format!("omegastar-steered-routine-{}", uuid::Uuid::new_v4()));
+        let ada = employee(Clearance::Supervised);
+        let routine = |mins: i64, state: RunState, steered: bool| {
+            // To the millisecond, as the store keeps when a run was made.
+            let at = Ts::from_timestamp_millis((now() - chrono::Duration::minutes(mins)).timestamp_millis()).unwrap();
+            let kind = RunKind::Scheduled { schedule_id: "s1".into(), slot: at, label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
+            let mut r = Run::new(&ada.id, kind, "Sweep the inbox.".into(), at);
+            r.state = state;
+            r.ended_at = Some(at);
+            r.steered = steered;
+            r
+        };
+        let carded = |mut r: Run| {
+            r.cards = vec![Card::new("Post the draft?", None, Some("ask:draft".into()), CardAsk::Choices { choices: vec!["Post".into()], recommended: 0 })];
+            r
+        };
+        let (asked, watched_asked) = (carded(routine(50, RunState::Succeeded, false)), carded(routine(45, RunState::Succeeded, true)));
+        let (failed, watched_failed) = (routine(20, RunState::Failed, false), routine(15, RunState::Failed, true));
+        let newer = carded(routine(5, RunState::Succeeded, false));
+        let office = held_office(&dir, &[&ada], &[&asked, &watched_asked, &failed, &watched_failed, &newer]).await;
+        office.replace_older_cards(&newer).unwrap();
+        office.archive_streak("s1", &newer).unwrap();
+        let archived = |r: &Run| office.run(&r.id).unwrap().archived_at.is_some();
+        assert!(archived(&asked) && archived(&failed), "the newer card and the run that worked again file these");
+        assert!(!archived(&watched_asked) && !archived(&watched_failed), "what you wrote into stays until you mark it done");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1760,6 +1997,23 @@ mod tests {
     }
 
     #[test]
+    fn a_run_uses_the_skills_it_invokes_or_reads() {
+        let call = |id: &str, tool: &str, input: Value| json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": id, "name": tool, "input": input }] } });
+        let transcript = [
+            call("t1", "Skill", json!({ "skill": "ada" })),
+            call("t2", "Read", json!({ "file_path": "/office/employees/e1/skills/ada-invoices/SKILL.md" })),
+            call("t3", "Read", json!({ "file_path": "/office/employees/e1/.claude/skills/ada-payroll/SKILL.md" })),
+            call("t4", "Read", json!({ "file_path": "/office/employees/e1/skills/ada-close/facts.md" })),
+            call("t5", "Read", json!({ "file_path": "/office/employees/e1/workspace/SKILL.md" })),
+            json!({ "type": "assistant", "parent_tool_use_id": "t0", "message": { "content": [{ "type": "tool_use", "id": "t6", "name": "Read", "input": { "file_path": "/office/employees/e1/skills/ada-voice/SKILL.md" } }] } }),
+        ]
+        .map(|l| l.to_string())
+        .join("\n");
+        let used = skills_used(&transcript);
+        assert_eq!(used, HashSet::from(["ada", "ada-invoices", "ada-payroll", "ada-voice"].map(String::from)), "a subagent's read counts too");
+    }
+
+    #[test]
     fn a_skill_edit_is_recorded_once_and_credited_to_the_run_that_wrote_it() {
         let (dir, db) = opening_store();
         let e = employee(Clearance::Supervised);
@@ -1803,6 +2057,26 @@ mod tests {
         assert_eq!(o.since, None);
         let text = note(&ada, o, &turn);
         assert!(text.contains(", your conversation 'Book the venue': Pat: \"Prompt 90.\" You: Booked the venue for Thursday."), "{text}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_routine_hears_your_answers_to_cards_raised_elsewhere() {
+        let (dir, db) = opening_store();
+        let ada = employee(Clearance::Supervised);
+        db.save_employee(&ada).unwrap();
+        let mut asked = finished(&db, &ada, task("Tidy the shop"), 90, "t1", "One question.");
+        let mut card = Card::new("Repaint the sign?", None, Some("ask:sign".into()), CardAsk::Choices { choices: vec!["Repaint".into()], recommended: 0 });
+        card.answer = Some(CardAnswer { at: now() - chrono::Duration::minutes(60), how: AnswerHow::Tapped, text: "Chose: Repaint.".into(), held: false });
+        asked.cards = vec![card];
+        db.save_run(&asked).unwrap();
+        let sweep = Run::new(&ada.id, scheduled(0), "Sweep.".into(), now());
+        let o = opening(&db, &ada, std::slice::from_ref(&ada), &sweep, &sweep.id, false, now()).unwrap().unwrap();
+        assert_eq!(o.answers.iter().map(|c| c.message.as_str()).collect::<Vec<_>>(), ["Repaint the sign?"]);
+        let text = note(&ada, o, &sweep);
+        assert!(text.contains("Pat's answers to your cards in the last 7 days, newest first:\n- Your card \"Repaint the sign?\": Chose: Repaint."), "{text}");
+        let turn = Run::new(&ada.id, task("Tidy the shop"), "And the door?".into(), now());
+        assert!(opening(&db, &ada, std::slice::from_ref(&ada), &turn, "t1", true, now()).unwrap().unwrap().answers.is_empty(), "the conversation heard it");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1854,12 +2128,37 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[tokio::test]
+    async fn a_routine_that_works_again_files_its_failures() {
+        let dir = std::env::temp_dir().join(format!("omegastar-streak-{}", uuid::Uuid::new_v4()));
+        let ada = employee(Clearance::Supervised);
+        let office = claiming_office(&dir, &[&ada]).await;
+        let run = |mins: i64, state: RunState| {
+            let at = now() - chrono::Duration::minutes(mins);
+            let kind = RunKind::Scheduled { schedule_id: "s1".into(), slot: at, label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
+            let mut r = Run::new(&ada.id, kind, "Go.".into(), at);
+            r.state = state;
+            r.ended_at = Some(at);
+            assert!(office.db().insert_run(&r, &r.id).unwrap());
+            r
+        };
+        let failures: Vec<Run> = [40, 30, 20].into_iter().map(|m| run(m, RunState::Failed)).collect();
+        let ok = run(10, RunState::Succeeded);
+        office.archive_streak("s1", &ok).unwrap();
+        for f in &failures {
+            assert!(office.run(&f.id).unwrap().archived_at.is_some(), "the failures before it are filed, times to the nanosecond and all");
+        }
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn the_gate_holds_runs_by_kind() {
         let scheduled = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
         let tidy = RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
         let talk = task("Draft it");
-        // gate(kind, held, account_ok, talking, awake)
+        let gate = |kind: &RunKind, held, account_ok, talking, awake| gate(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, talking, awake);
+        // gate(run, held, account_ok, talking, awake)
         assert_eq!(gate(&talk, true, true, false, true), Gate::Skip);
         assert_eq!(gate(&talk, false, false, false, true), Gate::Claim);
         assert_eq!(gate(&scheduled, false, false, false, true), Gate::Skip);
@@ -1872,6 +2171,10 @@ mod tests {
         assert_eq!(gate(&came, false, false, false, true), Gate::Skip);
         assert_eq!(gate(&came, false, true, false, false), Gate::Skip);
         assert_eq!(gate(&came, false, true, false, true), Gate::Claim);
+        // A due check back in a conversation is a turn of it, but nobody is watching: it waits for the account.
+        let check = Run { check: Some("c1".into()), ..Run::new("e1", RunKind::Reply { to_run_id: "t1".into(), label: "Draft it".into(), task: true, card: false }, "Check.".into(), now()) };
+        assert_eq!(super::gate(&check, false, false, false, true), Gate::Skip);
+        assert_eq!(super::gate(&check, false, true, false, true), Gate::Claim);
     }
 
     #[test]
@@ -2054,7 +2357,7 @@ mod tests {
         };
         let first = scheduled("s1", 60, items(), false);
         let replied = scheduled("s1", 50, items(), true);
-        let chore = scheduled("s1", 40, CardAsk::Chore { subject: "chrome".into() }, false);
+        let chore = scheduled("s1", 40, CardAsk::Chore { subject: "chrome".into(), url: None }, false);
         let newer = scheduled("s1", 10, items(), false);
 
         let replaced = db.tx(|| replace_older_cards_in(&db, &newer, now())).unwrap();

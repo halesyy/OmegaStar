@@ -16,7 +16,9 @@ use std::path::Path;
 /// not need. Half of a real family sits above 5k and works, so the line is set where it stops being one runbook.
 const LEAF_CHARS: usize = 10_000;
 /// The role skill is read at the start of every task, so it should route and not hold procedures.
-const ROLE_CHARS: usize = 4_000;
+pub(crate) const ROLE_CHARS: usize = 4_000;
+/// A skill no run has used for this many days, once it is this old, may be one nobody needs.
+const UNUSED_DAYS: i64 = 30;
 /// Reference files are read on demand; past this they are probably a log.
 const REFERENCE_CHARS: usize = 20_000;
 /// Every description is loaded on every turn.
@@ -280,7 +282,8 @@ pub fn page(text: &str) -> Vec<HealthFinding> {
     f
 }
 
-pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, String, Ts)], now: Ts) -> SkillHealth {
+/// `used` holds when runs last used each skill, as counted since `counted_since`.
+pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, String, Ts)], used: &[(String, Ts)], counted_since: Ts, now: Ts) -> SkillHealth {
     let fam = load(skills_dir);
     let notes = load_notes(notes_dir);
     let mut f: Vec<HealthFinding> = vec![];
@@ -387,6 +390,16 @@ pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, 
         }
     }
 
+    // Every task starts with the role skill, so only the others can go unused.
+    let month_ago = now - chrono::Duration::days(UNUSED_DAYS);
+    for n in names.iter().copied().filter(|n| *n != slug) {
+        let last = used.iter().find(|(s, _)| s == n).map_or(counted_since, |(_, at)| *at);
+        let made = fs::metadata(skills_dir.join(n)).and_then(|m| m.created().or_else(|_| m.modified())).map(Ts::from);
+        if last < month_ago && made.is_ok_and(|t| t < month_ago) {
+            add(HealthKind::Unused, Some(n), None, format!("No run has used it in the last {UNUSED_DAYS} days. If none will, retire it (`retire_skill`)."));
+        }
+    }
+
     let total = fam.skills.len();
     if description_chars > DESCRIPTIONS_TOTAL_CHARS {
         add(
@@ -425,7 +438,31 @@ mod tests {
     }
 
     fn findings(dir: &Path, kind: HealthKind) -> Vec<HealthFinding> {
-        check(&dir.join("skills"), &dir.join("workspace"), "ada", &[], chrono::Utc::now()).findings.into_iter().filter(|f| f.kind == kind).collect()
+        let now = chrono::Utc::now();
+        check(&dir.join("skills"), &dir.join("workspace"), "ada", &[], &[], now, now).findings.into_iter().filter(|f| f.kind == kind).collect()
+    }
+
+    #[test]
+    fn a_skill_no_run_used_for_a_month_is_worth_a_look() {
+        let dir = family("Reach for `ada-invoices` and `ada-payroll`.\n");
+        for leaf in ["ada-invoices", "ada-payroll"] {
+            fs::create_dir_all(dir.join("skills").join(leaf)).unwrap();
+            fs::write(dir.join("skills").join(leaf).join("SKILL.md"), format!("---\nname: {leaf}\ndescription: A leaf.\n---\n")).unwrap();
+        }
+        let made = chrono::Utc::now();
+        let day = |n: i64| made + chrono::Duration::days(n);
+        let unused = |used: &[(String, Ts)], counted_since: Ts, now: Ts| -> Vec<String> {
+            let h = check(&dir.join("skills"), &dir.join("workspace"), "ada", &[], used, counted_since, now);
+            h.findings.into_iter().filter(|f| f.kind == HealthKind::Unused).filter_map(|f| f.skill).collect()
+        };
+        assert!(unused(&[], made, day(20)).is_empty(), "no skill is unused before a month of counting");
+        assert_eq!(unused(&[], made, day(40)), ["ada-invoices", "ada-payroll"], "never the role skill");
+        assert_eq!(unused(&[("ada-invoices".into(), day(15))], made, day(40)), ["ada-payroll"]);
+        assert!(unused(&[], day(-60), day(10)).is_empty(), "a skill gets its own month");
+        let f = check(&dir.join("skills"), &dir.join("workspace"), "ada", &[], &[], made, day(40)).findings;
+        let detail = &f.iter().find(|f| f.kind == HealthKind::Unused).unwrap().detail;
+        assert!(detail.contains("retire_skill") && !detail.contains('\u{2014}'), "{detail}");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

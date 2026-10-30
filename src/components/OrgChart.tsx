@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Company, EmployeeView, PersonView } from "../api/types";
-import { initials, whenInline } from "../lib/format";
+import { initials, relTime, whenInline } from "../lib/format";
 import { YOU_ID, up } from "../lib/org";
 import { CARD_H, CARD_W, layoutOrg } from "../lib/orgLayout";
 import { workLabel } from "./RunRow";
@@ -126,6 +126,16 @@ function employeeStatus(e: EmployeeView, what: string | null): Status {
   return { tone: "faint", text: "Works when asked" };
 }
 
+/** How an employee is doing, in one line: their number, their last report and what is next. Empty when there is
+ *  nothing to say. */
+export function statusText(e: EmployeeView, now = Date.now()): string {
+  const { number, lastReport, next } = e.status;
+  const when = next && (Date.parse(next.at) <= now ? "now" : whenInline(next.at, new Date(now)));
+  return [number, lastReport && `Reported ${relTime(lastReport.at, now)}: ${lastReport.text}`, next && `Next: ${next.text} (${when})`]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function StatusLine({ s }: { s: Status }) {
   return (
     <span className={`mcard-status mcard-status-${s.tone}`}>
@@ -153,16 +163,20 @@ export function YouCard({ company, selected, onOpen }: { company: Company; selec
 
 function EmployeeCard({ e, what, selected, onOpen }: { e: EmployeeView; what: string | null; selected: boolean; onOpen: () => void }) {
   const status = employeeStatus(e, what);
+  // The card has room for the most telling part: their number, else what they last reported. The rest is in the tooltip.
+  const glance = e.status.number ?? e.status.lastReport?.text ?? null;
+  const full = statusText(e);
   return (
     <button
       type="button" className={`mcard ${selected ? "mcard-selected" : ""}`} onClick={onOpen} data-member={e.id}
-      aria-label={`${e.name}, ${e.title}. ${status.text}`} aria-current={selected || undefined}
+      aria-label={`${e.name}, ${e.title}. ${status.text}${full ? `. ${full}` : ""}`} aria-current={selected || undefined}
     >
       <Avatar name={e.name} hue={e.hue} size={32} />
       <span className="mcard-text">
         <span className="card-name">{e.name}</span>
         <span className="card-title">{e.title}</span>
         <StatusLine s={status} />
+        {glance ? <span className="mcard-glance" title={full}>{glance}</span> : null}
       </span>
     </button>
   );

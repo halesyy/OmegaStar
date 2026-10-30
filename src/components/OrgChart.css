@@ -35,6 +35,8 @@
 .mcard-status-warn { color: var(--ink-2); }
 .mcard-status-warn .mcard-dot { background: var(--warn); }
 .mcard-status-faint { color: var(--faint); }
+/* How they are doing, quieter than the status above it. */
+.mcard-glance { margin-top: 1px; font-size: var(--t-xs); line-height: 1.35; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* The previews in the hire and add-person sheets reuse the card head. */
 .mcard-head { display: flex; align-items: center; gap: 10px; min-width: 0; }

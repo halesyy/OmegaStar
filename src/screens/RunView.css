@@ -13,7 +13,7 @@
 .rv-prompt { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-card); background: var(--sunken); margin-bottom: 22px; }
 .rv-prompt-label { font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
 .rv-section-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-.rv-prompt p { color: var(--ink); line-height: 1.55; }
+.rv-prompt p { color: var(--ink); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 .runview-body > .sa { margin-bottom: 22px; }
 .rv-events { display: flex; flex-direction: column; gap: 14px; }
 .rv-init { display: flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--faint); }
@@ -33,6 +33,9 @@
 .rv-denial { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
 .rv-denial-brief { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-denial-brief b { font-weight: 600; }
+/* Your message to the run, kept in view at the bottom while the page scrolls; what scrolls under it fades out. */
+.rv-steer { position: sticky; bottom: 0; z-index: 1; margin-top: 28px; padding: 14px 0 16px; background: linear-gradient(transparent, var(--canvas) 14px); }
+.runview-inner:has(> .rv-steer) { padding-bottom: 0; }
 .rv-children { margin-top: 24px; display: flex; flex-direction: column; gap: 6px; }
 .rv-child { display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: var(--t-base); }
 .rv-child:hover { border-color: var(--line-strong); }

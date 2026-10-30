@@ -1,17 +1,28 @@
 .inbox-list { margin: 0 -12px; }
+/* Decisions and Replies, one block, so the pointer never leaves the list between them. */
+.inbox-lists { display: flex; flex-direction: column; gap: 36px; }
 .inbox-clear { margin: 0; padding: 4px 0 2px; font-size: var(--t-sm); color: var(--muted); }
 .inbox-day { padding: 14px 12px 6px; font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
 .inbox-group:first-child .inbox-day { padding-top: 2px; }
+/* The keys ? lists. */
+.inbox-keys { margin: 0; display: flex; flex-direction: column; gap: 7px; font-size: var(--t-sm); color: var(--ink-2); }
+.inbox-keys > div { display: flex; align-items: center; gap: 10px; }
+.inbox-keys dt { flex: none; width: 88px; display: flex; align-items: center; gap: 4px; color: var(--faint); }
+.inbox-keys dd { margin: 0; }
 
 .item { border-radius: 10px; }
-/* A hairline between rows, inset to the row's padding, so hover and open fills stay clean. */
-.item + .item::before { content: ""; display: block; height: 1px; margin: 0 12px; background: var(--line); }
-.item-open::before, .item-open + .item::before { background: transparent; }
+/* A hairline between decisions, inset to the row's padding, so hover and open fills stay clean. */
+.dec + .dec::before, .dec-group + .dec::before, .dec + .dec-group::before, .dec-group + .dec-group::before { content: ""; display: block; height: 1px; margin: 0 12px; background: var(--line); }
+.item-open::before, .item-open + .dec::before, .item-open + .dec-group::before { background: transparent; }
 .item-head { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 11px 12px; border-radius: 10px; cursor: pointer; outline: none; transition: background var(--d-ui) var(--ease); }
 .item-head:hover, .item-open .item-head { background: var(--sunken); }
 .item-open { background: var(--sunken); }
 .item-open .item-head { border-radius: 10px 10px 0 0; }
-.item-head:focus-visible { box-shadow: var(--focus); }
+.item-head:focus-visible, .item:focus-visible { box-shadow: var(--focus); }
+/* An entry that only says what it is, e.g. a parked card, opens nothing. */
+.item-head-still { cursor: default; }
+/* An entry that left while the pointer was over the list keeps its place, faded, until the pointer leaves. */
+.item-settled { opacity: 0.4; transition: opacity var(--d-ui) var(--ease); }
 .item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .item-context { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-context b { font-weight: 600; }
@@ -50,6 +61,42 @@
 .card-set .card-ask { margin: 0; }
 .card-set .card-ask + .card-ask { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .card-set .card-ask .card-choices, .card-set .card-ask .card-items, .card-set .card-ask .card-answered { margin-top: 6px; }
+/* ...in the Inbox as a short list, each with what is recommended; a click shows that card under it. */
+.card-qs { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.card-qs > li + li { border-top: 1px solid var(--line); }
+.card-qs-row { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 12px 6px 10px; font-size: 13px; text-align: left; color: var(--ink); transition: background var(--d-ui) var(--ease); }
+.card-qs-row:hover { background: var(--raised); }
+.card-qs-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--ink) 22%, transparent); }
+.card-qs-chev { flex: none; color: var(--muted); transition: transform var(--d-ui) var(--ease); }
+.card-qs-row[aria-expanded="true"] .card-qs-chev { transform: rotate(90deg); }
+.card-qs-q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-qs-a { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--t-sm); color: var(--muted); }
+.card-qs .card-ask { margin: 0; padding: 0 12px 10px 30px; }
+.card-set > .card-choices { margin: 8px 0 0; }
+/* Others asking the same thing with other choices, under the first one asking. */
+.dec-others { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.dec-others .card-ask { margin: 0 0 10px; }
+.dec-others-note { margin: 0; font-size: var(--t-sm); color: var(--muted); }
+/* The report behind a decision, on request, without opening the thread. */
+.item-report { margin-top: 4px; cursor: default; }
+.item-report-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: var(--t-sm); font-weight: 500; color: var(--muted); border-radius: 6px; }
+.item-report-toggle:hover { color: var(--ink); }
+.item-report-toggle svg { transition: transform var(--d-ui) var(--ease); }
+.item-report-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.item-report-body { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
+.item-report-body .md { font-size: 13px; }
+.item-report-more { margin: 2px 0 0 -8px; }
+/* One employee's choice cards about the same thing, under one heading. */
+.dec-group-head { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 12px 12px 4px; font-size: var(--t-sm); color: var(--muted); }
+.dec-group-head b { font-weight: 600; color: var(--ink); }
+/* Answering several at once: each card and the answer it gets, then the go-ahead. */
+.answer-all-q { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.answer-all-list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+.answer-all-list li { display: flex; align-items: baseline; gap: 10px; font-size: var(--t-sm); line-height: 1.45; }
+.answer-all-card { flex: 1; min-width: 0; color: var(--ink-2); }
+.answer-all-pick { flex: none; max-width: 40%; font-weight: 600; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
+.answer-all-note { margin: 8px 0 0; font-size: var(--t-sm); color: var(--muted); }
+.answer-all-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
 
 /* ------------------------------------------------ a line in the Archive */
 .feed .item-head { align-items: center; gap: 10px; padding: 7px 12px; }
@@ -140,3 +187,38 @@
 .card-q { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.5; }
 .card-why { font-size: var(--t-sm); color: var(--muted); line-height: 1.45; }
 .card-ask .card-choices, .card-ask .card-items, .card-ask .card-answered { margin: 6px 0 0; }
+
+/* ------------------------------------------------ a card's kinds and context: its link, images, steps or proposal,
+   Later, and an answer on its way. Card styles only: the list's are above. */
+/* What the card is about, above its answer: the link, then up to three thumbnails. */
+.card-about { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 6px 0 8px; }
+.card-link { max-width: 100%; }
+.card-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.card-thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-thumb { flex: none; width: 112px; aspect-ratio: 16 / 10; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); overflow: hidden; cursor: zoom-in; transition: border-color var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease); }
+.card-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.card-thumb:hover:not(:disabled) { border-color: var(--line-strong); box-shadow: var(--shadow-card); }
+.card-thumb:disabled { cursor: default; }
+.card-thumb-missing { display: grid; place-items: center; color: var(--faint); cursor: default; }
+/* A to-do's steps, and a line proposed for the company page: text to read, set off by a rule. */
+.card-steps, .card-proposal-line { padding-left: 10px; border-left: 2px solid var(--line-strong); font-size: var(--t-base); line-height: 1.55; color: var(--ink-2); white-space: pre-line; overflow-wrap: anywhere; }
+.card-steps { margin: 6px 0 8px; }
+.card-proposal { margin: 6px 0 8px; }
+.card-proposal-head { font-size: var(--t-sm); line-height: 1.45; color: var(--muted); }
+.card-proposal-head b { font-weight: 600; color: var(--ink-2); }
+.card-proposal-line { margin-top: 4px; color: var(--ink); }
+.card-file-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink-2); }
+.dec-answer .card-about, .dec-answer .card-steps, .dec-answer .card-proposal { margin-top: 0; }
+.card-set .card-about, .card-set .card-steps, .card-set .card-proposal { margin-top: 6px; }
+/* A question's Later, under the line you answer it on. */
+.card-text + .card-choices { margin-top: 6px; }
+/* Later's menu: when it comes back, or a day you pick. */
+.popover:has(> .card-later) { padding: 4px; }
+.card-later-note { padding: 6px 8px 4px; font-size: var(--t-sm); line-height: 1.45; color: var(--muted); }
+.card-later-pick { display: flex; align-items: center; gap: 6px; padding: 4px; }
+.card-later-pick .input { height: 28px; font-size: var(--t-sm); }
+/* An answer on its way, with Undo until it goes. */
+.card-sending { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.card-sending-said { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-sending [aria-hidden] { color: var(--faint); }
+.card-undo { flex: none; font-weight: 600; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }

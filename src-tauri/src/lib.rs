@@ -1,3 +1,6 @@
+// The office tools' schemas (`mcp::tools`) are one `json!` literal, deeper than the default limit.
+#![recursion_limit = "256"]
+
 mod backup;
 mod cards;
 mod catalog;
@@ -8,6 +11,7 @@ mod health;
 mod log;
 mod mcp;
 mod model;
+mod notices;
 mod office;
 mod org;
 mod own_skills;
@@ -23,17 +27,56 @@ mod watch;
 
 use log::log;
 use model::{AppSettings, BackupStatus, Build, HireProposal, HumanRequest, Run, RunEvent, UsageLimits};
+use notices::Notices;
 use office::{EventSink, Office};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::Instant;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent, Wry};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 
 struct TauriSink {
     app: AppHandle,
     pause_item: OnceLock<MenuItem<Wry>>,
+    /// Notifications waiting to show, as the notification settings say (`notices`).
+    notices: Mutex<Notices>,
+}
+
+impl TauriSink {
+    fn notices(&self) -> MutexGuard<'_, Notices> {
+        self.notices.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn show(&self, title: &str, body: &str) {
+        if let Err(e) = self.app.notification().builder().title(title).body(body).show() {
+            log!("notification failed: {e}");
+        }
+    }
+}
+
+/// Minutes since midnight on this computer's clock, which quiet hours are set in.
+fn local_minute() -> u16 {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    (now.hour() * 60 + now.minute()) as u16
+}
+
+/// Shows the notifications that come due, every `notices::TICK` for as long as the app runs.
+fn spawn_notices(sink: Arc<TauriSink>) {
+    tauri::async_runtime::spawn(async move {
+        let mut every = tokio::time::interval(notices::TICK);
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            every.tick().await;
+            let due = sink.notices().due(Instant::now(), local_minute());
+            for (title, body) in due {
+                sink.show(&title, &body);
+            }
+        }
+    });
 }
 
 fn pause_label(paused: bool) -> &'static str {
@@ -63,14 +106,31 @@ impl EventSink for TauriSink {
         let _ = self.app.emit("backup:updated", status);
     }
     fn notify(&self, title: &str, body: &str) {
-        if let Err(e) = self.app.notification().builder().title(title).body(body).show() {
-            log!("notification failed: {e}");
+        let now = self.notices().add(title, body, Instant::now(), local_minute());
+        if let Some((title, body)) = now {
+            self.show(&title, &body);
         }
+    }
+    fn open(&self, target: &str) -> std::result::Result<(), String> {
+        let opener = self.app.opener();
+        let done = if target.starts_with("https://") {
+            opener.open_url(target, None::<&str>)
+        } else {
+            // As a click on a path in a report opens it: one that could run a program is shown in its folder instead.
+            let path = std::path::Path::new(target);
+            if commands::opens_directly(path, path.is_dir()) {
+                opener.open_path(target, None::<&str>)
+            } else {
+                opener.reveal_item_in_dir(path)
+            }
+        };
+        done.map_err(|e| e.to_string())
     }
     fn settings_changed(&self, s: &AppSettings) {
         if let Some(item) = self.pause_item.get() {
             let _ = item.set_text(pause_label(s.paused));
         }
+        self.notices().set(s.notifications.clone());
     }
 }
 
@@ -226,7 +286,7 @@ pub fn run() {
             // `package_info` carries a version set with `tauri build --config`, as dogfood builds do.
             let build = Build::new(app.package_info().version.to_string());
             log!("Omega Star {} started ({} build {}) on {}", build.version, format!("{:?}", build.channel).to_lowercase(), build.commit, data_dir.display());
-            let sink = Arc::new(TauriSink { app: app.handle().clone(), pause_item: OnceLock::new() });
+            let sink = Arc::new(TauriSink { app: app.handle().clone(), pause_item: OnceLock::new(), notices: Mutex::new(Notices::default()) });
             let office = match tauri::async_runtime::block_on(Office::open(data_dir.clone(), sink.clone(), build)) {
                 Ok(office) => office,
                 Err(e) => {
@@ -241,6 +301,11 @@ pub fn run() {
                     return Ok(());
                 }
             };
+            match office.settings() {
+                Ok(s) => sink.settings_changed(&s),
+                Err(e) => log!("could not read the notification settings: {e}"),
+            }
+            spawn_notices(sink.clone());
             office.spawn_scheduler();
             office.spawn_usage_monitor();
             office.spawn_account_monitor();
@@ -291,6 +356,8 @@ pub fn run() {
             commands::open_image,
             commands::open_report_path,
             commands::runs,
+            commands::search_runs,
+            commands::run_usage,
             commands::run_detail,
             commands::archived,
             commands::conversations,
@@ -299,9 +366,11 @@ pub fn run() {
             commands::unarchive_runs,
             commands::retry_run,
             commands::reply_to_run,
+            commands::steer_run,
             commands::approve_blocked,
             commands::answer_card,
             commands::card_file,
+            commands::parked_runs,
             commands::open_asks,
             commands::week_reviews,
             commands::employee_skills,

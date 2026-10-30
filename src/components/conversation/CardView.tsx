@@ -1,49 +1,127 @@
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { call, errorMessage } from "../../api/client";
-import type { Card, CardAnswer, CardItem, CardReply, EmployeeView, Run } from "../../api/types";
-import { firstName, MOD } from "../../lib/format";
+import type { Card, CardAnswer, CardItem, CardReply, EmployeeView, Proposal, Run } from "../../api/types";
+import { firstName, MOD, whenInline } from "../../lib/format";
 import { useQuery } from "../../lib/hooks";
+import { createStore, useStore } from "../../lib/store";
 import { toast } from "../../lib/toasts";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
+import { CardImages } from "./CardImages";
+import { CardLink, openWeb, webUrl } from "./CardLink";
+import { LaterMenu } from "./LaterMenu";
 import "../../screens/Inbox.css";
 
-/** Sends your answer on the card at `index` of `run`'s cards and says what went. Resolves false, having said why,
- *  when it failed. */
+/** How long an answer waits, with Undo, before it goes. */
+export const UNDO_MS = 4000;
+/** What Summarise asks. A question answers nothing, so the card stays open. */
+const SUMMARISE = "Summarise this in three short lines: what it is, what changes, and what you recommend.";
+
+/** An answer you gave on a card (`index` in run `runId`'s cards), from when you give it until a little after it went.
+ *  said: the answer in a few words, "Merge". going: it went, or is going, so Undo no longer takes it back. */
+export type PendingAnswer = { runId: string; index: number; said: string; going: boolean };
+const pending = createStore<PendingAnswer[]>([]);
+/** Takes back each answer still waiting to go, by `runId:index`. */
+const undos = new Map<string, () => void>();
+const onCard = (runId: string, index: number) => (p: PendingAnswer) => p.runId === runId && p.index === index;
+
+/** Every answer on its way, oldest first. */
+export const usePendingAnswers = () => useStore(pending);
+
+/** Takes back an answer that has not gone yet, so its card is open again. */
+export function undoAnswer(runId: string, index: number) {
+  undos.get(`${runId}:${index}`)?.();
+}
+
+/** Your answer on the card at `index` of `run`'s cards. It waits `UNDO_MS`, shown as on its way with Undo, then goes,
+ *  and says what went. Resolves true once it went; false when you took it back, or when it failed, having said why. */
 export async function answerCard(run: Run, index: number, reply: CardReply, name: string): Promise<boolean> {
+  const mine = onCard(run.id, index);
+  if (pending.get().some(mine)) return false;
+  const card = run.cards[index];
+  const key = `${run.id}:${index}`;
+  const forget = () => pending.set(pending.get().filter((p) => !mine(p)));
+  pending.set([...pending.get(), { runId: run.id, index, said: saying(card, reply), going: false }]);
+  const go = await new Promise<boolean>((done) => {
+    const timer = window.setTimeout(() => done(true), UNDO_MS);
+    undos.set(key, () => { window.clearTimeout(timer); done(false); });
+  });
+  undos.delete(key);
+  if (!go) {
+    forget();
+    return false;
+  }
+  pending.set(pending.get().map((p) => (mine(p) ? { ...p, going: true } : p)));
+  // The run holds this answer back while it asks something you have not answered, and hears them all at once.
+  // Cards you answered since `run` was read are on their way, so they do not count.
+  const rest = run.cards.filter((c, i) => i !== index && !c.answer && !pending.get().some(onCard(run.id, i))).length;
   let replies: Run[];
   try {
     replies = await call("answer_card", { runId: run.id, card: index, answer: reply });
   } catch (err) {
+    forget();
     toast(errorMessage(err), "err");
     return false;
   }
-  const ask = run.cards[index]?.ask;
-  // The run still asks something else, so it holds this answer back and hears them all at once.
-  const rest = run.cards.filter((c, i) => i !== index && !c.answer).length;
+  // Listed a little longer: runs read before it went still show the card open, so the card goes on showing it on its
+  // way, and the run's other answers still count it as answered.
+  window.setTimeout(forget, UNDO_MS + 1000);
+  // News sends nothing, so there is nothing to say.
+  if (reply.type === "seen") return true;
   if (rest) {
     toast(`Noted. ${name} hears your answers once you answer ${rest === 1 ? "the other question" : `the other ${rest}`}.`, "ok");
     return true;
   }
+  const ask = card?.ask;
   const to = replies.length > 1 ? `${name} and ${replies.length - 1} more` : name;
   const said =
     reply.type === "choice" ? `Sent to ${to}: ${ask?.type === "choices" ? ask.choices[reply.index] : ""}.`
     : reply.type === "items" || reply.type === "text" ? `Sent to ${to}.`
     : reply.type === "done" ? (replies.length > 1 ? `Done. ${replies.length} runs carry on.` : `Done. ${name} carries on.`)
+    : reply.type === "cant" ? `Sent to ${to}: you can't do it.`
     : reply.type === "reject" ? `No. ${name} drops it.`
+    : reply.type === "later" ? (card?.timesBack ? "Parked. It won't come back by itself." : `Later. It comes back ${whenInline(reply.until)}.`)
     : ask?.type === "chore" ? "Not now."
     : `Not now. ${name} brings it back tomorrow.`;
   toast(said, "ok");
   return true;
 }
 
+/** The day a card you put off comes back, "Mon, 2 Nov". */
+const backDay = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+
+/** Your answer in a few words, as the card shows it on its way: "Merge", "Post 2", "Later (Mon, 2 Nov)". */
+function saying(card: Card | undefined, reply: CardReply): string {
+  const ask = card?.ask;
+  switch (reply.type) {
+    case "choice": return ask?.type === "choices" ? ask.choices[reply.index] ?? "" : "";
+    case "items": {
+      const ticked = reply.picks.filter((p) => p.tick).length;
+      return ticked && ask?.type === "items" ? `${ask.verb} ${ticked}` : "Notes";
+    }
+    case "done": return "I've done it";
+    case "cant": return "Can't";
+    case "seen": return "Got it";
+    case "dismiss": return "Not now";
+    case "reject": return ask?.type === "items" ? `Don't ${ask.verb.toLowerCase()}` : "No";
+    case "later": return card?.timesBack ? "Later (parks it)" : `Later (${backDay(reply.until)})`;
+    case "text":
+    case "ask": return `"${reply.text}"`;
+  }
+}
+
 /** What became of an answered card, as one line. */
-function answered(a: CardAnswer): string {
+function answered(c: Card, a: CardAnswer): string {
+  const tail = a.held ? ". Sends when the rest are answered." : "";
+  if (c.parked) return `Parked${tail}`;
+  // Put off to a day still ahead when you answered: Later, not an answer given once it came back.
+  if (c.backAt && Date.parse(c.backAt) > Date.parse(a.at)) return `Later: back on ${backDay(c.backAt)}${tail}`;
+  if (c.ask.type === "news") return "Got it";
   switch (a.how) {
     case "tapped": return a.held ? `${a.text} Sends when the rest are answered.` : `Sent: ${a.text}`;
     // A dismissed chore sends nothing and does not come back.
-    case "dismissed": return `Not now${a.text ? " (back in a day)" : ""}${a.held ? ". Sends when the rest are answered." : ""}`;
-    case "rejected": return a.held ? "No. Sends when the rest are answered." : "No";
+    case "dismissed": return `Not now${a.text ? " (back in a day)" : ""}${tail}`;
+    case "rejected": return `${c.ask.type === "task" ? "Can't" : "No"}${tail}`;
     case "replaced": return "A newer card replaced this one";
     case "typed": return a.held ? `"${a.text}" Sends when the rest are answered.` : `Sent: "${a.text}"`;
     case "withdrawn": return a.text ? `Withdrawn: ${a.text}` : "They withdrew it";
@@ -72,9 +150,10 @@ export function CardList({ runId, cards, e, onAnswer }: {
   ));
 }
 
-/** A card's answer built in: buttons for a decision, a tick list, or Done for a chore, under the file it is about
- *  if it has one, and a line for your own words or a question. Once answered, one line on what you did. `index`: its
- *  place in run `runId`'s cards. */
+/** A card's answer built in, under the link, images, proposal and file it is about if it has them: buttons for a
+ *  decision, a tick list, I've done it for a to-do or a chore, your own words for a question, or Got it for news. Under
+ *  most, a line for your own words or a question. An answer shows as on its way, with Undo, until it goes; once
+ *  answered, one line on what you did. `index`: its place in run `runId`'s cards. */
 export function CardView({ card, runId, index, e, onAnswer }: {
   card: Card;
   runId: string;
@@ -83,7 +162,12 @@ export function CardView({ card, runId, index, e, onAnswer }: {
   onAnswer: (reply: CardReply) => Promise<void>;
 }) {
   const [sending, setSending] = useState(false);
-  if (card.answer) return <p className="card-answered">{card.answer.held ? <Icon name="check" size={12} /> : null}{answered(card.answer)}</p>;
+  // Your words on the reply line, kept here so Undo gives them back.
+  const [text, setText] = useState("");
+  const going = usePendingAnswers().find(onCard(runId, index));
+  // A parked card stays answerable: its Not now is only a placeholder until you decide.
+  if (card.answer && !card.parked) return <p className="card-answered">{card.answer.held ? <Icon name="check" size={12} /> : null}{answered(card, card.answer)}</p>;
+  if (going) return <Sending p={going} />;
   const name = firstName(e.name);
   const ask = card.ask;
   const send = async (reply: CardReply) => {
@@ -104,73 +188,150 @@ export function CardView({ card, runId, index, e, onAnswer }: {
       setSending(false);
     }
   };
-  /** Not now, and No in the card's own words. */
+  const later = <LaterMenu timesBack={card.timesBack} disabled={sending} onLater={(until) => void send({ type: "later", until: until.toISOString() })} />;
+  /** Later, and No in the card's own words. */
   const decline = (no: string) => (
     <>
-      <button className="btn btn-ghost btn-sm" title="Busy, not a no: they bring it back tomorrow" disabled={sending} onClick={() => void send({ type: "dismiss" })}>
-        Not now
-      </button>
-      <button className="btn btn-ghost btn-sm" title="They drop it and don't ask again" disabled={sending} onClick={() => void send({ type: "reject" })}>
+      {later}
+      <button className="btn btn-ghost btn-sm" data-card-no title="They drop it and don't ask again" disabled={sending} onClick={() => void send({ type: "reject" })}>
         {no}
       </button>
     </>
   );
-  return (
-    <div onClick={(ev) => ev.stopPropagation()}>
-      {card.file ? <CardFile runId={runId} index={index} path={card.file} /> : null}
-      {ask.type === "choices" ? (
+  // The page a to-do or a chore is done on, opened in your browser: the first step until you have done it.
+  const url = ask.type === "task" || ask.type === "chore" ? webUrl(ask.url) : null;
+  const open = (label: string) => url ? (
+    <button className="btn btn-primary btn-sm" title={url.href} onClick={() => openWeb(url)}><Icon name="external" size={12} /> {label}</button>
+  ) : null;
+  const did = (title: string) => (
+    <button className={`btn btn-sm ${url ? "" : "btn-primary"}`} title={title} disabled={sending} onClick={() => void send({ type: "done" })}>
+      <Icon name="check" size={13} /> I've done it
+    </button>
+  );
+  const words = (hint: string) => (
+    <CardText name={name} hint={hint} text={text} setText={setText} sending={sending} onText={(t) => void send({ type: "text", text: t })} onAsk={askAbout} />
+  );
+  const answer = (): ReactNode => {
+    switch (ask.type) {
+      case "choices": return (
         <div className="card-choices">
           {ask.choices.map((c, i) => (
-            <button key={i} className={`btn btn-sm ${i === ask.recommended ? "btn-primary" : ""}`} disabled={sending} onClick={() => void send({ type: "choice", index: i })}>
+            <button
+              key={i} className={`btn btn-sm ${i === ask.recommended ? "btn-primary" : ""}`} disabled={sending}
+              data-card-choice={i} data-card-recommended={i === ask.recommended || undefined} onClick={() => void send({ type: "choice", index: i })}
+            >
               {c}{i === ask.recommended ? <span className="card-rec">Recommended</span> : null}
             </button>
           ))}
           {decline("No")}
         </div>
-      ) : ask.type === "items" ? (
-        <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={sending} send={send} decline={decline(`Don't ${ask.verb.toLowerCase()}`)} />
-      ) : (
+      );
+      case "items": return <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={sending} send={send} decline={decline(`Don't ${ask.verb.toLowerCase()}`)} />;
+      case "task": return (
+        <>
+          {ask.steps.trim() ? <p className="card-steps">{ask.steps.trim()}</p> : null}
+          <div className="card-choices">
+            {open("Open")}
+            {did(`Tells ${name} you did it`)}
+            <button className="btn btn-ghost btn-sm" title={`Tells ${name} you can't do it`} disabled={sending} onClick={() => void send({ type: "cant" })}>Can't</button>
+            {later}
+          </div>
+        </>
+      );
+      // Your answer is the reply line, so it comes first.
+      case "question": return <>{words("Your answer")}<div className="card-choices">{later}</div></>;
+      case "news": return (
         <div className="card-choices">
-          <button className="btn btn-primary btn-sm" title="You did it. Every run waiting on this carries on." disabled={sending} onClick={() => void send({ type: "done" })}>
-            <Icon name="check" size={13} /> Done
-          </button>
-          <button className="btn btn-ghost btn-sm" disabled={sending} onClick={() => void send({ type: "dismiss" })}>Not now</button>
+          <button className="btn btn-primary btn-sm" disabled={sending} onClick={() => void send({ type: "seen" })}><Icon name="check" size={13} /> Got it</button>
         </div>
-      )}
-      <CardText name={name} sending={sending} onText={(text) => void send({ type: "text", text })} onAsk={askAbout} />
+      );
+      case "chore": return (
+        <div className="card-choices">
+          {open(ask.subject.startsWith("sign-in:") ? "Open sign-in page" : "Open")}
+          {did("You did it. Every run waiting on this carries on.")}
+          <button className="btn btn-ghost btn-sm" title="Sends nothing, and it doesn't come back" disabled={sending} onClick={() => void send({ type: "dismiss" })}>Not now</button>
+        </div>
+      );
+    }
+  };
+  const link = webUrl(card.link);
+  const proposal = card.proposal;
+  return (
+    <div onClick={(ev) => ev.stopPropagation()}>
+      {link || card.images.length ? (
+        <div className="card-about">
+          {link ? <CardLink url={link} /> : null}
+          {card.images.length ? <CardImages paths={card.images.slice(0, 3)} /> : null}
+        </div>
+      ) : null}
+      {proposal?.type === "companyLine" ? (
+        <div className="card-proposal">
+          <p className="card-proposal-head">Adds to the company page under <b>{proposal.section}</b>:</p>
+          <p className="card-proposal-line">{proposal.line}</p>
+        </div>
+      ) : null}
+      {card.file ? <CardFile runId={runId} index={index} path={card.file} label={proposedVersion(proposal, name)} /> : null}
+      {answer()}
+      {ask.type === "question" || ask.type === "news" ? null : words(`Answer in your own words, or ask ${name} about it`)}
     </div>
   );
 }
 
-/** A line under an open card: Enter answers it in your own words, this card only; Ask sends the words as a question,
- *  and the card stays open for your answer. */
-function CardText({ name, sending, onText, onAsk }: {
+/** What a proposal's file holds, as its label: the version it proposes. */
+function proposedVersion(p: Proposal | null, name: string): string | undefined {
+  return p?.type === "owns" ? `Proposed version of what ${name} owns` : p?.type === "companyPage" ? "Proposed version of the company page" : undefined;
+}
+
+/** An answer on its way, in place of the card's buttons, with Undo until it goes. */
+function Sending({ p }: { p: PendingAnswer }) {
+  return (
+    <p className="card-answered card-sending" role="status">
+      <span className="card-sending-said">Sending: {p.said}</span>
+      {p.going ? null : (
+        <>
+          <span aria-hidden="true">·</span>
+          <button type="button" className="card-undo" aria-label={`Undo ${p.said}`} onClick={() => undoAnswer(p.runId, p.index)}>Undo</button>
+        </>
+      )}
+    </p>
+  );
+}
+
+/** A line under an open card: Enter answers it in your own words, this card only. Ask sends the words as a question,
+ *  and Summarise asks for the card in three short lines; either way the card stays open for your answer. */
+function CardText({ name, hint, text, setText, sending, onText, onAsk }: {
   name: string;
+  /** What the line is for, as its placeholder and label. */
+  hint: string;
+  text: string;
+  setText: (text: string) => void;
   sending: boolean;
   onText: (text: string) => void;
   /** Resolves whether the question went. */
   onAsk: (text: string) => Promise<boolean>;
 }) {
-  const [text, setText] = useState("");
   const said = text.trim();
-  const hint = `Answer in your own words, or ask ${name} about it`;
   return (
     <div className="card-text">
       <input
-        className="input" value={text} disabled={sending} placeholder={hint} aria-label={hint}
+        className="input" value={text} disabled={sending} placeholder={hint} aria-label={hint} data-card-reply
         onChange={(ev) => setText(ev.target.value)}
         onKeyDown={(ev) => { if (ev.key === "Enter" && !ev.nativeEvent.isComposing && said) { ev.preventDefault(); onText(said); } }}
       />
       <button className="btn btn-ghost btn-sm" disabled={sending || !said} title="Sends it as a question. The card stays open." onClick={async () => { if (await onAsk(said)) setText(""); }}>
         <Icon name="ask" size={13} /> Ask
       </button>
+      <button className="btn btn-ghost btn-sm" disabled={sending} title={`${name} sums it up in three short lines. The card stays open.`} onClick={() => void onAsk(SUMMARISE)}>
+        <Icon name="sparkle" size={13} /> Summarise
+      </button>
     </div>
   );
 }
 
 /** The file a card is about, e.g. a draft, read as it is now so you see what would go out: its first lines, and the
- *  rest on Show all. Read again whenever a run changes, so a draft the employee reworked shows the new version. */
-function CardFile({ runId, index, path }: { runId: string; index: number; path: string }) {
+ *  rest on Show all. Read again whenever a run changes, so a draft the employee reworked shows the new version.
+ *  `label`: what it is, in place of its name, such as the version a proposal would put in place. */
+function CardFile({ runId, index, path, label }: { runId: string; index: number; path: string; label?: string }) {
   const file = useQuery(() => call("card_file", { runId, card: index }), [runId, index, path], ["run:updated"]);
   const [all, setAll] = useState(false);
   const [long, setLong] = useState(false);
@@ -183,7 +344,7 @@ function CardFile({ runId, index, path }: { runId: string; index: number; path: 
     <div className="card-file">
       <div className="card-file-head">
         <Icon name="file" size={13} />
-        <span className="card-file-name" title={path}>{path.split("/").pop()}</span>
+        <span className={label ? "card-file-label" : "card-file-name"} title={path}>{label ?? path.split("/").pop()}</span>
         <span className="grow" />
         <button className="btn btn-ghost btn-sm" title="Open in its app" onClick={() => void open()}><Icon name="external" size={12} /> Open</button>
       </div>
