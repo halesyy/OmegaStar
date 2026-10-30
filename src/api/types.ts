@@ -18,6 +18,7 @@ export type Employee = {
   model: string | null; effort: Effort | null;
   browser: boolean;                         // may drive your Chrome (Claude in Chrome); off for new hires unless you turn it on
   autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on unless you turn it off
+  lanes: number;                            // background runs at once: 1, or 2; a colleague's answer or question never waits for one
   workspaces: string[]; hue: number;        // 0-359, avatar colour
   chatSession: string;                      // the session of the one long chat older builds kept; nothing reads it
   hiredAt: string;
@@ -124,6 +125,7 @@ export type Schedule = {
   quiet: boolean;            // reports reach you only when the run calls notify or fails
   model: string | null; effort: Effort | null;   // null: the employee's own
   review?: boolean;          // the weekly review Omega Star seeds for every employee
+  activeHours: boolean;      // only during business hours (watch.hours): a time outside them is skipped
   nextFire: string | null;
 };
 export type ScheduleDraft = Omit<Schedule, "id" | "nextFire" | "review"> & { id?: string };
@@ -179,7 +181,10 @@ export type Card = { message: string; why: string | null; key: string | null; fi
 export type Score = { metric: string; value: string; change: string; note: string };
 /** Your answer on a card. */
 export type ItemPick = { id: string; tick: boolean; note?: string | null };
-export type CardReply = { type: "choice"; index: number } | { type: "items"; picks: ItemPick[] } | { type: "done" } | { type: "dismiss" } | { type: "reject" };
+/** text: your own words, answering this card only. ask: a question that goes now and leaves the card open. */
+export type CardReply =
+  | { type: "choice"; index: number } | { type: "items"; picks: ItemPick[] } | { type: "done" } | { type: "dismiss" } | { type: "reject" }
+  | { type: "text"; text: string } | { type: "ask"; text: string };
 export type Run = {
   id: string; employeeId: string; kind: RunKind; prompt: string;
   omegaWrote: boolean;         // Omega Star wrote the prompt (an approval, a returned report), not you
@@ -196,11 +201,13 @@ export type Run = {
   deliveredAt: string | null;  // asked and delegated runs: when the answer or report reached whoever handed it over
   allowOnce: string[];         // rules you granted this run only ("Allow once & retry")
   proposed: string | null;     // a tidy's bigger changes, waiting for your approval
+  approvedAt: string | null;   // a tidy: when you approved what it proposed (a reply to it is no decision)
   attachments: string[];       // file names you attached to a message
   build: RunBuild | null;      // the build that ran it, and the Claude Code organisation around it
   limitRetries: number;        // times it went back to the queue after the usage limit
   limited: boolean;            // it failed on the usage limit, which Omega Star waits out itself
   contextTokens: number | null; // the context size after its last top-level message
+  costUsd: number | null;      // what it cost in US dollars as Claude Code reckons it, over all its attempts; null when unknown
 };
 export type NewAttachment = { name: string; data: string /* base64 */ };
 
@@ -257,7 +264,8 @@ export type RunEvent =
   | { type: "result"; ok: boolean; text: string; turns: number; durationMs: number }
   | { type: "stderr"; text: string };
 export type TaskOutcome = "done" | "failed" | "stopped";
-export type RunDetail = { run: Run; events: RunEvent[]; children: Run[] };
+/** transcriptGone: the run's folder was deleted after Settings' transcript retention, so there are no events. */
+export type RunDetail = { run: Run; events: RunEvent[]; children: Run[]; transcriptGone: boolean };
 
 export type Account = { loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null };
 /** How this copy of Omega Star was built: a published release, a test build, or a developer's own. */
@@ -271,7 +279,10 @@ export type SetupStatus = {
   background: boolean;
   build: Build;
 };
-export type AppSettings = { maxConcurrentRuns: number; claudePath: string | null; dataDir: string; paused: boolean; backup: BackupSettings; watch: WatchSettings; proxy: ProxySettings };
+export type AppSettings = {
+  maxConcurrentRuns: number; claudePath: string | null; dataDir: string; paused: boolean; backup: BackupSettings; watch: WatchSettings; proxy: ProxySettings;
+  transcriptDays: number | null;   // days a finished run's transcript is kept; null: forever
+};
 
 /** A CLI proxy (CLIProxyAPI) that runs go through; an empty url means none. */
 export type ProxySettings = { url: string; apiKey: string; managementKey: string };
@@ -341,15 +352,22 @@ export type Commands = {
   conversations: { args: Record<string, never>; ret: Conversations };
   /** The thread any of its runs belongs to. */
   thread: { args: { runId: string }; ret: Thread };
-  /** Archives a thread (any run in it) or moves it back. */
-  set_archived: { args: { runId: string; archived: boolean }; ret: Run };
+  /** Archives a thread (any run in it) with the rest of its row, leaving what still needs you, or moves it back.
+   *  Returns the ids of the runs it moved. */
+  set_archived: { args: { runId: string; archived: boolean }; ret: string[] };
+  /** Moves exactly these runs back out of the Archive: Done's Undo. */
+  unarchive_runs: { args: { runIds: string[] }; ret: null };
+  /** Tries a run that failed, was lost or was stopped again: a hand-off runs again for whoever handed it over, anything
+   *  else carries on in its thread. Returns the new run. */
+  retry_run: { args: { runId: string }; ret: Run };
   /** Your reply in a report's thread (`runId`: any run in it). `archive` means "don't bring the answer back unless it needs me". */
   reply_to_run: { args: { runId: string; text: string; archive: boolean; attachments?: NewAttachment[] }; ret: Run };
   /** Allow what a finished run was blocked on and send it back to retry. `rules` must come from its denials
    *  (a denial's suggestedRule, or `mcp__<server>__*` for an MCP tool). `always` saves them to the employee;
    *  otherwise they apply to the retry only. Archives the blocked report. Returns the retry run. */
   approve_blocked: { args: { runId: string; rules: string[]; always: boolean }; ret: Run };
-  /** Your answer on a run's card (`card`: its index in `cards`). It goes to every run asking the same thing. Returns the replies it started. */
+  /** Your answer on a run's card (`card`: its index in `cards`). It goes to every run asking the same thing. Returns the replies it started.
+   *  A question (`ask`) answers nothing: it returns the one reply that carries it. */
   answer_card: { args: { runId: string; card: number; answer: CardReply }; ret: Run[] };
   /** The text of the file a run's card shows (`card`: its index in `cards`), as it is now. */
   card_file: { args: { runId: string; card: number }; ret: string };

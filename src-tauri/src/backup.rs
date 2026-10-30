@@ -26,7 +26,10 @@ const DB_FILES: [&str; 4] = ["office.db", "office.db-wal", "office.db-shm", "off
 const LOG: &str = "omega.log";
 /// Files larger than this are left out, except run transcripts.
 pub const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
-const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, node_modules, app bundles and build folders are not in this backup.";
+/// Dependency, build and cache folders, left out wherever they are in the office folder.
+const BULK_DIRS: [&str; 13] = ["node_modules", "target", ".gradle", "DerivedData", "Pods", "__pycache__", ".venv", ".cache", ".next", ".turbo", "build", "builds", "dist"];
+const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, app bundles, and dependency, build and cache folders (such as node_modules, target, build and dist) are not in this backup.";
+const GB: u64 = 1024 * 1024 * 1024;
 pub const RESTORE_STEPS: &str = "Quit Omega Star from the tray, replace the contents of the office folder with the contents \
 of this zip, then start Omega Star.";
 
@@ -151,14 +154,15 @@ fn entry_name(root: &Path, p: &Path) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("/"))
 }
 
-/// Bulk that backups leave out: dependency and build folders, app bundles, and files over
-/// MAX_FILE_BYTES that aren't under `runs/` (transcripts are the office's record and compress well).
+/// Bulk that backups leave out: dependency, build and cache folders (by name, or marked with a
+/// CACHEDIR.TAG), app bundles, and files over MAX_FILE_BYTES that aren't under `runs/` (transcripts
+/// are the office's record and compress well).
 fn left_out(path: &Path, rel: &str, is_dir: bool, len: u64) -> bool {
     if !is_dir {
         return len > MAX_FILE_BYTES && !rel.starts_with("runs/");
     }
     let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-    name == "node_modules" || name == "__pycache__" || name.ends_with(".app") || path.join("CACHEDIR.TAG").is_file()
+    BULK_DIRS.contains(&name.as_ref()) || name.ends_with(".app") || path.join("CACHEDIR.TAG").is_file()
 }
 
 /// One entry of a folder, as backups see it.
@@ -344,6 +348,22 @@ pub fn prune(dir: &Path, keep: u32) -> Result<usize> {
     Ok(doomed.len())
 }
 
+/// Makes room in `dir` for a backup: it wants twice the size of the last one free (`last_bytes`), or a
+/// gigabyte before the first. When `free` reports less, the oldest backups go first, down to one fewer
+/// than `keep` (never the last one, see `prune`), and when that is not enough no backup is written. A
+/// volume whose free space can't be read is let through.
+pub fn make_room(dir: &Path, keep: u32, last_bytes: Option<u64>, free: impl Fn(&Path) -> Option<u64>) -> Result<()> {
+    let need = last_bytes.map_or(GB, |b| b.saturating_mul(2));
+    let short = || free(dir).is_some_and(|f| f < need);
+    if short() {
+        prune(dir, keep.saturating_sub(1))?;
+    }
+    if short() {
+        return Err(AppError::invalid(format!("Not enough free disk space for a backup: it needs about {:.1} GB.", need as f64 / GB as f64)));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,8 +392,8 @@ mod tests {
         put(&ws.join("notes.md"), "keep me");
         put(&ws.join("node_modules/pkg/index.js"), "x");
         put(&ws.join("Tool.app/Contents/Info.plist"), "x");
-        put(&ws.join("target/CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55");
-        put(&ws.join("target/debug/out"), "x");
+        put(&ws.join("scratch/CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55");
+        put(&ws.join("scratch/debug/out"), "x");
         big(&ws.join("data.bin"));
         big(&office.join("runs/r1/transcript.jsonl"));
         put(&office.join(RUNNING_MARKER), "");
@@ -388,13 +408,79 @@ mod tests {
         let names: Vec<&str> = zip.file_names().collect();
         assert!(names.contains(&"employees/e1/notes.md"), "{names:?}");
         assert!(names.contains(&"runs/r1/transcript.jsonl"), "transcripts are kept: {names:?}");
-        for gone in ["node_modules", "Tool.app", "target", "data.bin", RUNNING_MARKER] {
+        for gone in ["node_modules", "Tool.app", "scratch", "data.bin", RUNNING_MARKER] {
             assert!(!names.iter().any(|n| n.contains(gone)), "{gone} left out: {names:?}");
         }
 
         let _ = fs::remove_dir_all(&office);
         let _ = fs::remove_dir_all(&out);
     }
+
+    #[test]
+    fn build_and_cache_folders_are_left_out_by_name_anywhere() {
+        let office = temp_office("names");
+        let ws = office.join("employees/e1/workspace");
+        for (i, name) in BULK_DIRS.iter().enumerate() {
+            let depth = if i % 2 == 0 { format!("app-{i}") } else { format!("apps/app-{i}/src") };
+            put(&ws.join(depth).join(name).join("out.txt"), "x");
+        }
+        put(&ws.join("build"), "a file, not a folder");
+        put(&ws.join("plans/build-plan.md"), "keep me");
+        put(&office.join("employees/e1/skills/e1-notes/SKILL.md"), "keep me");
+        let out = temp_office("names-out");
+        let snapshot = out.join("snapshot.db");
+        put(&snapshot, "db");
+        let dest = out.join("backup.zip");
+
+        let s = write_archive(&office, &snapshot, &dest, serde_json::json!({})).unwrap();
+        assert_eq!(s.left_out, BULK_DIRS.len() as u32);
+        let zip = zip::ZipArchive::new(File::open(&dest).unwrap()).unwrap();
+        let names: Vec<&str> = zip.file_names().collect();
+        for kept in ["employees/e1/workspace/build", "employees/e1/workspace/plans/build-plan.md", "employees/e1/skills/e1-notes/SKILL.md"] {
+            assert!(names.contains(&kept), "{kept} kept: {names:?}");
+        }
+        assert!(!names.iter().any(|n| n.ends_with("out.txt")), "{names:?}");
+
+        let _ = fs::remove_dir_all(&office);
+        let _ = fs::remove_dir_all(&out);
+    }
+
+    #[test]
+    fn a_short_disk_drops_the_oldest_backups_before_giving_up() {
+        let dir = temp_office("room");
+        let backups = ["OmegaStar-backup-20260101-090000.zip", "OmegaStar-backup-20260102-090000.zip", "OmegaStar-backup-20260103-090000.zip"];
+        for name in backups {
+            put(&dir.join(name), "zip");
+        }
+        put(&dir.join(format!("OmegaStar-backup-20260104-090000.zip{PARTIAL}")), "half");
+        put(&dir.join("notes.txt"), "not a backup");
+        let left = || {
+            let mut v: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            v.sort();
+            v
+        };
+        // A 6 GB disk where each file in the folder takes a gigabyte.
+        let free = |d: &Path| Some((6 - fs::read_dir(d).unwrap().count() as u64) * GB);
+
+        make_room(&dir, 3, Some(GB / 4), free).unwrap();
+        assert_eq!(left().len(), 5, "1 GB free is twice the last backup and more");
+        make_room(&dir, 3, None, |_| None).unwrap();
+        assert_eq!(left().len(), 5, "free space that can't be read lets the backup go ahead");
+
+        make_room(&dir, 3, Some(GB), free).unwrap();
+        assert_eq!(left(), vec![backups[1], backups[2], "notes.txt"], "the oldest backup and the half-written one made room");
+
+        let err = make_room(&dir, 2, Some(5 * GB / 2), free).unwrap_err();
+        assert_eq!(err.message, "Not enough free disk space for a backup: it needs about 5.0 GB.");
+        assert_eq!(left(), vec![backups[2], "notes.txt"], "down to one fewer than keep, and still short");
+        let err = make_room(&dir, 1, None, |_| Some(GB / 2)).unwrap_err();
+        assert_eq!(err.message, "Not enough free disk space for a backup: it needs about 1.0 GB.");
+        assert_eq!(left(), vec![backups[2], "notes.txt"], "the last backup always stays");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
 
     #[test]
     fn fingerprint_follows_real_changes() {

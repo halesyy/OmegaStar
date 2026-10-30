@@ -59,10 +59,15 @@ pub fn continues(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Reply { .. } | RunKind::Answered { .. } | RunKind::Asked { .. } | RunKind::Delegated { .. })
 }
 
+/// How long a due check's run may work and still be a quick look. Longer, it did real work.
+pub const CHECK_QUIET_MS: u64 = 30 * 60 * 1000;
+
 /// Reports that stay out of the Inbox unless they flag something or break: quiet schedules, tidies
-/// and nudges.
-pub fn quiet(kind: &RunKind) -> bool {
-    matches!(kind, RunKind::Scheduled { quiet: true, .. } | RunKind::Tidy { .. } | RunKind::Nudge { .. })
+/// and nudges. A due check's run is quiet too, unless it ran longer than `CHECK_QUIET_MS`: then it reports
+/// like other work.
+pub fn quiet(r: &Run) -> bool {
+    let long_check = r.kind.check_id().is_some() && r.duration_ms.is_some_and(|ms| ms > CHECK_QUIET_MS);
+    matches!(r.kind, RunKind::Scheduled { quiet: true, .. } | RunKind::Tidy { .. } | RunKind::Nudge { .. }) && !long_check
 }
 
 /// The run raised a card or a flag, or was blocked on a tool (a tidy trying a command it may not run is not).
@@ -128,7 +133,7 @@ pub fn reaches_you(r: &Run, quiet_chain: bool, top: bool) -> bool {
     if flagged(r) {
         return true;
     }
-    if (quiet(&r.kind) || quiet_chain) && r.state == RunState::Succeeded {
+    if (quiet(r) || quiet_chain) && r.state == RunState::Succeeded {
         return false;
     }
     match r.kind {
@@ -204,7 +209,7 @@ pub fn file(starts: &[Run], conversation: Vec<Run>, lookup: impl Fn(&str) -> Opt
             Some(RunKind::Asked { parent_run_id, .. } | RunKind::Delegated { parent_run_id }) => lookup(parent_run_id),
             _ => first.clone(),
         };
-        let quiet_chain = origin.is_some_and(|o| quiet(&o.kind));
+        let quiet_chain = origin.is_some_and(|o| quiet(&o));
         let mut runs: Vec<Run> = by_anchor.get(&a).map(|v| v.iter().map(|r| (*r).clone()).collect()).unwrap_or_default();
         if let Some(f) = first.filter(|f| !conversation.contains_key(&f.id)) {
             runs.push(f);
@@ -540,6 +545,21 @@ mod tests {
         r.denials.clear();
         r.needs_you.push("The tidy dropped a rule.".into());
         assert!(!asks_you(&Thread::new(r, vec![retried])), "a reply after a flag answers it");
+    }
+
+    #[test]
+    fn a_check_that_worked_for_long_is_not_quiet() {
+        let at = chrono::Utc::now();
+        let scheduled = |schedule: &str| RunKind::Scheduled { schedule_id: schedule.into(), slot: at, label: "Check: Did it ship".into(), quiet: true, model: None, effort: None, review: false };
+        let mut check = Run::new("e1", scheduled(&format!("{CHECK_PREFIX}c1")), "go".into(), at);
+        check.state = RunState::Succeeded;
+        check.duration_ms = Some(CHECK_QUIET_MS);
+        assert!(quiet(&check) && !reaches_you(&check, false, true), "half an hour is still a quick look");
+        check.duration_ms = Some(CHECK_QUIET_MS + 1);
+        assert!(!quiet(&check) && reaches_you(&check, false, true), "longer is work, which reports");
+        let mut routine = check.clone();
+        routine.kind = scheduled("s1");
+        assert!(quiet(&routine), "a quiet routine stays quiet however long it takes");
     }
 
     #[test]

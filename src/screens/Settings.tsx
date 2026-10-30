@@ -230,6 +230,13 @@ const FREQUENCIES: { value: BackupFrequency; label: string }[] = [
   { value: "weekly", label: "Weekly" },
 ];
 
+const TRANSCRIPT_DAYS: { value: number | null; label: string }[] = [
+  { value: null, label: "Forever" },
+  { value: 365, label: "1 year" },
+  { value: 90, label: "90 days" },
+  { value: 30, label: "30 days" },
+];
+
 function size(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
@@ -281,12 +288,20 @@ function BackupsCard({ settings: s, save, onOpenData }: { settings: AppSettings;
 
   const st = status.data;
   const running = starting || !!st?.running;
+  const kept = TRANSCRIPT_DAYS.find((t) => t.value === s.transcriptDays);
   return (
     <SettingsGroup title="Data and backups">
       <Row title="Office folder" desc={<span className="mono">{s.dataDir}</span>}>
         <button className="btn" onClick={onOpenData}><Icon name="folder" size={13} /> Open</button>
       </Row>
-      <Row title="Automatic backups" desc={b.frequency === "off" ? "Only when you back up by hand." : "A copy of the office: employees, their history, skills and notes. Skipped when nothing has changed. Large files (over 10 MB), node_modules and app builds in employees' folders are left out."}>
+      <Row title="Keep transcripts" desc={s.transcriptDays == null ? "Every run's full transcript stays in the office folder." : `A run's full transcript is deleted ${kept ? kept.label : `${s.transcriptDays} days`} after it finishes. Its report and any pages it showed stay.`}>
+        <div className="seg" role="group" aria-label="Keep transcripts">
+          {TRANSCRIPT_DAYS.map((t) => (
+            <button key={t.label} aria-pressed={s.transcriptDays === t.value} onClick={() => void save({ ...s, transcriptDays: t.value })}>{t.label}</button>
+          ))}
+        </div>
+      </Row>
+      <Row title="Automatic backups" desc={b.frequency === "off" ? "Only when you back up by hand." : "A copy of the office: employees, their history, skills and notes. Skipped when nothing has changed. Large files (over 10 MB), app builds, and dependency, build and cache folders such as node_modules and dist are left out."}>
         <div className="seg" role="group" aria-label="Backup frequency">
           {FREQUENCIES.map((f) => (
             <button key={f.value} aria-pressed={b.frequency === f.value} onClick={() => void setBackup({ frequency: f.value })}>{f.label}</button>

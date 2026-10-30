@@ -47,7 +47,7 @@ function after(ids: string[], id: string): string | null {
 
 /** An entry with nothing to answer but Done: E marks it done. */
 const doneable = (d: Decision<Item>): boolean =>
-  (d.type === "flag" ? !d.run.proposed || !!d.run.repliedAt : d.type !== "card" && d.type !== "blocked")
+  (d.type === "flag" ? !d.run.proposed || !!d.run.approvedAt : d.type !== "card" && d.type !== "blocked")
   && !doneHeld(d.thread, d.item.thread) && !threadBusy(d.thread);
 
 /**

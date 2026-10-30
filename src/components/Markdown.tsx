@@ -25,7 +25,8 @@ const imageCode = (path: string, alt = "") =>
 // DOMPurify drops file: hrefs and a bare /Users/... href would resolve inside the webview.
 const OPEN_PATH = /^(\/|~\/)\S+$/;
 const pathAttrs = (path: string) => `class="md-path" data-open-path="${esc(path)}" title="Open"`;
-// A file URL is percent-encoded (a space is %20); a bare path is taken as written.
+// A file URL is percent-encoded (a space is %20), and so is a path in a markdown link or image, by its writer or by
+// marked. A path that does not decode is taken as written.
 const decoded = (s: string) => {
   try {
     return decodeURIComponent(s);
@@ -33,7 +34,7 @@ const decoded = (s: string) => {
     return s;
   }
 };
-const linkPath = (href: string) => (href.startsWith("file://") ? decoded(href.slice(7)) : /^(\/|~\/)/.test(href) ? href : null);
+const linkPath = (href: string) => (href.startsWith("file://") ? decoded(href.slice(7)) : /^(\/|~\/)/.test(href) ? decoded(href) : null);
 
 const md = new Marked({ gfm: true, breaks: false, async: false });
 md.use({
@@ -44,7 +45,7 @@ md.use({
       start: (src) => src.indexOf("!["),
       tokenizer(src) {
         const m = IMAGE_MD.exec(src);
-        return m ? { type: "imageMd", raw: m[0], alt: m[1], path: m[2] } : undefined;
+        return m ? { type: "imageMd", raw: m[0], alt: m[1], path: decoded(m[2]) } : undefined;
       },
       renderer: (t: Tokens.Generic) => imageCode(t.path, t.alt),
     },
@@ -65,7 +66,7 @@ md.use({
   renderer: {
     codespan: ({ text }) =>
       IMAGE_PATH.test(text) ? imageCode(text) : OPEN_PATH.test(text) && `<code ${pathAttrs(text)}>${esc(text)}</code>`,
-    image: ({ href, text }) => IMAGE_PATH.test(href) && imageCode(href, text),
+    image: ({ href, text }) => IMAGE_PATH.test(href) && imageCode(decoded(href), text),
     link({ href, tokens }) {
       const path = linkPath(href);
       return path !== null && `<a ${pathAttrs(path)}>${this.parser.parseInline(tokens)}</a>`;

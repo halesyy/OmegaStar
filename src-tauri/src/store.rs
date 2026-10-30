@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS checks(
   id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, state TEXT NOT NULL, due_at INTEGER NOT NULL, created_at INTEGER NOT NULL, data TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS checks_by_employee ON checks(employee_id, state, due_at);
+CREATE TABLE IF NOT EXISTS news(
+  id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, created_at INTEGER NOT NULL, read_at INTEGER, data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS news_by_employee ON news(employee_id, read_at, created_at);
 "#;
 
 fn ms(t: Ts) -> i64 {
@@ -128,7 +132,36 @@ impl Store {
         conn.execute_batch(&format!("BEGIN; {SCHEMA} COMMIT;"))?;
         let store = Store { conn };
         store.migrate_cards()?;
+        store.drop_unrecorded_revisions()?;
         Ok(store)
+    }
+
+    /// Once: deletes the revisions older builds recorded of files that skill snapshots now leave out, as
+    /// `own_skills` does: anything in a dependency or cache folder, and data files. Nobody wrote them, and they
+    /// were most of the table.
+    fn drop_unrecorded_revisions(&self) -> Result<()> {
+        const DIRS: [&str; 5] = ["node_modules", "__pycache__", ".cache", ".venv", ".git"];
+        const EXTS: [&str; 3] = ["json", "jsonl", "csv"];
+        if self.meta::<bool>("unrecorded_revisions_dropped")?.unwrap_or(false) {
+            return Ok(());
+        }
+        let left_out: Vec<String> = DIRS.iter().map(|d| format!("instr(f, '/{d}/') > 0")).chain(EXTS.iter().map(|x| format!("f LIKE '%.{x}'"))).collect();
+        self.tx(|| {
+            let n = self.conn.execute(
+                &format!(
+                    "DELETE FROM skill_revisions WHERE id IN (
+                       SELECT id FROM (SELECT id, '/' || json_extract(data, '$.file') AS f FROM skill_revisions
+                                       WHERE json_valid(data) AND json_extract(data, '$.skill') NOT LIKE '@%')
+                       WHERE {})",
+                    left_out.join(" OR ")
+                ),
+                [],
+            )?;
+            if n > 0 {
+                log!("deleted {n} skill revisions of dependency and data files, which skills no longer record");
+            }
+            self.set_meta("unrecorded_revisions_dropped", &true)
+        })
     }
 
     /// Once: a run's one `card` becomes its list of `cards`, and a chore card gets the key every card now
@@ -218,6 +251,13 @@ impl Store {
     }
     pub fn set_reviews_seeded(&self) -> Result<()> {
         self.set_meta("reviewsSeeded", &true)
+    }
+    /// Whether the transcripts runs saved before images were left out of them have had theirs taken out.
+    pub fn transcripts_compacted(&self) -> Result<bool> {
+        Ok(self.meta::<bool>("transcriptsCompacted")?.unwrap_or(false))
+    }
+    pub fn set_transcripts_compacted(&self) -> Result<()> {
+        self.set_meta("transcriptsCompacted", &true)
     }
 
     /// Writes a consistent copy of the whole database to `path`, which must not exist.
@@ -487,6 +527,11 @@ impl Store {
             .and_then(|r| r.ended_at))
     }
 
+    /// The finished runs of a session other than `except`, newest first.
+    pub fn turns_of_session(&self, session: &str, except: &str) -> Result<Vec<Run>> {
+        self.runs_where("WHERE session = ? AND id != ? AND state NOT IN ('queued', 'running') ORDER BY created_at DESC, rowid DESC", &[&session, &except])
+    }
+
     /// An employee's finished runs with a card you have not answered yet, oldest first.
     pub fn open_cards(&self, employee_id: &str) -> Result<Vec<Run>> {
         self.runs_where(
@@ -630,11 +675,13 @@ impl Store {
                  AND state NOT IN ('queued', 'running')
                  AND NOT (json_extract(data, '$.kind.type') = 'nudge' AND state = 'cancelled')
                  AND NOT ((COALESCE(json_extract(data, '$.kind.quiet'), 0) = 1 OR json_extract(data, '$.kind.type') IN ('tidy', 'nudge'))
+                          AND NOT (schedule_id LIKE 'check:%' AND COALESCE(json_extract(data, '$.durationMs'), 0) > {long})
                           AND state = 'succeeded'
                           AND COALESCE(json_array_length(data, '$.needsYou'), 0) = 0
                           AND (COALESCE(json_array_length(data, '$.denials'), 0) = 0 OR json_extract(data, '$.kind.type') = 'tidy'))
                  AND {archived}
-                 ORDER BY {order} LIMIT ?"
+                 ORDER BY {order} LIMIT ?",
+                long = crate::threads::CHECK_QUIET_MS
             ),
             &[&roots, &flagged, &limit.map_or(-1, i64::from)],
         )
@@ -665,6 +712,75 @@ impl Store {
              ORDER BY created_at, rowid",
             &[&topic],
         )
+    }
+
+    /// Every hand-off (delegated or asked run) in the chain `chain` (`Run::chain`): who handed it over, to whom, and when.
+    pub fn chain_handoffs(&self, chain: &str) -> Result<Vec<(String, String, Ts)>> {
+        let mut st = self.conn.prepare(
+            "SELECT p.employee_id, r.employee_id, r.created_at FROM runs r JOIN runs p ON p.id = r.parent_run_id
+             WHERE r.parent_run_id IS NOT NULL AND json_valid(r.data) AND json_extract(r.data, '$.chain') = ?",
+        )?;
+        let rows = st.query_map([chain], |r| Ok((r.get(0)?, r.get(1)?, Ts::from_timestamp_millis(r.get::<_, i64>(2)?).unwrap_or_default())))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// How many tasks `manager_id`'s runs handed `report_id` since `since`, leaving out the ones you stopped.
+    pub fn delegated_since(&self, manager_id: &str, report_id: &str, since: Ts) -> Result<u32> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM runs r JOIN runs p ON p.id = r.parent_run_id
+             WHERE r.employee_id = ?1 AND p.employee_id = ?2 AND r.created_at >= ?3 AND r.state != 'cancelled'
+               AND json_valid(r.data) AND json_extract(r.data, '$.kind.type') = 'delegated'",
+            params![report_id, manager_id, ms(since)],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// The held reports whose opening note was `run_id`'s (`Run::noted_in`), oldest first.
+    pub fn noted_in(&self, run_id: &str) -> Result<Vec<Run>> {
+        self.runs_where(
+            "WHERE parent_run_id IS NOT NULL AND json_valid(data) AND json_extract(data, '$.notedIn') = ? ORDER BY created_at, rowid",
+            &[&run_id],
+        )
+    }
+
+    /// Deletes a run that never started: reports held for a manager, once a run of theirs took them in instead.
+    pub fn delete_queued_run(&self, id: &str) -> Result<bool> {
+        Ok(self.conn.execute("DELETE FROM runs WHERE id = ? AND state = 'queued'", [id])? == 1)
+    }
+
+    /// When a session's first run was made, and the context its newest finished run that measured one ended with.
+    pub fn session_size(&self, session: &str) -> Result<(Option<Ts>, Option<u64>)> {
+        let began: Option<i64> = self.conn.query_row("SELECT MIN(created_at) FROM runs WHERE session = ?", [session], |r| r.get(0))?;
+        let context: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT json_extract(data, '$.contextTokens') FROM runs
+                 WHERE session = ? AND state NOT IN ('queued', 'running') AND json_valid(data) AND json_extract(data, '$.contextTokens') IS NOT NULL
+                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                [session],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok((began.and_then(Ts::from_timestamp_millis), context.map(|c| c.max(0) as u64)))
+    }
+
+    /// An employee's cards that a newer card replaced after `since`, with when, oldest first.
+    pub fn replaced_cards(&self, employee_id: &str, since: Ts) -> Result<Vec<(Ts, Card)>> {
+        // The stored times compare as text: a second's leeway keeps every later one, and the exact test is below.
+        let after = serde_json::to_value(since - chrono::Duration::seconds(1))?;
+        let runs = self.runs_where(
+            "WHERE employee_id = ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+                           WHERE json_extract(c.value, '$.answer.how') = 'replaced' AND json_extract(c.value, '$.answer.at') > ?)",
+            &[&employee_id, &after.as_str()],
+        )?;
+        let mut v: Vec<(Ts, Card)> = runs
+            .into_iter()
+            .flat_map(|r| r.cards)
+            .filter_map(|c| c.answer.as_ref().filter(|a| a.how == AnswerHow::Replaced && a.at > since).map(|a| (a.at, c.clone())))
+            .collect();
+        v.sort_by_key(|(at, _)| *at);
+        Ok(v)
     }
 
     /// A schedule's runs from before `before` with a decision or item card still open, oldest first.
@@ -909,6 +1025,24 @@ impl Store {
         Ok(v)
     }
 
+    // ---- news ----
+
+    pub fn save_news(&self, n: &News) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO news(id, employee_id, created_at, read_at, data) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET read_at = ?4, data = ?5",
+            params![n.id, n.employee_id, ms(n.created_at), n.read_at.map(ms), to_json(n)?],
+        )?;
+        Ok(())
+    }
+
+    /// News for an employee that they have not read yet, oldest first.
+    pub fn unread_news(&self, employee_id: &str) -> Result<Vec<News>> {
+        let mut st = self.conn.prepare("SELECT data FROM news WHERE employee_id = ? AND read_at IS NULL ORDER BY created_at, rowid")?;
+        let v = readable("news", st.query_map([employee_id], |r| from_row(r, 0))?)?;
+        Ok(v)
+    }
+
     // ---- skill revisions ----
 
     pub fn insert_revision(&self, employee_id: &str, r: &SkillRevision) -> Result<()> {
@@ -916,6 +1050,24 @@ impl Store {
             "INSERT INTO skill_revisions(id, employee_id, run_id, at, data) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![r.id, employee_id, r.run_id, ms(r.at), to_json(r)?],
         )?;
+        Ok(())
+    }
+
+    /// The newest revision since `since` of the same file with the same text before and after, if one is recorded.
+    pub fn same_revision(&self, employee_id: &str, c: &SkillChange, before: Option<&str>, after: Option<&str>, since: Ts) -> Result<Option<SkillRevision>> {
+        let mut st = self.conn.prepare(
+            "SELECT data FROM skill_revisions WHERE employee_id = ?1 AND at >= ?2 AND json_valid(data)
+               AND json_extract(data, '$.skill') = ?3 AND json_extract(data, '$.file') = ?4
+               AND json_extract(data, '$.before') IS ?5 AND json_extract(data, '$.after') IS ?6
+             ORDER BY at DESC, rowid DESC LIMIT 1",
+        )?;
+        let v = readable("skill_revisions", st.query_map(params![employee_id, ms(since), c.skill, c.file, before, after], |r| from_row(r, 0))?)?;
+        Ok(v.into_iter().next())
+    }
+
+    /// Credits a revision recorded with no run to the run that made it.
+    pub fn credit_revision(&self, id: &str, run_id: &str) -> Result<()> {
+        self.conn.execute("UPDATE skill_revisions SET run_id = ?2, data = json_set(data, '$.runId', ?2) WHERE id = ?1 AND json_valid(data)", params![id, run_id])?;
         Ok(())
     }
 
@@ -1011,6 +1163,7 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![format!("/office/employees/{id}")],
             hue: 0,
             chat_session: format!("chat-{name}"),
@@ -1136,6 +1289,14 @@ mod tests {
         assert!(db.active_run_for("req-1", "nudge").unwrap().is_none());
         assert!(db.tidy_runs(&ada.id).unwrap().is_empty());
         assert!(db.taught_since(&ada.id, None, 10).unwrap().is_empty());
+        // And the hand-off queries.
+        assert!(db.replaced_cards(&ada.id, Utc::now() - chrono::Duration::days(1)).unwrap().is_empty());
+        raw(&db, &ada, "bad-handoff", "succeeded", "s-bad", "not json");
+        db.conn.execute("UPDATE runs SET parent_run_id = ?1 WHERE id = 'bad-handoff'", [&queued_id]).unwrap();
+        assert!(db.chain_handoffs("c1").unwrap().is_empty());
+        assert!(db.noted_in("r1").unwrap().is_empty());
+        assert_eq!(db.delegated_since(&ada.id, &ada.id, Utc::now() - chrono::Duration::days(1)).unwrap(), 0);
+        assert_eq!(db.session_size("s-bad").unwrap().1, None);
         let now = ms(Utc::now());
         db.conn
             .execute(
@@ -1227,7 +1388,7 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
         let mut st = db.conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").unwrap();
         let tables: BTreeSet<String> = st.query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
         drop(st);
-        for t in ["checks", "proposals", "skill_revisions", "requests"] {
+        for t in ["checks", "proposals", "skill_revisions", "requests", "news"] {
             assert!(tables.contains(t), "{t} created");
         }
         let lane_index: Option<String> =
@@ -1244,6 +1405,32 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
         assert_eq!(s.max_concurrent_runs, 2);
         assert_eq!(s.backup, BackupSettings::default());
         assert_eq!(s.watch, WatchSettings::default());
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn news_is_unread_until_marked() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let (ada, bo) = (employee("Ada", None), employee("Bo", None));
+        let news = |text: &str, mins: i64| News {
+            id: uuid::Uuid::new_v4().to_string(),
+            employee_id: bo.id.clone(),
+            from: ada.id.clone(),
+            text: text.into(),
+            created_at: Utc::now() - chrono::Duration::minutes(mins),
+            read_at: None,
+        };
+        let (later, earlier) = (news("The till is counted.", 5), news("The shelf is counted.", 10));
+        db.save_news(&later).unwrap();
+        db.save_news(&earlier).unwrap();
+        let unread: Vec<String> = db.unread_news(&bo.id).unwrap().into_iter().map(|n| n.text).collect();
+        assert_eq!(unread, vec!["The shelf is counted.", "The till is counted."], "oldest first");
+        assert!(db.unread_news(&ada.id).unwrap().is_empty());
+        db.save_news(&News { read_at: Some(Utc::now()), ..earlier }).unwrap();
+        assert_eq!(db.unread_news(&bo.id).unwrap(), vec![later]);
 
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1372,6 +1559,35 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
     }
 
     #[test]
+    fn revisions_of_dependency_and_data_files_are_dropped_once() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada", None);
+        db.save_employee(&ada).unwrap();
+        let revise = |skill: &str, file: &str| {
+            let change = SkillChange { skill: skill.into(), file: file.into(), change: ChangeKind::Added };
+            db.insert_revision(&ada.id, &SkillRevision { change, id: uuid::Uuid::new_v4().to_string(), run_id: None, at: Utc::now(), before: None, after: Some("x".into()) }).unwrap();
+        };
+        let left_out = ["node_modules/left-pad/index.js", "scripts/__pycache__/a.pyc", ".venv/lib/x.py", ".git/HEAD", "data/pull.json", "log.JSONL", "rates.csv"];
+        let kept = ["SKILL.md", "scripts/fetch.py", "examples.md", ".github/notes.md", "jsonfeed.md"];
+        for f in left_out.iter().chain(&kept) {
+            revise("ada-reports", f);
+        }
+        revise(crate::own_skills::NOTES, "rates.csv.md");
+        db.conn.execute("DELETE FROM meta WHERE key = 'unrecorded_revisions_dropped'", []).unwrap();
+        db.drop_unrecorded_revisions().unwrap();
+        let files = || db.revisions(&ada.id).unwrap().into_iter().map(|r| r.change.file).collect::<BTreeSet<_>>();
+        let mut want: BTreeSet<String> = kept.iter().map(|f| f.to_string()).collect();
+        want.insert("rates.csv.md".into());
+        assert_eq!(files(), want);
+        revise("ada-reports", "late.json");
+        db.drop_unrecorded_revisions().unwrap();
+        assert!(files().contains("late.json"), "it runs once");
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn open_cards_are_found_by_chore_and_by_schedule() {
         let dir = temp_dir();
         let db = Store::open(&dir.join("office.db")).unwrap();
@@ -1466,6 +1682,8 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
             RunKind::Scheduled { schedule_id: format!("loud-{i}"), slot, label: "Sweep".into(), quiet: false, model: None, effort: None, review: false },
             RunKind::Scheduled { schedule_id: format!("quiet-{i}"), slot, label: "Sweep".into(), quiet: true, model: None, effort: None, review: false },
             RunKind::Scheduled { schedule_id: format!("review-{i}"), slot, label: "Weekly review".into(), quiet: false, model: None, effort: None, review: true },
+            RunKind::Scheduled { schedule_id: format!("{CHECK_PREFIX}short-{i}"), slot, label: "Check: Did it ship".into(), quiet: true, model: None, effort: None, review: false },
+            RunKind::Scheduled { schedule_id: format!("{CHECK_PREFIX}long-{i}"), slot, label: "Check: Did it ship".into(), quiet: true, model: None, effort: None, review: false },
             RunKind::Delegated { parent_run_id: format!("parent-{i}") },
             RunKind::Asked { parent_run_id: format!("parent-{i}"), asked_by: "e0".into(), task: false },
             RunKind::Answered { asked_run_id: format!("asked-{i}"), from: "e0".into(), task: false, chat: false, thread: None },
@@ -1504,6 +1722,10 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
                         i += 1;
                         for (j, kind) in every_kind(i).into_iter().enumerate() {
                             let mut r = run(e, kind, state);
+                            // A due check's run that worked for long reports like other work.
+                            if r.kind.check_id().is_some_and(|c| c.starts_with("long")) {
+                                r.duration_ms = Some(threads::CHECK_QUIET_MS + 1);
+                            }
                             if flag {
                                 r.needs_you = vec!["Look at this.".into()];
                             }

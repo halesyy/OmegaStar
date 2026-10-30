@@ -95,6 +95,9 @@ pub struct EmployeeDraft {
     /// Tidies their skills and notes on their own when the health check finds something. On unless you turn it off.
     #[serde(default = "tidy_on")]
     pub auto_tidy: bool,
+    /// How many pieces of background work they do at once: 1, or 2.
+    #[serde(default = "one_lane")]
+    pub lanes: u32,
     pub workspaces: Vec<String>,
     pub hue: u16,
 }
@@ -107,6 +110,11 @@ fn browser_on() -> bool {
 /// Tidying on their own is on unless you turn it off, including for employees saved before it was.
 fn tidy_on() -> bool {
     true
+}
+
+/// One piece of background work at a time unless you allow two, including for employees saved before you could.
+fn one_lane() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -129,6 +137,9 @@ pub struct Employee {
     /// On unless you turn it off.
     #[serde(default = "tidy_on")]
     pub auto_tidy: bool,
+    /// Background runs at once: 1, or 2. A colleague's answer or question never waits for one (`claim_runnable`).
+    #[serde(default = "one_lane")]
+    pub lanes: u32,
     pub workspaces: Vec<String>,
     pub hue: u16,
     /// The session of the one long chat older builds kept. Nothing reads it now, but a hire still gets one of
@@ -145,6 +156,9 @@ impl EmployeeDraft {
         }
         if self.hue > 359 {
             return Err(AppError::invalid("hue must be 0-359"));
+        }
+        if !(1..=2).contains(&self.lanes) {
+            return Err(AppError::invalid("background work runs one or two at a time"));
         }
         Ok(())
     }
@@ -165,6 +179,7 @@ impl EmployeeDraft {
             effort: self.effort,
             browser: self.browser,
             auto_tidy: self.auto_tidy,
+            lanes: self.lanes,
             workspaces: self.workspaces,
             hue: self.hue,
             chat_session,
@@ -188,6 +203,7 @@ impl Employee {
             effort: self.effort,
             browser: self.browser,
             auto_tidy: self.auto_tidy,
+            lanes: self.lanes,
             workspaces: self.workspaces.clone(),
             hue: self.hue,
         }
@@ -661,6 +677,9 @@ pub struct ScheduleDraft {
     pub model: Option<String>,
     #[serde(default)]
     pub effort: Option<Effort>,
+    /// Only during business hours: a slot outside them is skipped.
+    #[serde(default)]
+    pub active_hours: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -684,6 +703,9 @@ pub struct Schedule {
     /// The weekly review Omega Star seeds for every employee.
     #[serde(default)]
     pub review: bool,
+    /// Runs only during business hours (`WatchSettings::hours`): a slot outside them is skipped, not caught up.
+    #[serde(default)]
+    pub active_hours: bool,
     /// Computed on read, never stored.
     #[serde(default)]
     pub next_fire: Option<Ts>,
@@ -1104,13 +1126,13 @@ pub struct CardAnswer {
 pub enum AnswerHow {
     /// You pressed one of its buttons.
     Tapped,
-    /// You replied in the thread instead.
+    /// You answered in your own words on the card. An older build counted any reply in the thread as one.
     Typed,
     /// You pressed Not now: busy, not a no. A decision comes back to its asker a day later.
     Dismissed,
     /// You pressed No: drop it.
     Rejected,
-    /// A newer card from the same routine or thread, or about the same thing, took its place.
+    /// A newer card from the same routine, or about the same thing, took its place.
     Replaced,
     /// The employee closed it: it was settled without you.
     Withdrawn,
@@ -1127,6 +1149,10 @@ pub enum CardReply {
     Dismiss,
     /// No, on a decision.
     Reject,
+    /// An answer in your own words, to this card only.
+    Text { text: String },
+    /// A question about the card: it goes to the employee now, and the card stays open.
+    Ask { text: String },
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -1184,15 +1210,22 @@ pub struct Run {
     /// For a Tidy run: the bigger changes it proposes and waits for your approval to make.
     #[serde(default)]
     pub proposed: Option<String>,
+    /// For a Tidy run: when you approved what it proposed. Replying to it is no decision.
+    #[serde(default)]
+    pub approved_at: Option<Ts>,
     /// Files you attached to a message, by name. They live in the employee's `attachments/<run id>/`.
     #[serde(default)]
     pub attachments: Vec<String>,
     /// The build that ran it: app version, commit and channel, Claude Code's version and the signed-in organisation.
     #[serde(default)]
     pub build: Option<RunBuild>,
-    /// Times the run went back to the queue because the usage limit stopped it.
+    /// Times the run went back to the queue because a limit stopped it: the usage limit, or a rate limit.
     #[serde(default)]
     pub limit_retries: u32,
+    /// Of `limit_retries`, the times Claude or a proxy in front of it turned requests away for now (HTTP 429 or 529).
+    /// Counted apart, so a rate limit never uses up the retries the usage limit gets.
+    #[serde(default)]
+    pub transient_retries: u32,
     /// It failed because the usage limit stopped it once too often: nothing you can do, so it never needs you.
     #[serde(default)]
     pub limited: bool,
@@ -1208,6 +1241,26 @@ pub struct Run {
     /// The context size in tokens after its last top-level message.
     #[serde(default)]
     pub context_tokens: Option<u64>,
+    /// What the run cost in US dollars as Claude Code reckons it, summed over its result segments and attempts.
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+    /// Not to start before then: a hand-off Omega Star paused to keep its chain short, an answer queued again
+    /// after it failed, or the reports held for a manager.
+    #[serde(default)]
+    pub not_before: Option<Ts>,
+    /// For a delegated or asked run: the run its chain of hand-offs started from, one a person or a schedule
+    /// started, or a paused hand-off, which starts a chain of its own. The loop guard counts by it.
+    #[serde(default)]
+    pub chain: Option<String>,
+    /// For an answered run that brings a manager the reports held for them: the delegated runs it carries.
+    #[serde(default)]
+    pub reports: Vec<String>,
+    /// For a held report: the run whose opening note brought it to the manager instead.
+    #[serde(default)]
+    pub noted_in: Option<String>,
+    /// For an answered run: times it was queued again because an earlier attempt failed.
+    #[serde(default)]
+    pub redelivered: u32,
 }
 
 impl Run {
@@ -1235,14 +1288,22 @@ impl Run {
             delivered_at: None,
             allow_once: vec![],
             proposed: None,
+            approved_at: None,
             attachments: vec![],
             build: None,
             limit_retries: 0,
+            transient_retries: 0,
             limited: false,
             restarts: 0,
             restarted: false,
             score: None,
             context_tokens: None,
+            cost_usd: None,
+            not_before: None,
+            chain: None,
+            reports: vec![],
+            noted_in: None,
+            redelivered: 0,
         }
     }
 
@@ -1465,6 +1526,22 @@ pub struct Check {
     pub result: Option<String>,
 }
 
+/// News a colleague sent with `ask_colleague` kind info. It starts no run: the receiver reads it at the top of
+/// their next run, and then it is read.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct News {
+    pub id: String,
+    /// Who it is for.
+    pub employee_id: String,
+    /// The employee who sent it.
+    pub from: String,
+    pub text: String,
+    pub created_at: Ts,
+    #[serde(default)]
+    pub read_at: Option<Ts>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillRevision {
@@ -1525,6 +1602,8 @@ pub struct RunDetail {
     pub run: Run,
     pub events: Vec<RunEvent>,
     pub children: Vec<Run>,
+    /// The run's folder was deleted after `AppSettings::transcript_days`: no events, its report is on the run.
+    pub transcript_gone: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -1568,6 +1647,9 @@ pub struct AppSettings {
     pub watch: WatchSettings,
     /// Absent from settings saved before the CLI proxy existed.
     pub proxy: ProxySettings,
+    /// Days a finished run's folder (its transcript, log and the pages it showed) is kept; `None` = forever.
+    /// Its row and report stay either way.
+    pub transcript_days: Option<u32>,
 }
 
 impl Default for AppSettings {
@@ -1580,6 +1662,7 @@ impl Default for AppSettings {
             backup: BackupSettings::default(),
             watch: WatchSettings::default(),
             proxy: ProxySettings::default(),
+            transcript_days: None,
         }
     }
 }
@@ -1819,6 +1902,7 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![],
             hue: 0,
         };
@@ -1831,6 +1915,39 @@ mod tests {
         employee.as_object_mut().unwrap().remove("autoTidy");
         assert!(serde_json::from_value::<EmployeeDraft>(draft).unwrap().auto_tidy);
         assert!(serde_json::from_value::<Employee>(employee).unwrap().auto_tidy);
+    }
+
+    #[test]
+    fn background_work_is_one_at_a_time_unless_you_allow_two() {
+        let mut employee = serde_json::to_value(Employee {
+            id: "e1".into(),
+            slug: "ada".into(),
+            name: "Ada".into(),
+            title: "Analyst".into(),
+            description: String::new(),
+            objective: String::new(),
+            manager_id: None,
+            skills: SkillGrant::default(),
+            clearance: Clearance::Supervised,
+            allow_rules: vec![],
+            model: None,
+            effort: None,
+            browser: false,
+            auto_tidy: true,
+            lanes: 2,
+            workspaces: vec![],
+            hue: 0,
+            chat_session: "chat-ada".into(),
+            hired_at: Utc::now(),
+        })
+        .unwrap();
+        let two: Employee = serde_json::from_value(employee.clone()).unwrap();
+        assert_eq!(two.draft().into_employee(two.id.clone(), two.slug.clone(), two.chat_session.clone(), two.hired_at).lanes, 2, "a second lane survives a save");
+        employee.as_object_mut().unwrap().remove("lanes");
+        assert_eq!(serde_json::from_value::<Employee>(employee).unwrap().lanes, 1, "saved before lanes existed");
+        assert!(two.draft().validate().is_ok());
+        assert!(EmployeeDraft { lanes: 3, ..two.draft() }.validate().is_err());
+        assert!(EmployeeDraft { lanes: 0, ..two.draft() }.validate().is_err());
     }
 
     #[test]

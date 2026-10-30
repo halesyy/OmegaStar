@@ -14,7 +14,7 @@ import { Avatar } from "../components/ui";
 import { kindNames } from "../components/RunRow";
 import { CardList, CardView } from "../components/conversation/CardView";
 import { lines } from "../components/conversation/RowHistory";
-import { DoneButton, SnoozeButton, ThreadView } from "../components/conversation/ThreadView";
+import { DoneButton, RetryButton, SnoozeButton, ThreadView } from "../components/conversation/ThreadView";
 import type { Item } from "../components/conversation/useStatuses";
 
 /** What an Inbox row can do to its thread. */
@@ -53,7 +53,7 @@ function ask(d: Decision<Item>, who: string, what: string): { title: string; why
       return { title: `${d.cards.length} questions`, why: `${answered} of ${d.cards.length} answered. ${who} hears your answers together, once all are in.` };
     }
     case "flag":
-      return r.kind.type === "tidy" && r.proposed && !r.repliedAt
+      return r.kind.type === "tidy" && r.proposed && !r.approvedAt
         ? { title: `Approve ${who}'s skill changes?`, why: lines(r.proposed)[0] ?? null }
         : { title: d.text, why: null };
     case "blocked":
@@ -132,7 +132,8 @@ export function DecisionItem({ d, employees, people, open, onToggle, onHover, ac
 }
 
 /** The buttons that answer a decision. Anything that is not a card or a block is dealt with by reading it, so Done;
- *  while a card Done would settle is open (`doneHeld`), it waits for the card instead. */
+ *  while a card Done would settle is open (`doneHeld`), it waits for the card instead. A run that didn't finish can be
+ *  tried again, unless it is a routine failing time after time, which its next run tries anyway. */
 function Answer({ d, e, busy, actions }: { d: Decision<Item>; e: EmployeeView; busy: boolean; actions: ItemActions }) {
   const who = firstName(e.name);
   if (d.type === "card") {
@@ -141,11 +142,14 @@ function Answer({ d, e, busy, actions }: { d: Decision<Item>; e: EmployeeView; b
     return <CardView card={d.cards[0].card} runId={d.run.id} index={d.cards[0].index} e={e} onAnswer={(reply) => answer(d.cards[0].index, reply)} />;
   }
   if (d.type === "blocked") return <Allow run={d.run} who={who} />;
-  if (d.type === "flag" && d.run.kind.type === "tidy" && d.run.proposed && !d.run.repliedAt) return <ApproveTidy run={d.run} who={who} />;
-  if (doneHeld(d.thread, d.item.thread)) return null;
+  if (d.type === "flag" && d.run.kind.type === "tidy" && d.run.proposed && !d.run.approvedAt) return <ApproveTidy run={d.run} who={who} />;
+  const retry = d.type === "broken" && d.thread.root.kind.type !== "scheduled";
+  const done = !doneHeld(d.thread, d.item.thread);
+  if (!retry && !done) return null;
   return (
     <div className="card-choices">
-      <DoneButton name={who} disabled={busy} onDone={actions.done} />
+      {retry ? <RetryButton run={d.run} name={who} disabled={busy} /> : null}
+      {done ? <DoneButton name={who} disabled={busy} onDone={actions.done} /> : null}
     </div>
   );
 }

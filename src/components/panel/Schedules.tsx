@@ -10,7 +10,10 @@ import { Icon } from "../Icon";
 import { ConfirmButton, ErrorNote, Section, Skeleton, Switch } from "../ui";
 import "./Schedules.css";
 
-const blankSchedule = (e: EmployeeView): ScheduleDraft => ({ employeeId: e.id, label: "", cron: "0 9 * * 1-5", instruction: "", enabled: true, quiet: false, model: null, effort: null });
+const blankSchedule = (e: EmployeeView): ScheduleDraft => ({ employeeId: e.id, label: "", cron: "0 9 * * 1-5", instruction: "", enabled: true, quiet: false, model: null, effort: null, activeHours: false });
+
+/** The model and effort it runs on, as the schedule's row says them: "haiku, low effort". */
+const runsOn = (s: { model: string | null; effort: string | null }) => [s.model, s.effort && `${s.effort} effort`].filter(Boolean).join(", ");
 
 /** The employee's schedules, at the top of the Work tab: when they run on their own. */
 export function Schedules({ e, onEdit }: { e: EmployeeView; onEdit: (d: ScheduleDraft) => void }) {
@@ -55,8 +58,9 @@ export function Schedules({ e, onEdit }: { e: EmployeeView; onEdit: (d: Schedule
                 <span className="sched-label">{s.label}</span>
                 <span className="sched-when">
                   {describeCron(s.cron) ?? <span className="mono">{s.cron}</span>}
+                  {s.activeHours ? <> · business hours only</> : null}
                   {s.quiet ? <> · reports only when needed</> : null}
-                  {s.model || s.effort ? <> · runs on {[s.model, s.effort && `${s.effort} effort`].filter(Boolean).join(", ")}</> : null}
+                  {s.model || s.effort ? <> · runs on {runsOn(s)}</> : null}
                 </span>
                 <span className="sched-next num">{s.enabled && s.nextFire ? <>Next run {whenInline(s.nextFire)}</> : s.enabled ? "Paused" : "Off"}</span>
               </button>
@@ -79,6 +83,10 @@ export function ScheduleEditor({ e, initial, onDone }: { e: EmployeeView; initia
   const [err, setErr] = useState<string | null>(null);
   const cron = preset === "custom" ? d.cron : presetCron(preset, time);
   const debounced = useDebounced(cron, 220);
+  // More often than hourly: two of the next runs fall under an hour apart.
+  const next = preview?.ok ? preview.next : [];
+  const frequent = next.some((n, i) => i > 0 && Date.parse(n) - Date.parse(next[i - 1]) < 3_600_000);
+  const light = /haiku/i.test(d.model ?? "");
 
   useEffect(() => {
     let alive = true;
@@ -154,6 +162,17 @@ export function ScheduleEditor({ e, initial, onDone }: { e: EmployeeView; initia
               ) : <span><Icon name="alert" size={12} /> {preview.error}</span>}
             </div>
             {preset !== "custom" ? <span className="field-help mono" style={{ fontSize: "var(--t-xs)" }}>{cron}</span> : null}
+            {frequent && !light ? (
+              <span className="field-help">
+                This runs more often than hourly. If each run is a simple check, Haiku at low effort does it for a fraction of the usage.{" "}
+                <button type="button" className="linkish" onClick={() => setD((x) => ({ ...x, model: "haiku", effort: "low" }))}>Use Haiku, low effort</button>
+              </span>
+            ) : d.model || d.effort ? <span className="field-help">Runs on {runsOn(d)}.</span> : null}
+          </div>
+          <div className="field">
+            <span className="field-label">Hours</span>
+            <div className="row" style={{ height: 34 }}><Switch checked={d.activeHours} onChange={(v) => set("activeHours", v)} label="Only during business hours" /><span className="muted" style={{ fontSize: "var(--t-sm)" }}>Only during business hours</span></div>
+            <span className="field-help">{d.activeHours ? "Times outside the business hours in Settings are skipped, not made up later." : "Runs at every time above, day or night."}</span>
           </div>
           <label className="field">
             <span className="field-label">What should {firstName(e.name)} do each time?</span>

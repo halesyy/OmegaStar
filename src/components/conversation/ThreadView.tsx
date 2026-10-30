@@ -78,7 +78,13 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
 
   const tail = replies.length ? replies[replies.length - 1].run : root;
   const place = task ? "conversation" : "thread";
-  const hint = archived ? (task ? "Replying reopens it" : "Replying brings it back") : `Stays in this ${place} · Shift+Enter for a new line`;
+  // A reply answers no card, so while one is open, Send & done would leave it behind.
+  const carded = turns.some((t) => waiting(t.run));
+  const hint = archived ? (task ? "Replying reopens it" : "Replying brings it back")
+    : carded ? "Cards stay open until you answer them on the card · Shift+Enter for a new line"
+    : `Stays in this ${place} · Shift+Enter for a new line`;
+  // Not once archived: a hand-off tried again leaves its old run there, and Reopen brings one back to retry.
+  const retry = !live && !archived && didNotFinish(tail);
   // A conversation's first message is a turn like the rest; a report opens its thread on its own.
   const shown = task ? turns : replies;
   // The latest exchange starts at the last turn, or the one before it that finished while a newer one is still
@@ -100,19 +106,20 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
     <div className="thread">
       <ChatSurface
         ref={surface} e={e} busy={!!live} live={live} draftKey={`thread:${rootId}`} scrollKey={liveKey}
-        placeholder={`Reply to ${name} in this ${place}…`} hint={hint} onSend={send} onSendDone={onSendDone ?? undefined} onStop={stop} autoFocus={autoFocus}
+        placeholder={`Reply to ${name} in this ${place}…`} hint={hint} onSend={send} onSendDone={carded ? undefined : onSendDone ?? undefined} onStop={stop} autoFocus={autoFocus}
         actions={live ? null : <button className="btn btn-ghost btn-sm" onClick={() => surface.current?.prefill(TEACH_PREFIX)}><Icon name="teach" size={13} /> Teach a new task</button>}
       >
         <div className="chat-inner">
           {row && row.related.length ? <RowHistory t={row} employees={snap?.employees ?? []} people={snap?.people ?? []} /> : null}
           {earlier ? <button className="btn btn-ghost btn-sm thread-earlier" onClick={() => setAll(true)}>Show {earlier} earlier</button> : null}
-          {showReport ? <ReportTurn root={root} events={turns[0].events} e={e} blocked={tail.id === root.id && !archived} archived={archived} /> : null}
+          {showReport ? <ReportTurn root={root} events={turns[0].events} e={e} blocked={tail.id === root.id && !archived} archived={archived} retry={retry && tail.id === root.id} /> : null}
           {visible.map((t, i) => (
             <div key={t.run.id} className="stack" style={{ gap: 10 }}>
               <Turn turn={t} e={e} withReport />
               <Flags run={t.run} />
               <RunCards run={t.run} e={e} />
               {i === visible.length - 1 && t.run.denials.length > 0 && t.run.endedAt && !archived ? <BlockedCard run={t.run} employee={e} /> : null}
+              {retry && t.run.id === tail.id ? <div className="card-choices"><RetryButton run={t.run} name={name} /></div> : null}
             </div>
           ))}
         </div>
@@ -135,8 +142,9 @@ function Flags({ run }: { run: Run }) {
   );
 }
 
-/** The report that started the thread, as the employee's first message, with the pages its run showed above it. */
-function ReportTurn({ root, events, e, blocked, archived }: { root: Run; events: RunEvent[]; e: EmployeeView; blocked: boolean; archived: boolean }) {
+/** The report that started the thread, as the employee's first message, with the pages its run showed above it.
+ *  `retry`: it did not finish and nothing came after it, so it can be tried again. */
+function ReportTurn({ root, events, e, blocked, archived, retry }: { root: Run; events: RunEvent[]; e: EmployeeView; blocked: boolean; archived: boolean; retry: boolean }) {
   const failed = didNotFinish(root);
   return (
     <div className="turn">
@@ -152,6 +160,7 @@ function ReportTurn({ root, events, e, blocked, archived }: { root: Run; events:
           <RunCards run={root} e={e} />
           {events.map((ev, i) => ev.type === "visual" ? <Visual key={i} runId={root.id} id={ev.id} title={ev.title} /> : null)}
           {root.summary ? <Markdown text={root.summary} /> : <p className="muted">{failed ? root.error ?? "This run didn't finish." : "No report."}</p>}
+          {retry ? <div className="card-choices"><RetryButton run={root} name={firstName(e.name)} /></div> : null}
           {root.skillChanges.length ? <SkillsGrew run={root} /> : null}
           {blocked && root.denials.length > 0 ? <BlockedCard run={root} employee={e} /> : null}
           {!archived ? <TidyProposal run={root} employee={e} /> : null}
@@ -161,18 +170,46 @@ function ReportTurn({ root, events, e, blocked, archived }: { root: Run; events:
   );
 }
 
-/** Marks the thread with `rootId` done, which archives it. It leaves at once, with nothing to confirm; the Archive
- *  brings it back. Resolves false, having said why and put it back, when it failed. */
+/** Marks the thread with `rootId` done, which archives it with the rest of its row, except what still needs you. It
+ *  leaves at once, with nothing to confirm; when related runs went with it, it says how many, and Undo brings back
+ *  exactly what it filed. Resolves false, having said why and put it back, when it failed. */
 export async function markDone(rootId: string): Promise<boolean> {
   dropConversation(rootId);
+  let filed: string[];
   try {
-    await call("set_archived", { runId: rootId, archived: true });
+    filed = await call("set_archived", { runId: rootId, archived: true });
   } catch (err) {
     refreshConversations();
     toast(errorMessage(err), "err");
     return false;
   }
+  const also = filed.filter((id) => id !== rootId).length;
+  if (also) {
+    const undo = () => void call("unarchive_runs", { runIds: filed }).catch((err) => toast(errorMessage(err), "err"));
+    toast(`Done. Also filed ${also} related ${also === 1 ? "run" : "runs"}`, "ok", { label: "Undo", run: undo });
+  }
   return true;
+}
+
+/** Tries a run that did not finish again: it carries on from where it stopped, or a hand-off runs again for whoever
+ *  handed it over. It stays disabled once it went, while the retry takes over. */
+export function RetryButton({ run, name, disabled = false }: { run: Run; name: string; disabled?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try {
+      await call("retry_run", { runId: run.id });
+      toast(`${name} is trying again`, "ok");
+    } catch (err) {
+      toast(errorMessage(err), "err");
+      setBusy(false);
+    }
+  };
+  return (
+    <button className="btn btn-sm" disabled={disabled || busy} title="Try it again from where it stopped" onClick={() => void retry()}>
+      <Icon name="refresh" size={13} /> Retry
+    </button>
+  );
 }
 
 /** Brings a thread you marked done back, and offers Undo. */

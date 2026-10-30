@@ -56,6 +56,8 @@ export function RunView({ runId }: { runId: string }) {
   const label = runKindLabel(run.kind, names);
   const tone = runStateTone(run);
   const result = [...items].reverse().find((i) => i.kind === "result");
+  // Once its transcript is gone, the report kept on the run stands in for the last result.
+  const report = result?.kind === "result" ? result : detail.transcriptGone && run.summary ? { ok: run.state === "succeeded", text: run.summary } : null;
   const cancel = async () => {
     try { await call("cancel_run", { runId: run.id }); toast("Run cancelled", "ok"); }
     catch (x) { toast(errorMessage(x), "err"); }
@@ -94,6 +96,7 @@ export function RunView({ runId }: { runId: string }) {
             <p>{run.prompt}</p>
           </section>
           <SubAgents tasks={detail.tasks} runActive={!!live} />
+          {detail.transcriptGone ? <p className="muted" style={{ fontSize: "var(--t-sm)" }}>This run's transcript is no longer kept.</p> : null}
           <div className="rv-events">
             {items.map((it) => {
               switch (it.kind) {
@@ -116,15 +119,15 @@ export function RunView({ runId }: { runId: string }) {
           </div>
           {run.denials.length && e ? <Denials run={run} e={e} /> : null}
           <TidyProposal run={run} employee={e} />
-          {result && result.kind === "result" ? (
-            <section className={`rv-result ${result.ok ? "" : "rv-result-err"}`}>
+          {report ? (
+            <section className={`rv-result ${report.ok ? "" : "rv-result-err"}`}>
               <div className="rv-result-head">
-                <Icon name={result.ok ? "checkCircle" : "alert"} size={15} />
-                <span>{result.ok ? "Report" : "Didn't finish"}</span>
+                <Icon name={report.ok ? "checkCircle" : "alert"} size={15} />
+                <span>{report.ok ? "Report" : "Didn't finish"}</span>
                 <span className="grow" />
                 <span className="num faint">{duration(elapsedMs(run))}</span>
               </div>
-              {result.text ? <Markdown text={result.text} /> : <p className="muted">No report.</p>}
+              {report.text ? <Markdown text={report.text} /> : <p className="muted">No report.</p>}
               {run.skillChanges.length ? (
                 <div className="rv-grew">
                   <Icon name="sparkle" size={13} /> {e ? firstName(e.name) : "They"} changed {run.skillChanges.length} {run.skillChanges.length === 1 ? "skill" : "skills"} during this run.

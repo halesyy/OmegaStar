@@ -4,15 +4,20 @@ use super::*;
 
 /// Checks an employee may hold open at once; more means they are using the tool as a notebook.
 const MAX_OPEN_CHECKS: usize = 20;
+/// The soonest a check comes due: a check waits for something to show, it does not poll for it.
+const MIN_CHECK_HOURS: i64 = 6;
+/// What the schedule tool tells an employee whose routine runs more often than hourly on a heavier model.
+const LIGHT_MODEL_TIP: &str = "This routine runs more often than hourly. If each run is a simple check, set model \"haiku\" and effort \"low\" on it: it costs a fraction and finishes sooner.";
 
 impl Office {
-    fn with_next_fire(mut s: Schedule) -> Schedule {
-        s.next_fire = if s.enabled { schedule::next_fire(&s.cron, now(), &Local) } else { None };
+    fn with_next_fire(mut s: Schedule, hours: &BusinessHours) -> Schedule {
+        s.next_fire = if s.enabled { next_slot(&s, hours, now(), &Local) } else { None };
         s
     }
 
     pub fn schedules(&self, employee_id: &str) -> Result<Vec<Schedule>> {
-        Ok(self.db().schedules(employee_id)?.into_iter().map(Self::with_next_fire).collect())
+        let hours = self.settings()?.watch.hours;
+        Ok(self.db().schedules(employee_id)?.into_iter().map(|s| Self::with_next_fire(s, &hours)).collect())
     }
 
     pub fn save_schedule(&self, d: ScheduleDraft) -> Result<Schedule> {
@@ -38,6 +43,7 @@ impl Office {
                 model: d.model,
                 effort: d.effort,
                 review,
+                active_hours: d.active_hours,
                 next_fire: None,
             };
             // A new, re-timed or re-enabled schedule starts counting from now: it never fires for
@@ -50,7 +56,7 @@ impl Office {
             s
         };
         self.sink().org_changed();
-        Ok(Self::with_next_fire(s))
+        Ok(Self::with_next_fire(s, &self.settings()?.watch.hours))
     }
 
     pub fn delete_schedule(&self, id: &str) -> Result<()> {
@@ -60,7 +66,8 @@ impl Office {
     }
 
     /// Gives every employee the weekly review, once per office: a review someone deletes never returns. A
-    /// review still as first seeded gets today's instruction.
+    /// review still as first seeded gets today's instruction, and so does one an older build saved without
+    /// its flag, which gets the flag back. Either keeps its times, model and effort.
     pub(super) fn seed_reviews(&self) -> Result<()> {
         let db = self.db();
         if db.reviews_seeded()? {
@@ -68,7 +75,12 @@ impl Office {
             let (old, new) = (first_review_instruction(&ceo), review_instruction(&ceo));
             return db.tx(|| {
                 for (mut s, last) in db.all_schedules()? {
-                    if s.review && s.instruction == old {
+                    let unflagged = lost_review_flag(&s);
+                    if unflagged || (s.review && s.instruction == old) {
+                        if unflagged {
+                            log!("schedule {} is the weekly review again: an older build saved it without its flag", s.id);
+                        }
+                        s.review = true;
                         s.instruction = new.clone();
                         db.save_schedule(&s, last)?;
                     }
@@ -101,6 +113,7 @@ impl Office {
             model: None,
             effort: None,
             review: true,
+            active_hours: false,
             next_fire: None,
         };
         db.save_schedule(&s, now())
@@ -115,7 +128,8 @@ impl Office {
     pub fn tick(&self, now: Ts) -> Result<()> {
         let created = {
             let db = self.db();
-            if db.settings()?.map(|s| s.paused).unwrap_or(false) {
+            let settings = db.settings()?.unwrap_or_default();
+            if settings.paused {
                 return Ok(());
             }
             let mut created = vec![];
@@ -128,6 +142,10 @@ impl Office {
                     Due::Nothing => {}
                     Due::Fire(slot) => {
                         db.set_last_slot(&s.id, slot)?;
+                        // Kept to business hours: a slot outside them is skipped, never caught up later.
+                        if s.active_hours && !watch::in_hours(slot, &settings.watch.hours, &Local) {
+                            continue;
+                        }
                         if db.schedule_has_queued_run(&s.id)? {
                             continue;
                         }
@@ -202,32 +220,52 @@ impl Office {
         if !(0.0..=180.0).contains(&days) {
             return Err(AppError::invalid("inDays must be between 0 and 180"));
         }
-        let c = {
+        let minutes = (days * 24.0 * 60.0) as i64;
+        let raised = minutes < MIN_CHECK_HOURS * 60;
+        let (c, moved) = {
             let db = self.db();
-            if db.checks(&caller.id, Some(CheckState::Open))?.len() >= MAX_OPEN_CHECKS {
-                return Err(AppError::conflict(format!("you already hold {MAX_OPEN_CHECKS} open checks: close some with check_done before adding more")));
-            }
             let at = now();
-            let c = Check {
-                id: uuid::Uuid::new_v4().to_string(),
-                employee_id: caller.id.clone(),
-                what,
-                how,
-                due_at: at + chrono::Duration::minutes((days * 24.0 * 60.0) as i64),
-                state: CheckState::Open,
-                created_at: at,
-                run_id: Some(run_id.to_string()),
-                closed_at: None,
-                result: None,
-            };
-            db.save_check(&c)?;
-            c
+            let due_at = at + chrono::Duration::minutes(minutes.max(MIN_CHECK_HOURS * 60));
+            let open = db.checks(&caller.id, Some(CheckState::Open))?;
+            // The check this run is doing closes with check_done, so setting it again is a new check.
+            let doing = db.run(run_id)?.and_then(|r| r.run.kind.check_id().map(String::from));
+            match open.iter().find(|c| Some(&c.id) != doing.as_ref() && same_check(&c.what, &what)) {
+                Some(c) => {
+                    let c = Check { due_at, ..c.clone() };
+                    db.save_check(&c)?;
+                    (c, true)
+                }
+                None => {
+                    if open.len() >= MAX_OPEN_CHECKS {
+                        return Err(AppError::conflict(format!("you already hold {MAX_OPEN_CHECKS} open checks: close some with check_done before adding more")));
+                    }
+                    let c = Check {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        employee_id: caller.id.clone(),
+                        what,
+                        how,
+                        due_at,
+                        state: CheckState::Open,
+                        created_at: at,
+                        run_id: Some(run_id.to_string()),
+                        closed_at: None,
+                        result: None,
+                    };
+                    db.save_check(&c)?;
+                    (c, false)
+                }
+            }
         };
         self.sink().org_changed();
-        Ok(json!({
-            "check": c,
-            "note": "On its due date Omega Star starts a quiet run of yours to do it. Do not also leave it as a note in a skill or promise it in your report."
-        }))
+        let mut note = String::new();
+        if raised {
+            note.push_str(&format!("Checks come due at least {MIN_CHECK_HOURS} hours out, so this one is due in {MIN_CHECK_HOURS} hours. "));
+        }
+        if moved {
+            note.push_str("You already had this check open, so it moved to the new date instead of adding another. ");
+        }
+        note.push_str("On its due date Omega Star starts a quiet run of yours to do it. Do not also leave it as a note in a skill or promise it in your report.");
+        Ok(json!({ "check": c, "note": note }))
     }
 
     pub fn my_checks(&self, caller: &Employee) -> Result<Value> {
@@ -288,6 +326,35 @@ fn due_check_runs(mut checks: Vec<Check>, busy: &HashSet<String>, departed: &Has
         .collect()
 }
 
+/// Two checks are about the same thing when their `what` reads the same, whatever the case and spacing. Pure.
+fn same_check(a: &str, b: &str) -> bool {
+    a.split_whitespace().map(str::to_lowercase).eq(b.split_whitespace().map(str::to_lowercase))
+}
+
+/// The next slot `s` runs at after `after`. One kept to business hours skips the slots outside them,
+/// looking up to a year or 20,000 slots ahead (two weeks of a routine that runs every minute). Pure.
+fn next_slot<Tz: chrono::TimeZone>(s: &Schedule, hours: &BusinessHours, after: Ts, tz: &Tz) -> Option<Ts> {
+    let mut slots = schedule::parse(&s.cron).ok()?.iter_after(after.with_timezone(tz)).map(|t| t.with_timezone(&Utc));
+    if !s.active_hours {
+        return slots.next();
+    }
+    let until = after + chrono::Duration::days(366);
+    slots.take_while(|t| *t <= until).take(20_000).find(|t| watch::in_hours(*t, hours, tz))
+}
+
+/// Whether `cron` runs more often than hourly: two of its next dozen slots are under an hour apart. Pure.
+fn more_than_hourly<Tz: chrono::TimeZone>(cron: &str, after: Ts, tz: &Tz) -> bool {
+    let Ok(cron) = schedule::parse(cron) else { return false };
+    let next: Vec<Ts> = cron.iter_after(after.with_timezone(tz)).take(12).map(|t| t.with_timezone(&Utc)).collect();
+    next.windows(2).any(|w| w[1] - w[0] < chrono::Duration::hours(1))
+}
+
+/// What the schedule tool adds for a routine that runs more often than hourly on a model heavier than Haiku.
+pub(super) fn light_model_tip(s: &Schedule) -> Option<&'static str> {
+    let light = s.model.as_deref().is_some_and(|m| m.to_ascii_lowercase().contains("haiku"));
+    (!light && more_than_hourly(&s.cron, now(), &Local)).then_some(LIGHT_MODEL_TIP)
+}
+
 /// The instruction of a due check's run.
 fn check_prompt(c: &Check, ceo: &str) -> String {
     format!(
@@ -314,6 +381,12 @@ fn review_instruction(ceo: &str) -> String {
 7. Read what-you-own.md in your folder. If it is empty or out of date, write the version you propose there: the number you answer for, your limits, and what you decide alone. Omega Star puts the file back and shows {ceo} your version: only they set it.
 Your report is one sentence on what you changed this week. Your number and your cards already reach {ceo}: do not repeat them."
     )
+}
+
+/// A weekly review an older build saved without its flag, known by the name and opening Omega Star gave
+/// it. It runs as a plain routine: no brief, and report_number refuses it. Pure.
+fn lost_review_flag(s: &Schedule) -> bool {
+    !s.review && s.label == "Weekly review" && s.instruction.trim_start().starts_with("Your weekly review.")
 }
 
 /// The weekly review's instruction as Omega Star seeded it before reviews recorded a number, so a review
@@ -536,26 +609,7 @@ mod tests {
         let db = Store::open(&dir.join("office.db")).unwrap();
         db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
         let hire = |slug: &str| {
-            let e = Employee {
-                id: uuid::Uuid::new_v4().to_string(),
-                slug: slug.into(),
-                name: slug.into(),
-                title: "Tester".into(),
-                description: String::new(),
-                objective: String::new(),
-                manager_id: None,
-                skills: SkillGrant { builtins: false, keys: vec![] },
-                clearance: Clearance::Supervised,
-                allow_rules: vec![],
-                model: None,
-                effort: None,
-                browser: false,
-                auto_tidy: false,
-                workspaces: vec![],
-                hue: 0,
-                chat_session: format!("chat-{slug}"),
-                hired_at: now(),
-            };
+            let e = employee(slug);
             db.save_employee(&e).unwrap();
             e
         };
@@ -635,6 +689,7 @@ mod tests {
             model: None,
             effort: None,
             review: true,
+            active_hours: false,
             next_fire: None,
         };
         assert_eq!(slot_prompt(&db, &review("Count the signups."), &bo, t).unwrap(), "Count the signups.", "the employee's own edit stands");
@@ -648,14 +703,11 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    #[tokio::test]
-    async fn every_employee_gets_one_review_once() {
-        let dir = std::env::temp_dir().join(format!("omegastar-schedules-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        let ada = Employee {
+    fn employee(slug: &str) -> Employee {
+        Employee {
             id: uuid::Uuid::new_v4().to_string(),
-            slug: "ada".into(),
-            name: "Ada".into(),
+            slug: slug.into(),
+            name: slug.into(),
             title: "Tester".into(),
             description: String::new(),
             objective: String::new(),
@@ -667,18 +719,48 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![],
             hue: 0,
-            chat_session: "chat-ada".into(),
+            chat_session: format!("chat-{slug}"),
             hired_at: now(),
-        };
+        }
+    }
+
+    /// An office of Pat's at Acme with `e` on it, and its folder.
+    async fn office_with(e: &Employee) -> (Office, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("omegastar-schedules-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
-            db.save_employee(&ada).unwrap();
+            db.save_employee(e).unwrap();
         }
+        (Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap(), dir)
+    }
 
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+    fn routine(employee_id: &str, cron: &str) -> Schedule {
+        Schedule {
+            id: "s1".into(),
+            employee_id: employee_id.into(),
+            label: "Inbox sweep".into(),
+            cron: cron.into(),
+            instruction: "Sweep the inbox.".into(),
+            enabled: true,
+            misfire: Misfire::CatchUp,
+            quiet: true,
+            model: None,
+            effort: None,
+            review: false,
+            active_hours: false,
+            next_fire: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn every_employee_gets_one_review_once() {
+        let ada = employee("ada");
+        let (office, dir) = office_with(&ada).await;
         let reviews = office.schedules(&ada.id).unwrap();
         assert_eq!(reviews.len(), 1);
         let r = &reviews[0];
@@ -698,6 +780,7 @@ mod tests {
             quiet: false,
             model: None,
             effort: None,
+            active_hours: false,
         };
         assert!(office.save_schedule(draft).unwrap().review);
 
@@ -709,5 +792,156 @@ mod tests {
 
         drop(office);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_review_saved_without_its_flag_is_the_review_again() {
+        let ada = employee("ada");
+        let (office, dir) = office_with(&ada).await;
+        let seeded = Schedule { next_fire: None, ..office.schedules(&ada.id).unwrap().remove(0) };
+        // As an older build left it: no flag and the first wording, moved to another day, off, on a model of its own.
+        let lost = Schedule {
+            review: false,
+            instruction: first_review_instruction("Pat"),
+            cron: "30 15 * * 1".into(),
+            enabled: false,
+            model: Some("sonnet".into()),
+            effort: Some(Effort::High),
+            ..seeded.clone()
+        };
+        let named_alike = Schedule { id: "s2".into(), review: false, instruction: "Count the signups.".into(), ..seeded.clone() };
+        let worded_alike = Schedule { id: "s3".into(), review: false, label: "Monday report".into(), ..lost.clone() };
+        let last: Ts = "2026-10-19T04:30:00Z".parse().unwrap();
+        for s in [&lost, &named_alike, &worded_alike] {
+            office.db().save_schedule(s, last).unwrap();
+        }
+
+        office.seed_reviews().unwrap();
+        let (fixed, fixed_last) = office.db().schedule(&lost.id).unwrap().unwrap();
+        assert_eq!(fixed, Schedule { review: true, instruction: review_instruction("Pat"), ..lost.clone() }, "the flag and today's wording, nothing else");
+        assert_eq!(fixed_last, last, "it counts its slots on from where it was");
+        for s in [&named_alike, &worded_alike] {
+            assert_eq!(office.db().schedule(&s.id).unwrap().unwrap().0, *s, "{} is not a review", s.instruction);
+        }
+        let brief = slot_prompt(&office.db(), &fixed, &ada, now()).unwrap();
+        assert!(brief.starts_with(&review_instruction("Pat")), "it runs as the review again");
+
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_check_comes_due_six_hours_out_at_the_soonest() {
+        let ada = employee("ada");
+        let (office, dir) = office_with(&ada).await;
+        let set = |days: f64| office.check_later_tool("run-1", &ada, &json!({ "what": format!("Is the build green after {days} days?"), "how": "Open the CI page", "inDays": days })).unwrap();
+
+        let soon = set(0.1);
+        let c: Check = serde_json::from_value(soon["check"].clone()).unwrap();
+        assert_eq!(c.due_at - c.created_at, chrono::Duration::hours(MIN_CHECK_HOURS));
+        assert!(soon["note"].as_str().unwrap().starts_with("Checks come due at least 6 hours out, so this one is due in 6 hours. On its due date"));
+        let later = set(0.5);
+        let c: Check = serde_json::from_value(later["check"].clone()).unwrap();
+        assert_eq!(c.due_at - c.created_at, chrono::Duration::hours(12));
+        assert!(later["note"].as_str().unwrap().starts_with("On its due date"));
+
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn setting_a_check_again_moves_the_open_one() {
+        let ada = employee("ada");
+        let (office, dir) = office_with(&ada).await;
+        let set = |what: &str, days: f64, run_id: &str| office.check_later_tool(run_id, &ada, &json!({ "what": what, "how": "Open the store listing", "inDays": days }));
+        let first: Check = serde_json::from_value(set("Did the listing go live?", 1.0, "run-1").unwrap()["check"].clone()).unwrap();
+
+        // Its own run sets it again for later: that run closes this one with check_done, so it is a new check.
+        let doing = due_check_runs(vec![first.clone()], &HashSet::new(), &HashSet::new(), "Pat", now()).remove(0);
+        office.db().insert_run(&doing, &doing.id).unwrap();
+        let next: Check = serde_json::from_value(set("Did the listing go live?", 1.0, &doing.id).unwrap()["check"].clone()).unwrap();
+        assert_ne!(next.id, first.id);
+        office.check_done_tool(&ada, &first.id, "Still in review.").unwrap();
+
+        for i in 1..MAX_OPEN_CHECKS {
+            office.db().save_check(&check(&ada.id, &format!("Did week {i} close?"), now() + chrono::Duration::days(1))).unwrap();
+        }
+        assert!(set("Something new?", 1.0, "run-2").unwrap_err().message.contains("20 open checks"));
+        let before = now();
+        let again = set("  did the LISTING go   live? ", 2.0, "run-2").unwrap();
+        let after = now();
+        let moved: Check = serde_json::from_value(again["check"].clone()).unwrap();
+        assert_eq!((moved.id.as_str(), moved.created_at, moved.what.as_str()), (next.id.as_str(), next.created_at, next.what.as_str()), "the same check, even at the cap");
+        assert!(moved.due_at >= before + chrono::Duration::days(2) && moved.due_at <= after + chrono::Duration::days(2));
+        assert!(again["note"].as_str().unwrap().starts_with("You already had this check open, so it moved to the new date instead of adding another."));
+        assert_eq!(office.checks(&ada.id).unwrap().iter().filter(|c| c.state == CheckState::Open).count(), MAX_OPEN_CHECKS);
+        assert_eq!(office.db().check(&next.id).unwrap().unwrap().due_at, moved.due_at);
+
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_schedule_kept_to_business_hours_skips_slots_outside_them() {
+        use chrono::TimeZone;
+        let ada = employee("ada");
+        let (office, dir) = office_with(&ada).await;
+        // 9 to 5, Monday to Friday, on this computer's clock. 8 November 2026 is a Sunday.
+        let slot = |day: u32, hour: u32| Local.with_ymd_and_hms(2026, 11, day, hour, 0, 0).unwrap().with_timezone(&Utc);
+        let tick = |day: u32, hour: u32| office.tick(slot(day, hour) + chrono::Duration::minutes(5)).unwrap();
+        let runs = || office.db().recent_runs(Some(&ada.id), 10).unwrap();
+        office.delete_schedule(&office.schedules(&ada.id).unwrap()[0].id).unwrap(); // the weekly review
+        let s = Schedule { active_hours: true, ..routine(&ada.id, "0 * * * *") };
+        office.db().save_schedule(&s, slot(7, 22)).unwrap();
+
+        tick(8, 3);
+        assert!(runs().is_empty(), "nothing at 3 am on a Sunday");
+        assert_eq!(office.db().schedule(&s.id).unwrap().unwrap().1, slot(8, 3), "the slot is spent, not kept for later");
+        tick(9, 8);
+        assert!(runs().is_empty(), "nor at 8 am on Monday");
+        tick(9, 10);
+        let got = runs();
+        assert_eq!(got.len(), 1, "10 am on Monday runs");
+        assert!(matches!(&got[0].kind, RunKind::Scheduled { slot: at, .. } if *at == slot(9, 10)));
+
+        office.db().save_schedule(&Schedule { id: "s2".into(), active_hours: false, ..s.clone() }, slot(9, 22)).unwrap();
+        tick(9, 23);
+        assert_eq!(runs().len(), 2, "only the routine kept to business hours skips 11 pm");
+
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_next_run_of_a_routine_kept_to_business_hours_is_inside_them() {
+        let hours = BusinessHours::default();
+        let friday_evening: Ts = "2026-11-06T18:10:00Z".parse().unwrap();
+        let s = Schedule { active_hours: true, ..routine("ada", "*/30 * * * *") };
+        assert_eq!(next_slot(&s, &hours, friday_evening, &Utc), Some("2026-11-09T09:00:00Z".parse().unwrap()), "Monday at 9");
+        let any_time = Schedule { active_hours: false, ..s.clone() };
+        assert_eq!(next_slot(&any_time, &hours, friday_evening, &Utc), Some("2026-11-06T18:30:00Z".parse().unwrap()));
+        let nightly = Schedule { cron: "0 3 * * *".into(), ..s.clone() };
+        assert_eq!(next_slot(&nightly, &hours, friday_evening, &Utc), None, "it never runs");
+        let monthly = Schedule { cron: "0 10 1 * *".into(), ..s.clone() };
+        assert_eq!(next_slot(&monthly, &hours, friday_evening, &Utc), Some("2026-12-01T10:00:00Z".parse().unwrap()), "a Tuesday");
+        let every_minute = Schedule { cron: "* * * * *".into(), ..s.clone() };
+        assert_eq!(next_slot(&every_minute, &hours, friday_evening, &Utc), Some("2026-11-09T09:00:00Z".parse().unwrap()));
+        let yearly = Schedule { cron: "0 3 1 1 *".into(), active_hours: false, ..s.clone() };
+        assert_eq!(next_slot(&yearly, &hours, friday_evening, &Utc), Some("2027-01-01T03:00:00Z".parse().unwrap()), "any time, however far");
+    }
+
+    #[test]
+    fn a_routine_more_often_than_hourly_is_told_about_haiku() {
+        let friday_evening: Ts = "2026-11-06T18:10:00Z".parse().unwrap();
+        for (cron, frequent) in [("*/30 * * * *", true), ("*/30 9-17 * * 1-5", true), ("0 * * * *", false), ("0 9,10 * * *", false), ("0 9 * * 1-5", false), ("now and then", false)] {
+            assert_eq!(more_than_hourly(cron, friday_evening, &Utc), frequent, "{cron}");
+        }
+        let on = |cron: &str, model: Option<&str>| light_model_tip(&Schedule { model: model.map(String::from), ..routine("ada", cron) });
+        assert_eq!(on("*/15 * * * *", None), Some(LIGHT_MODEL_TIP));
+        assert_eq!(on("*/15 * * * *", Some("sonnet")), Some(LIGHT_MODEL_TIP));
+        assert_eq!(on("*/15 * * * *", Some("haiku")), None);
+        assert_eq!(on("*/15 * * * *", Some("claude-haiku-5-5")), None);
+        assert_eq!(on("0 9 * * 1-5", None), None);
+        assert!(!LIGHT_MODEL_TIP.contains('\u{2014}'));
     }
 }

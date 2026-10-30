@@ -2717,6 +2717,7 @@ dependencies = [
  "croner",
  "dirs 7.0.0",
  "junction",
+ "libc",
  "objc2",
  "objc2-foundation",
  "reqwest",

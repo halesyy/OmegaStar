@@ -92,12 +92,16 @@ When this list and your role skill disagree, this list is right: fix your role s
             h += &format!("- **{}** (`{}`), {}: {}\n", r.name, r.slug, r.title, one_line(&r.objective));
         }
         h += &format!(
-            "\nHand work down with the `omega` tools. `team` shows who is free and what they did last. `delegate(to, task)` \
-hands one report a self-contained task (what, why, and what done looks like) and returns a run id. Their report always \
-comes back to you, even after your run has ended: Omega Star starts a run for you when it arrives, in the conversation \
-you handed it over from (as its next turn, when {ceo} started that conversation). So wait for it with `await_reports(runIds)` only when it should take a few minutes and \
-you need it before you finish; otherwise finish now. What your reports finish on their own reaches you at the start of \
-your next run. Only your direct reports take delegated work from you.\n\n"
+            "\nHand work down with the `omega` tools. `team` shows who is free, what they did last and how many tasks you \
+handed them today. `delegate(to, task)` hands one report a self-contained task (what, why, and what done looks like) and \
+returns a run id. Outside a conversation with {ceo}, a report takes at most 4 tasks a day from you: plan the rest for the \
+next day. Their report always comes back to you, even after your run has ended. A task handed over in a conversation {ceo} \
+started comes back as that conversation's next turn. Any other report waits for your next run, which finds it at the top, \
+or comes in one run with every report held for you once 30 minutes pass without a new one. So wait for it with \
+`await_reports(runIds)` only when it should take a few minutes and you need it before you finish; otherwise finish now. \
+What your reports finish on their own reaches you at the start of your next run. Only your direct reports take delegated \
+work from you. When a chain of hand-offs grows long, Omega Star pauses the next task and sends it by itself an hour later: \
+never send it again yourself.\n\n"
         );
     }
 
@@ -116,17 +120,22 @@ your next run. Only your direct reports take delegated work from you.\n\n"
             h += "\n";
         }
         h += &format!(
-            "\nWork across the team with `ask_colleague(to, question, kind)`. It starts a run for the colleague and \
-returns its run id:\n\
+            "\nWork across the team with `ask_colleague(to, question, kind)`. A question or a task starts a run for the \
+colleague and returns its run id:\n\
 - `kind: \"question\"` when something falls in their area and not yours (a security questionnaire for the security \
 engineer, say): ask rather than guess. They answer and change nothing.\n\
 - `kind: \"task\"` when work in their area is ready for them: {ceo} approved something they proposed, or you pass on \
 news they must act on (\"the Entra app is registered, install the server\"). Say what done looks like. Omega Star shows \
 them where the work began, and they treat any approval it does not show as your own request. Never ask {ceo} to relay \
 a task to a colleague: hand it over yourself.\n\
+- `kind: \"info\"` for news that needs no answer and no work from them: it starts no run, and they read it at the top of \
+their next run. `to: \"everyone\"` sends it to every colleague. When you raise a card in work a colleague handed you, its \
+outcome already reaches them, so never send a separate notice about it.\n\
 - Their answer or report always comes back to you, even after your run has ended. Wait for it with \
 `await_reports(runIds)` only when it should take a few minutes; otherwise finish, and Omega Star starts a run for you \
-when it arrives.\n\
+when it arrives. If they have not started your earlier question or task yet, Omega Star adds the new one to it.\n\
+- When a chain of hand-offs grows long, Omega Star pauses the next one and sends it by itself an hour later. The pause is \
+Omega Star's, not your colleague's: never send it again, set a check for it, or say they declined.\n\
 - Only when it genuinely helps: never for what you can find or do yourself. Put everything they need in the \
 message, since they see nothing of your run.\n\n"
         );
@@ -181,7 +190,9 @@ frequent, simple check can run lighter (`model: \"haiku\"`, `effort: \"low\"`); 
 keeps your usual model and effort.\n\
 - `notify` puts one decision in front of {ceo} as a card in their Inbox, with the answer built in, and sends a desktop \
 notification. Give `choices` (1 to 4 ways to go ahead; mark the one you recommend), `items` for a list they approve one by one, or \
-`chore` for something only they can do (reconnect Chrome, sign in to a site). The card is all they read, so it stands alone:\n\
+`chore` for something only they can do (reconnect Chrome, sign in to a site). Before a Chrome chore, call \
+`list_connected_browsers` and try again for up to a minute: the extension often reconnects by itself. The card is all they \
+read, so it stands alone:\n\
   - `message`: the question, at most 80 characters, e.g. \"Merge PR #12, the pricing page?\"\n\
   - `why`: one line, at most 140 characters: what it changes or costs.\n\
   - `key`: what it is about, e.g. `pr:12`. Use the same key whenever you or a colleague ask about the same thing: {ceo} sees \
@@ -453,8 +464,24 @@ standing rules, or hand the next step to whoever owns it. Then tell {ceo} in a f
 Anything still waiting on {ceo} after this message is a card (`notify`): they may close this conversation without reading on. \
 If nothing is left to do, say so in one line."
                 )
+            } else if !run.reports.is_empty() {
+                // Reports Omega Star held for a manager, brought together.
+                let session = if s.resume { " This session is the run you handed the work over from." } else { NEW_SESSION };
+                let (came, origin, it) = match run.reports.len() {
+                    1 => (format!("{from} {did} after your run had ended. Omega Star held the report for you, and it is below."), origin, "it"),
+                    n => (
+                        format!("Your team finished {n} tasks you handed them after your run had ended. Omega Star held the reports to bring them to you together, and they are below."),
+                        String::new(),
+                        "them",
+                    ),
+                };
+                format!(
+                    "{came}{session}{origin} Review {it} now: act on what needs it, and tell whoever needs to know. Hand out a next \
+task only when it clearly pays off; a report needs no reply. If something now waits on {ceo}, put it to them on a card \
+(`notify`). If nothing is left to do, say so in one line. {autonomous}"
+                )
             } else {
-                let session = if s.resume { " This session is the run you asked from." } else { "" };
+                let session = if s.resume { " This session is the run you asked from." } else { NEW_SESSION };
                 format!(
                     "{from} {did} after your run had ended; it is below.{session}{origin} Close the loop now: finish the work \
 that was waiting on it, tell whoever needs to know, or hand the next step to whoever owns it. If it now waits on {ceo}, put \
@@ -529,6 +556,8 @@ pub fn first_message(s: &Snapshot, run: &Run) -> String {
 const WORK_LINES: usize = 12;
 const TEAM_LINES: usize = 8;
 const NOTE_LINES: usize = 8;
+/// An answer that starts a fresh session, rather than resume the one it was asked from, finds its footing here.
+const NEW_SESSION: &str = " This is a new session: your notes in `workspace/` hold where your work stands.";
 
 fn ended(r: &Run) -> Ts {
     r.ended_at.unwrap_or(r.created_at)
@@ -636,16 +665,29 @@ fn newest_first(mut lines: Vec<(Ts, String)>, max: usize) -> Vec<String> {
     v
 }
 
-/// The note at the top of a run's first message: the time, what waits, what the employee did lately,
-/// what their team finished, what else is running and which notes changed. With `since`, only what is
-/// new since then. `None` when the run gets no note, and for a quiet routine with nothing new, so its
-/// first message stays the same from run to run.
+/// The note at the top of a run's first message: the time, news from colleagues and the reports held for
+/// the employee, what waits and which of their cards were replaced, what they did lately, what their team
+/// finished, what else is running and which notes changed. With `since`, only what is new since then.
+/// `None` when the run gets no note, and for a quiet routine with nothing new, so its first message stays
+/// the same from run to run.
 fn opening_note(s: &Snapshot, run: &Run) -> Option<String> {
     let o = s.opening.as_ref()?;
     let ceo = &s.company.ceo_name;
     let since = o.since.is_some();
     let new = |t: Ts| o.since.map_or(true, |since| t > since);
     let mut sections: Vec<(String, Vec<String>)> = vec![];
+
+    let news = o.news.iter().map(|(at, who, text)| format!("{who}, {}: {}", local_time(*at), clip(&one_line(text), 1500))).collect();
+    sections.push(("News from colleagues. It needs no reply:".into(), news));
+    let held = o
+        .held
+        .iter()
+        .map(|(who, task, report)| format!("{who}. Task: {}\n  Report: {}", clip(&one_line(task), 1500), clip(&one_line(report), 6000)))
+        .collect();
+    sections.push((
+        "Reports from your team that came back after your run had ended. They reach you only here, so act on each in this run:".into(),
+        held,
+    ));
 
     let mut waiting = vec![];
     for c in o.checks.iter().filter(|c| c.due_at <= o.now && new(c.due_at)) {
@@ -686,6 +728,16 @@ fn opening_note(s: &Snapshot, run: &Run) -> Option<String> {
         ));
     }
     sections.push((if since { "Waiting, new since your last turn here:" } else { "Waiting:" }.into(), waiting));
+
+    let replaced = o
+        .replaced
+        .iter()
+        .map(|(at, c)| {
+            let key = c.key.as_deref().map(|k| format!(" (key `{}`)", crate::cards::key_label(k))).unwrap_or_default();
+            format!("\"{}\"{key} was replaced by a newer card on {}, so it is no longer in {ceo}'s Inbox.", clip(&one_line(&c.message), 300), local_time(*at))
+        })
+        .collect();
+    sections.push((format!("Your cards replaced since your last run. Ask again only if one still needs {ceo}:"), replaced));
 
     let what = |r: &Run| match &r.kind {
         RunKind::Chat | RunKind::Answered { chat: true, .. } => format!("conversation with {ceo}"),
@@ -763,7 +815,7 @@ correction, change the step that would have prevented it; otherwise change nothi
 {place} without reading on."
     );
     if card {
-        t += &format!(" This is {ceo}'s answer to your card, sent with a tap. Carry on with the work that was waiting on it.");
+        t += &format!(" This is {ceo}'s answer to your card. Carry on with the work that was waiting on it.");
     }
     t
 }
@@ -922,6 +974,7 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![],
             hue: 0,
             chat_session: "chat-ada".into(),
@@ -1000,6 +1053,7 @@ mod tests {
             model: Some("haiku".into()),
             effort: Some(Effort::Low),
             review: false,
+            active_hours: false,
             next_fire: None,
         };
         let mut review = schedule("Weekly review");
@@ -1026,7 +1080,7 @@ mod tests {
         for text in [&task, &reply, &talk(&s, "conversation", false)] {
             assert!(!text.contains("which skill changed"), "{text}");
         }
-        assert!(reply.contains("This is Pat's answer to your card, sent with a tap."), "{reply}");
+        assert!(reply.contains("This is Pat's answer to your card. Carry on"), "{reply}");
     }
 
     #[test]
@@ -1051,7 +1105,9 @@ mod tests {
         let manual = frame(&s, &run(RunKind::Manual));
         assert!(manual.starts_with("Pat started this run from the app. Nobody is watching"), "{manual}");
         s.reports = vec![Report { name: "Bo".into(), slug: "bo".into(), title: "Ops".into(), objective: String::new() }];
-        assert!(handbook(&s).contains("in the conversation you handed it over from (as its next turn, when Pat started that conversation). So wait"));
+        let h = handbook(&s);
+        assert!(h.contains("A task handed over in a conversation Pat started comes back as that conversation's next turn. Any other report waits for your next run"), "{h}");
+        assert!(h.contains("Outside a conversation with Pat, a report takes at most 4 tasks a day from you"), "{h}");
         s.people = vec![Person {
             id: "p1".into(),
             name: "Sam".into(),
@@ -1183,5 +1239,84 @@ mod tests {
             let lower = t.to_lowercase();
             assert!(!lower.contains("your chat") && !lower.contains("ongoing chat"), "{t}");
         }
+    }
+
+    #[test]
+    fn the_opening_note_brings_news_held_reports_and_replaced_cards() {
+        let now = chrono::Utc::now();
+        let mut card = Card::new("Book the bigger room?", None, Some("ask:room".into()), CardAsk::Choices { choices: vec!["Book".into()], recommended: 0 });
+        card.answer = Some(CardAnswer { at: now, how: AnswerHow::Replaced, text: String::new(), held: false });
+        let o = Opening {
+            now,
+            news: vec![(now, "Bo".into(), "The new opening hours are up.".into())],
+            held: vec![("Cy".into(), "Count the till.".into(), "The till holds 40 coins.\nAll counted.".into())],
+            replaced: vec![(now, card)],
+            ..Opening::default()
+        };
+        let mut s = snap();
+        s.opening = Some(o);
+        let text = first_message(&s, &run(RunKind::Manual));
+        assert!(text.contains("\n\nNews from colleagues. It needs no reply:\n- Bo, "), "{text}");
+        assert!(text.contains(": The new opening hours are up.\n"), "{text}");
+        assert!(
+            text.contains(
+                "\n\nReports from your team that came back after your run had ended. They reach you only here, so act on each in this run:\n\
+- Cy. Task: Count the till.\n  Report: The till holds 40 coins. All counted.\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("\n\nYour cards replaced since your last run. Ask again only if one still needs Pat:\n- \"Book the bigger room?\" (key `room`) was replaced by a newer card on "),
+            "{text}"
+        );
+        assert!(text.contains(", so it is no longer in Pat's Inbox."), "{text}");
+        assert!(text.find("News from colleagues").unwrap() < text.find("Reports from your team").unwrap(), "news comes first: {text}");
+        assert!(!text.contains('\u{2014}'), "{text}");
+    }
+
+    #[test]
+    fn held_reports_come_with_a_frame_of_their_own() {
+        let mut s = snap();
+        s.counterpart = Some(("Bo".into(), "Ops".into()));
+        let came = |reports: usize| {
+            let mut r = run(RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: true, chat: false, thread: None });
+            r.reports = (0..reports).map(|i| format!("r{i}")).collect();
+            r
+        };
+        let one = frame(&s, &came(1));
+        assert!(
+            one.starts_with("Bo finished the task you handed them after your run had ended. Omega Star held the report for you, and it is below. This is a new session: your notes in `workspace/` hold where your work stands. Review it now"),
+            "{one}"
+        );
+        assert!(one.contains("Hand out a next task only when it clearly pays off; a report needs no reply."), "{one}");
+        let two = frame(&s, &came(2));
+        assert!(two.starts_with("Your team finished 2 tasks you handed them after your run had ended."), "{two}");
+        assert!(two.contains("Review them now"), "{two}");
+        let single = frame(&s, &came(0));
+        assert!(single.starts_with("Bo finished the task you handed them after your run had ended; it is below. This is a new session"), "{single}");
+        s.resume = true;
+        assert!(frame(&s, &came(0)).contains("it is below. This session is the run you asked from."));
+        assert!(frame(&s, &came(1)).contains("it is below. This session is the run you handed the work over from."));
+        for t in [one, two, single] {
+            assert!(!t.contains('\u{2014}'), "{t}");
+        }
+    }
+
+    #[test]
+    fn the_handbook_explains_news_pauses_and_chrome() {
+        let mut s = snap();
+        s.colleagues = vec![Colleague { name: "Bo".into(), slug: "bo".into(), title: "Ops".into(), objective: String::new(), description: String::new() }];
+        let h = handbook(&s);
+        for want in [
+            "- `kind: \"info\"` for news that needs no answer and no work from them: it starts no run, and they read it at the top of their next run.",
+            "`to: \"everyone\"` sends it to every colleague.",
+            "When you raise a card in work a colleague handed you, its outcome already reaches them, so never send a separate notice about it.",
+            "If they have not started your earlier question or task yet, Omega Star adds the new one to it.",
+            "The pause is Omega Star's, not your colleague's: never send it again, set a check for it, or say they declined.",
+            "Before a Chrome chore, call `list_connected_browsers` and try again for up to a minute: the extension often reconnects by itself.",
+        ] {
+            assert!(h.contains(want), "{want}: {h}");
+        }
+        assert!(!h.contains("several hand-offs deep"), "{h}");
     }
 }

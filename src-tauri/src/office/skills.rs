@@ -395,7 +395,9 @@ impl Office {
         self.enqueue_tidy(employee_id, TidyReason::Manual, "you asked for one", None)
     }
 
-    /// You approved the bigger changes a tidy proposed: a second run makes exactly those.
+    /// You approved the bigger changes a tidy proposed: a second run makes exactly those. Asking about them first
+    /// decides nothing. A proposal you archived waits until you reopen it, so one an older build approved (it left
+    /// them archived, with no mark of their own) is never approved twice.
     pub fn approve_tidy(&self, run_id: &str) -> Result<Run> {
         let (run, plan) = {
             let db = self.db();
@@ -407,8 +409,11 @@ impl Office {
                 return Err(AppError::conflict("wait for the tidy to finish"));
             }
             let plan = run.proposed.clone().filter(|p| !p.trim().is_empty()).ok_or_else(|| AppError::invalid("that tidy proposed nothing"))?;
-            if run.replied_at.is_some() {
-                return Err(AppError::conflict("you already answered that tidy"));
+            if run.approved_at.is_some() {
+                return Err(AppError::conflict("you already approved that tidy"));
+            }
+            if run.archived_at.is_some() {
+                return Err(AppError::conflict("that tidy is archived, so reopen it to approve it"));
             }
             (run, plan)
         };
@@ -417,7 +422,7 @@ impl Office {
         let answered = {
             let db = self.db();
             let mut answered = db.run(run_id)?.map(|r| r.run).unwrap_or(run);
-            answered.replied_at = Some(now());
+            answered.approved_at = Some(now());
             answered.archived_at = Some(now());
             db.save_run(&answered)?;
             answered
@@ -639,6 +644,64 @@ mod tests {
         fn run_updated(&self, _run: &Run) {}
         fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
         fn request_updated(&self, _request: &HumanRequest) {}
+    }
+
+    #[tokio::test]
+    async fn a_question_about_a_tidys_proposal_leaves_it_to_approve() {
+        let dir = std::env::temp_dir().join(format!("omegastar-tidy-ok-{}", uuid::Uuid::new_v4()));
+        let e = Employee {
+            id: uuid::Uuid::new_v4().to_string(),
+            slug: "ada".into(),
+            name: "Ada".into(),
+            title: "Tester".into(),
+            description: String::new(),
+            objective: String::new(),
+            manager_id: None,
+            skills: SkillGrant { builtins: false, keys: vec![] },
+            clearance: Clearance::Supervised,
+            allow_rules: vec![],
+            model: None,
+            effort: None,
+            browser: false,
+            auto_tidy: false,
+            lanes: 1,
+            workspaces: vec![],
+            hue: 0,
+            chat_session: "chat-ada".into(),
+            hired_at: now(),
+        };
+        let proposal = |archived: bool| {
+            let mut r = Run::new(&e.id, RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None }, "Tidy your skills.".into(), now());
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(now());
+            r.proposed = Some("Split the long pricing skill in two.".into());
+            r.needs_you = vec![PROPOSES.into()];
+            // An older build marked its approval only by replying and archiving.
+            if archived {
+                r.replied_at = Some(now());
+                r.archived_at = Some(now());
+            }
+            r
+        };
+        let (open, old) = (proposal(false), proposal(true));
+        {
+            fs::create_dir_all(&dir).unwrap();
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.save_employee(&e).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+            assert!(db.insert_run(&open, &open.id).unwrap());
+            assert!(db.insert_run(&old, &old.id).unwrap());
+        }
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        office.reply_to_run(&open.id, "Why split it?", false, vec![]).unwrap();
+        let approved = office.approve_tidy(&open.id).unwrap();
+        assert!(matches!(&approved.kind, RunKind::Tidy { reason: TidyReason::Approved, plan, .. } if *plan == open.proposed), "{:?}", approved.kind);
+        let s = office.run(&open.id).unwrap();
+        assert!(s.replied_at.is_some() && s.approved_at.is_some() && s.archived_at.is_some(), "approved after a question, and filed");
+        assert_eq!(office.approve_tidy(&open.id).unwrap_err().message, "you already approved that tidy");
+        assert_eq!(office.approve_tidy(&old.id).unwrap_err().message, "that tidy is archived, so reopen it to approve it");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

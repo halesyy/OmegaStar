@@ -101,10 +101,13 @@ impl Office {
 
     pub fn run_detail(&self, run_id: &str) -> Result<RunDetail> {
         let run = self.run(run_id)?;
-        let transcript = fs::read_to_string(self.run_dir(run_id).join("transcript.jsonl")).unwrap_or_default();
+        let dir = self.run_dir(run_id);
+        let transcript = fs::read_to_string(dir.join("transcript.jsonl")).unwrap_or_default();
         let children = self.db().children(run_id)?;
         let events = claude::replay(&transcript, &self.employee_dir(&run.employee_id));
-        Ok(RunDetail { events, run, children })
+        // Every run that started has a transcript until the transcript sweep deletes it.
+        let transcript_gone = run.state.is_finished() && run.started_at.is_some() && !dir.join("transcript.jsonl").exists();
+        Ok(RunDetail { events, run, children, transcript_gone })
     }
 
     pub fn cancel_run(&self, run_id: &str) -> Result<()> {
@@ -157,11 +160,13 @@ impl Office {
     }
 
     /// Starts every queued run that is free to go, within the global cap. A conversation takes turns (one
-    /// run per session at a time), and an employee does one piece of background work at a time; their
-    /// conversations with you run beside it and never wait for the cap (`Run::uncapped`). Delegated runs
-    /// whose parent is running bypass the cap too: the parent is blocked on them, so capping them could deadlock.
+    /// run per session at a time), and an employee does one piece of background work at a time, or two if you
+    /// allow it (`Employee::lanes`); a colleague's answer or question runs beside it (`fast_lane`), and so do
+    /// their conversations with you, which never wait for the cap (`Run::uncapped`). Delegated runs whose
+    /// parent is running bypass the cap too: the parent is blocked on them, so capping them could deadlock.
+    /// Nothing starts while the disk is nearly full.
     pub(super) fn pump(&self) {
-        if self.0.closing.load(Ordering::SeqCst) {
+        if self.0.closing.load(Ordering::SeqCst) || self.disk_full() {
             return;
         }
         let (started, dropped) = match self.claim_runnable() {
@@ -203,8 +208,13 @@ impl Office {
         let claimed = db.tx(|| {
             let cap = db.settings()?.map(|s| s.max_concurrent_runs).unwrap_or(3).max(1) as usize;
             let running = db.records_in_state(RunState::Running)?;
+            let lanes: HashMap<String, usize> = db.employees()?.into_iter().map(|e| (e.id, e.lanes.clamp(1, 2) as usize)).collect();
             let mut sessions: HashSet<String> = running.iter().map(|r| r.session.clone()).collect();
-            let mut working: HashSet<String> = running.iter().filter(|r| !r.run.kind.is_conversation()).map(|r| r.run.employee_id.clone()).collect();
+            // Background runs going per employee, each in one of their lanes.
+            let mut working: HashMap<String, usize> = HashMap::new();
+            for r in running.iter().filter(|r| takes_a_lane(&r.run.kind)) {
+                *working.entry(r.run.employee_id.clone()).or_default() += 1;
+            }
             let running_ids: HashSet<String> = running.iter().map(|r| r.run.id.clone()).collect();
             let mut talking: HashSet<String> = running.iter().filter(|r| r.run.kind.is_conversation()).map(|r| r.run.employee_id.clone()).collect();
             let mut capped = running.iter().filter(|r| !r.run.uncapped()).count();
@@ -221,11 +231,17 @@ impl Office {
                         continue;
                     }
                 }
+                // Not due yet: a paused hand-off, an answer queued again, or reports held for a manager.
+                if r.not_before.is_some_and(|t| t > at) {
+                    continue;
+                }
                 if gate(&r.kind, held, account_ok, talking.contains(&r.employee_id), awake) == Gate::Skip {
                     continue;
                 }
                 let background = !r.kind.is_conversation();
-                if sessions.contains(&session) || (background && working.contains(&r.employee_id)) {
+                let lane = takes_a_lane(&r.kind);
+                let free = working.get(&r.employee_id).copied().unwrap_or(0) < lanes.get(&r.employee_id).copied().unwrap_or(1);
+                if sessions.contains(&session) || (lane && !free) {
                     continue;
                 }
                 let exempt = r.uncapped() || r.parent_run_id().map(|p| running_ids.contains(p)).unwrap_or(false);
@@ -239,9 +255,10 @@ impl Office {
                 r.build = Some(stamp.clone());
                 db.save_run(&r)?;
                 sessions.insert(session);
-                if background {
-                    working.insert(r.employee_id.clone());
-                } else {
+                if lane {
+                    *working.entry(r.employee_id.clone()).or_default() += 1;
+                }
+                if !background {
                     talking.insert(r.employee_id.clone());
                 }
                 if !r.uncapped() {
@@ -256,9 +273,45 @@ impl Office {
         let mut active = lock(&self.0.active);
         for r in &claimed.0 {
             let token = uuid::Uuid::new_v4().simple().to_string();
-            active.insert(r.id.clone(), Active { token, pid: None, cancelled: false, needs_you: vec![], cards: r.cards.clone(), score: r.score.clone(), proposed: None, verdict: false, transcript: None, input: None });
+            let mut beside = false;
+            for a in active.values_mut().filter(|a| a.employee_id == r.employee_id) {
+                a.beside = true;
+                beside = true;
+            }
+            active.insert(
+                r.id.clone(),
+                Active {
+                    token,
+                    employee_id: r.employee_id.clone(),
+                    beside,
+                    pid: None,
+                    cancelled: false,
+                    needs_you: vec![],
+                    cards: r.cards.clone(),
+                    score: r.score.clone(),
+                    proposed: None,
+                    verdict: false,
+                    transcript: None,
+                    input: None,
+                },
+            );
         }
         Ok(claimed)
+    }
+
+    /// The office's disk has less than `MIN_FREE_BYTES` free, so no run starts: one that fills it fails, and so does
+    /// what it was doing. Tells you once when it fills, and logs when there is room again; the next tick starts work.
+    fn disk_full(&self) -> bool {
+        let full = too_full(free_bytes(&self.0.data_dir));
+        if self.0.disk_full.swap(full, Ordering::SeqCst) != full {
+            if full {
+                log!("paused work: less than 2 GB is free on the office's disk");
+                self.sink().notify("Omega Star paused work: your disk is nearly full", "Work starts again by itself once more than 2 GB is free.");
+            } else {
+                log!("resumed work: more than 2 GB is free on the office's disk again");
+            }
+        }
+        full
     }
 
     /// Sends your message into a run that is still working: the employee sees it at their next step.
@@ -390,6 +443,9 @@ impl Office {
                 })
                 .collect();
         }
+        if let Some(o) = opening.as_mut() {
+            tools::catch_up(&db, &employees, run, o)?;
+        }
         let chain = match (&run.kind, run.upstream()) {
             (RunKind::Delegated { .. } | RunKind::Asked { .. } | RunKind::Answered { .. }, Some(up)) => Some(tools::source_chain(&db, &company.ceo_name, up)?),
             _ => None,
@@ -458,15 +514,24 @@ impl Office {
                 None => p,
             });
         }
+        // Before the limit requeue, so what every attempt cost adds up.
+        if let Ok(e) = &ended {
+            run.cost_usd = [run.cost_usd, e.cost].into_iter().flatten().reduce(|a, b| a + b);
+        }
         // Held before the run is saved back to the queue, so no pump claims it straight into the limit,
         // and held too when it is out of retries, so other queued runs do not start into it.
-        if hit_limit(cancelled, &ended) {
-            let reset = ended.as_ref().ok().and_then(|e| e.limited);
-            self.hold_until(reset.unwrap_or_else(|| now() + chrono::Duration::minutes(15)));
+        let limit = hit_limit(cancelled, &ended);
+        match limit {
+            Some(Limit::Usage) => {
+                let reset = ended.as_ref().ok().and_then(|e| e.limited);
+                self.hold_until(reset.unwrap_or_else(|| now() + chrono::Duration::minutes(15)), Limit::Usage);
+            }
+            Some(Limit::Transient) => self.hold_for_transient_limit(),
+            None => {}
         }
-        if requeue_for_limit(cancelled, &ended, run.limit_retries) {
+        if let Some(limit) = requeue_for_limit(limit, &run) {
             if let Ok(e) = ended {
-                self.requeue_after_limit(run, e);
+                self.requeue_after_limit(run, e, limit);
             }
             return;
         }
@@ -480,7 +545,11 @@ impl Office {
         let (state, error) = final_state(cancelled, &ended);
         run.state = state;
         run.error = error;
-        run.limited = hit_limit(cancelled, &ended);
+        // A rate limit that outlasts the retries breaks the run as any failure does, so it reaches you.
+        run.limited = limit == Some(Limit::Usage);
+        if state == RunState::Succeeded {
+            self.0.transient_limits.store(0, Ordering::SeqCst);
+        }
         let ended_at = now();
         run.ended_at = Some(ended_at);
         run.duration_ms = run.started_at.map(|s| (ended_at - s).num_milliseconds().max(0) as u64);
@@ -502,7 +571,7 @@ impl Office {
                 b.claude = Some(v);
             }
             // Extended, not replaced: a run the usage limit stopped before reports those attempts' changes too.
-            run.skill_changes.extend(e.changes.iter().map(|c| c.change.clone()));
+            run.skill_changes.extend(own_changes(&e.changes));
         }
         if matches!(run.kind, RunKind::Tidy { .. }) && run.state == RunState::Succeeded {
             self.review_tidy(&mut run);
@@ -522,15 +591,16 @@ impl Office {
             let db = self.db();
             db.tx(|| {
                 if let Ok(e) = ended {
-                    for fc in e.changes {
-                        db.insert_revision(&run.employee_id, &own_skills::revision(fc, Some(run.id.clone()), now()))?;
-                    }
+                    record_changes(&db, &run.employee_id, &run.id, run.started_at.unwrap_or(run.created_at), e.changes)?;
                 }
-                db.save_run(&run)
+                db.save_run(&run)?;
+                db.employee(&run.employee_id)
             })
         };
-        if let Err(e) = saved {
-            log!("saving run {} failed: {e}", run.id);
+        match saved {
+            Ok(e) if matches!(run.state, RunState::Failed | RunState::Lost) => log_failed(&run, e.as_ref().map_or(&run.employee_id, |e| &e.slug), limit),
+            Ok(_) => {}
+            Err(e) => log!("saving run {} failed: {e}", run.id),
         }
         if run.open_cards().any(|c| !matches!(c.ask, CardAsk::Chore { .. })) {
             if let Err(e) = self.replace_older_cards(&run) {
@@ -563,28 +633,39 @@ impl Office {
         self.sink().org_changed();
     }
 
-    /// Puts a run the usage limit stopped back in the queue with what it changed so far. `execute` has
-    /// already held the office until the limit resets.
-    fn requeue_after_limit(&self, mut run: Run, e: Ended) {
-        let changes: Vec<SkillChange> = e.changes.iter().map(|c| c.change.clone()).collect();
-        reset_for_requeue(&mut run, &changes);
+    /// Puts a run a limit stopped back in the queue with what it changed so far. `execute` has already held
+    /// the office until the limit resets or the rate limit has had time to ease.
+    fn requeue_after_limit(&self, mut run: Run, e: Ended, limit: Limit) {
+        // Recorded from the attempt that saw them, which `reset_for_requeue` forgets.
+        let since = run.started_at.unwrap_or(run.created_at);
+        reset_for_requeue(&mut run, &own_changes(&e.changes).collect::<Vec<_>>(), limit);
         let saved = {
             let db = self.db();
             db.tx(|| {
-                for fc in e.changes {
-                    db.insert_revision(&run.employee_id, &own_skills::revision(fc, Some(run.id.clone()), now()))?;
-                }
+                record_changes(&db, &run.employee_id, &run.id, since, e.changes)?;
                 db.save_run(&run)?;
                 let session = db.run(&run.id)?.map(|r| r.session).unwrap_or_else(|| run.id.clone());
                 db.session_started(&session)
             })
         };
+        let attempt = if limit == Limit::Transient { run.transient_retries } else { run.limit_retries.saturating_sub(run.transient_retries) };
         match saved {
-            Ok(resumes) => log!("requeued {} after the usage limit (attempt {}, resumes {resumes})", run.id, run.limit_retries),
-            Err(err) => log!("requeueing run {} after the usage limit failed: {err}", run.id),
+            Ok(resumes) => log!("requeued {} after {} (attempt {attempt}, resumes {resumes})", run.id, limit.as_str()),
+            Err(err) => log!("requeueing run {} after {} failed: {err}", run.id, limit.as_str()),
         }
         self.sink().run_updated(&run);
         self.sink().org_changed();
+    }
+
+    /// Holds the office for a rate limit: 5 minutes for the first since a run last succeeded, then longer each
+    /// time (`backoff`). A run that meets one while the office is already held waits with the rest.
+    fn hold_for_transient_limit(&self) {
+        let at = now();
+        if self.usage_limits().held_until.is_some_and(|t| t > at) {
+            return;
+        }
+        let n = self.0.transient_limits.fetch_add(1, Ordering::SeqCst);
+        self.hold_until(at + backoff(n), Limit::Transient);
     }
 
     /// How many of a schedule's runs up to `last` broke for a reason you can act on since it last worked.
@@ -750,6 +831,7 @@ impl Office {
         let mut tasks = claude::TaskWatch::default();
         let mut signals = claude::RunSignals::default();
         let mut outcome: Option<Outcome> = None;
+        let mut spent: Vec<claude::Spend> = vec![];
         let (mut limited, mut context, mut claude_version) = (None, None, None);
         let mut flush = tokio::time::interval(EVENT_BATCH);
         loop {
@@ -758,25 +840,27 @@ impl Office {
                     let Ok(Some(line)) = line else { break };
                     let parsed = claude::parse_line(&line, &snap.employee_dir);
                     signals.observe(&parsed);
-                    if signals.chrome_down(&parsed.events) {
+                    if signals.chrome_down(&parsed.events, now()) {
                         self.chrome_down(run, &snap.employee);
                     }
                     limited = parsed.limited.or(limited);
                     context = parsed.context.or(context);
                     claude_version = parsed.claude_version.clone().or(claude_version);
                     if !parsed.partial {
-                        append_line(&transcript, &line);
+                        append_line(&transcript, &claude::without_images(&line));
                     }
                     if parsed.events.iter().any(|e| matches!(e, RunEvent::Init { .. })) {
                         if let Err(e) = self.db().mark_inited(&run.id) {
                             log!("run {}: could not record that its session started, so the next turn may not resume it: {e}", run.id);
                         }
                     }
-                    if let Some(o) = parsed.outcome {
+                    spent.extend(parsed.spend);
+                    if let Some(mut o) = parsed.outcome {
                         // A message written before this point still runs, as one more turn of this run.
                         if let Some(a) = lock(&self.0.active).get_mut(&run.id) {
                             a.input = None;
                         }
+                        o.limit = signals.limit(&o);
                         outcome = Some(match outcome.take() {
                             Some(prev) => claude::merge_outcome(prev, o),
                             None => o,
@@ -797,6 +881,14 @@ impl Office {
         }
         let exit = child.wait().await.ok().and_then(|s| s.code());
         let stderr = stderr_task.await.unwrap_or_default();
+        // A resumed session's running total starts from its earlier turns, which only matters when a result
+        // reports no cost of its own.
+        let before_cost = match spent.first() {
+            _ if !snap.resume => Some(0.0),
+            Some(s) if s.own.is_none() => self.session_total_before(run, &snap.session, &run_dir.join("transcript.jsonl"), attempt_start),
+            _ => None,
+        };
+        let cost = claude::run_cost(&spent, before_cost);
 
         let mut after = own_skills::snapshot(&skills_dir);
         if is_tidy {
@@ -804,6 +896,11 @@ impl Office {
         }
         // What Omega Star did that the report should say, after the employee's own words.
         let mut omega_notes: Vec<String> = vec![];
+        if snap.employee.browser && signals.chrome_missing() {
+            log!("run {}: Claude in Chrome did not load, so the run had none of its tools", run.id);
+            omega_notes.push("Claude in Chrome did not load in this run, so it worked without your browser.".into());
+        }
+        omega_notes.extend(claude::stopped_helpers(&stderr));
         if let RunKind::Tidy { reason, .. } = &run.kind {
             // What you taught is never lost to a tidy. An approved tidy may prune the rules its plan names. It is
             // already put back, so it is a line in the Archive rather than something for you to do.
@@ -818,7 +915,7 @@ impl Office {
                 }
             }
         }
-        let mut changes = own_skills::diff(&before, &after);
+        let changes = own_skills::diff(&before, &after);
         // Only a conversation with you may change the company page or what the employee owns; any other run
         // that wrote one has it put back, or only flagged when you changed it too, and never records it. Decided
         // by what this attempt's own calls wrote, so a change made elsewhere meanwhile is never recorded as its own.
@@ -865,10 +962,30 @@ impl Office {
         if put_back {
             guarded_after = own_skills::guarded_snapshot(&snap.employee_dir);
         }
-        changes.extend(own_skills::diff(&guarded_before, &guarded_after).into_iter().filter(|c| recorded.iter().any(|(s, f)| *s == c.change.skill && *f == c.change.file)));
+        // A run working alone made every skill edit it saw. Beside another run of the employee, an edit is its own only
+        // when its own calls show it: a write of the file, or Omega Star's tools moving or retiring the skill.
+        let alone = !lock(&self.0.active).get(&run.id).is_some_and(|a| a.beside);
+        let mut moved: Option<HashSet<String>> = None;
+        let mut changes: Vec<Seen> = changes
+            .into_iter()
+            .map(|c| {
+                let wrote = !alone && {
+                    let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
+                    moved.get_or_insert_with(|| moved_skills(text)).contains(&c.change.skill)
+                        || own_skills::recorded_path(&snap.employee_dir, &c.change.skill, &c.change.file).is_ok_and(|path| skills::wrote_file(text, &path, &snap.employee_dir))
+                };
+                Seen { own: alone || wrote, wrote, change: c }
+            })
+            .collect();
+        changes.extend(
+            own_skills::diff(&guarded_before, &guarded_after)
+                .into_iter()
+                .filter(|c| recorded.iter().any(|(s, f)| *s == c.change.skill && *f == c.change.file))
+                .map(|c| Seen { own: true, wrote: true, change: c }),
+        );
         let _ = fs::remove_file(&before_path);
-        for c in &changes {
-            let ev = RunEvent::SkillChanged { skill: c.change.skill.clone(), file: c.change.file.clone(), change: c.change.change };
+        for c in own_changes(&changes) {
+            let ev = RunEvent::SkillChanged { skill: c.skill, file: c.file, change: c.change };
             append_line(&transcript, &claude::omega_line(&ev));
             pending.push(ev);
         }
@@ -885,7 +1002,78 @@ impl Office {
         let denied = outcome.as_ref().map(|o| o.denials.clone()).unwrap_or_default();
         let (blocks, mut notes) = signals.sort_denials(denied, |d| covered(&snap.employee, &rules, d), !run.kind.is_conversation());
         notes.extend(omega_notes);
-        Ok(Ended { outcome, exit, stderr, changes, limited, blocks, notes, context, claude_version })
+        Ok(Ended { outcome, exit, stderr, changes, limited, blocks, notes, context, claude_version, cost })
+    }
+
+    /// The session's running cost total before this attempt, as Claude Code last reported it: in an earlier attempt
+    /// of the run, or else in the session's latest earlier turn that reported one. `None` when none did.
+    fn session_total_before(&self, run: &Run, session: &str, transcript: &Path, attempt_start: u64) -> Option<f64> {
+        let earlier = fs::read(transcript).unwrap_or_default();
+        let earlier = String::from_utf8_lossy(earlier.get(..attempt_start as usize).unwrap_or_default()).into_owned();
+        if let Some(total) = claude::last_total(&earlier) {
+            return Some(total);
+        }
+        let turns = self.db().turns_of_session(session, &run.id).ok()?;
+        turns.iter().find_map(|r| claude::last_total(&fs::read_to_string(self.run_dir(&r.id).join("transcript.jsonl")).ok()?))
+    }
+
+    /// Takes the image data out of finished runs' transcripts, which older builds saved whole: one file at a time,
+    /// pausing between them. A file is only swapped for its stripped copy, so stopping halfway loses nothing, and a
+    /// file already stripped is left as it is. Returns the bytes saved.
+    pub(super) fn compact_transcripts(&self) -> u64 {
+        let mut saved = 0;
+        for dir in fs::read_dir(self.0.data_dir.join("runs")).into_iter().flatten().flatten() {
+            let id = dir.file_name().to_string_lossy().into_owned();
+            if !self.db().run(&id).ok().flatten().is_some_and(|r| r.run.state.is_finished()) {
+                continue;
+            }
+            match compact_transcript(&dir.path().join("transcript.jsonl")) {
+                Ok(n) => saved += n,
+                Err(e) => log!("run {id}: could not take the images out of its transcript: {e}"),
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        saved
+    }
+}
+
+/// Rewrites a transcript without its image data (`claude::without_images`) through a copy beside it, swapped in
+/// only when something changed and the transcript did not grow meanwhile. Returns the bytes saved.
+fn compact_transcript(path: &Path) -> std::io::Result<u64> {
+    use std::io::BufRead;
+    let Ok(file) = File::open(path) else { return Ok(0) };
+    let len = file.metadata()?.len();
+    let tmp = path.with_extension("jsonl.compacting");
+    let copied = (|| -> std::io::Result<bool> {
+        let (mut reader, mut out) = (std::io::BufReader::new(file), std::io::BufWriter::new(File::create(&tmp)?));
+        let (mut line, mut changed) = (Vec::new(), false);
+        while reader.read_until(b'\n', &mut line)? > 0 {
+            let body = line.strip_suffix(b"\n").unwrap_or(&line);
+            match std::str::from_utf8(body).ok().map(claude::without_images) {
+                Some(std::borrow::Cow::Owned(stripped)) => {
+                    changed = true;
+                    out.write_all(stripped.as_bytes())?;
+                    out.write_all(&line[body.len()..])?;
+                }
+                _ => out.write_all(&line)?,
+            }
+            line.clear();
+        }
+        out.flush()?;
+        Ok(changed)
+    })();
+    // Gone meanwhile, or grown: the copy is left out rather than swapped in.
+    let unchanged = fs::metadata(path).is_ok_and(|m| m.len() == len);
+    match copied {
+        Ok(true) if unchanged => {
+            let size = fs::metadata(&tmp)?.len();
+            fs::rename(&tmp, path)?;
+            Ok(len.saturating_sub(size))
+        }
+        other => {
+            let _ = fs::remove_file(&tmp);
+            other.map(|_| 0)
+        }
     }
 }
 
@@ -895,13 +1083,51 @@ fn attempt_text(path: &Path, start: u64) -> String {
     String::from_utf8_lossy(bytes.get(start as usize..).unwrap_or_default()).into_owned()
 }
 
+/// A skill change a run saw between its snapshots, which may be another run's.
+pub(super) struct Seen {
+    pub(super) change: own_skills::FileChange,
+    /// The run's own calls show it made the change, so it takes the credit for it even when another run
+    /// recorded the change first.
+    pub(super) wrote: bool,
+    /// It is the run's own: its calls show it, or nothing else of its employee ran beside it.
+    pub(super) own: bool,
+}
+
+/// The skills a run's own calls moved or retired with Omega Star's tools, which write no file themselves.
+pub(super) fn moved_skills(transcript: &str) -> HashSet<String> {
+    let moves = claude::office_calls(transcript, "mcp__omega__move_skill").into_iter().flat_map(|c| [c["from"].clone(), c["to"].clone()]);
+    let retires = claude::office_calls(transcript, "mcp__omega__retire_skill").into_iter().map(|c| c["name"].clone());
+    moves.chain(retires).filter_map(|n| n.as_str().map(String::from)).collect()
+}
+
+/// The changes that are the run's own, as its report lists them.
+pub(super) fn own_changes(changes: &[Seen]) -> impl Iterator<Item = SkillChange> + '_ {
+    changes.iter().filter(|c| c.own).map(|c| c.change.change.clone())
+}
+
+/// Records the skill changes a run saw since `since`, when it started. One already recorded since then is the same
+/// edit seen by another run, so it is never recorded twice: a run whose own calls wrote it only takes the credit.
+/// Any other is recorded once, as the run's when it is its own, else with no run. Call inside a transaction.
+pub(super) fn record_changes(db: &Store, employee_id: &str, run_id: &str, since: Ts, changes: Vec<Seen>) -> Result<()> {
+    for c in changes {
+        let fc = &c.change;
+        match db.same_revision(employee_id, &fc.change, fc.before.as_deref(), fc.after.as_deref(), since)? {
+            Some(r) if c.wrote && r.run_id.is_none() => db.credit_revision(&r.id, run_id)?,
+            Some(_) => {}
+            None => db.insert_revision(employee_id, &own_skills::revision(c.change, c.own.then(|| run_id.to_string()), now()))?,
+        }
+    }
+    Ok(())
+}
+
 /// What a run's process left behind.
 struct Ended {
     /// Every result segment of the run, merged.
     outcome: Option<Outcome>,
     exit: Option<i32>,
     stderr: String,
-    changes: Vec<own_skills::FileChange>,
+    /// The skill changes it saw, its own and others'.
+    changes: Vec<Seen>,
     /// The usage limit stopped it; it resets then.
     limited: Option<Ts>,
     /// The denials that really blocked it.
@@ -911,6 +1137,19 @@ struct Ended {
     /// The context size after its last top-level message.
     context: Option<u64>,
     claude_version: Option<String>,
+    /// What this attempt cost, by Claude Code's reckoning.
+    cost: Option<f64>,
+}
+
+/// A colleague's answer coming back, and a colleague's question (not a task): short runs that never wait behind
+/// their employee's other background work, though they still keep to the cap and to their session. Pure.
+pub(super) fn fast_lane(kind: &RunKind) -> bool {
+    matches!(kind, RunKind::Answered { .. } | RunKind::Asked { task: false, .. })
+}
+
+/// Background work that takes one of its employee's lanes (`Employee::lanes`). Pure.
+pub(super) fn takes_a_lane(kind: &RunKind) -> bool {
+    !kind.is_conversation() && !fast_lane(kind)
 }
 
 /// Whether a queued run may start now, by what holds it back.
@@ -938,18 +1177,37 @@ fn gate(kind: &RunKind, held: bool, account_ok: bool, talking: bool, awake: bool
     }
 }
 
-/// The usage limit stopped the run, and you did not. Pure.
-fn hit_limit(cancelled: bool, ended: &Result<Ended>) -> bool {
-    !cancelled && matches!(ended, Ok(Ended { outcome: Some(o), .. }) if !o.ok && o.limit)
+/// The limit that stopped the run, unless you did. A limit with a known reset time is the usage limit, however
+/// the result names it: older Claude Code builds report the usage limit as a bare 429. Pure.
+fn hit_limit(cancelled: bool, ended: &Result<Ended>) -> Option<Limit> {
+    match ended {
+        Ok(Ended { outcome: Some(o), limited, .. }) if !cancelled && !o.ok => match o.limit? {
+            Limit::Transient if limited.is_some() => Some(Limit::Usage),
+            limit => Some(limit),
+        },
+        _ => None,
+    }
 }
 
-/// A run the usage limit stopped goes back to the queue, up to three times. Pure.
-fn requeue_for_limit(cancelled: bool, ended: &Result<Ended>, retries: u32) -> bool {
-    retries < 3 && hit_limit(cancelled, ended)
+/// Times a run goes back to the queue for the usage limit, and, counted apart, for a rate limit.
+const USAGE_RETRIES: u32 = 3;
+const TRANSIENT_RETRIES: u32 = 8;
+
+/// The limit a run goes back to the queue for, while it has retries left for that kind. Pure.
+fn requeue_for_limit(limit: Option<Limit>, run: &Run) -> Option<Limit> {
+    limit.filter(|l| match l {
+        Limit::Usage => run.limit_retries.saturating_sub(run.transient_retries) < USAGE_RETRIES,
+        Limit::Transient => run.transient_retries < TRANSIENT_RETRIES,
+    })
 }
 
-/// A run back in the queue after the usage limit: as if it never started, keeping what it changed.
-fn reset_for_requeue(run: &mut Run, changes: &[SkillChange]) {
+/// How long the office waits out its `n`th rate limit in a row, from 0: 5, 10, 20 and 40 minutes, then 60. Pure.
+fn backoff(n: u32) -> chrono::Duration {
+    chrono::Duration::minutes([5, 10, 20, 40, 60][n.min(4) as usize])
+}
+
+/// A run back in the queue after a limit: as if it never started, keeping what it changed and what it cost.
+fn reset_for_requeue(run: &mut Run, changes: &[SkillChange], limit: Limit) {
     run.state = RunState::Queued;
     run.started_at = None;
     run.ended_at = None;
@@ -959,29 +1217,54 @@ fn reset_for_requeue(run: &mut Run, changes: &[SkillChange]) {
     run.duration_ms = None;
     run.denials.clear();
     run.limit_retries += 1;
+    if limit == Limit::Transient {
+        run.transient_retries += 1;
+    }
     run.restarted = false;
     run.skill_changes.extend(changes.iter().cloned());
 }
 
+/// Writes a failed or lost run to omega.log: its id, its employee, its kind and what broke it.
+pub(super) fn log_failed(run: &Run, slug: &str, limit: Option<Limit>) {
+    let kind = serde_json::to_value(&run.kind).ok().and_then(|k| k["type"].as_str().map(String::from)).unwrap_or_default();
+    log!("run {} {} ({slug}, {kind}): {}", run.id, run.state.as_str(), error_class(run, limit));
+}
+
+/// What broke a failed or lost run, in a few words. Pure.
+fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
+    let error = run.error.as_deref().unwrap_or("");
+    if run.state == RunState::Lost {
+        "lost when Omega Star stopped"
+    } else if run.limited || limit == Some(Limit::Usage) {
+        "usage limit"
+    } else if limit == Some(Limit::Transient) {
+        "rate limit"
+    } else if error.contains("No space left on device") {
+        "disk full"
+    } else if error.starts_with("could not start Claude Code") || error.starts_with("Claude Code was not found") {
+        "could not start"
+    } else if error.starts_with("Stopped: the run reached its turn limit") {
+        "turn limit"
+    } else if error.starts_with("Claude Code exited without a result") {
+        "no result"
+    } else {
+        "error"
+    }
+}
+
 /// The open decision and item cards `newer` replaces, marked Replaced and saved: those of the same routine's
-/// earlier runs, which also leave the Inbox unless you replied to them; those earlier in its thread, which
-/// stay; and the employee's earlier cards about the same thing as one of its own. A due check's run replaces
+/// earlier runs, which also leave the Inbox unless you replied to them, and the employee's earlier cards about
+/// the same thing as one of its own, in its thread or anywhere else. A card about something else stays open, so
+/// answers that come back into one conversation leave each other's cards alone. A due check's run replaces
 /// nothing of its routine. Call inside a transaction.
 fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
     let decision = |c: &Card| c.is_open() && !matches!(c.ask, CardAsk::Chore { .. });
-    let replaceable = |r: &Run| r.id != newer.id && r.cards.iter().any(decision);
     let mut out: Vec<(Run, bool)> = vec![];
     if let (RunKind::Scheduled { schedule_id, .. }, None) = (&newer.kind, newer.kind.check_id()) {
-        for mut r in db.open_cards_of_schedule(schedule_id, newer.created_at)?.into_iter().filter(|r| replaceable(r)) {
+        for mut r in db.open_cards_of_schedule(schedule_id, newer.created_at)?.into_iter().filter(|r| r.id != newer.id && r.cards.iter().any(decision)) {
             if r.replied_at.is_none() {
                 r.archived_at = Some(at);
             }
-            out.push((r, true));
-        }
-    }
-    let t = Office::thread_in(db, &newer.id)?;
-    for r in std::iter::once(t.root).chain(t.replies) {
-        if r.created_at < newer.created_at && replaceable(&r) && !out.iter().any(|(o, _)| o.id == r.id) {
             out.push((r, true));
         }
     }
@@ -993,12 +1276,15 @@ fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
             }
         }
     }
+    // Its own thread stays whatever it replaced: the newer card is asked there.
+    let t = Office::thread_in(db, &newer.id)?;
+    let thread: HashSet<String> = std::iter::once(t.root).chain(t.replies).map(|r| r.id).collect();
     for (r, all) in &mut out {
         for c in r.cards.iter_mut().filter(|c| decision(c) && (*all || c.topic().is_some_and(|k| topics.contains(&k)))) {
             c.answer = Some(CardAnswer { at, how: AnswerHow::Replaced, text: String::new(), held: false });
         }
         // A run whose cards all went to a newer one has nothing left to ask, unless you replied to it.
-        if !*all && !r.has_open_card() && r.replied_at.is_none() {
+        if !*all && !r.has_open_card() && r.replied_at.is_none() && !thread.contains(&r.id) {
             r.archived_at = Some(at);
         }
         db.save_run(r)?;
@@ -1136,6 +1422,9 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
         running: db.active_runs_of(&e.id)?.into_iter().filter(|r| r.state == RunState::Running && r.id != run.id).collect(),
         notes: vec![],
         parents: db.parents_since(window_start.min(team_since) - day)?,
+        news: vec![],
+        held: vec![],
+        replaced: vec![],
     }))
 }
 
@@ -1196,6 +1485,7 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![],
             hue: 0,
             chat_session: "chat-ada".into(),
@@ -1203,12 +1493,12 @@ mod tests {
         }
     }
 
-    fn outcome(ok: bool, subtype: &str, text: &str, limit: bool) -> Outcome {
-        Outcome { ok, text: text.into(), subtype: subtype.into(), turns: 2, duration_ms: 10, denials: vec![], limit }
+    fn outcome(ok: bool, subtype: &str, text: &str, limit: Option<Limit>) -> Outcome {
+        Outcome { ok, text: text.into(), subtype: subtype.into(), turns: 2, duration_ms: 10, denials: vec![], limit, notice: false }
     }
 
     fn ended(o: Option<Outcome>, stderr: &str) -> Result<Ended> {
-        Ok(Ended { outcome: o, exit: Some(1), stderr: stderr.into(), changes: vec![], limited: None, blocks: vec![], notes: vec![], context: None, claude_version: None })
+        Ok(Ended { outcome: o, exit: Some(1), stderr: stderr.into(), changes: vec![], limited: None, blocks: vec![], notes: vec![], context: None, claude_version: None, cost: None })
     }
 
     /// A temp store in its own folder.
@@ -1263,7 +1553,7 @@ mod tests {
             root.cards[1].answer = Some(CardAnswer { at: now(), how: AnswerHow::Tapped, text: "Chose: Go.".into(), held: true });
             db.save_run(&root).unwrap();
             let mut newer = finished(&db, &ada, RunKind::Reply { to_run_id: root.id.clone(), label: "Plan the launch".into(), task: true, card: false }, 5, "s1", "One more.");
-            newer.cards = vec![card("Launch on Monday instead?", "ask:monday")];
+            newer.cards = vec![card("Launch on Monday instead?", "ask:launch")];
             db.save_run(&newer).unwrap();
             (root, newer)
         };
@@ -1310,6 +1600,195 @@ mod tests {
         let (started, _) = office.claim_runnable().unwrap();
         assert!(started.is_empty(), "the typed reply waits for the tap before it: {started:?}");
         drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An office whose employees are saved and whose queue is held at open, so a test claims runs itself.
+    async fn claiming_office(dir: &Path, employees: &[&Employee]) -> Office {
+        fs::create_dir_all(dir).unwrap();
+        {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            for e in employees {
+                db.save_employee(e).unwrap();
+            }
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+        }
+        let office = Office::open(dir.to_path_buf(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        lock(&office.0.usage).held_until = None;
+        // Background work waits for the first account check.
+        *lock(&office.0.account) = Some((now(), None));
+        office
+    }
+
+    /// Queues a run of `e`'s in `session` (its own when `None`), `state` for one already going.
+    fn queue(office: &Office, e: &Employee, kind: RunKind, session: Option<&str>, state: RunState) -> Run {
+        let mut r = Run::new(&e.id, kind, "Go.".into(), now());
+        r.state = state;
+        assert!(office.db().insert_run(&r, session.unwrap_or(&r.id)).unwrap());
+        r
+    }
+
+    fn scheduled(slot: i64) -> RunKind {
+        RunKind::Scheduled { schedule_id: "s1".into(), slot: now() + chrono::Duration::minutes(slot), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false }
+    }
+
+    #[tokio::test]
+    async fn a_colleagues_answer_or_question_never_waits_behind_background_work() {
+        let dir = std::env::temp_dir().join(format!("omegastar-fast-lane-{}", uuid::Uuid::new_v4()));
+        let (ada, bo) = (employee(Clearance::Supervised), Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), ..employee(Clearance::Supervised) });
+        let office = claiming_office(&dir, &[&ada, &bo]).await;
+        let answer = |asked: &str| RunKind::Answered { asked_run_id: asked.into(), from: bo.id.clone(), task: false, chat: false, thread: None };
+        let asked = |task: bool| RunKind::Asked { parent_run_id: "r-bo".into(), asked_by: bo.id.clone(), task };
+        queue(&office, &ada, RunKind::Manual, None, RunState::Running);
+        let sweep = queue(&office, &ada, scheduled(0), None, RunState::Queued);
+        let question = queue(&office, &ada, asked(false), None, RunState::Queued);
+        let task = queue(&office, &ada, asked(true), None, RunState::Queued);
+        let first = queue(&office, &ada, answer("a1"), Some("s-ada"), RunState::Queued);
+        let second = queue(&office, &ada, answer("a2"), Some("s-ada"), RunState::Queued);
+        let (started, _) = office.claim_runnable().unwrap();
+        let ids: HashSet<&str> = started.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, HashSet::from([question.id.as_str(), first.id.as_str()]));
+        assert!(!ids.contains(sweep.id.as_str()) && !ids.contains(task.id.as_str()), "work and tasks wait for Ada's lane");
+        assert!(!ids.contains(second.id.as_str()), "never two runs in one session");
+
+        // The cap still holds them back.
+        let mut s = office.settings().unwrap();
+        s.max_concurrent_runs = 3;
+        office.db().set_settings(&s).unwrap();
+        queue(&office, &ada, answer("a3"), None, RunState::Queued);
+        assert!(office.claim_runnable().unwrap().0.is_empty(), "three runs are going");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_paused_handoff_waits_for_its_time() {
+        let dir = std::env::temp_dir().join(format!("omegastar-not-before-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let ada = employee(Clearance::Supervised);
+        let named = |name: &str| Employee { name: name.into(), slug: name.to_lowercase(), chat_session: format!("chat-{name}"), ..employee(Clearance::Supervised) };
+        let (bo, cy) = (named("Bo"), named("Cy"));
+        let (paused, due) = {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            for e in [&ada, &bo, &cy] {
+                db.save_employee(e).unwrap();
+            }
+            db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
+            let asker = finished(&db, &ada, RunKind::Manual, 30, "m1", "Asked around.");
+            let ask = |e: &Employee, mins: i64| {
+                let mut r = Run::new(&e.id, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: false }, "Which room?".into(), now());
+                r.not_before = Some(now() + chrono::Duration::minutes(mins));
+                assert!(db.insert_run(&r, &r.id).unwrap());
+                r
+            };
+            (ask(&bo, 60), ask(&cy, -1))
+        };
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        lock(&office.0.usage).held_until = None;
+        *lock(&office.0.account) = Some((now(), None));
+        let (started, _) = office.claim_runnable().unwrap();
+        let ids: Vec<&str> = started.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec![due.id.as_str()], "{paused:?} waits for its time");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_second_lane_runs_two_pieces_of_background_work() {
+        let dir = std::env::temp_dir().join(format!("omegastar-lanes-{}", uuid::Uuid::new_v4()));
+        let ada = Employee { lanes: 2, ..employee(Clearance::Supervised) };
+        let office = claiming_office(&dir, &[&ada]).await;
+        queue(&office, &ada, RunKind::Manual, None, RunState::Running);
+        let next = queue(&office, &ada, scheduled(0), None, RunState::Queued);
+        let third = queue(&office, &ada, scheduled(1), None, RunState::Queued);
+        let (started, _) = office.claim_runnable().unwrap();
+        assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![next.id.as_str()]);
+        assert!(office.run(&third.id).unwrap().state == RunState::Queued, "both lanes are busy");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn finished_transcripts_lose_their_images_once() {
+        let dir = std::env::temp_dir().join(format!("omegastar-compact-{}", uuid::Uuid::new_v4()));
+        let ada = employee(Clearance::Supervised);
+        let office = claiming_office(&dir, &[&ada]).await;
+        let done = queue(&office, &ada, RunKind::Manual, None, RunState::Succeeded);
+        let working = queue(&office, &ada, RunKind::Manual, None, RunState::Running);
+        let data = "iVBORw0KGgo".repeat(400);
+        let image = json!({
+            "type": "user", "parent_tool_use_id": null,
+            "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "toolu_img1", "content": [
+                { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": data } },
+            ] }] },
+        });
+        let said = r#"{"type":"assistant","message":{"model":"claude-sonnet-4-5","content":[{"type":"text","text":"Made the chart."}]},"parent_tool_use_id":null}"#;
+        let old = format!("{said}\n{image}\n{said}\n");
+        let transcript = |r: &Run| office.run_dir(&r.id).join("transcript.jsonl");
+        for r in [&done, &working] {
+            fs::create_dir_all(office.run_dir(&r.id)).unwrap();
+            fs::write(transcript(r), &old).unwrap();
+        }
+        assert!(office.compact_transcripts() > 3000);
+        let now_text = fs::read_to_string(transcript(&done)).unwrap();
+        assert!(!now_text.contains(&data) && now_text.ends_with('\n') && now_text.lines().count() == 3, "{now_text}");
+        let home = office.employee_dir(&ada.id);
+        assert_eq!(claude::replay(&now_text, &home), claude::replay(&old, &home), "the app reads the same");
+        assert_eq!(fs::read_to_string(transcript(&working)).unwrap(), old, "a run still working is left alone");
+        assert_eq!(office.compact_transcripts(), 0, "safe to repeat");
+        assert!(!office.run_dir(&done.id).join("transcript.jsonl.compacting").exists());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn skills_moved_with_omega_stars_tools_are_the_runs_own() {
+        let call = |id: &str, tool: &str, input: Value| json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": id, "name": tool, "input": input }] } });
+        let result = |id: &str, error: bool| json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_result", "tool_use_id": id, "is_error": error, "content": "ok" }] } });
+        let transcript = [
+            call("t1", "mcp__omega__move_skill", json!({ "from": "imported-notes", "to": "ada-notes" })),
+            result("t1", false),
+            call("t2", "mcp__omega__retire_skill", json!({ "name": "ada-old-sweep" })),
+            result("t2", false),
+            call("t3", "mcp__omega__retire_skill", json!({ "name": "ada-kept" })),
+            result("t3", true),
+        ]
+        .map(|l| l.to_string())
+        .join("\n");
+        let moved = moved_skills(&transcript);
+        assert_eq!(moved, HashSet::from(["imported-notes".to_string(), "ada-notes".to_string(), "ada-old-sweep".to_string()]));
+    }
+
+    #[test]
+    fn a_skill_edit_is_recorded_once_and_credited_to_the_run_that_wrote_it() {
+        let (dir, db) = opening_store();
+        let e = employee(Clearance::Supervised);
+        db.save_employee(&e).unwrap();
+        let since = now() - chrono::Duration::minutes(1);
+        let edit = |before: &str, after: &str| own_skills::FileChange {
+            change: SkillChange { skill: "ada-notes".into(), file: "SKILL.md".into(), change: ChangeKind::Modified },
+            before: Some(before.into()),
+            after: Some(after.into()),
+        };
+        let seen = |change, wrote, own| vec![Seen { change, wrote, own }];
+        let runs_of = || db.revisions(&e.id).unwrap().into_iter().map(|r| r.run_id).collect::<Vec<_>>();
+        // A check that worked beside a conversation ends first, having seen the conversation's edit.
+        db.tx(|| record_changes(&db, &e.id, "check", since, seen(edit("one", "two"), false, false))).unwrap();
+        assert_eq!(runs_of(), vec![None]);
+        // The conversation that wrote it ends next and takes the credit, without a second revision.
+        db.tx(|| record_changes(&db, &e.id, "talk", since, seen(edit("one", "two"), true, true))).unwrap();
+        assert_eq!(runs_of(), vec![Some("talk".to_string())]);
+        // A run working alone that saw it, say your save in the app, takes nothing.
+        db.tx(|| record_changes(&db, &e.id, "sweep", since, seen(edit("one", "two"), false, true))).unwrap();
+        assert_eq!(runs_of(), vec![Some("talk".to_string())]);
+        // A run alone whose calls do not show the edit, a script it ran, still owns it.
+        db.tx(|| record_changes(&db, &e.id, "sweep", since, seen(edit("two", "three"), false, true))).unwrap();
+        assert_eq!(runs_of(), vec![Some("sweep".to_string()), Some("talk".to_string())]);
+        // The same edit made again after both is a new one.
+        let later = now() + chrono::Duration::seconds(1);
+        db.tx(|| record_changes(&db, &e.id, "later", later, seen(edit("one", "two"), true, true))).unwrap();
+        assert_eq!(runs_of().len(), 3);
+        drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1396,17 +1875,79 @@ mod tests {
     }
 
     #[test]
-    fn a_limit_requeues_up_to_three_times() {
-        let limited = ended(Some(outcome(false, "success", "You have hit your limit.", true)), "");
-        for retries in 0..3 {
-            assert!(requeue_for_limit(false, &limited, retries));
+    fn each_limit_has_its_own_retries() {
+        let usage = ended(Some(outcome(false, "success", "You have hit your limit.", Some(Limit::Usage))), "");
+        let rate = ended(Some(outcome(false, "success", "API Error: Server is temporarily limiting requests.", Some(Limit::Transient))), "");
+        let mut run = Run::new("e1", RunKind::Manual, "go".into(), now());
+        for _ in 0..TRANSIENT_RETRIES {
+            assert_eq!(requeue_for_limit(hit_limit(false, &rate), &run), Some(Limit::Transient));
+            reset_for_requeue(&mut run, &[], Limit::Transient);
         }
-        assert!(!requeue_for_limit(false, &limited, 3));
-        assert!(!requeue_for_limit(true, &limited, 0));
-        assert!(!requeue_for_limit(false, &ended(Some(outcome(true, "success", "Done.", false)), ""), 0));
-        assert!(!requeue_for_limit(false, &Err(AppError::internal("could not start")), 0));
-        assert!(hit_limit(false, &limited), "out of retries, it still holds the office");
-        assert!(!hit_limit(true, &limited));
+        assert_eq!(requeue_for_limit(hit_limit(false, &rate), &run), None, "eight rate limits, then it fails");
+        for _ in 0..USAGE_RETRIES {
+            assert_eq!(requeue_for_limit(hit_limit(false, &usage), &run), Some(Limit::Usage), "rate limits never use up the usage limit's retries");
+            reset_for_requeue(&mut run, &[], Limit::Usage);
+        }
+        assert_eq!(requeue_for_limit(hit_limit(false, &usage), &run), None);
+        assert_eq!((run.limit_retries, run.transient_retries), (11, 8));
+        assert_eq!(hit_limit(false, &usage), Some(Limit::Usage), "out of retries, it still holds the office");
+        assert_eq!(hit_limit(true, &usage), None, "you stopped it");
+        assert_eq!(hit_limit(false, &ended(Some(outcome(true, "success", "Done.", None)), "")), None);
+        assert_eq!(hit_limit(false, &Err(AppError::internal("could not start"))), None);
+        // An older build reports the usage limit as a bare 429, but the rate limit before it names the reset.
+        let mut older = ended(Some(outcome(false, "success", "You've hit your session limit.", Some(Limit::Transient))), "");
+        if let Ok(e) = older.as_mut() {
+            e.limited = Some(now() + chrono::Duration::hours(2));
+        }
+        assert_eq!(hit_limit(false, &older), Some(Limit::Usage));
+    }
+
+    #[test]
+    fn rate_limits_wait_longer_each_time_in_a_row() {
+        assert_eq!((0..7).map(|n| backoff(n).num_minutes()).collect::<Vec<_>>(), vec![5, 10, 20, 40, 60, 60, 60]);
+    }
+
+    fn window(percent: f64) -> Option<UsageWindow> {
+        Some(UsageWindow { percent, resets_at: None, resets_text: None })
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_holds_the_office_longer_each_time_and_a_usage_check_cannot_end_it() {
+        let dir = std::env::temp_dir().join(format!("omegastar-rate-hold-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let held_for = || office.usage_limits().held_until.map(|t| ((t - now()).num_seconds() as f64 / 60.0).round() as i64);
+        office.hold_for_transient_limit();
+        assert_eq!(held_for(), Some(5));
+        office.hold_for_transient_limit();
+        assert_eq!(held_for(), Some(5), "a run that meets it while held waits with the rest");
+        let room = || claude::UsageSample { five_hour: window(12.0), seven_day: window(30.0) };
+        office.observe_usage(room(), true);
+        assert_eq!(held_for(), Some(5), "the usage windows say nothing about a rate limit");
+        assert!(office.release_hold(now() + chrono::Duration::minutes(6)));
+        office.hold_for_transient_limit();
+        assert_eq!(held_for(), Some(10), "it came back before any run succeeded");
+        assert_eq!(office.db().held_until().unwrap(), office.usage_limits().held_until, "kept across a restart");
+
+        assert!(office.release_hold(now() + chrono::Duration::minutes(11)));
+        office.hold_until(now() + chrono::Duration::hours(2), Limit::Usage);
+        office.observe_usage(room(), true);
+        assert_eq!(office.usage_limits().held_until, None, "a usage check still ends a usage hold");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failure_is_logged_by_what_broke_it() {
+        let failed = |error: &str| Run { state: RunState::Failed, error: Some(error.into()), ..Run::new("e1", RunKind::Manual, "go".into(), now()) };
+        assert_eq!(error_class(&failed("API Error: Server is temporarily limiting requests."), Some(Limit::Transient)), "rate limit");
+        assert_eq!(error_class(&Run { limited: true, ..failed("You have hit your limit.") }, None), "usage limit");
+        assert_eq!(error_class(&failed("io: No space left on device (os error 28)"), None), "disk full");
+        assert_eq!(error_class(&failed("Stopped: the run reached its turn limit."), None), "turn limit");
+        assert_eq!(error_class(&failed("could not start Claude Code: no such file"), None), "could not start");
+        assert_eq!(error_class(&failed("Claude Code exited without a result (exit code Some(1))."), None), "no result");
+        assert_eq!(error_class(&Run { state: RunState::Lost, ..failed("Omega Star stopped while this run was in progress.") }, None), "lost when Omega Star stopped");
+        assert_eq!(error_class(&failed("Something broke."), None), "error");
     }
 
     #[test]
@@ -1446,7 +1987,8 @@ mod tests {
             before: Some("old".into()),
             after: Some("new".into()),
         };
-        reset_for_requeue(&mut run, std::slice::from_ref(&fc.change));
+        run.cost_usd = Some(0.5);
+        reset_for_requeue(&mut run, std::slice::from_ref(&fc.change), Limit::Usage);
         db.tx(|| {
             db.insert_revision(&e.id, &own_skills::revision(fc, Some(run.id.clone()), now()))?;
             db.save_run(&run)
@@ -1458,6 +2000,7 @@ mod tests {
         assert_eq!((saved.restarts, saved.restarted), (1, false), "it is told it was the limit, not the earlier restart");
         assert!(saved.denials.is_empty());
         assert_eq!(saved.skill_changes.len(), 1);
+        assert_eq!(saved.cost_usd, Some(0.5), "what it cost so far stays with it");
         assert_eq!(db.revisions(&e.id).unwrap().iter().filter(|r| r.run_id.as_deref() == Some(run.id.as_str())).count(), 1);
         drop(db);
         let _ = fs::remove_dir_all(&dir);
@@ -1561,6 +2104,37 @@ mod tests {
     }
 
     #[test]
+    fn answers_that_come_back_into_a_conversation_keep_each_others_cards() {
+        let (dir, db) = opening_store();
+        let e = employee(Clearance::Supervised);
+        db.save_employee(&e).unwrap();
+        let talk = finished(&db, &e, task("Plan the launch"), 60, "s1", "Asking Bo and Cy.");
+        // Each colleague's answer comes back as a turn of the conversation, with a card about its own thing.
+        let answer = |mins: i64, key: &str| {
+            let kind = RunKind::Answered { asked_run_id: format!("asked-{key}"), from: "e2".into(), task: false, chat: false, thread: Some(talk.id.clone()) };
+            let mut r = finished(&db, &e, kind, mins, "s1", "They answered.");
+            r.cards = vec![Card::new("Go ahead?", None, Some(key.into()), CardAsk::Choices { choices: vec!["Go".into()], recommended: 0 })];
+            db.save_run(&r).unwrap();
+            r
+        };
+        let posts = answer(30, "ask:posts");
+        let venue = answer(20, "ask:venue");
+        let open = |r: &Run| db.run(&r.id).unwrap().unwrap().run.has_open_card();
+
+        assert!(db.tx(|| replace_older_cards_in(&db, &venue, now())).unwrap().is_empty());
+        assert!(open(&posts) && open(&venue), "another key is another decision, so both stay open");
+
+        let again = answer(10, "ask:posts");
+        let replaced = db.tx(|| replace_older_cards_in(&db, &again, now())).unwrap();
+        assert_eq!(replaced.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![posts.id.as_str()], "the same key still replaces");
+        assert!(!open(&posts) && open(&venue));
+        assert!(db.run(&posts.id).unwrap().unwrap().run.archived_at.is_none(), "a turn of the conversation stays in it");
+        assert!(db.run(&talk.id).unwrap().unwrap().run.archived_at.is_none());
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn only_a_matching_rule_covers_a_supervised_denial() {
         let d = Denial { tool: "mcp__claude-in-chrome__get_page_text".into(), brief: String::new(), suggested_rule: "mcp__claude-in-chrome__get_page_text".into() };
         assert!(covered(&employee(Clearance::Autonomous), &[], &d));
@@ -1577,11 +2151,11 @@ mod tests {
     fn state_of_matches_how_runs_ended_before() {
         let failed = |m: &str| (RunState::Failed, Some(m.to_string()));
         let cases = [
-            (outcome(true, "success", "Done.", false), "", (RunState::Succeeded, None)),
-            (outcome(false, "error_max_turns", "", false), "", failed("Stopped: the run reached its turn limit.")),
-            (outcome(false, "error_during_execution", "Something broke.", false), "noise", failed("Something broke.")),
-            (outcome(false, "error_during_execution", "", false), "warning: one\nerror: the real cause\n", failed("warning: one\nerror: the real cause")),
-            (outcome(false, "error_during_execution", "", false), "", failed("Claude Code reported error_during_execution")),
+            (outcome(true, "success", "Done.", None), "", (RunState::Succeeded, None)),
+            (outcome(false, "error_max_turns", "", None), "", failed("Stopped: the run reached its turn limit.")),
+            (outcome(false, "error_during_execution", "Something broke.", None), "noise", failed("Something broke.")),
+            (outcome(false, "error_during_execution", "", None), "warning: one\nerror: the real cause\n", failed("warning: one\nerror: the real cause")),
+            (outcome(false, "error_during_execution", "", None), "", failed("Claude Code reported error_during_execution")),
         ];
         for (o, stderr, want) in cases {
             assert_eq!(state_of(&o, stderr_tail(stderr)), want);

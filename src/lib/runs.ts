@@ -10,7 +10,7 @@ export type TaskView = {
   toolUses: number; tokens: number; durationMs: number;
 };
 
-export type LiveRun = { run: Run; events: RunEvent[]; live: string; children: Run[]; tasks: TaskView[] };
+export type LiveRun = { run: Run; events: RunEvent[]; live: string; children: Run[]; tasks: TaskView[]; transcriptGone: boolean };
 
 type TaskEvent = Extract<RunEvent, { type: "taskStarted" | "taskProgress" | "taskEnded" }>;
 const isTaskEvent = (ev: RunEvent): ev is TaskEvent => ev.type === "taskStarted" || ev.type === "taskProgress" || ev.type === "taskEnded";
@@ -58,7 +58,7 @@ export function applyEvents(lr: LiveRun, events: RunEvent[]): LiveRun {
 export const applyRun = (lr: LiveRun, run: Run): LiveRun => ({ ...lr, run, live: run.state === "running" ? lr.live : "" });
 
 /** A run with nothing recorded yet. */
-export const emptyLiveRun = (run: Run): LiveRun => ({ run, events: [], live: "", children: [], tasks: [] });
+export const emptyLiveRun = (run: Run): LiveRun => ({ run, events: [], live: "", children: [], tasks: [], transcriptGone: false });
 
 /** A run handing work to `child` (a delegated or asked run) gains or updates it. */
 export function applyChild(lr: LiveRun, child: Run): LiveRun {
@@ -69,4 +69,4 @@ export function applyChild(lr: LiveRun, child: Run): LiveRun {
 export const isChildOf = (r: Run, runId: string) => (r.kind.type === "delegated" || r.kind.type === "asked") && r.kind.parentRunId === runId;
 
 /** A run's stored events, as `run_detail` returns them. */
-export const liveRunOf = (d: RunDetail): LiveRun => applyEvents({ ...emptyLiveRun(d.run), children: d.children }, d.events);
+export const liveRunOf = (d: RunDetail): LiveRun => applyEvents({ ...emptyLiveRun(d.run), children: d.children, transcriptGone: d.transcriptGone }, d.events);

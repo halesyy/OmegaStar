@@ -202,17 +202,23 @@ pub const NOT_NOW: &str = "Not now: busy, not a no. Leave it as it is. Omega Sta
 /// What No on a decision tells the employee.
 pub const REJECTED: &str = "No. Do not do it, and do not ask again.";
 
-/// The fixed message your answer sends to the employee, or None when it sends nothing (a dismissed chore).
+/// The fixed message your answer sends to the employee, or None when it sends nothing (a dismissed chore). An
+/// answer in your own words is your words as you typed them, on any card.
 pub fn answer_text(ask: &CardAsk, reply: &CardReply, ceo: &str) -> Result<Option<String>> {
     let unfit = || AppError::invalid("That answer does not fit this card.");
     let text = match (ask, reply) {
+        (_, CardReply::Text { text }) => Some(text.trim()).filter(|t| !t.is_empty()).ok_or_else(|| AppError::invalid("Type your answer first."))?.to_string(),
         (CardAsk::Choices { choices, .. }, CardReply::Choice { index }) => format!("Chose: {}.", choices.get(*index).ok_or_else(unfit)?),
         (CardAsk::Items { verb, items }, CardReply::Items { picks }) => items_text(verb, items, picks, ceo)?,
         (CardAsk::Choices { .. } | CardAsk::Items { .. }, CardReply::Dismiss) => NOT_NOW.into(),
         (CardAsk::Choices { .. } | CardAsk::Items { .. }, CardReply::Reject) => REJECTED.into(),
         (CardAsk::Chore { subject }, CardReply::Done) => match subject.strip_prefix(SIGN_IN) {
             Some(site) => format!("{ceo} signed in to {site}. Carry on with what was waiting on it."),
-            None => format!("{ceo} reconnected Chrome. Carry on with what was waiting on it."),
+            // Done is what they say, not a check: Chrome can still be down.
+            None => format!(
+                "{ceo} pressed Done on reconnecting Chrome. Check with list_connected_browsers first. If Chrome is connected, carry on \
+with what was waiting on it. If it is still not connected, say so in one line and stop. Do not raise another Chrome card in this run."
+            ),
         },
         (CardAsk::Chore { .. }, CardReply::Dismiss) => return Ok(None),
         _ => return Err(unfit()),
@@ -393,11 +399,20 @@ mod tests {
         assert_eq!(answer_text(&items(), &CardReply::Items { picks: vec![pick("d9", true, None)] }, "Pat").unwrap_err().message, "'d9' is not on this card.");
 
         let chrome = CardAsk::Chore { subject: CHROME.into() };
-        assert_eq!(answer_text(&chrome, &CardReply::Done, "Pat").unwrap().as_deref(), Some("Pat reconnected Chrome. Carry on with what was waiting on it."));
+        let back = answer_text(&chrome, &CardReply::Done, "Pat").unwrap().unwrap();
+        assert!(back.starts_with("Pat pressed Done on reconnecting Chrome. Check with list_connected_browsers first."), "{back}");
+        assert!(back.contains("If it is still not connected, say so in one line and stop. Do not raise another Chrome card"), "{back}");
         let acme = CardAsk::Chore { subject: sign_in("acme") };
         assert_eq!(answer_text(&acme, &CardReply::Done, "Pat").unwrap().as_deref(), Some("Pat signed in to acme. Carry on with what was waiting on it."));
         assert_eq!(answer_text(&acme, &CardReply::Dismiss, "Pat").unwrap(), None);
         assert!(answer_text(&acme, &CardReply::Reject, "Pat").is_err(), "a chore is done or not now");
         assert!(answer_text(&acme, &CardReply::Choice { index: 0 }, "Pat").is_err());
+
+        let typed = CardReply::Text { text: " Only after the copy fix lands. ".into() };
+        for ask in [&choices, &items(), &acme] {
+            assert_eq!(answer_text(ask, &typed, "Pat").unwrap().as_deref(), Some("Only after the copy fix lands."), "your words on any card");
+        }
+        assert_eq!(answer_text(&choices, &CardReply::Text { text: " ".into() }, "Pat").unwrap_err().message, "Type your answer first.");
+        assert!(answer_text(&choices, &CardReply::Ask { text: "Why?".into() }, "Pat").is_err(), "a question answers nothing");
     }
 }

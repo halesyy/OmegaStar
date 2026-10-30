@@ -28,7 +28,7 @@ export async function answerCard(run: Run, index: number, reply: CardReply, name
   const to = replies.length > 1 ? `${name} and ${replies.length - 1} more` : name;
   const said =
     reply.type === "choice" ? `Sent to ${to}: ${ask?.type === "choices" ? ask.choices[reply.index] : ""}.`
-    : reply.type === "items" ? `Sent to ${to}.`
+    : reply.type === "items" || reply.type === "text" ? `Sent to ${to}.`
     : reply.type === "done" ? (replies.length > 1 ? `Done. ${replies.length} runs carry on.` : `Done. ${name} carries on.`)
     : reply.type === "reject" ? `No. ${name} drops it.`
     : ask?.type === "chore" ? "Not now."
@@ -45,7 +45,7 @@ function answered(a: CardAnswer): string {
     case "dismissed": return `Not now${a.text ? " (back in a day)" : ""}${a.held ? ". Sends when the rest are answered." : ""}`;
     case "rejected": return a.held ? "No. Sends when the rest are answered." : "No";
     case "replaced": return "A newer card replaced this one";
-    case "typed": return "You answered in the thread";
+    case "typed": return a.held ? `"${a.text}" Sends when the rest are answered.` : `Sent: "${a.text}"`;
     case "withdrawn": return a.text ? `Withdrawn: ${a.text}` : "They withdrew it";
   }
 }
@@ -73,7 +73,8 @@ export function CardList({ runId, cards, e, onAnswer }: {
 }
 
 /** A card's answer built in: buttons for a decision, a tick list, or Done for a chore, under the file it is about
- *  if it has one. Once answered, one line on what you did. `index`: its place in run `runId`'s cards. */
+ *  if it has one, and a line for your own words or a question. Once answered, one line on what you did. `index`: its
+ *  place in run `runId`'s cards. */
 export function CardView({ card, runId, index, e, onAnswer }: {
   card: Card;
   runId: string;
@@ -88,6 +89,20 @@ export function CardView({ card, runId, index, e, onAnswer }: {
   const send = async (reply: CardReply) => {
     setSending(true);
     try { await onAnswer(reply); } finally { setSending(false); }
+  };
+  /** A question answers nothing, so it goes straight to them and the card stays where it is. */
+  const askAbout = async (text: string): Promise<boolean> => {
+    setSending(true);
+    try {
+      await call("answer_card", { runId, card: index, answer: { type: "ask", text } });
+      toast(`Asked ${name}. The card stays open until you answer it.`, "ok");
+      return true;
+    } catch (err) {
+      toast(errorMessage(err), "err");
+      return false;
+    } finally {
+      setSending(false);
+    }
   };
   /** Not now, and No in the card's own words. */
   const decline = (no: string) => (
@@ -122,6 +137,33 @@ export function CardView({ card, runId, index, e, onAnswer }: {
           <button className="btn btn-ghost btn-sm" disabled={sending} onClick={() => void send({ type: "dismiss" })}>Not now</button>
         </div>
       )}
+      <CardText name={name} sending={sending} onText={(text) => void send({ type: "text", text })} onAsk={askAbout} />
+    </div>
+  );
+}
+
+/** A line under an open card: Enter answers it in your own words, this card only; Ask sends the words as a question,
+ *  and the card stays open for your answer. */
+function CardText({ name, sending, onText, onAsk }: {
+  name: string;
+  sending: boolean;
+  onText: (text: string) => void;
+  /** Resolves whether the question went. */
+  onAsk: (text: string) => Promise<boolean>;
+}) {
+  const [text, setText] = useState("");
+  const said = text.trim();
+  const hint = `Answer in your own words, or ask ${name} about it`;
+  return (
+    <div className="card-text">
+      <input
+        className="input" value={text} disabled={sending} placeholder={hint} aria-label={hint}
+        onChange={(ev) => setText(ev.target.value)}
+        onKeyDown={(ev) => { if (ev.key === "Enter" && !ev.nativeEvent.isComposing && said) { ev.preventDefault(); onText(said); } }}
+      />
+      <button className="btn btn-ghost btn-sm" disabled={sending || !said} title="Sends it as a question. The card stays open." onClick={async () => { if (await onAsk(said)) setText(""); }}>
+        <Icon name="ask" size={13} /> Ask
+      </button>
     </div>
   );
 }

@@ -65,7 +65,7 @@ async fn call(office: &Office, token: &str, name: &str, args: &Value) -> Result<
         "team" => office.team(&me),
         "delegate" => office.delegate(&run_id, &me, s("to"), s("task")),
         "colleagues" => office.colleagues(&me),
-        "ask_colleague" => office.ask_colleague(&run_id, &me, s("to"), s("question"), s("kind") == "task"),
+        "ask_colleague" => office.ask_colleague(&run_id, &me, s("to"), s("question"), s("kind")),
         "await_reports" => {
             let ids: Vec<String> = args
                 .get("runIds")
@@ -122,6 +122,7 @@ fn tools() -> Value {
                 "instruction": { "type": "string", "description": "What you do each time it fires. Keep it short; the how lives in your skills." },
                 "quiet": { "type": "boolean", "description": "true: a run's report reaches anyone only if the run calls notify or fails. Use for frequent watches. Default false: every report goes where your handbook's Your report section says." },
                 "enabled": { "type": "boolean" },
+                "activeHours": { "type": "boolean", "description": "true: it runs only inside the office's business hours, and slots outside them are skipped, not made up later. Use for routines that only matter while people are at work. Default false." },
                 "model": { "type": "string", "description": "Optional. The model this routine runs on, e.g. 'haiku' for a frequent, simple check. Leave it out to use your usual model; pass 'default' to go back to it." },
                 "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max", "default"], "description": "Optional. How hard this routine thinks: 'low' for a quick check, 'high' or more for research. 'default' goes back to your usual effort." }
             }), &[]),
@@ -198,7 +199,7 @@ fn tools() -> Value {
             "inputSchema": obj(json!({
                 "what": { "type": "string", "description": "What you will find out, in one sentence." },
                 "how": { "type": "string", "description": "Where or how you will look: the command, the page, who to ask. Specific enough that a future run can do it cold." },
-                "inDays": { "type": "number", "description": "Days from now until it is worth checking (0 to 180, default 7)." }
+                "inDays": { "type": "number", "description": "Days from now until it is worth checking (0.25, six hours, to 180; default 7). Checks are at least six hours away." }
             }), &["what", "how"]),
         },
         {
@@ -229,12 +230,12 @@ fn tools() -> Value {
         },
         {
             "name": "team",
-            "description": "List your direct reports (agents) with title, objective, presence and their last run summary.",
+            "description": "List your direct reports (agents) with title, objective, presence, their last run summary and how many tasks you handed them today (tasksToday, at most tasksPerDay).",
             "inputSchema": obj(json!({}), &[]),
         },
         {
             "name": "delegate",
-            "description": "Hand one direct report a self-contained task. Returns {runId} immediately. Their report always comes back to you: wait with await_reports only if it should take a few minutes; otherwise finish, and a new run brings it to you.",
+            "description": "Hand one direct report a self-contained task, at most 4 a day to each. Returns {runId} immediately. Their report always comes back to you: wait with await_reports only if it should take a few minutes; otherwise finish. Handed over in a conversation the person you work for started, it comes back as its next turn; any other report waits for your next run, or comes with your team's other reports in one run once 30 minutes pass without a new one. When a chain of hand-offs grows long, Omega Star pauses the task and sends it by itself later: never send it again.",
             "inputSchema": obj(json!({
                 "to": { "type": "string", "description": "The report's name, slug or id." },
                 "task": { "type": "string", "description": "What to do, why, and what done looks like." }
@@ -247,16 +248,16 @@ fn tools() -> Value {
         },
         {
             "name": "ask_colleague",
-            "description": "Ask another agent a question, or hand them a task, that falls in their area, not yours. They work on it in a run of their own. Returns {runId} immediately. The answer or report always comes back to you: wait with await_reports only if it should take a few minutes and you need it now; otherwise finish without it, and a new run brings it to you. Only when it genuinely helps: never for what you can find or do yourself.",
+            "description": "Ask another agent a question, or hand them a task, that falls in their area, not yours. They work on it in a run of their own. Returns {runId} immediately. The answer or report always comes back to you: wait with await_reports only if it should take a few minutes and you need it now; otherwise finish without it, and a new run brings it to you. If they have not started your earlier question or task yet, this one is added to it. With kind info, it leaves them news instead: no run, nothing comes back, and they read it at the top of their next run. When a chain of hand-offs grows long, Omega Star pauses the next one and sends it by itself later: never send it again. Only when it genuinely helps: never for what you can find or do yourself.",
             "inputSchema": obj(json!({
-                "to": { "type": "string", "description": "The colleague's name, slug or id." },
-                "kind": { "type": "string", "enum": ["question", "task"], "description": "question (default): they answer and change nothing. task: they do the work, e.g. set something up once it is approved, or act on news you pass on." },
-                "question": { "type": "string", "description": "The question or task, self-contained: they see nothing of your run. For a task, what done looks like and who approved it." }
+                "to": { "type": "string", "description": "The colleague's name, slug or id, or 'everyone' with kind info to tell every colleague." },
+                "kind": { "type": "string", "enum": ["question", "task", "info"], "description": "question (default): they answer and change nothing. task: they do the work, e.g. set something up once it is approved, or act on news you pass on. info: news that needs no answer and no work; it starts no run. When you raise a card in work a colleague handed you, its outcome already reaches them, so never send a separate notice about it." },
+                "question": { "type": "string", "description": "The question, task or news, self-contained: they see nothing of your run. For a task, what done looks like and who approved it." }
             }), &["to", "question"]),
         },
         {
             "name": "await_reports",
-            "description": "Wait (up to 4 minutes) for runs you delegated or questions you asked to finish, and return each run's state and report or answer. Use it only for hand-offs that take a few minutes: anything still going comes back to you in a new run when it finishes.",
+            "description": "Wait (up to 4 minutes) for runs you delegated or questions you asked to finish, and return each run's state and report or answer. Use it only for hand-offs that take a few minutes: anything still going comes back to you when it finishes.",
             "inputSchema": obj(json!({ "runIds": { "type": "array", "items": { "type": "string" } } }), &["runIds"]),
         },
         {
