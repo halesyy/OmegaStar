@@ -8,8 +8,8 @@
 //! a report with everything it set off in conversation, or an ask a report made with everything that came
 //! back from it (`file`), and a schedule's failures in a row or everyone waiting on the same chore
 //! (`merge_rows`). A row is in the Inbox only while it needs you (`needs_you`): a card, a flag, a blocked
-//! tool or breakage you can act on. Every other row that reached you is in the Archive, which never asks
-//! anything, and so is what you marked done.
+//! tool, breakage you can act on, or the report of a run you wrote into. Every other row that reached you is in
+//! the Archive, which never asks anything, and so is what you marked done.
 
 use crate::claude::clip;
 use crate::model::*;
@@ -59,10 +59,15 @@ pub fn continues(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Reply { .. } | RunKind::Answered { .. } | RunKind::Asked { .. } | RunKind::Delegated { .. })
 }
 
+/// How long a due check's run may work and still be a quick look. Longer, it did real work.
+pub const CHECK_QUIET_MS: u64 = 30 * 60 * 1000;
+
 /// Reports that stay out of the Inbox unless they flag something or break: quiet schedules, tidies
-/// and nudges.
-pub fn quiet(kind: &RunKind) -> bool {
-    matches!(kind, RunKind::Scheduled { quiet: true, .. } | RunKind::Tidy { .. } | RunKind::Nudge { .. })
+/// and nudges. A due check's run is quiet too, unless it ran longer than `CHECK_QUIET_MS`: then it reports
+/// like other work.
+pub fn quiet(r: &Run) -> bool {
+    let long_check = r.kind.check_id().is_some() && r.duration_ms.is_some_and(|ms| ms > CHECK_QUIET_MS);
+    matches!(r.kind, RunKind::Scheduled { quiet: true, .. } | RunKind::Tidy { .. } | RunKind::Nudge { .. }) && !long_check
 }
 
 /// The run raised a card or a flag, or was blocked on a tool (a tidy trying a command it may not run is not).
@@ -84,11 +89,11 @@ pub fn broke(r: &Run) -> bool {
 pub const STREAK: usize = 3;
 
 /// A finished run that might need you, before its thread is read: it raised something, was blocked, broke,
-/// or you replied to it (a reply can raise something). Every other report goes straight to the Archive. The
-/// Inbox's query, `Store::finished_root_runs`, does this in SQL; its test holds the two equal.
+/// you replied to it (a reply can raise something), or you wrote into it. Every other report goes straight to the
+/// Archive. The Inbox's query, `Store::finished_root_runs`, does this in SQL; its test holds the two equal.
 #[cfg(test)]
 pub fn could_need_you(r: &Run) -> bool {
-    flagged(r) || broke(r) || r.replied_at.is_some()
+    flagged(r) || broke(r) || r.replied_at.is_some() || r.steered
 }
 
 /// The newest run in a thread that has finished: the root, or the last reply that ended.
@@ -96,13 +101,13 @@ fn latest_finished(t: &Thread) -> &Run {
     t.replies.iter().rev().find(|r| r.ended_at.is_some()).unwrap_or(&t.root)
 }
 
-/// The thread asks you something: a card you have not answered anywhere in it, or its newest finished run
-/// flagged something or was blocked on a tool. A flag on an earlier run was answered by what came after it,
-/// and a block is no longer yours once a later turn (the retry you allowed) is on its way.
+/// The thread asks you something: a card you have not answered or news you have not seen anywhere in it, or its
+/// newest finished run flagged something or was blocked on a tool. A flag on an earlier run was answered by what came
+/// after it, and a block is no longer yours once a later turn (the retry you allowed) is on its way.
 pub fn asks_you(t: &Thread) -> bool {
     let last = latest_finished(t);
     let retrying = t.replies.last().is_some_and(|r| r.ended_at.is_none());
-    std::iter::once(&t.root).chain(&t.replies).any(Run::has_open_card) || last.flags().next().is_some() || (blocked(last) && !retrying)
+    std::iter::once(&t.root).chain(&t.replies).any(|r| r.has_open_card() || r.has_news()) || last.flags().next().is_some() || (blocked(last) && !retrying)
 }
 
 /// The thread's newest finished run broke for a reason you can act on: not the usage limit, which Omega
@@ -115,6 +120,7 @@ pub fn broken(t: &Thread) -> bool {
 /// Whether a finished run reaches your Inbox. `quiet_chain`: it is part of a hand-off a quiet report
 /// started, so like that report it speaks up only when it flags something or breaks. `top`: its
 /// employee reports to you; an agent below another agent reports to that manager unless it flags you.
+/// A run you wrote into while it worked or waited (`Run::steered`) always does: you were watching it.
 /// A conversation you started never does, nor an answer that came back into one: you follow it as a
 /// conversation of its own.
 pub fn reaches_you(r: &Run, quiet_chain: bool, top: bool) -> bool {
@@ -125,10 +131,10 @@ pub fn reaches_you(r: &Run, quiet_chain: bool, top: bool) -> bool {
     if matches!(r.kind, RunKind::Nudge { .. }) && r.state == RunState::Cancelled {
         return false;
     }
-    if flagged(r) {
+    if flagged(r) || r.steered {
         return true;
     }
-    if (quiet(&r.kind) || quiet_chain) && r.state == RunState::Succeeded {
+    if (quiet(r) || quiet_chain) && r.state == RunState::Succeeded {
         return false;
     }
     match r.kind {
@@ -204,7 +210,7 @@ pub fn file(starts: &[Run], conversation: Vec<Run>, lookup: impl Fn(&str) -> Opt
             Some(RunKind::Asked { parent_run_id, .. } | RunKind::Delegated { parent_run_id }) => lookup(parent_run_id),
             _ => first.clone(),
         };
-        let quiet_chain = origin.is_some_and(|o| quiet(&o.kind));
+        let quiet_chain = origin.is_some_and(|o| quiet(&o));
         let mut runs: Vec<Run> = by_anchor.get(&a).map(|v| v.iter().map(|r| (*r).clone()).collect()).unwrap_or_default();
         if let Some(f) = first.filter(|f| !conversation.contains_key(&f.id)) {
             runs.push(f);
@@ -292,11 +298,12 @@ fn is_open(m: &(Thread, bool)) -> bool {
     m.1 && m.0.root.archived_at.is_none()
 }
 
-/// The row needs you: an open thread in it asks you something, or broke where breakage needs you. A
-/// schedule's failures need you once `STREAK` of them are in a row; anything else that breaks, at once.
+/// The row needs you: an open thread in it asks you something, broke where breakage needs you, or is a run you
+/// wrote into (`Run::steered`), whose report waits for you like a reply until you mark it done. A schedule's
+/// failures need you once `STREAK` of them are in a row; anything else that breaks, at once.
 pub fn needs_you(row: &Row) -> bool {
     let open = || row.members.iter().filter(|m| is_open(m)).map(|(t, _)| t);
-    if open().any(asks_you) {
+    if open().any(|t| asks_you(t) || t.root.steered) {
         return true;
     }
     let scheduled = |t: &Thread| matches!(t.root.kind, RunKind::Scheduled { .. });
@@ -312,9 +319,9 @@ pub fn going_on(t: &Thread) -> bool {
 
 /// A conversation you are in: one going on (`going_on`) that you started (an older build's chat message an
 /// answer came back into too) or typed into. Turns Omega Star wrote from a tap (a card's answer, an approval)
-/// alone do not make one.
+/// alone do not make one, nor do questions you asked about a card (`Run::about_card`).
 pub fn talking(t: &Thread) -> bool {
-    going_on(t) && (matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || t.replies.iter().any(|r| !r.omega_wrote))
+    going_on(t) && (matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || t.replies.iter().any(|r| !r.omega_wrote && !r.about_card))
 }
 
 /// A row as `view` shows it: the thread it is about, with its other threads in `related`, oldest first.
@@ -427,7 +434,7 @@ mod tests {
     fn chore(employee: &str, subject: &str, answered: bool) -> Run {
         let mut r = Run::new(employee, RunKind::Manual, "go".into(), chrono::Utc::now());
         r.state = RunState::Failed;
-        let mut card = Card::new("Waiting on you.", None, None, CardAsk::Chore { subject: subject.into() });
+        let mut card = Card::new("Waiting on you.", None, None, CardAsk::Chore { subject: subject.into(), url: None });
         card.answer = answered.then(|| CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: "Done.".into(), held: false });
         r.cards = vec![card];
         r
@@ -540,6 +547,59 @@ mod tests {
         r.denials.clear();
         r.needs_you.push("The tidy dropped a rule.".into());
         assert!(!asks_you(&Thread::new(r, vec![retried])), "a reply after a flag answers it");
+    }
+
+    #[test]
+    fn news_asks_you_until_seen_but_holds_up_no_card() {
+        let mut r = Run::new("e1", RunKind::Manual, "go".into(), chrono::Utc::now());
+        r.state = RunState::Succeeded;
+        r.ended_at = Some(chrono::Utc::now());
+        r.needs_you = vec!["The spring sale is live.".into()];
+        r.cards = vec![Card::new("The spring sale is live.", None, Some("ask:sale".into()), CardAsk::News)];
+        let t = Thread::new(r.clone(), vec![]);
+        assert!(asks_you(&t) && needs_you(&row(r.clone())), "it keeps its row in the Inbox");
+        assert!(open_card(&t).is_none(), "so nothing waits on it");
+        r.cards[0].answer = Some(CardAnswer { at: chrono::Utc::now(), how: AnswerHow::Tapped, text: String::new(), held: false });
+        assert!(!asks_you(&Thread::new(r, vec![])), "seen");
+    }
+
+    #[test]
+    fn a_check_that_worked_for_long_is_not_quiet() {
+        let at = chrono::Utc::now();
+        let scheduled = |schedule: &str| RunKind::Scheduled { schedule_id: schedule.into(), slot: at, label: "Check: Did it ship".into(), quiet: true, model: None, effort: None, review: false };
+        let mut check = Run::new("e1", scheduled(&format!("{CHECK_PREFIX}c1")), "go".into(), at);
+        check.state = RunState::Succeeded;
+        check.duration_ms = Some(CHECK_QUIET_MS);
+        assert!(quiet(&check) && !reaches_you(&check, false, true), "half an hour is still a quick look");
+        check.duration_ms = Some(CHECK_QUIET_MS + 1);
+        assert!(!quiet(&check) && reaches_you(&check, false, true), "longer is work, which reports");
+        let mut routine = check.clone();
+        routine.kind = scheduled("s1");
+        assert!(quiet(&routine), "a quiet routine stays quiet however long it takes");
+    }
+
+    #[test]
+    fn a_run_you_wrote_into_reaches_you_and_waits_until_you_mark_it_done() {
+        let at = chrono::Utc::now();
+        let routine = RunKind::Scheduled { schedule_id: "s1".into(), slot: at, label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
+        let handed = RunKind::Asked { parent_run_id: "r1".into(), asked_by: "e2".into(), task: true };
+        for kind in [routine, handed] {
+            let mut r = Run::new("e1", kind, "go".into(), at);
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(at);
+            assert!(!reaches_you(&r, false, false), "{:?}", r.kind);
+            r.steered = true;
+            assert!(reaches_you(&r, false, false) && reaches_you(&r, true, false), "{:?}: you were watching it", r.kind);
+            let row = |r: &Run| Row { members: vec![(Thread::new(r.clone(), vec![]), reaches_you(r, false, false))] };
+            assert!(needs_you(&row(&r)) && present(row(&r), View::Inbox).is_some(), "it waits for you like a reply");
+            assert!(present(row(&r), View::Archive).is_none(), "nothing is in both");
+            r.archived_at = Some(at);
+            assert!(!needs_you(&row(&r)) && present(row(&r), View::Archive).is_some(), "marked done, it is in the Archive");
+        }
+        let mut turn = Run::new("e1", RunKind::Reply { to_run_id: "r1".into(), label: "Sweep".into(), task: false, card: false }, "go".into(), at);
+        turn.state = RunState::Succeeded;
+        turn.steered = true;
+        assert!(!reaches_you(&turn, false, true), "a turn belongs to its thread");
     }
 
     #[test]

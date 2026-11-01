@@ -7,6 +7,7 @@ import { toast } from "../../lib/toasts";
 import { openMember, openRun, openWork, type PanelTab } from "../../lib/router";
 import { Conversation } from "../../screens/Conversation";
 import { Icon } from "../Icon";
+import { statusText } from "../OrgChart";
 import { workLabel } from "../RunRow";
 import { Avatar, Popover, SlideOver, Tabs } from "../ui";
 import { WorkTab } from "./WorkTab";
@@ -35,6 +36,7 @@ export function EmployeePanel({ employee: e, tab, focus, onClose }: { employee: 
           <h2 className="h-lg panel-name">{e.name}</h2>
           <span className="panel-sub">{e.title} · Reports to {e.managerId ? managerName : "you"}</span>
           <PresenceLine e={e} />
+          <StatusSummary e={e} />
         </div>
         <div className="row" style={{ gap: 4, alignSelf: "flex-start" }}>
           <RunNow e={e} />
@@ -87,6 +89,18 @@ function PresenceLine({ e }: { e: EmployeeView }) {
     <span className="panel-presence">
       <span className="panel-presence-dot" />
       {e.nextFire ? <>Next run {whenInline(e.nextFire)}</> : e.lastWorkedAt ? <>Last worked {relTime(e.lastWorkedAt)}</> : "No runs yet"}
+    </span>
+  );
+}
+
+/** How they are doing, in one quiet line: their number, their last report and what is next. */
+function StatusSummary({ e }: { e: EmployeeView }) {
+  const now = useNow(60_000);
+  const text = statusText(e, now);
+  if (!text) return null;
+  return (
+    <span className="panel-presence" title={text}>
+      <span className="panel-presence-what">{text}</span>
     </span>
   );
 }

@@ -35,6 +35,10 @@ pub async fn update_company(office: O<'_>, name: String, ceo_name: String, title
 pub async fn set_background(app: AppHandle, office: O<'_>, enabled: bool) -> Result<SetupStatus> {
     let al = app.autolaunch();
     if enabled { al.enable() } else { al.disable() }.map_err(|e| AppError::internal(format!("autostart: {e}")))?;
+    #[cfg(target_os = "macos")]
+    if enabled {
+        crate::keep_alive_after_crash(&app);
+    }
     office.setup_status(background(&app)).await
 }
 
@@ -134,20 +138,47 @@ const OPENS: &[&str] = &[
 
 /// Whether a report path opens in its app, so a click never runs a program
 /// (an .app bundle is a folder, a .command or .sh is a file).
-fn opens_directly(path: &Path, is_dir: bool) -> bool {
+pub(crate) fn opens_directly(path: &Path, is_dir: bool) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => OPENS.contains(&ext.to_ascii_lowercase().as_str()),
         None => is_dir,
     }
 }
 
-/// A path from a report as a full path, with a leading `~/` expanded.
+/// A path from a report as a full path, with a leading `~/` expanded. One that is not there but has a `%` in it
+/// is tried percent-decoded too, since a link or a file URL writes a space as `%20`.
 fn report_path(path: &str) -> Result<std::path::PathBuf> {
-    let full = match path.strip_prefix("~/") {
-        Some(rest) => dirs::home_dir().map(|home| home.join(rest)),
-        None => Some(std::path::PathBuf::from(path)),
+    let full = |path: &str| {
+        let full = match path.strip_prefix("~/") {
+            Some(rest) => dirs::home_dir().map(|home| home.join(rest)),
+            None => Some(std::path::PathBuf::from(path)),
+        };
+        full.filter(|p| p.is_absolute())
     };
-    full.filter(|p| p.is_absolute()).ok_or_else(|| AppError::invalid(format!("{path} is not a full path")))
+    let first = full(path).ok_or_else(|| AppError::invalid(format!("{path} is not a full path")))?;
+    if first.exists() || !path.contains('%') {
+        return Ok(first);
+    }
+    Ok(percent_decoded(path).and_then(|p| full(&p)).filter(|p| p.exists()).unwrap_or(first))
+}
+
+/// `s` with each `%XX` turned back into the byte it stands for, or None when that is not text.
+fn percent_decoded(s: &str) -> Option<String> {
+    let (b, mut out, mut i) = (s.as_bytes(), vec![], 0);
+    let hex = |at: usize| b.get(at).and_then(|c| (*c as char).to_digit(16));
+    while i < b.len() {
+        match (b[i], hex(i + 1), hex(i + 2)) {
+            (b'%', Some(hi), Some(lo)) => {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+            }
+            (c, _, _) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 #[tauri::command]
@@ -171,6 +202,16 @@ pub async fn runs(office: O<'_>, employee_id: Option<String>, limit: u32) -> Res
 }
 
 #[tauri::command]
+pub async fn search_runs(office: O<'_>, query: String, limit: u32) -> Result<Vec<Run>> {
+    office.search_runs(&query, limit)
+}
+
+#[tauri::command]
+pub async fn run_usage(office: O<'_>, since: Ts) -> Result<RunUsage> {
+    office.run_usage(since)
+}
+
+#[tauri::command]
 pub async fn run_detail(office: O<'_>, run_id: String) -> Result<RunDetail> {
     office.run_detail(&run_id)
 }
@@ -191,13 +232,28 @@ pub async fn thread(office: O<'_>, run_id: String) -> Result<Thread> {
 }
 
 #[tauri::command]
-pub async fn set_archived(office: O<'_>, run_id: String, archived: bool) -> Result<Run> {
+pub async fn set_archived(office: O<'_>, run_id: String, archived: bool) -> Result<Vec<String>> {
     office.set_archived(&run_id, archived)
+}
+
+#[tauri::command]
+pub async fn unarchive_runs(office: O<'_>, run_ids: Vec<String>) -> Result<()> {
+    office.unarchive(&run_ids)
+}
+
+#[tauri::command]
+pub async fn retry_run(office: O<'_>, run_id: String) -> Result<Run> {
+    office.retry_run(&run_id)
 }
 
 #[tauri::command]
 pub async fn reply_to_run(office: O<'_>, run_id: String, text: String, archive: bool, attachments: Option<Vec<NewAttachment>>) -> Result<Run> {
     office.reply_to_run(&run_id, &text, archive, attachments.unwrap_or_default())
+}
+
+#[tauri::command]
+pub async fn steer_run(office: O<'_>, run_id: String, text: String) -> Result<SteerHow> {
+    office.steer_run(&run_id, &text)
 }
 
 #[tauri::command]
@@ -213,6 +269,11 @@ pub async fn answer_card(office: O<'_>, run_id: String, card: usize, answer: Car
 #[tauri::command]
 pub async fn card_file(office: O<'_>, run_id: String, card: usize) -> Result<String> {
     office.card_file(&run_id, card)
+}
+
+#[tauri::command]
+pub async fn parked_runs(office: O<'_>) -> Result<Vec<Run>> {
+    office.parked_runs()
 }
 
 #[tauri::command]
@@ -493,5 +554,21 @@ mod tests {
         if let Some(home) = dirs::home_dir() {
             assert_eq!(report_path("~/summary.pdf").unwrap(), home.join("summary.pdf"));
         }
+    }
+
+    #[test]
+    fn a_missing_path_with_encoded_spaces_is_found_decoded() {
+        let dir = std::env::temp_dir().join(format!("omegastar-paths-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("Application Support")).unwrap();
+        let shot = dir.join("Application Support").join("before after.png");
+        std::fs::write(&shot, b"png").unwrap();
+        let encoded = format!("{}/Application%20Support/before%20after.png", dir.display());
+        assert_eq!(report_path(&encoded).unwrap(), shot);
+        assert_eq!(image_path(&encoded).unwrap(), shot);
+        let missing = format!("{}/100%25 done.png", dir.display());
+        assert_eq!(report_path(&missing).unwrap(), PathBuf::from(&missing), "nothing there either way, so as written");
+        assert_eq!(percent_decoded("a%2"), Some("a%2".into()));
+        assert_eq!(percent_decoded("%ff"), None, "not text");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

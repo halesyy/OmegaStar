@@ -13,7 +13,8 @@ import "./TidyProposal.css";
  */
 export function TidyProposal({ run, employee }: { run: Run; employee: EmployeeView | undefined }) {
   const [busy, setBusy] = useState(false);
-  if (run.kind.type !== "tidy" || !run.proposed || run.repliedAt) return null;
+  // Asking about it decides nothing. An archived one waits until you reopen it, so one an older build approved stays approved.
+  if (run.kind.type !== "tidy" || !run.proposed || run.approvedAt || run.archivedAt) return null;
   const name = employee ? firstName(employee.name) : "They";
   const approve = async () => {
     setBusy(true);
@@ -32,7 +33,7 @@ export function TidyProposal({ run, employee }: { run: Run; employee: EmployeeVi
       <div className="tp-plan"><Markdown text={run.proposed} /></div>
       <div className="tp-actions">
         <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => void approve()}><Icon name="check" size={12} /> Approve these changes</button>
-        <span className="faint tp-hint">To change the plan, reply below instead.</span>
+        <span className="faint tp-hint">A reply below leaves this plan as it is: Approve makes exactly what it says.</span>
       </div>
     </section>
   );

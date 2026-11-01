@@ -69,8 +69,9 @@ export function Shell() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const proposals = useProposals();
-  // The badge counts decisions: hire proposals, and every entry the Inbox shows.
+  // The badge counts decisions: hire proposals, and every entry the Inbox shows. The dock shows it too.
   const inboxCount = (proposals ?? []).filter((p) => p.state === "open").length + decisions((items ?? []).filter((i) => i.status.inbox)).length;
+  useEffect(() => { void dockBadge(inboxCount); }, [inboxCount]);
 
   const closeSheet = useCallback(() => setSheet(null), []);
   const toggleCollapsed = () => setCollapsed((c) => { storageSet(COLLAPSE_KEY, c ? "0" : "1"); return !c; });
@@ -175,6 +176,13 @@ export function Shell() {
       {palette ? <CommandPalette onClose={() => setPalette(false)} api={api} /> : null}
     </ShellCtx.Provider>
   );
+}
+
+/** The count on the app's icon in the Dock (macOS), cleared at 0. Elsewhere it may not be supported, which is fine. */
+async function dockBadge(count: number) {
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined).catch(() => {});
 }
 
 /** One of the sidebar's pages, with an optional count; its name moves to a tooltip when the sidebar is collapsed. */

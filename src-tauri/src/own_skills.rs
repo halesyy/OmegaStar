@@ -291,13 +291,21 @@ pub fn company_page_path(employees_dir: &Path) -> PathBuf {
 
 const COMPANY_PAGE: &str = "# Company page
 
-Every employee reads this page at the start of every run, so keep it short: one line per fact, and point to where details live instead of copying them. Never write a password, key or account number here. It changes only in a conversation with the person you all work for.
+Every employee reads this page at the start of every run, so keep it short: one line per fact, and point to where details live instead of copying them. Never write a password, key or account number here. Only the person you all work for changes it: in a conversation, or by accepting a line you propose.
 
 ## What we sell
+
+## What we use
+
+Tools, hosting and accounts, and which account to use for what.
 
 ## Who to ask
 
 ## How things work here
+
+## Voice and style
+
+How we write, one rule per line, with example rewrites in the words of the person you all work for.
 
 ## Public copy rules
 
@@ -667,10 +675,19 @@ mod tests {
     }
 
     #[test]
+    fn the_skill_craft_has_no_em_dash() {
+        assert!(!CRAFT.contains('\u{2014}'));
+    }
+
+    #[test]
     fn company_page_is_seeded_once() {
         let dir = temp_dir();
         seed_company_page(&dir).unwrap();
         assert_eq!(fs::read_to_string(company_page_path(&dir)).unwrap(), COMPANY_PAGE);
+        let at = |heading: &str| COMPANY_PAGE.find(heading).unwrap_or_else(|| panic!("{heading}: {COMPANY_PAGE}"));
+        assert!(at("## What we sell\n") < at("## What we use\n") && at("## What we use\n") < at("## Who to ask\n"), "{COMPANY_PAGE}");
+        assert!(at("## How things work here\n") < at("## Voice and style\n") && at("## Voice and style\n") < at("## Public copy rules\n"), "{COMPANY_PAGE}");
+        assert!(!COMPANY_PAGE.contains('\u{2014}'));
         let mine = "# Company page\n\n## What we sell\n\nGarden tools.\n";
         fs::write(company_page_path(&dir), mine).unwrap();
         seed_company_page(&dir).unwrap();

@@ -13,7 +13,7 @@ export type State = "needsYou" | "working" | "queued" | "snoozed" | "done" | "id
 export type Status = {
   state: State;
   /** It is a row of the Inbox: a report that reached you, or a conversation or replied thread the employee
-   *  answered, until you mark it done. A snoozed row sits under Snoozed instead. */
+   *  answered, until you archive it. A snoozed row sits under Snoozed instead. */
   inbox: boolean;
   /** It moved since you last looked, or its snooze ended. */
   unread: boolean;
@@ -29,7 +29,7 @@ export type StatusContext = { marks: Marks; since: string; now: number };
 
 /** What the state reads, worked out once per conversation. */
 type Facts = {
-  /** You marked it done. */
+  /** You archived it. */
   done: boolean;
   snoozed: boolean;
   /** The employee is on it. */
@@ -109,7 +109,7 @@ export function threadStatus(t: Thread, filed: boolean, { marks, since, now }: S
   };
 }
 
-/** Snooze choices from `now`: in 3 hours, tomorrow at 9:00 am, and next week, the Monday after tomorrow at 9:00 am. */
+/** Later's choices from `now`: in 3 hours, tomorrow at 9:00 am, and next week, the Monday after tomorrow at 9:00 am. */
 export function snoozePresets(now: Date): { label: string; until: Date }[] {
   const at9 = (days: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, 9, 0, 0, 0);
   const toMonday = ((8 - now.getDay()) % 7 || 7) + (now.getDay() === 0 ? 7 : 0);

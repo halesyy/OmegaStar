@@ -1,3 +1,6 @@
+// The office tools' schemas (`mcp::tools`) are one `json!` literal, deeper than the default limit.
+#![recursion_limit = "256"]
+
 mod backup;
 mod cards;
 mod catalog;
@@ -8,6 +11,7 @@ mod health;
 mod log;
 mod mcp;
 mod model;
+mod notices;
 mod office;
 mod org;
 mod own_skills;
@@ -23,17 +27,56 @@ mod watch;
 
 use log::log;
 use model::{AppSettings, BackupStatus, Build, HireProposal, HumanRequest, Run, RunEvent, UsageLimits};
+use notices::Notices;
 use office::{EventSink, Office};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::Instant;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent, Wry};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
+use tauri_plugin_opener::OpenerExt;
 
 struct TauriSink {
     app: AppHandle,
     pause_item: OnceLock<MenuItem<Wry>>,
+    /// Notifications waiting to show, as the notification settings say (`notices`).
+    notices: Mutex<Notices>,
+}
+
+impl TauriSink {
+    fn notices(&self) -> MutexGuard<'_, Notices> {
+        self.notices.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn show(&self, title: &str, body: &str) {
+        if let Err(e) = self.app.notification().builder().title(title).body(body).show() {
+            log!("notification failed: {e}");
+        }
+    }
+}
+
+/// Minutes since midnight on this computer's clock, which quiet hours are set in.
+fn local_minute() -> u16 {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    (now.hour() * 60 + now.minute()) as u16
+}
+
+/// Shows the notifications that come due, every `notices::TICK` for as long as the app runs.
+fn spawn_notices(sink: Arc<TauriSink>) {
+    tauri::async_runtime::spawn(async move {
+        let mut every = tokio::time::interval(notices::TICK);
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            every.tick().await;
+            let due = sink.notices().due(Instant::now(), local_minute());
+            for (title, body) in due {
+                sink.show(&title, &body);
+            }
+        }
+    });
 }
 
 fn pause_label(paused: bool) -> &'static str {
@@ -63,14 +106,31 @@ impl EventSink for TauriSink {
         let _ = self.app.emit("backup:updated", status);
     }
     fn notify(&self, title: &str, body: &str) {
-        if let Err(e) = self.app.notification().builder().title(title).body(body).show() {
-            log!("notification failed: {e}");
+        let now = self.notices().add(title, body, Instant::now(), local_minute());
+        if let Some((title, body)) = now {
+            self.show(&title, &body);
         }
+    }
+    fn open(&self, target: &str) -> std::result::Result<(), String> {
+        let opener = self.app.opener();
+        let done = if target.starts_with("https://") {
+            opener.open_url(target, None::<&str>)
+        } else {
+            // As a click on a path in a report opens it: one that could run a program is shown in its folder instead.
+            let path = std::path::Path::new(target);
+            if commands::opens_directly(path, path.is_dir()) {
+                opener.open_path(target, None::<&str>)
+            } else {
+                opener.reveal_item_in_dir(path)
+            }
+        };
+        done.map_err(|e| e.to_string())
     }
     fn settings_changed(&self, s: &AppSettings) {
         if let Some(item) = self.pause_item.get() {
             let _ = item.set_text(pause_label(s.paused));
         }
+        self.notices().set(s.notifications.clone());
     }
 }
 
@@ -144,6 +204,37 @@ fn autostart() -> tauri::plugin::TauriPlugin<Wry> {
     b.build()
 }
 
+/// Keys for the login item: launchd starts Omega Star again when the copy it started dies of a crash
+/// signal (a panic aborts), and only then, at most once a minute. A Quit, a force quit or a start that
+/// could not open the office stays down, and a restarted copy meets the single-instance check like any
+/// other, so it never runs beside one you opened.
+#[cfg(target_os = "macos")]
+const KEEP_ALIVE: &str =
+    "<key>KeepAlive</key>\n  <dict>\n    <key>Crashed</key>\n    <true/>\n  </dict>\n  <key>ThrottleInterval</key>\n  <integer>60</integer>\n  ";
+
+/// The autostart plugin's plist with KEEP_ALIVE added at the end of its dict, or `None` when it has a
+/// KeepAlive already or is not a login item's plist. Pure.
+#[cfg(target_os = "macos")]
+fn with_keep_alive(plist: &str) -> Option<String> {
+    if plist.contains("<key>KeepAlive</key>") || !plist.contains("<key>ProgramArguments</key>") {
+        return None;
+    }
+    let end = plist.rfind("</dict>")?;
+    Some(format!("{}{KEEP_ALIVE}{}", &plist[..end], &plist[end..]))
+}
+
+/// Has the login item, when there is one, bring Omega Star back after a crash. launchd reads it at
+/// login, so this takes effect from the next one.
+#[cfg(target_os = "macos")]
+fn keep_alive_after_crash(app: &AppHandle) {
+    let Some(home) = dirs::home_dir() else { return };
+    let plist = home.join("Library/LaunchAgents").join(format!("{}.plist", app.package_info().name));
+    let Some(text) = std::fs::read_to_string(&plist).ok().and_then(|t| with_keep_alive(&t)) else { return };
+    if let Err(e) = std::fs::write(&plist, text) {
+        log!("could not have the login item restart Omega Star after a crash: {e}");
+    }
+}
+
 /// A page an employee showed, for its sealed frame: `omega-visual://localhost/<run id>%2F<page id>?theme=dark`
 /// (`http://omega-visual.localhost/...` on Windows).
 fn visual_page(app: &AppHandle, req: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
@@ -195,7 +286,7 @@ pub fn run() {
             // `package_info` carries a version set with `tauri build --config`, as dogfood builds do.
             let build = Build::new(app.package_info().version.to_string());
             log!("Omega Star {} started ({} build {}) on {}", build.version, format!("{:?}", build.channel).to_lowercase(), build.commit, data_dir.display());
-            let sink = Arc::new(TauriSink { app: app.handle().clone(), pause_item: OnceLock::new() });
+            let sink = Arc::new(TauriSink { app: app.handle().clone(), pause_item: OnceLock::new(), notices: Mutex::new(Notices::default()) });
             let office = match tauri::async_runtime::block_on(Office::open(data_dir.clone(), sink.clone(), build)) {
                 Ok(office) => office,
                 Err(e) => {
@@ -210,12 +301,25 @@ pub fn run() {
                     return Ok(());
                 }
             };
+            match office.settings() {
+                Ok(s) => sink.settings_changed(&s),
+                Err(e) => log!("could not read the notification settings: {e}"),
+            }
+            spawn_notices(sink.clone());
             office.spawn_scheduler();
             office.spawn_usage_monitor();
             office.spawn_account_monitor();
             office.spawn_backup_monitor();
             office.spawn_tidy_monitor();
             office.spawn_watch_monitor();
+            office.spawn_transcript_sweep();
+            office.spawn_transcript_compaction();
+            // A login item set up by an older release does not restart after a crash yet. Other builds leave
+            // the release's login item alone.
+            #[cfg(target_os = "macos")]
+            if model::BuildChannel::current() == model::BuildChannel::Release {
+                keep_alive_after_crash(app.handle());
+            }
             build_tray(app, office.clone(), &sink)?;
             app.manage(office);
             if !background {
@@ -252,15 +356,21 @@ pub fn run() {
             commands::open_image,
             commands::open_report_path,
             commands::runs,
+            commands::search_runs,
+            commands::run_usage,
             commands::run_detail,
             commands::archived,
             commands::conversations,
             commands::thread,
             commands::set_archived,
+            commands::unarchive_runs,
+            commands::retry_run,
             commands::reply_to_run,
+            commands::steer_run,
             commands::approve_blocked,
             commands::answer_card,
             commands::card_file,
+            commands::parked_runs,
             commands::open_asks,
             commands::week_reviews,
             commands::employee_skills,
@@ -317,4 +427,35 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    /// The plist the autostart plugin writes.
+    const PLUGIN_PLIST: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
+\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n  <dict>\n  <key>Label</key>\n  <string>Acme Office</string>\n  \
+<key>ProgramArguments</key>\n  <array><string>/Applications/Acme Office.app/Contents/MacOS/acme-office</string><string>--background</string></array>\n  \
+<key>RunAtLoad</key>\n  <true/>\n  </dict>\n</plist>";
+
+    #[test]
+    fn the_login_item_restarts_only_after_a_crash() {
+        let text = with_keep_alive(PLUGIN_PLIST).unwrap();
+        assert_eq!(with_keep_alive(&text), None, "added once");
+        assert_eq!(with_keep_alive("<plist><dict><key>Label</key></dict></plist>"), None, "only a login item's plist");
+
+        let dir = std::env::temp_dir().join(format!("omegastar-plist-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Acme Office.plist");
+        std::fs::write(&path, &text).unwrap();
+        let out = std::process::Command::new("/usr/bin/plutil").args(["-convert", "json", "-o", "-"]).arg(&path).output().unwrap();
+        assert!(out.status.success(), "launchd can read it: {}", String::from_utf8_lossy(&out.stderr));
+        let plist: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(plist["KeepAlive"], serde_json::json!({ "Crashed": true }));
+        assert_eq!(plist["ThrottleInterval"], 60);
+        assert_eq!(plist["RunAtLoad"], true);
+        assert_eq!(plist["ProgramArguments"], serde_json::json!(["/Applications/Acme Office.app/Contents/MacOS/acme-office", "--background"]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

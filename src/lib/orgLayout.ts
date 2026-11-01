@@ -2,7 +2,7 @@
 import { YOU_ID } from "./org";
 
 export const CARD_W = 236;
-export const CARD_H = 76;
+export const CARD_H = 94;
 const GAP_X = 16;
 const GAP_Y = 56;
 const STACK_INDENT = 32;

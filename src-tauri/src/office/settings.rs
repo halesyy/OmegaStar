@@ -1,6 +1,10 @@
-//! Setup, settings, backups, usage limits and the skill catalog.
+//! Setup, settings, backups, transcripts, usage limits and the skill catalog.
 
 use super::*;
+
+/// The first transcript sweep, a while after launch, and the time between sweeps.
+const SWEEP_FIRST: Duration = Duration::from_secs(300);
+const SWEEP_EVERY: Duration = Duration::from_secs(24 * 3600);
 
 impl Office {
     pub fn company(&self) -> Result<Option<Company>> {
@@ -85,7 +89,11 @@ impl Office {
         s.data_dir = self.0.data_dir.to_string_lossy().into_owned();
         s.backup.keep = s.backup.keep.clamp(1, 100);
         s.backup.dir = s.backup.dir.trim().to_string();
+        s.transcript_days = s.transcript_days.map(|d| d.max(1));
         s.watch.validate()?;
+        if s.notifications.quiet.is_some_and(|q| q.start_minute >= 1440 || q.end_minute >= 1440 || q.start_minute == q.end_minute) {
+            return Err(AppError::invalid("quiet hours must start and end at different times of the day"));
+        }
         let p = &mut s.proxy;
         p.url = p.url.trim().trim_end_matches('/').to_string();
         p.api_key = p.api_key.trim().to_string();
@@ -213,6 +221,8 @@ impl Office {
         let settings = self.settings()?.backup;
         let dir = backup::validate_dir(&settings.dir, self.data_dir())?;
         fs::create_dir_all(&dir).map_err(|e| AppError::invalid(format!("Could not create the backup folder {}: {e}", dir.display())))?;
+        let last_bytes = self.db().backup_status()?.unwrap_or_default().last_bytes;
+        backup::make_room(&dir, settings.keep, last_bytes, free_bytes, backup::on_disk)?;
         let mut stamp = at.with_timezone(&Local);
         while dir.join(backup::file_name(stamp)).exists() {
             stamp += chrono::Duration::seconds(1);
@@ -244,6 +254,52 @@ impl Office {
             log!("could not prune old backups: {e}");
         }
         Ok((file.to_string_lossy().into_owned(), sum, fingerprint))
+    }
+
+    // ------------------------------------------------------------------ transcripts
+
+    /// Sweeps old transcripts five minutes after launch, then once a day.
+    pub fn spawn_transcript_sweep(&self) {
+        let office = self.clone();
+        self.0.rt.spawn(async move {
+            let mut every = tokio::time::interval_at(tokio::time::Instant::now() + SWEEP_FIRST, SWEEP_EVERY);
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                every.tick().await;
+                let o = office.clone();
+                match tokio::task::spawn_blocking(move || o.sweep_transcripts(now())).await {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => log!("deleting old transcripts failed: {e}"),
+                    Err(e) => log!("deleting old transcripts failed: {e}"),
+                }
+            }
+        });
+    }
+
+    /// Deletes the transcripts and logs of runs that finished more than `transcript_days` before `at`. The rest
+    /// of each run's folder (the pages it showed, archives) and its row and report stay. Returns how many went.
+    pub(super) fn sweep_transcripts(&self, at: Ts) -> Result<usize> {
+        let Some(days) = self.settings()?.transcript_days else { return Ok(0) };
+        let runs_dir = self.0.data_dir.join("runs");
+        let ids: Vec<String> = fs::read_dir(&runs_dir)?
+            .flatten()
+            .filter(|e| e.path().join("transcript.jsonl").is_file())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        let runs = self.db().runs_by_id(&ids)?;
+        let mut deleted = 0;
+        for id in expired(&runs, at - chrono::Duration::days(days.into())) {
+            let dir = runs_dir.join(id);
+            match fs::remove_file(dir.join("transcript.jsonl")) {
+                Ok(()) => deleted += 1,
+                Err(e) => log!("could not delete the transcript of run {id}: {e}"),
+            }
+            let _ = fs::remove_file(dir.join("stderr.log"));
+        }
+        if deleted > 0 {
+            log!("deleted the transcripts of {deleted} runs that finished over {days} days ago");
+        }
+        Ok(deleted)
     }
 
     // ------------------------------------------------------------------ usage limits
@@ -318,10 +374,15 @@ impl Office {
             let mut u = lock(&self.0.usage);
             let held = u.held_until;
             *u = merge_usage(&u, sample, from_probe, now());
-            (u.clone(), held.is_some() && u.held_until.is_none())
+            // A rate limit is not in the usage windows, so room there says nothing about it.
+            if self.0.transient_hold.load(Ordering::SeqCst) {
+                u.held_until = held;
+            }
+            (u.clone(), held.filter(|_| u.held_until.is_none()))
         };
         self.sink().usage_updated(&next);
-        if released {
+        if let Some(until) = released {
+            log!("hold for the usage limit ended early: a usage check showed room (it held work until {})", until.with_timezone(&Local).format("%Y-%m-%d %H:%M"));
             if let Err(e) = self.db().set_held_until(None) {
                 log!("could not clear the usage hold: {e}");
             }
@@ -329,38 +390,53 @@ impl Office {
         }
     }
 
-    /// Holds the office until the usage limit resets at `until`: no run starts before then. Tells you
-    /// once, when the hold is new.
-    pub(super) fn hold_until(&self, until: Ts) {
+    /// Holds the office until `until`, when the usage limit resets or a rate limit has had time to ease: no run
+    /// starts before then. Tells you once, when the hold is new.
+    pub(super) fn hold_until(&self, until: Ts, why: Limit) {
         let at = now();
         let (next, new) = {
             let mut u = lock(&self.0.usage);
             let new = u.held_until.is_none_or(|t| t <= at);
             if u.held_until.is_none_or(|t| until > t) {
                 u.held_until = Some(until);
+                self.0.transient_hold.store(why == Limit::Transient, Ordering::SeqCst);
             }
             (u.clone(), new)
         };
         if let Err(e) = self.db().set_held_until(next.held_until) {
             log!("could not save the usage hold: {e}");
         }
+        self.save_rate_limits();
         self.sink().usage_updated(&next);
         if new {
+            log!("holding work for {} until {}", why.as_str(), until.with_timezone(&Local).format("%Y-%m-%d %H:%M"));
             let time = until.with_timezone(&Local).format("%-I:%M %P");
-            self.sink().notify("Waiting for the usage limit", &format!("Work starts again at {time}, when the limit resets."));
+            match why {
+                Limit::Usage => self.sink().notify("Waiting for the usage limit", &format!("Work starts again at {time}, when the limit resets.")),
+                Limit::Transient => self.sink().notify("Waiting out a rate limit", &format!("Claude is turning requests away for now, so work starts again at {time}.")),
+            }
+        }
+    }
+
+    /// Keeps the rate limits in a row and whether the hold is for one in the store, so a restart keeps the backoff and a
+    /// usage check after it cannot end a rate limit's hold.
+    pub(super) fn save_rate_limits(&self) {
+        let (n, holding) = (self.0.transient_limits.load(Ordering::SeqCst), self.0.transient_hold.load(Ordering::SeqCst));
+        if let Err(e) = self.db().set_rate_limits(n, holding) {
+            log!("could not save the rate limits: {e}");
         }
     }
 
     /// Ends a hold whose reset time has come. Returns whether there was one.
     pub(super) fn release_hold(&self, now: Ts) -> bool {
-        let next = {
+        let (next, until) = {
             let mut u = lock(&self.0.usage);
-            if !u.held_until.is_some_and(|t| t <= now) {
-                return false;
-            }
+            let Some(until) = u.held_until.filter(|t| *t <= now) else { return false };
             u.held_until = None;
-            u.clone()
+            (u.clone(), until)
         };
+        let why = if self.0.transient_hold.load(Ordering::SeqCst) { Limit::Transient } else { Limit::Usage };
+        log!("hold for {} ended (it held work until {})", why.as_str(), until.with_timezone(&Local).format("%Y-%m-%d %H:%M"));
         if let Err(e) = self.db().set_held_until(None) {
             log!("could not clear the usage hold: {e}");
         }
@@ -496,6 +572,11 @@ fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool,
     }
 }
 
+/// The runs whose folders the transcript sweep deletes: those that finished before `cutoff`. Pure.
+fn expired(runs: &[Run], cutoff: Ts) -> Vec<&str> {
+    runs.iter().filter(|r| r.state.is_finished() && r.ended_at.is_some_and(|t| t < cutoff)).map(|r| r.id.as_str()).collect()
+}
+
 /// Why routines must wait for the account: Claude Code is signed out, or signed in to another account
 /// than `recorded`, the one set up. `None` when it is the same, or when either is unknown.
 fn account_issue(recorded: Option<&str>, now: Option<&Account>) -> Option<AccountIssue> {
@@ -572,6 +653,79 @@ mod tests {
         office.refresh_usage().await;
         let u = office.usage_limits();
         assert_eq!((u.proxy_issue, u.five_hour.map(|w| w.percent)), (None, Some(60.0)));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn quiet_hours_start_and_end_at_different_times() {
+        let dir = std::env::temp_dir().join(format!("omegastar-quiet-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let with = |start_minute: u16, end_minute: u16| AppSettings {
+            notifications: NotificationSettings { mode: NotifyMode::All, quiet: Some(QuietHours { start_minute, end_minute }) },
+            ..office.settings().unwrap()
+        };
+        assert!(office.save_settings(with(480, 480)).is_err());
+        assert!(office.save_settings(with(1320, 1440)).is_err(), "midnight is minute 0");
+        let saved = office.save_settings(with(1320, 480)).unwrap();
+        assert_eq!(office.settings().unwrap().notifications, saved.notifications, "overnight, 10 pm to 8 am");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_sweep_takes_only_runs_that_finished_before_the_cutoff() {
+        let cutoff: Ts = "2026-09-01T00:00:00Z".parse().unwrap();
+        let day = chrono::Duration::days(1);
+        let run = |state: RunState, ended_at: Option<Ts>| Run { state, ended_at, ..Run::new("e1", RunKind::Manual, "go".into(), cutoff - day * 60) };
+        let runs = [
+            run(RunState::Succeeded, Some(cutoff - day)),
+            run(RunState::Failed, Some(cutoff - day * 30)),
+            run(RunState::Cancelled, Some(cutoff - day)),
+            run(RunState::Lost, Some(cutoff - day)),
+            run(RunState::Succeeded, Some(cutoff + day)),
+            run(RunState::Running, Some(cutoff - day)),
+            run(RunState::Queued, Some(cutoff - day)),
+            run(RunState::Succeeded, None),
+        ];
+        let old: Vec<&str> = runs[..4].iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(expired(&runs, cutoff), old, "finished before the cutoff, and only those");
+    }
+
+    #[tokio::test]
+    async fn the_sweep_deletes_old_transcripts_and_keeps_their_rows() {
+        let dir = std::env::temp_dir().join(format!("omegastar-sweep-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let at = Utc::now();
+        let finished = |days: i64| {
+            let mut r = Run::new("e1", RunKind::Manual, "go".into(), at - chrono::Duration::days(days));
+            r.state = RunState::Succeeded;
+            r.started_at = Some(r.created_at);
+            r.ended_at = Some(r.created_at);
+            r.summary = Some("All done.".into());
+            r
+        };
+        let (old, recent) = (finished(40), finished(10));
+        for r in [&old, &recent] {
+            office.db().insert_run(r, &r.id).unwrap();
+            fs::create_dir_all(dir.join("runs").join(&r.id)).unwrap();
+            fs::write(dir.join("runs").join(&r.id).join("transcript.jsonl"), "{}\n").unwrap();
+        }
+        fs::create_dir_all(dir.join("runs/not-a-run")).unwrap();
+
+        assert_eq!(office.sweep_transcripts(at).unwrap(), 0, "kept forever unless you choose otherwise");
+        office.save_settings(AppSettings { transcript_days: Some(30), ..office.settings().unwrap() }).unwrap();
+        assert_eq!(office.sweep_transcripts(at).unwrap(), 1);
+        assert!(!dir.join("runs").join(&old.id).join("transcript.jsonl").exists());
+        assert!(dir.join("runs").join(&old.id).exists(), "the rest of its folder, such as pages it showed, stays");
+        assert!(dir.join("runs").join(&recent.id).join("transcript.jsonl").exists());
+        assert!(dir.join("runs/not-a-run").exists(), "a folder no run owns is left alone");
+
+        let gone = office.run_detail(&old.id).unwrap();
+        assert!(gone.transcript_gone && gone.events.is_empty());
+        assert_eq!(gone.run.summary.as_deref(), Some("All done."), "the row and its report stay");
+        assert!(!office.run_detail(&recent.id).unwrap().transcript_gone);
+        drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
 

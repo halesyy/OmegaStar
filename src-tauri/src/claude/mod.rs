@@ -221,6 +221,14 @@ pub struct Opening {
     pub notes: Vec<(String, Ts)>,
     /// Runs that asked or delegated something: a quiet run among them reached someone.
     pub parents: HashSet<String>,
+    /// News colleagues sent since the employee's last run: (when, who, what), oldest first.
+    pub news: Vec<(Ts, String, String)>,
+    /// Reports from the employee's team held for this run: (who, the task, the report), oldest first.
+    pub held: Vec<(String, String, String)>,
+    /// The employee's cards a newer card replaced since their last run, with when, oldest first.
+    pub replaced: Vec<(Ts, Card)>,
+    /// The employee's cards you answered in the last 7 days, outside this session, with your answers, newest first.
+    pub answers: Vec<Card>,
 }
 
 /// The request a reply check, nudge or give-up is about.
@@ -368,9 +376,9 @@ fn model_args(kind: &RunKind, e: &Employee) -> Vec<String> {
     args
 }
 
-/// The first message of a run that goes again after the usage limit stopped it: the conversation it
-/// resumes already holds the message it was answering.
-pub const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit stopped you before you could answer. It has reset now, so carry on with the message above.";
+/// The first message of a run that goes again after the usage limit or a rate limit stopped it: the
+/// conversation it resumes already holds the message it was answering.
+pub const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
 
 /// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
 /// went with it, so it is told to raise again any it still needs.
@@ -579,6 +587,7 @@ mod tests {
             effort: Some(Effort::High),
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![],
             hue: 0,
             chat_session: "chat-ada".into(),
@@ -614,6 +623,7 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![],
             hue: 0,
             chat_session: "chat-ada".into(),

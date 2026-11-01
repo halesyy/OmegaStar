@@ -16,7 +16,7 @@ pub use visuals::{image_data_url, image_mime, PAGE_CSP};
 
 use crate::backup;
 use crate::catalog;
-use crate::claude::{self, Outcome};
+use crate::claude::{self, Limit, Outcome};
 use crate::health;
 use crate::log::log;
 use crate::model::*;
@@ -35,7 +35,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -49,8 +49,14 @@ pub trait EventSink: Send + Sync + 'static {
     fn settings_changed(&self, _settings: &AppSettings) {}
     fn usage_updated(&self, _usage: &UsageLimits) {}
     fn backup_updated(&self, _status: &BackupStatus) {}
-    /// A desktop notification: an employee flagged something that needs you.
+    /// A desktop notification: an employee flagged something that needs you. One titled "<name> needs you" is a
+    /// decision of that employee's, which the sink may show together with their others (`notices`); the sink also
+    /// holds notifications back in quiet hours, or drops them when you turned them off.
     fn notify(&self, _title: &str, _body: &str) {}
+    /// Opens a full path or an https link on your screen (`open`), or says why it could not.
+    fn open(&self, _target: &str) -> std::result::Result<(), String> {
+        Err("there is no screen to open it on".into())
+    }
 }
 
 const TICK: Duration = Duration::from_secs(30);
@@ -61,6 +67,7 @@ const BACKUP_EVERY: Duration = Duration::from_secs(60);
 const WATCH_FIRST: Duration = Duration::from_secs(45);
 const WATCH_EVERY: Duration = Duration::from_secs(60);
 const ACCOUNT_EVERY: Duration = Duration::from_secs(60);
+const COMPACT_FIRST: Duration = Duration::from_secs(300);
 /// In the data dir while the app runs: a launch that finds it knows the last session did not quit cleanly.
 pub(crate) const RUNNING_MARKER: &str = "omega.running";
 /// In a run's folder while it works: its employee's skills as they were when it started, so a run the
@@ -93,6 +100,10 @@ fn data_folder(channel: BuildChannel) -> &'static str {
 /// before its process exists.
 struct Active {
     token: String,
+    employee_id: String,
+    /// Another run of the same employee worked at some point while this one did, so a skill edit this run
+    /// saw may not be its own.
+    beside: bool,
     pid: Option<u32>,
     cancelled: bool,
     /// What needs you from it (each card's message, and flags Omega Star raised), copied onto the run when it ends.
@@ -105,6 +116,8 @@ struct Active {
     proposed: Option<String>,
     /// For a reply check or nudge: it recorded its finding with `check_result`.
     verdict: bool,
+    /// The name it gave its own thread with `name_thread`, copied onto the run when it ends.
+    title: Option<String>,
     /// Opened when the run starts preparing.
     transcript: Option<Arc<Mutex<File>>>,
     /// The run's open stdin, from its start until its turn ends: `Some` while it still takes messages.
@@ -144,6 +157,13 @@ struct Inner {
     closing: AtomicBool,
     /// When you last saved the company page in You. The save writes no revision, so a run's guard asks here.
     company_saved: Mutex<Option<Ts>>,
+    /// Rate limits in a row since a run last succeeded: each new hold for one waits longer (`runs::backoff`). Kept in
+    /// the store with `transient_hold` (`save_rate_limits`), so a restart keeps both.
+    transient_limits: AtomicU32,
+    /// The hold on work is for a rate limit, which a usage probe cannot see end: only its own time ends it.
+    transient_hold: AtomicBool,
+    /// The office's disk was too full to start runs when last checked.
+    disk_full: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -200,6 +220,7 @@ impl Office {
         }
         let store = Store::open(&data_dir.join("office.db"))?;
         let held_until = store.held_until().ok().flatten().filter(|t| *t > now());
+        let (rate_limits, rate_hold) = store.rate_limits().unwrap_or_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
         let office = Office(Arc::new(Inner {
@@ -221,6 +242,9 @@ impl Office {
             awake: AtomicBool::new(true),
             closing: AtomicBool::new(false),
             company_saved: Mutex::new(None),
+            transient_limits: AtomicU32::new(rate_limits),
+            transient_hold: AtomicBool::new(rate_hold && held_until.is_some()),
+            disk_full: AtomicBool::new(false),
         }));
         office.adopt_chat_turns()?;
         for mut run in office.recover()? {
@@ -338,6 +362,28 @@ impl Office {
         });
     }
 
+    /// Once per office, five minutes after launch: takes the image data out of the transcripts older builds saved
+    /// whole, in the background (`compact_transcripts`). A launch that stops it before the end starts it again.
+    pub fn spawn_transcript_compaction(&self) {
+        let office = self.clone();
+        self.0.rt.spawn(async move {
+            if office.db().transcripts_compacted().unwrap_or(true) {
+                return;
+            }
+            tokio::time::sleep(COMPACT_FIRST).await;
+            let compacting = office.clone();
+            match tokio::task::spawn_blocking(move || compacting.compact_transcripts()).await {
+                Ok(saved) => {
+                    log!("took the images out of finished runs' transcripts, saving {} MB", saved / (1024 * 1024));
+                    if let Err(e) = office.db().set_transcripts_compacted() {
+                        log!("could not record that transcripts were compacted: {e}");
+                    }
+                }
+                Err(e) => log!("taking the images out of transcripts failed: {e}"),
+            }
+        });
+    }
+
     /// Looks for employees due a tidy every ten minutes, starting two minutes after launch.
     pub fn spawn_tidy_monitor(&self) {
         let office = self.clone();
@@ -434,25 +480,31 @@ impl Office {
                 stderr_tail: fs::read_to_string(run_dir.join("stderr.log")).ok().and_then(|s| runs::stderr_tail(&s)),
                 skills,
             };
+            let since = r.started_at.unwrap_or(r.created_at);
             let changes = settle(&mut r, left, lost);
-            // A card's file as notify checks it, so a card read back from the transcript shows it only if it passes.
+            let slug = employee.as_ref().map_or_else(|| r.employee_id.clone(), |e| e.slug.clone());
+            // A card's file and images as notify checks them, so a card read back from the transcript shows them only if they pass.
             let workspaces = employee.map(|e| e.workspaces).unwrap_or_default();
             for c in &mut r.cards {
                 c.file = c.file.take().and_then(|f| tools::card_file_path(&home, &workspaces, &f).ok()).map(|p| p.to_string_lossy().into_owned());
+                c.images = c.images.iter().filter_map(|i| tools::card_image_path(&home, &workspaces, i).ok()).map(|p| p.to_string_lossy().into_owned()).collect();
             }
             db.tx(|| {
-                for fc in changes {
-                    db.insert_revision(&r.employee_id, &own_skills::revision(fc, Some(r.id.clone()), now()))?;
-                }
+                runs::record_changes(&db, &r.employee_id, &r.id, since, changes)?;
                 db.save_run(&r)
             })?;
             let _ = fs::remove_file(&before_path);
-            if r.state == RunState::Queued {
-                log!("requeued {} after Omega Star stopped (attempt {})", r.id, r.restarts);
+            match r.state {
+                RunState::Queued => log!("requeued {} after Omega Star stopped (attempt {})", r.id, r.restarts),
+                RunState::Failed | RunState::Lost => runs::log_failed(&r, &slug, None),
+                _ => {}
             }
             settled.push(r);
         }
-        db.lose_unreadable_running(now(), lost)?;
+        let unreadable = db.lose_unreadable_running(now(), lost)?;
+        if unreadable > 0 {
+            log!("lost {unreadable} running runs this build cannot read");
+        }
         Ok(settled)
     }
 }
@@ -473,9 +525,12 @@ struct Leftover<'a> {
 
 /// Finishes a run from its transcript when its turn had ended. Otherwise puts it back in the queue, as if it
 /// never started, to carry on in its session, or marks it lost with `lost` once it has been back
-/// `RESTART_RETRIES` times. Returns the skill edits it made. Pure.
-fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<own_skills::FileChange> {
-    match claude::transcript_outcome(left.transcript, left.home) {
+/// `RESTART_RETRIES` times. A run back in the queue before is judged by its last attempt's lines alone
+/// (`Run::attempt_from`): an earlier attempt's result, such as the limit that sent it back, is not how this one
+/// ended. Returns the skill edits it saw, its own being those its calls wrote. Pure.
+fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<runs::Seen> {
+    let attempt = left.transcript.get(run.attempt_from as usize..).unwrap_or(left.transcript);
+    match claude::transcript_outcome(attempt, left.home) {
         Some(o) => {
             let (state, error) = runs::state_of(&o, left.stderr_tail);
             let ended = left.modified.unwrap_or(left.now);
@@ -508,6 +563,7 @@ fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<own_skills::File
             run.started_at = None;
             run.restarts += 1;
             run.restarted = true;
+            run.attempt_from = left.transcript.len() as u64;
         }
         None => {
             run.state = RunState::Lost;
@@ -515,8 +571,18 @@ fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<own_skills::File
             run.error = Some(lost.into());
         }
     }
+    // Who else worked beside it before the app stopped is not known, so only what its calls show is its own.
     let changes = left.skills.map(|(before, after)| own_skills::diff(&before, &after)).unwrap_or_default();
-    run.skill_changes.extend(changes.iter().map(|c| c.change.clone()));
+    let moved = if changes.is_empty() { HashSet::new() } else { runs::moved_skills(left.transcript) };
+    let changes: Vec<runs::Seen> = changes
+        .into_iter()
+        .map(|c| {
+            let wrote = moved.contains(&c.change.skill)
+                || own_skills::recorded_path(left.home, &c.change.skill, &c.change.file).is_ok_and(|p| skills::wrote_file(left.transcript, &p, left.home));
+            runs::Seen { own: wrote, wrote, change: c }
+        })
+        .collect();
+    run.skill_changes.extend(runs::own_changes(&changes));
     changes
 }
 
@@ -539,6 +605,46 @@ fn long_path(p: &Path) -> PathBuf {
         Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
         _ => c,
     }
+}
+
+/// Below this much free space on the office's disk no run starts.
+const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Too little space to start runs. Unknown free space never stops them. Pure.
+fn too_full(free: Option<u64>) -> bool {
+    free.is_some_and(|b| b < MIN_FREE_BYTES)
+}
+
+/// The space free to this user on the disk that holds `path`; `None` when it cannot be read.
+#[cfg(unix)]
+fn free_bytes(path: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statvfs only writes into the zeroed struct, and `c` is a NUL-terminated path.
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return None;
+    }
+    Some((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
+}
+
+#[cfg(windows)]
+fn free_bytes(path: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetDiskFreeSpaceExW(dir: *const u16, free_to_caller: *mut u64, total: *mut u64, total_free: *mut u64) -> i32;
+    }
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut free = 0u64;
+    // SAFETY: `wide` is a NUL-terminated path; the call writes only `free`, and the other outputs may be null.
+    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut()) };
+    (ok != 0).then_some(free)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn free_bytes(_path: &Path) -> Option<u64> {
+    None
 }
 
 /// Finds a member by id, slug or name (case-insensitive).
@@ -628,6 +734,29 @@ mod tests {
     }
 
     #[test]
+    fn a_requeued_run_is_judged_by_its_last_attempt_alone() {
+        let limited = json!({ "type": "result", "subtype": "success", "is_error": true, "num_turns": 1, "duration_ms": 500,
+            "result": "API Error: Server is temporarily limiting requests.", "permission_denials": [], "api_error_status": 429 })
+        .to_string();
+        let first = format!("{}\n{limited}\n", assistant("Reading."));
+        // The limit sent it back to the queue, and Omega Star stopped before its next attempt wrote a line.
+        let mut r = running();
+        r.limit_retries = 1;
+        r.attempt_from = first.len() as u64;
+        settle(&mut r, left(&first, None), LOST);
+        assert_eq!((r.state, r.error, r.restarts), (RunState::Queued, None, 1), "the 429 was the last attempt's, not this one's");
+        assert_eq!(r.attempt_from, first.len() as u64, "its next attempt starts after it");
+
+        // An attempt that ended is finished from its own lines.
+        let both = format!("{first}{}\n{}", assistant("Reading again."), result("Swept the inbox.", 2));
+        let mut r = running();
+        r.limit_retries = 1;
+        r.attempt_from = first.len() as u64;
+        settle(&mut r, left(&both, None), LOST);
+        assert_eq!((r.state, r.summary.as_deref(), r.turns), (RunState::Succeeded, Some("Swept the inbox."), Some(2)));
+    }
+
+    #[test]
     fn a_run_cut_off_too_often_is_lost() {
         let mut r = running();
         r.restarts = RESTART_RETRIES;
@@ -656,10 +785,28 @@ mod tests {
         let before = own_skills::load_snapshot(&path).unwrap();
         let after = own_skills::snapshot(&dir.join("skills"));
         let mut r = running();
-        let changes = settle(&mut r, left("", Some((before, after))), LOST);
+        let changes = settle(&mut r, left("", Some((before.clone(), after.clone()))), LOST);
         assert_eq!(r.state, RunState::Queued, "edits made before the restart are recorded, though the run goes again");
         assert_eq!(changes.len(), 1);
+        assert!(!changes[0].own && r.skill_changes.is_empty(), "nothing on record says this run made it");
+
+        let edit = json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": "t1", "name": "Edit",
+            "input": { "file_path": home().join("skills/tester-notes/SKILL.md"), "old_string": "morning", "new_string": "morning and evening" } }] } });
+        let done = json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_result", "tool_use_id": "t1", "content": "ok" }] } });
+        let mut r = running();
+        let changes = settle(&mut r, left(&format!("{edit}\n{done}"), Some((before, after))), LOST);
+        assert!(changes[0].own && changes[0].wrote);
         assert_eq!(r.skill_changes, vec![SkillChange { skill: "tester-notes".into(), file: "SKILL.md".into(), change: ChangeKind::Modified }]);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn too_little_free_space_holds_work() {
+        assert!(too_full(Some(MIN_FREE_BYTES - 1)));
+        assert!(!too_full(Some(MIN_FREE_BYTES)));
+        assert!(!too_full(None), "unknown free space never stops work");
+        let dir = std::env::temp_dir();
+        assert!(free_bytes(&dir).is_some_and(|b| b > 0), "the temp folder's disk has room");
+        assert_eq!(free_bytes(&dir.join(format!("omegastar-missing-{}", uuid::Uuid::new_v4()))), None);
     }
 }

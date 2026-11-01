@@ -39,6 +39,24 @@ const GROUP_CAP = 6;
 
 const quiet = <T,>(p: Promise<T[]>): Promise<T[]> => p.catch(() => []);
 
+/** From this many letters on, a query also searches every run's instruction, report and card questions. */
+const SEARCH_FROM = 3;
+
+/** The runs the backend finds for `q` (trimmed), beyond the latest ones the index holds; null while it looks or for a
+ *  short query. */
+function useFoundRuns(q: string): Run[] | null {
+  const [found, setFound] = useState<{ q: string; runs: Run[] } | null>(null);
+  useEffect(() => {
+    if (q.length < SEARCH_FROM) return;
+    let alive = true;
+    const t = window.setTimeout(() => {
+      void quiet(call("search_runs", { query: q, limit: 20 })).then((runs) => { if (alive) setFound({ q, runs }); });
+    }, 150);
+    return () => { alive = false; window.clearTimeout(t); };
+  }, [q]);
+  return found && found.q === q ? found.runs : null;
+}
+
 /** Everything the palette searches beyond the org snapshot, fetched when it opens. */
 function useIndex(employeeIds: string[]): Index | null {
   const [index, setIndex] = useState<Index | null>(null);
@@ -63,6 +81,7 @@ export function CommandPalette({ onClose, api }: { onClose: () => void; api: { h
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const index = useIndex(useMemo(() => (snap?.employees ?? []).map((e) => e.id), [snap]));
+  const found = useFoundRuns(q.trim());
   const dark = useResolvedDark();
 
   const items = useMemo<Item[]>(() => {
@@ -119,10 +138,13 @@ export function CommandPalette({ onClose, api }: { onClose: () => void; api: { h
         });
       }
     }
-    for (const r of workRuns) {
+    // The latest runs, then older ones the search found, which match on their whole text.
+    const runs = new Map(workRuns.map((r) => [r.id, { r, words: `${r.prompt} ${r.summary ?? ""}`.slice(0, 400) }]));
+    for (const r of found ?? []) runs.set(r.id, { r, words: [r.prompt, r.summary ?? "", ...r.cards.map((c) => c.message)].join(" ") });
+    for (const { r, words } of runs.values()) {
       out.push({
         id: `run-${r.id}`, group: "Runs", label: runLabel(r), hint: `${nameOf(r.employeeId)} · ${runWhen(r)}`, icon: <Icon name={kindIcon(r)} size={16} />,
-        run: () => openRun(r.id), keywords: `${r.prompt} ${r.summary ?? ""}`.slice(0, 400), when: "query",
+        run: () => openRun(r.id), keywords: words, when: "query",
       });
     }
     for (const r of index?.requests ?? []) {
@@ -133,7 +155,7 @@ export function CommandPalette({ onClose, api }: { onClose: () => void; api: { h
       });
     }
     return out;
-  }, [snap, api, index, dark]);
+  }, [snap, api, index, found, dark]);
 
   const results = useMemo(() => {
     const needle = q.trim().toLowerCase();

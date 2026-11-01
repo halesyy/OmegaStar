@@ -44,7 +44,7 @@ impl Office {
     /// A queued or running run that will be a report of its own once it finishes, under the same root
     /// id: not a conversation turn, a hand-off, a task, or a quiet run.
     fn live_report(r: &Run) -> bool {
-        r.kind.lane() == Lane::Work && !threads::continues(&r.kind) && !threads::quiet(&r.kind) && !matches!(r.kind, RunKind::Task { .. } | RunKind::ReplyCheck { .. })
+        r.kind.lane() == Lane::Work && !threads::continues(&r.kind) && !threads::quiet(r) && !matches!(r.kind, RunKind::Task { .. } | RunKind::ReplyCheck { .. })
     }
 }
 
@@ -69,6 +69,7 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![],
             hue: 0,
             chat_session: format!("chat-{name}"),

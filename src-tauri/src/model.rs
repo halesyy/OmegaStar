@@ -95,6 +95,9 @@ pub struct EmployeeDraft {
     /// Tidies their skills and notes on their own when the health check finds something. On unless you turn it off.
     #[serde(default = "tidy_on")]
     pub auto_tidy: bool,
+    /// How many pieces of background work they do at once: 1, or 2.
+    #[serde(default = "one_lane")]
+    pub lanes: u32,
     pub workspaces: Vec<String>,
     pub hue: u16,
 }
@@ -107,6 +110,11 @@ fn browser_on() -> bool {
 /// Tidying on their own is on unless you turn it off, including for employees saved before it was.
 fn tidy_on() -> bool {
     true
+}
+
+/// One piece of background work at a time unless you allow two, including for employees saved before you could.
+fn one_lane() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -129,6 +137,9 @@ pub struct Employee {
     /// On unless you turn it off.
     #[serde(default = "tidy_on")]
     pub auto_tidy: bool,
+    /// Background runs at once: 1, or 2. A colleague's answer or question never waits for one (`claim_runnable`).
+    #[serde(default = "one_lane")]
+    pub lanes: u32,
     pub workspaces: Vec<String>,
     pub hue: u16,
     /// The session of the one long chat older builds kept. Nothing reads it now, but a hire still gets one of
@@ -145,6 +156,9 @@ impl EmployeeDraft {
         }
         if self.hue > 359 {
             return Err(AppError::invalid("hue must be 0-359"));
+        }
+        if !(1..=2).contains(&self.lanes) {
+            return Err(AppError::invalid("background work runs one or two at a time"));
         }
         Ok(())
     }
@@ -165,6 +179,7 @@ impl EmployeeDraft {
             effort: self.effort,
             browser: self.browser,
             auto_tidy: self.auto_tidy,
+            lanes: self.lanes,
             workspaces: self.workspaces,
             hue: self.hue,
             chat_session,
@@ -188,6 +203,7 @@ impl Employee {
             effort: self.effort,
             browser: self.browser,
             auto_tidy: self.auto_tidy,
+            lanes: self.lanes,
             workspaces: self.workspaces.clone(),
             hue: self.hue,
         }
@@ -219,6 +235,27 @@ pub struct EmployeeView {
     pub last_run: Option<Run>,
     /// When they last finished anything, in either lane: what "last worked" means.
     pub last_worked_at: Option<Ts>,
+    pub status: EmployeeStatus,
+}
+
+/// How an employee is doing at a glance, for the org chart and their panel.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmployeeStatus {
+    /// Their latest weekly review's number, as "metric value (change)".
+    pub number: Option<String>,
+    /// The first line of their last finished report, and when it finished.
+    pub last_report: Option<Dated>,
+    /// What they do next: their next schedule slot's label or their soonest open check, and when.
+    pub next: Option<Dated>,
+}
+
+/// A line of text and the time it is about.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Dated {
+    pub text: String,
+    pub at: Ts,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -661,6 +698,9 @@ pub struct ScheduleDraft {
     pub model: Option<String>,
     #[serde(default)]
     pub effort: Option<Effort>,
+    /// Only during business hours: a slot outside them is skipped.
+    #[serde(default)]
+    pub active_hours: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -684,6 +724,9 @@ pub struct Schedule {
     /// The weekly review Omega Star seeds for every employee.
     #[serde(default)]
     pub review: bool,
+    /// Runs only during business hours (`WatchSettings::hours`): a slot outside them is skipped, not caught up.
+    #[serde(default)]
+    pub active_hours: bool,
     /// Computed on read, never stored.
     #[serde(default)]
     pub next_fire: Option<Ts>,
@@ -987,8 +1030,8 @@ pub struct RunBuild {
     pub org: Option<String>,
 }
 
-/// One decision a run asks you with the answer built in: a choice, a list to approve, or a chore only you
-/// can do (`notify` with choices, items or chore). A run can ask several.
+/// One thing a run asks you with the answer built in: a choice, a list to approve, a chore or a task only you can
+/// do, a question only you can answer, or news to read (`notify`). A run can ask several.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Card {
@@ -998,39 +1041,105 @@ pub struct Card {
     #[serde(default)]
     pub why: Option<String>,
     /// What it is about, so the same question from anyone is one Inbox item and asking again replaces it:
-    /// `ask:<what the employee named it>`, or `chore:<subject>`. None on cards asked before keys.
+    /// `ask:<what the employee named it>`, `chore:<subject>`, or for a proposal Omega Star raised `company:`,
+    /// `owns:` or `company-page:` and what it is about. None on cards asked before keys.
     #[serde(default)]
     pub key: Option<String>,
     /// The file it is about, e.g. a draft to approve, which the card shows as it is now: a full path in the
     /// employee's folder or one of their workspaces.
     #[serde(default)]
     pub file: Option<String>,
+    /// A web page it is about, e.g. the pull request: http or https only.
+    #[serde(default)]
+    pub link: Option<String>,
+    /// Up to three images it shows, as full paths in the employee's folder or one of their workspaces.
+    #[serde(default)]
+    pub images: Vec<String>,
     pub ask: CardAsk,
     #[serde(default)]
     pub answer: Option<CardAnswer>,
+    /// You said Later: the card opens again then, by itself.
+    #[serde(default)]
+    pub back_at: Option<Ts>,
+    /// Times it came back after a Later.
+    #[serde(default)]
+    pub times_back: u32,
+    /// You said Later again once it came back: it waits in your Parked list, answerable, and never comes back by itself.
+    #[serde(default)]
+    pub parked: bool,
+    /// What Omega Star does when you go ahead: the card is its proposal, not an employee's ask.
+    #[serde(default)]
+    pub proposal: Option<Proposal>,
 }
 
 impl Card {
     pub fn new(message: &str, why: Option<String>, key: Option<String>, ask: CardAsk) -> Card {
         let key = match &ask {
-            CardAsk::Chore { subject } => Some(format!("chore:{subject}")),
+            CardAsk::Chore { subject, .. } => Some(format!("chore:{subject}")),
             _ => key,
         };
-        Card { message: message.to_string(), why, key, file: None, ask, answer: None }
+        Card {
+            message: message.to_string(),
+            why,
+            key,
+            file: None,
+            link: None,
+            images: vec![],
+            ask,
+            answer: None,
+            back_at: None,
+            times_back: 0,
+            parked: false,
+            proposal: None,
+        }
     }
 
+    /// Waiting on your answer. News waits on nothing: it is only unseen until you see it.
     pub fn is_open(&self) -> bool {
+        self.answer.is_none() && self.ask != CardAsk::News
+    }
+
+    /// No answer yet: open, or news you have not seen.
+    pub fn pending(&self) -> bool {
         self.answer.is_none()
+    }
+
+    /// You put it off with Later: it comes back by itself (`back_at`), or waits in your Parked list.
+    pub fn put_off(&self) -> bool {
+        self.back_at.is_some() || self.parked
+    }
+
+    /// Still waiting on you: no answer yet, or put off with Later. A newer card about the same thing replaces it,
+    /// `close_ask` withdraws it, and any answer settles it.
+    pub fn waiting(&self) -> bool {
+        self.pending() || self.put_off()
+    }
+
+    /// News you have not seen yet.
+    pub fn unseen_news(&self) -> bool {
+        self.answer.is_none() && self.ask == CardAsk::News
     }
 
     /// What the card is about: its key, or for a chore asked before keys `chore:<subject>`.
     pub fn topic(&self) -> Option<String> {
         match (&self.key, &self.ask) {
             (Some(k), _) => Some(k.clone()),
-            (None, CardAsk::Chore { subject }) => Some(format!("chore:{subject}")),
+            (None, CardAsk::Chore { subject, .. }) => Some(format!("chore:{subject}")),
             _ => None,
         }
     }
+}
+
+/// What a card Omega Star raised for an employee does when you go ahead.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Proposal {
+    /// Adds `line` as a bullet under the company page's `## <section>` (`propose_company_line`).
+    CompanyLine { section: String, line: String },
+    /// Writes the employee's version of what they own, saved as the card's file, into their what-you-own.md.
+    Owns,
+    /// Writes the employee's version of the company page, saved as the card's file, into the page.
+    CompanyPage,
 }
 
 /// A run's cards as stored: a list, or one card (or none) as a run saved before a run could ask several.
@@ -1039,12 +1148,12 @@ fn cards_compat<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<V
     #[serde(untagged)]
     enum Stored {
         Many(Vec<Card>),
-        One(Card),
+        One(Box<Card>),
     }
     Ok(match Option::<Stored>::deserialize(d)? {
         None => vec![],
         Some(Stored::Many(v)) => v,
-        Some(Stored::One(c)) => vec![c],
+        Some(Stored::One(c)) => vec![*c],
     })
 }
 
@@ -1069,8 +1178,23 @@ pub enum CardAsk {
     Choices { choices: Vec<String>, recommended: usize },
     /// A list you tick one by one; `verb` is what a tick means, e.g. "Post".
     Items { verb: String, items: Vec<CardItem> },
-    /// `chrome` or `sign-in:<site>`: every run waiting on the same subject carries on when you press Done.
-    Chore { subject: String },
+    /// `chrome` or `sign-in:<site>`: every run waiting on the same subject carries on when you press Done. `url`: the
+    /// page to do it on.
+    Chore {
+        subject: String,
+        #[serde(default)]
+        url: Option<String>,
+    },
+    /// A to-do only you can do: the steps, and the page to do it on. Done or Can't.
+    Task {
+        steps: String,
+        #[serde(default)]
+        url: Option<String>,
+    },
+    /// A fact only you know, answered in your own words.
+    Question,
+    /// Something you should know that needs no decision. Seen sends nothing.
+    News,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1104,13 +1228,14 @@ pub struct CardAnswer {
 pub enum AnswerHow {
     /// You pressed one of its buttons.
     Tapped,
-    /// You replied in the thread instead.
+    /// You answered in your own words on the card. An older build counted any reply in the thread as one.
     Typed,
-    /// You pressed Not now: busy, not a no. A decision comes back to its asker a day later.
+    /// You pressed Later (Not now): busy, not a no. The card comes back once by itself (`Card::back_at`), then is parked.
+    /// On a chore it sends nothing and never comes back.
     Dismissed,
     /// You pressed No: drop it.
     Rejected,
-    /// A newer card from the same routine or thread, or about the same thing, took its place.
+    /// A newer card from the same routine, or about the same thing, took its place.
     Replaced,
     /// The employee closed it: it was settled without you.
     Withdrawn,
@@ -1122,11 +1247,22 @@ pub enum AnswerHow {
 pub enum CardReply {
     Choice { index: usize },
     Items { picks: Vec<ItemPick> },
+    /// You did the chore or the task.
     Done,
-    /// Not now.
+    /// Not now: on a chore it sends nothing; on anything else it is Later until 9 am tomorrow.
     Dismiss,
     /// No, on a decision.
     Reject,
+    /// An answer in your own words, to this card only.
+    Text { text: String },
+    /// A question about the card: it goes to the employee now, and the card stays open.
+    Ask { text: String },
+    /// Busy, not a no: the card comes back by itself at `until`, or is parked if it came back once already.
+    Later { until: Ts },
+    /// You cannot do the task.
+    Cant,
+    /// You read the news.
+    Seen,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -1170,13 +1306,29 @@ pub struct Run {
     /// When you archived this report: it leaves the Inbox for the Archive.
     #[serde(default)]
     pub archived_at: Option<Ts>,
+    /// For a thread's first run: the name the employee gave the thread with `name_thread`. It wins over the
+    /// name its kind gives it.
+    #[serde(default)]
+    pub title: Option<String>,
     /// When you last replied to this report from the Inbox.
     #[serde(default)]
     pub replied_at: Option<Ts>,
+    /// You wrote into it while it worked or waited to start, so its report waits for you in the Inbox like a reply,
+    /// whatever kind of run it is.
+    #[serde(default)]
+    pub steered: bool,
+    /// For a reply: your question about one of the thread's cards (`CardReply::Ask`). Your own words, but it leaves the
+    /// thread as it was: it never makes it a conversation you are in (`threads::talking`), so a later tap still files it.
+    #[serde(default)]
+    pub about_card: bool,
     /// For an Asked or Delegated run: when its answer or report reached whoever handed it over, through
     /// await_reports or an Answered run. Set once, so it is delivered exactly once.
     #[serde(default)]
     pub delivered_at: Option<Ts>,
+    /// For a due check that came back into the conversation it was set in, as a reply Omega Star wrote there:
+    /// the check's id. A check's own run names it in its kind instead (`RunKind::check_id`).
+    #[serde(default)]
+    pub check: Option<String>,
     /// Permission rules you granted for this run only ("Allow once & retry"). They go into the run's
     /// settings and are never saved to the employee.
     #[serde(default)]
@@ -1184,15 +1336,22 @@ pub struct Run {
     /// For a Tidy run: the bigger changes it proposes and waits for your approval to make.
     #[serde(default)]
     pub proposed: Option<String>,
+    /// For a Tidy run: when you approved what it proposed. Replying to it is no decision.
+    #[serde(default)]
+    pub approved_at: Option<Ts>,
     /// Files you attached to a message, by name. They live in the employee's `attachments/<run id>/`.
     #[serde(default)]
     pub attachments: Vec<String>,
     /// The build that ran it: app version, commit and channel, Claude Code's version and the signed-in organisation.
     #[serde(default)]
     pub build: Option<RunBuild>,
-    /// Times the run went back to the queue because the usage limit stopped it.
+    /// Times the run went back to the queue because a limit stopped it: the usage limit, or a rate limit.
     #[serde(default)]
     pub limit_retries: u32,
+    /// Of `limit_retries`, the times Claude or a proxy in front of it turned requests away for now (HTTP 429 or 529).
+    /// Counted apart, so a rate limit never uses up the retries the usage limit gets.
+    #[serde(default)]
+    pub transient_retries: u32,
     /// It failed because the usage limit stopped it once too often: nothing you can do, so it never needs you.
     #[serde(default)]
     pub limited: bool,
@@ -1202,12 +1361,36 @@ pub struct Run {
     /// It last went back to the queue because Omega Star stopped, not the usage limit; its next attempt is told which.
     #[serde(default)]
     pub restarted: bool,
+    /// Where its next attempt's lines start in its transcript, which every attempt appends to: set when it goes back to
+    /// the queue, so a restart that finds that attempt working judges it by its own lines alone.
+    #[serde(default)]
+    pub attempt_from: u64,
     /// For a weekly review: the number it measured, for the team's scoreboard.
     #[serde(default)]
     pub score: Option<Score>,
     /// The context size in tokens after its last top-level message.
     #[serde(default)]
     pub context_tokens: Option<u64>,
+    /// What the run cost in US dollars as Claude Code reckons it, summed over its result segments and attempts.
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+    /// Not to start before then: a hand-off Omega Star paused to keep its chain short, an answer queued again
+    /// after it failed, or the reports held for a manager.
+    #[serde(default)]
+    pub not_before: Option<Ts>,
+    /// For a delegated or asked run: the run its chain of hand-offs started from, one a person or a schedule
+    /// started, or a paused hand-off, which starts a chain of its own. The loop guard counts by it.
+    #[serde(default)]
+    pub chain: Option<String>,
+    /// For an answered run that brings a manager the reports held for them: the delegated runs it carries.
+    #[serde(default)]
+    pub reports: Vec<String>,
+    /// For a held report: the run whose opening note brought it to the manager instead.
+    #[serde(default)]
+    pub noted_in: Option<String>,
+    /// For an answered run: times it was queued again because an earlier attempt failed.
+    #[serde(default)]
+    pub redelivered: u32,
 }
 
 impl Run {
@@ -1231,28 +1414,46 @@ impl Run {
             needs_you: vec![],
             cards: vec![],
             archived_at: None,
+            title: None,
             replied_at: None,
+            steered: false,
+            about_card: false,
             delivered_at: None,
+            check: None,
             allow_once: vec![],
             proposed: None,
+            approved_at: None,
             attachments: vec![],
             build: None,
             limit_retries: 0,
+            transient_retries: 0,
             limited: false,
             restarts: 0,
             restarted: false,
+            attempt_from: 0,
             score: None,
             context_tokens: None,
+            cost_usd: None,
+            not_before: None,
+            chain: None,
+            reports: vec![],
+            noted_in: None,
+            redelivered: 0,
         }
     }
 
-    /// The cards still waiting on your answer.
+    /// The cards still waiting on your answer. Unseen news waits on nothing, so it holds back no answer and no Done.
     pub fn open_cards(&self) -> impl Iterator<Item = &Card> {
         self.cards.iter().filter(|c| c.is_open())
     }
 
     pub fn has_open_card(&self) -> bool {
         self.open_cards().next().is_some()
+    }
+
+    /// It has news you have not seen, which keeps its row in the Inbox.
+    pub fn has_news(&self) -> bool {
+        self.cards.iter().any(Card::unseen_news)
     }
 
     /// What needs you that is not a card: flags Omega Star raised, and `notify` messages from before cards.
@@ -1284,6 +1485,11 @@ impl Run {
             RunKind::Reply { to_run_id, task: true, .. } | RunKind::Answered { thread: Some(to_run_id), .. } => Some(to_run_id),
             _ => None,
         }
+    }
+
+    /// The check this run does: a due check's own run, or its turn in the conversation it was set in.
+    pub fn check_id(&self) -> Option<&str> {
+        self.kind.check_id().or(self.check.as_deref())
     }
 
     /// A turn of a conversation with you, which never waits for or counts against the cap on runs at once: a
@@ -1364,6 +1570,8 @@ pub enum HealthKind {
     RepeatedEntries,
     /// A skill or reference file is long enough that it may be several things at once.
     TooLong,
+    /// No run has used the skill for a month.
+    Unused,
     /// Dated lines sit in a procedure, where they age unnoticed.
     DatedLines,
     /// All descriptions together are heavy, and every turn loads them all.
@@ -1386,6 +1594,7 @@ impl HealthKind {
             HealthKind::Churn => "Rewritten repeatedly",
             HealthKind::RepeatedEntries => "Diary building up",
             HealthKind::TooLong => "Getting long",
+            HealthKind::Unused => "Not used lately",
             HealthKind::DatedLines => "Dated lines in a procedure",
             HealthKind::DescriptionsHeavy => "Descriptions are heavy",
             HealthKind::Description => "Description",
@@ -1465,6 +1674,25 @@ pub struct Check {
     pub result: Option<String>,
 }
 
+/// News a colleague sent with `ask_colleague` kind info. It starts no run: the receiver reads it at the top of
+/// their next run, and then it is read.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct News {
+    pub id: String,
+    /// Who it is for.
+    pub employee_id: String,
+    /// The employee who sent it.
+    pub from: String,
+    pub text: String,
+    pub created_at: Ts,
+    #[serde(default)]
+    pub read_at: Option<Ts>,
+    /// The run whose opening note showed it, so a run that never started gives it back for the next one.
+    #[serde(default)]
+    pub read_in: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillRevision {
@@ -1519,12 +1747,66 @@ pub enum TaskOutcome {
     Stopped,
 }
 
+/// Where your words to a run you watch went (`Office::steer_run`).
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SteerHow {
+    /// Into the run as it works.
+    Steered,
+    /// Into what it starts with, as it had not started yet.
+    Added,
+    /// Into its thread as your reply: it had finished, or could not take a message just then.
+    Replied,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunDetail {
     pub run: Run,
     pub events: Vec<RunEvent>,
     pub children: Vec<Run>,
+    /// The run's folder was deleted after `AppSettings::transcript_days`: no events, its report is on the run.
+    pub transcript_gone: bool,
+}
+
+/// What runs did and used since a time, for Activity's digest of today and its usage this week. Usage is what
+/// runs cost in US dollars at API list price, as Claude Code reckons it; a run with no cost recorded adds nothing.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RunUsage {
+    pub employees: Vec<EmployeeUsage>,
+    pub routines: Vec<RoutineUsage>,
+}
+
+/// An employee's finished runs since a time.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmployeeUsage {
+    pub employee_id: String,
+    pub runs: u32,
+    /// Cards their runs raised for you.
+    pub decisions: u32,
+    /// Work they handed to colleagues: the asked and delegated runs their runs started.
+    pub handoffs: u32,
+    pub failed: u32,
+    pub cost_usd: f64,
+}
+
+/// One routine's finished runs since a time. Weekly reviews and due checks are not routines.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutineUsage {
+    pub schedule_id: String,
+    pub employee_id: String,
+    pub label: String,
+    pub quiet: bool,
+    pub runs: u32,
+    /// Runs that reached someone: notified you or handed work to a colleague.
+    pub reached: u32,
+    pub failed: u32,
+    /// Runs that did something: reached someone, changed a skill or failed. The rest did nothing.
+    pub useful: u32,
+    pub cost_usd: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -1568,6 +1850,11 @@ pub struct AppSettings {
     pub watch: WatchSettings,
     /// Absent from settings saved before the CLI proxy existed.
     pub proxy: ProxySettings,
+    /// Days a finished run's folder (its transcript, log and the pages it showed) is kept; `None` = forever.
+    /// Its row and report stay either way.
+    pub transcript_days: Option<u32>,
+    /// Absent from settings saved before notifications could be batched.
+    pub notifications: NotificationSettings,
 }
 
 impl Default for AppSettings {
@@ -1580,6 +1867,48 @@ impl Default for AppSettings {
             backup: BackupSettings::default(),
             watch: WatchSettings::default(),
             proxy: ProxySettings::default(),
+            transcript_days: None,
+            notifications: NotificationSettings::default(),
+        }
+    }
+}
+
+/// How desktop notifications reach you (`notices::Notices`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NotificationSettings {
+    pub mode: NotifyMode,
+    /// No notification shows between these times; one summary of what came in shows when they end. `None` = never quiet.
+    pub quiet: Option<QuietHours>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NotifyMode {
+    /// Each one as it comes.
+    All,
+    /// An employee's decisions in the 90 seconds after their first show as one.
+    #[default]
+    Batched,
+    /// None at all.
+    Off,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuietHours {
+    /// Local minutes since midnight, under 1440. A start later than the end runs overnight, e.g. 10 pm to 8 am.
+    pub start_minute: u16,
+    pub end_minute: u16,
+}
+
+impl QuietHours {
+    /// Whether `minute` (local minutes since midnight) falls in them. Pure.
+    pub fn contains(&self, minute: u16) -> bool {
+        if self.start_minute <= self.end_minute {
+            self.start_minute <= minute && minute < self.end_minute
+        } else {
+            minute >= self.start_minute || minute < self.end_minute
         }
     }
 }
@@ -1798,7 +2127,7 @@ pub const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     fn build() -> Build {
         Build { version: "1.2.3".into(), commit: "abc1234567".into(), channel: BuildChannel::Dogfood }
@@ -1819,6 +2148,7 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![],
             hue: 0,
         };
@@ -1831,6 +2161,39 @@ mod tests {
         employee.as_object_mut().unwrap().remove("autoTidy");
         assert!(serde_json::from_value::<EmployeeDraft>(draft).unwrap().auto_tidy);
         assert!(serde_json::from_value::<Employee>(employee).unwrap().auto_tidy);
+    }
+
+    #[test]
+    fn background_work_is_one_at_a_time_unless_you_allow_two() {
+        let mut employee = serde_json::to_value(Employee {
+            id: "e1".into(),
+            slug: "ada".into(),
+            name: "Ada".into(),
+            title: "Analyst".into(),
+            description: String::new(),
+            objective: String::new(),
+            manager_id: None,
+            skills: SkillGrant::default(),
+            clearance: Clearance::Supervised,
+            allow_rules: vec![],
+            model: None,
+            effort: None,
+            browser: false,
+            auto_tidy: true,
+            lanes: 2,
+            workspaces: vec![],
+            hue: 0,
+            chat_session: "chat-ada".into(),
+            hired_at: Utc::now(),
+        })
+        .unwrap();
+        let two: Employee = serde_json::from_value(employee.clone()).unwrap();
+        assert_eq!(two.draft().into_employee(two.id.clone(), two.slug.clone(), two.chat_session.clone(), two.hired_at).lanes, 2, "a second lane survives a save");
+        employee.as_object_mut().unwrap().remove("lanes");
+        assert_eq!(serde_json::from_value::<Employee>(employee).unwrap().lanes, 1, "saved before lanes existed");
+        assert!(two.draft().validate().is_ok());
+        assert!(EmployeeDraft { lanes: 3, ..two.draft() }.validate().is_err());
+        assert!(EmployeeDraft { lanes: 0, ..two.draft() }.validate().is_err());
     }
 
     #[test]
@@ -1870,13 +2233,51 @@ mod tests {
         let v = serde_json::to_value(&card).unwrap();
         assert_eq!(
             v,
-            json!({ "message": "Boost it?", "why": null, "key": null, "file": null, "ask": { "type": "choices", "choices": ["Not now", "Try it"], "recommended": 0 }, "answer": null })
+            json!({
+                "message": "Boost it?", "why": null, "key": null, "file": null, "link": null, "images": [],
+                "ask": { "type": "choices", "choices": ["Not now", "Try it"], "recommended": 0 }, "answer": null,
+                "backAt": null, "timesBack": 0, "parked": false, "proposal": null
+            })
         );
         assert_eq!(serde_json::from_value::<Card>(v).unwrap(), card);
-        assert_eq!(Card::new("Open Chrome.", None, Some("ignored".into()), CardAsk::Chore { subject: "chrome".into() }).key.as_deref(), Some("chore:chrome"));
+        let chrome = CardAsk::Chore { subject: "chrome".into(), url: None };
+        assert_eq!(Card::new("Open Chrome.", None, Some("ignored".into()), chrome).key.as_deref(), Some("chore:chrome"));
         let reply: CardReply = serde_json::from_value(json!({ "type": "items", "picks": [{ "id": "d1", "tick": true }] })).unwrap();
         assert_eq!(reply, CardReply::Items { picks: vec![ItemPick { id: "d1".into(), tick: true, note: None }] });
         assert_eq!(serde_json::from_value::<CardReply>(json!({ "type": "done" })).unwrap(), CardReply::Done);
+    }
+
+    #[test]
+    fn the_new_card_shapes_read_as_the_inbox_sends_them() {
+        let ask = |v: Value| serde_json::from_value::<CardAsk>(v).unwrap();
+        assert_eq!(ask(json!({ "type": "task", "steps": "Renew the domain.", "url": "https://example.com" })), CardAsk::Task { steps: "Renew the domain.".into(), url: Some("https://example.com".into()) });
+        assert_eq!(ask(json!({ "type": "question" })), CardAsk::Question);
+        assert_eq!(ask(json!({ "type": "news" })), CardAsk::News);
+        assert_eq!(ask(json!({ "type": "chore", "subject": "chrome" })), CardAsk::Chore { subject: "chrome".into(), url: None }, "a chore saved before urls");
+        assert_eq!(serde_json::to_value(CardAsk::Chore { subject: "sign-in:acme".into(), url: None }).unwrap(), json!({ "type": "chore", "subject": "sign-in:acme", "url": null }));
+        assert_eq!(serde_json::to_value(CardAsk::Question).unwrap(), json!({ "type": "question" }));
+        let line = Proposal::CompanyLine { section: "Who to ask".into(), line: "Bo signs off refunds.".into() };
+        assert_eq!(serde_json::to_value(&line).unwrap(), json!({ "type": "companyLine", "section": "Who to ask", "line": "Bo signs off refunds." }));
+        assert_eq!(serde_json::to_value(Proposal::Owns).unwrap(), json!({ "type": "owns" }));
+        assert_eq!(serde_json::to_value(Proposal::CompanyPage).unwrap(), json!({ "type": "companyPage" }));
+        let reply = |v: Value| serde_json::from_value::<CardReply>(v).unwrap();
+        let until: Ts = "2026-11-02T09:00:00Z".parse().unwrap();
+        assert_eq!(reply(json!({ "type": "later", "until": "2026-11-02T09:00:00Z" })), CardReply::Later { until });
+        assert_eq!(reply(json!({ "type": "cant" })), CardReply::Cant);
+        assert_eq!(reply(json!({ "type": "seen" })), CardReply::Seen);
+        // A card an older build saved loads with none of what came later.
+        let old: Card = serde_json::from_value(json!({ "message": "Boost it?", "ask": { "type": "choices", "choices": ["Go"], "recommended": 0 }, "answer": null })).unwrap();
+        assert_eq!((old.link, old.images.len(), old.back_at, old.times_back, old.parked, old.proposal), (None, 0, None, 0, false, None));
+    }
+
+    #[test]
+    fn news_is_unseen_until_answered_and_waits_on_nothing() {
+        let mut run = Run::new("e1", RunKind::Manual, "Go".into(), Utc::now());
+        run.cards = vec![Card::new("The spring sale is live.", None, Some("ask:sale".into()), CardAsk::News)];
+        assert!(run.has_news() && !run.has_open_card(), "it holds back no answer");
+        assert!(run.cards[0].pending() && !run.cards[0].is_open());
+        run.cards[0].answer = Some(CardAnswer { at: Utc::now(), how: AnswerHow::Tapped, text: String::new(), held: false });
+        assert!(!run.has_news());
     }
 
     #[test]
@@ -1916,6 +2317,26 @@ mod tests {
         assert_eq!(scheduled("check:abc").check_id(), Some("abc"));
         assert_eq!(scheduled("6f1c0e2a").check_id(), None);
         assert_eq!(RunKind::Chat.check_id(), None);
+    }
+
+    #[test]
+    fn a_check_that_came_back_into_a_conversation_is_still_the_check() {
+        let own = Run::new("e1", RunKind::Scheduled { schedule_id: "check:abc".into(), slot: Utc::now(), label: "x".into(), quiet: true, model: None, effort: None, review: false }, "go".into(), Utc::now());
+        assert_eq!(own.check_id(), Some("abc"));
+        let back = Run { check: Some("abc".into()), ..Run::new("e1", RunKind::Reply { to_run_id: "r0".into(), label: "Draft it".into(), task: true, card: false }, "go".into(), Utc::now()) };
+        assert_eq!(back.check_id(), Some("abc"));
+        assert_eq!(Run::new("e1", RunKind::Manual, "go".into(), Utc::now()).check_id(), None);
+    }
+
+    #[test]
+    fn a_run_saved_before_titles_and_check_turns_loads() {
+        let mut run = serde_json::to_value(Run { title: Some("Spring sale emails".into()), ..Run::new("e1", RunKind::Manual, "Go".into(), Utc::now()) }).unwrap();
+        assert_eq!(run["title"], json!("Spring sale emails"));
+        let o = run.as_object_mut().unwrap();
+        o.remove("title");
+        o.remove("check");
+        let run: Run = serde_json::from_value(run).unwrap();
+        assert_eq!((run.title, run.check), (None, None));
     }
 
     #[test]

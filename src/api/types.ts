@@ -18,6 +18,7 @@ export type Employee = {
   model: string | null; effort: Effort | null;
   browser: boolean;                         // may drive your Chrome (Claude in Chrome); off for new hires unless you turn it on
   autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on unless you turn it off
+  lanes: number;                            // background runs at once: 1, or 2; a colleague's answer or question never waits for one
   workspaces: string[]; hue: number;        // 0-359, avatar colour
   chatSession: string;                      // the session of the one long chat older builds kept; nothing reads it
   hiredAt: string;
@@ -33,7 +34,13 @@ export type EmployeeView = Employee & {
   nextFire: string | null;
   lastRun: Run | null;                // their latest work-lane run; "attention" is decided from it
   lastWorkedAt: string | null;        // when they last finished anything, in either lane
+  status: EmployeeStatus;
 };
+/** How an employee is doing at a glance: number is their latest weekly review's, as "metric value (change)";
+ *  lastReport is the first line of their last finished report; next is their next schedule slot or soonest open check. */
+export type EmployeeStatus = { number: string | null; lastReport: Dated | null; next: Dated | null };
+/** A line of text and the time it is about. */
+export type Dated = { text: string; at: string };
 
 export type Person = {
   id: string; name: string; title: string; description: string;
@@ -124,6 +131,7 @@ export type Schedule = {
   quiet: boolean;            // reports reach you only when the run calls notify or fails
   model: string | null; effort: Effort | null;   // null: the employee's own
   review?: boolean;          // the weekly review Omega Star seeds for every employee
+  activeHours: boolean;      // only during business hours (watch.hours): a time outside them is skipped
   nextFire: string | null;
 };
 export type ScheduleDraft = Omit<Schedule, "id" | "nextFire" | "review"> & { id?: string };
@@ -167,19 +175,38 @@ export type CardItem = { id: string; text: string; about: string | null; recomme
 export type CardAsk =
   | { type: "choices"; choices: string[]; recommended: number }   // recommended: the index of the one they recommend
   | { type: "items"; verb: string; items: CardItem[] }            // verb: what a tick means, e.g. "Post"
-  | { type: "chore"; subject: string };                           // "chrome" or "sign-in:<site>"
+  | { type: "chore"; subject: string; url: string | null }        // subject: "chrome" or "sign-in:<site>"; url: the page to open
+  | { type: "task"; steps: string; url: string | null }           // a to-do only you can do
+  | { type: "question" }                                          // a fact only you know, answered in your own words
+  | { type: "news" };                                             // something you should know that needs no decision
 export type AnswerHow = "tapped" | "typed" | "dismissed" | "rejected" | "replaced" | "withdrawn";   // dismissed: Not now; rejected: No
 // held: not sent yet, since its run still asks something else; it goes with the rest once nothing is left open
 export type CardAnswer = { at: string; how: AnswerHow; text: string; held: boolean };   // text: the fixed answer sent, empty when nothing was
+/** What a card proposes to change for everyone: a line for the company page under one of its headings, or a new
+ *  version of what the employee owns or of the company page, which the card's file holds. */
+export type Proposal = { type: "companyLine"; section: string; line: string } | { type: "owns" } | { type: "companyPage" };
 /** message: the question. why: one line on why it matters. key: what it is about (`ask:<name>` or `chore:<subject>`),
  *  so the same question from anyone is one Inbox item; null on cards asked before keys. file: the markdown or text
- *  file it is about, e.g. a draft, as a full path; `card_file` reads it. */
-export type Card = { message: string; why: string | null; key: string | null; file: string | null; ask: CardAsk; answer: CardAnswer | null };
+ *  file it is about, e.g. a draft, as a full path; `card_file` reads it. link: a web address it is about, such as a
+ *  pull request. images: up to 3 full local image paths. backAt: when a card you put off comes back; timesBack: how
+ *  often it has; parked: you put it off again once it came back, so it waits in Parked and never comes back by itself. */
+export type Card = {
+  message: string; why: string | null; key: string | null; file: string | null; ask: CardAsk; answer: CardAnswer | null;
+  link: string | null; images: string[];
+  backAt: string | null; timesBack: number; parked: boolean;
+  proposal: Proposal | null;
+};
 /** A weekly review's one number, for Activity's week in numbers. */
 export type Score = { metric: string; value: string; change: string; note: string };
 /** Your answer on a card. */
 export type ItemPick = { id: string; tick: boolean; note?: string | null };
-export type CardReply = { type: "choice"; index: number } | { type: "items"; picks: ItemPick[] } | { type: "done" } | { type: "dismiss" } | { type: "reject" };
+/** text: your own words, answering this card only. ask: a question that goes now and leaves the card open. later: it
+ *  comes back by itself at `until` (an ISO time), or is parked if it came back already. cant: a task you can't do.
+ *  seen: you read the news, which sends nothing. */
+export type CardReply =
+  | { type: "choice"; index: number } | { type: "items"; picks: ItemPick[] } | { type: "done" } | { type: "dismiss" } | { type: "reject" }
+  | { type: "text"; text: string } | { type: "ask"; text: string }
+  | { type: "later"; until: string } | { type: "cant" } | { type: "seen" };
 export type Run = {
   id: string; employeeId: string; kind: RunKind; prompt: string;
   omegaWrote: boolean;         // Omega Star wrote the prompt (an approval, a returned report), not you
@@ -192,17 +219,26 @@ export type Run = {
   cards: Card[];               // what the run asked you, each with your answer
   score: Score | null;         // a weekly review's number, from report_number
   archivedAt: string | null;   // archived reports leave the Inbox for the Archive
+  title: string | null;        // a thread's first run: the name the employee gave the thread with name_thread
   repliedAt: string | null;    // when you last replied to this report
+  steered: boolean;            // you wrote into it while it worked or waited to start, so its report waits for you in the Inbox
+  aboutCard?: boolean;         // a question you asked from a card: it does not make the thread a conversation you are in
   deliveredAt: string | null;  // asked and delegated runs: when the answer or report reached whoever handed it over
+  check: string | null;        // a due check that came back into the conversation it was set in: the check's id
   allowOnce: string[];         // rules you granted this run only ("Allow once & retry")
   proposed: string | null;     // a tidy's bigger changes, waiting for your approval
+  approvedAt: string | null;   // a tidy: when you approved what it proposed (a reply to it is no decision)
   attachments: string[];       // file names you attached to a message
   build: RunBuild | null;      // the build that ran it, and the Claude Code organisation around it
   limitRetries: number;        // times it went back to the queue after the usage limit
   limited: boolean;            // it failed on the usage limit, which Omega Star waits out itself
   contextTokens: number | null; // the context size after its last top-level message
+  costUsd: number | null;      // what it cost in US dollars as Claude Code reckons it, over all its attempts; null when unknown
 };
 export type NewAttachment = { name: string; data: string /* base64 */ };
+/** Where your words to a run you watch went: into it as it works, into what it starts with, or into its thread as your
+ *  reply (it had finished, or could not take a message just then). */
+export type SteerHow = "steered" | "added" | "replied";
 
 /** A report and the replies you exchanged on it, oldest first. A conversation you started is one too, and an answer
  *  a colleague brought back into it is one of its replies. In the Inbox and the Archive a thread leads a row,
@@ -221,7 +257,7 @@ export type OwnSkill = {
 /** Worst first: broken structure, then housekeeping. */
 export type HealthKind =
   | "overdueCheck" | "dangling" | "unreachable" | "looseNotes" | "churn" | "repeatedEntries"
-  | "tooLong" | "datedLines" | "descriptionsHeavy" | "description" | "junk" | "nameMismatch";
+  | "tooLong" | "unused" | "datedLines" | "descriptionsHeavy" | "description" | "junk" | "nameMismatch";
 export type HealthFinding = { kind: HealthKind; skill: string | null; file: string | null; detail: string };
 export type SkillHealth = { skills: number; descriptionChars: number; findings: HealthFinding[] };
 /** The page every employee reads at the start of every run. */
@@ -257,7 +293,19 @@ export type RunEvent =
   | { type: "result"; ok: boolean; text: string; turns: number; durationMs: number }
   | { type: "stderr"; text: string };
 export type TaskOutcome = "done" | "failed" | "stopped";
-export type RunDetail = { run: Run; events: RunEvent[]; children: Run[] };
+/** transcriptGone: the run's folder was deleted after Settings' transcript retention, so there are no events. */
+export type RunDetail = { run: Run; events: RunEvent[]; children: Run[]; transcriptGone: boolean };
+
+/** What runs did and used since a time. Usage (costUsd) is what runs cost at API list price, as Claude Code reckons it. */
+export type RunUsage = { employees: EmployeeUsage[]; routines: RoutineUsage[] };
+/** An employee's finished runs: decisions are the cards they raised, handoffs the work they handed to colleagues. */
+export type EmployeeUsage = { employeeId: string; runs: number; decisions: number; handoffs: number; failed: number; costUsd: number };
+/** A routine's finished runs (weekly reviews and due checks are not routines). reached: notified you or handed work on;
+ *  useful: did something (reached someone, changed a skill or failed); the rest did nothing. */
+export type RoutineUsage = {
+  scheduleId: string; employeeId: string; label: string; quiet: boolean;
+  runs: number; reached: number; failed: number; useful: number; costUsd: number;
+};
 
 export type Account = { loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null };
 /** How this copy of Omega Star was built: a published release, a test build, or a developer's own. */
@@ -271,7 +319,18 @@ export type SetupStatus = {
   background: boolean;
   build: Build;
 };
-export type AppSettings = { maxConcurrentRuns: number; claudePath: string | null; dataDir: string; paused: boolean; backup: BackupSettings; watch: WatchSettings; proxy: ProxySettings };
+export type AppSettings = {
+  maxConcurrentRuns: number; claudePath: string | null; dataDir: string; paused: boolean; backup: BackupSettings; watch: WatchSettings; proxy: ProxySettings;
+  transcriptDays: number | null;   // days a finished run's transcript is kept; null: forever
+  notifications: NotificationSettings;
+};
+
+/** all: each as it comes. batched: an employee's decisions in the 90 seconds after their first show as one. off: none. */
+export type NotifyMode = "all" | "batched" | "off";
+/** Local minutes since midnight, under 1440; a start later than the end runs overnight. */
+export type QuietHours = { startMinute: number; endMinute: number };
+/** quiet: no notification shows then, and one summary of what came in shows when they end; null: never quiet. */
+export type NotificationSettings = { mode: NotifyMode; quiet: QuietHours | null };
 
 /** A CLI proxy (CLIProxyAPI) that runs go through; an empty url means none. */
 export type ProxySettings = { url: string; apiKey: string; managementKey: string };
@@ -333,6 +392,10 @@ export type Commands = {
   /** A path an agent mentioned: documents and folders open, anything else is shown in Finder. */
   open_report_path: { args: { path: string }; ret: null };
   runs: { args: { employeeId: string | null; limit: number }; ret: Run[] };
+  /** The newest runs whose instruction, report or a card's question contains `query`, ignoring case. */
+  search_runs: { args: { query: string; limit: number }; ret: Run[] };
+  /** What each employee's runs and each routine did and used since `since`. */
+  run_usage: { args: { since: string }; ret: RunUsage };
   run_detail: { args: { runId: string }; ret: RunDetail };
   /** Every row that reached you and needs nothing from you now, what you archived, and the conversations you marked
    *  done, newest first. */
@@ -341,18 +404,30 @@ export type Commands = {
   conversations: { args: Record<string, never>; ret: Conversations };
   /** The thread any of its runs belongs to. */
   thread: { args: { runId: string }; ret: Thread };
-  /** Archives a thread (any run in it) or moves it back. */
-  set_archived: { args: { runId: string; archived: boolean }; ret: Run };
+  /** Archives a thread (any run in it) with the rest of its row, leaving what still needs you, or moves it back.
+   *  Returns the ids of the runs it moved. */
+  set_archived: { args: { runId: string; archived: boolean }; ret: string[] };
+  /** Moves exactly these runs back out of the Archive: Done's Undo. */
+  unarchive_runs: { args: { runIds: string[] }; ret: null };
+  /** Tries a run that failed, was lost or was stopped again: a hand-off runs again for whoever handed it over, anything
+   *  else carries on in its thread. Returns the new run. */
+  retry_run: { args: { runId: string }; ret: Run };
   /** Your reply in a report's thread (`runId`: any run in it). `archive` means "don't bring the answer back unless it needs me". */
   reply_to_run: { args: { runId: string; text: string; archive: boolean; attachments?: NewAttachment[] }; ret: Run };
+  /** Your words to a run you are watching: into it while it works, into its instructions while it waits to start for
+   *  the first time, else your reply in its thread. Its report then waits for you in the Inbox. */
+  steer_run: { args: { runId: string; text: string }; ret: SteerHow };
   /** Allow what a finished run was blocked on and send it back to retry. `rules` must come from its denials
    *  (a denial's suggestedRule, or `mcp__<server>__*` for an MCP tool). `always` saves them to the employee;
    *  otherwise they apply to the retry only. Archives the blocked report. Returns the retry run. */
   approve_blocked: { args: { runId: string; rules: string[]; always: boolean }; ret: Run };
-  /** Your answer on a run's card (`card`: its index in `cards`). It goes to every run asking the same thing. Returns the replies it started. */
+  /** Your answer on a run's card (`card`: its index in `cards`). It goes to every run asking the same thing. Returns the replies it started.
+   *  A question (`ask`) answers nothing: it returns the one reply that carries it. */
   answer_card: { args: { runId: string; card: number; answer: CardReply }; ret: Run[] };
   /** The text of the file a run's card shows (`card`: its index in `cards`), as it is now. */
   card_file: { args: { runId: string; card: number }; ret: string };
+  /** Runs with a card you parked: put off again after it came back, so it never comes back by itself. */
+  parked_runs: { args: Record<string, never>; ret: Run[] };
   /** Colleague asks still in flight (queued, running, or answered and not yet collected), oldest first. */
   open_asks: { args: Record<string, never>; ret: Run[] };
   /** Weekly reviews from the last eight days, oldest first. */

@@ -17,6 +17,7 @@ const LABEL: Record<HealthKind, string> = {
   churn: "Rewritten repeatedly",
   repeatedEntries: "Diary building up",
   tooLong: "Getting long",
+  unused: "Not used lately",
   datedLines: "Dated lines in a procedure",
   descriptionsHeavy: "Descriptions are heavy",
   description: "Description",
@@ -71,7 +72,7 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
   const overdue = open.filter((c) => dueLabel(c).late).length;
   const active = (runs.data ?? []).find((r) => r.state === "queued" || r.state === "running");
   const last = (runs.data ?? []).find((r) => r.state !== "queued" && r.state !== "running");
-  const waiting = last && last.proposed && !last.repliedAt ? last : undefined;
+  const waiting = last && last.proposed && !last.approvedAt && !last.archivedAt ? last : undefined;
   // Overdue checks are listed with their dates, so they are not repeated in the findings.
   const findings = health.findings.filter((f) => f.kind !== "overdueCheck");
   const broken = findings.some((f) => BROKEN.includes(f.kind));

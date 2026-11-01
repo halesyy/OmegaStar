@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS checks(
   id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, state TEXT NOT NULL, due_at INTEGER NOT NULL, created_at INTEGER NOT NULL, data TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS checks_by_employee ON checks(employee_id, state, due_at);
+CREATE TABLE IF NOT EXISTS news(
+  id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, created_at INTEGER NOT NULL, read_at INTEGER, data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS news_by_employee ON news(employee_id, read_at, created_at);
+CREATE TABLE IF NOT EXISTS skill_use(employee_id TEXT NOT NULL, skill TEXT NOT NULL, used_at INTEGER NOT NULL, PRIMARY KEY(employee_id, skill));
 "#;
 
 fn ms(t: Ts) -> i64 {
@@ -99,15 +104,6 @@ pub struct RunRecord {
     pub session: String,
 }
 
-/// One routine's finished runs over a stretch of time (`Store::routine_counts`).
-pub struct RoutineCount {
-    pub label: String,
-    pub quiet: bool,
-    pub runs: u32,
-    pub reached: u32,
-    pub failed: u32,
-}
-
 #[derive(Default)]
 pub struct RequestFilter {
     pub person_id: Option<String>,
@@ -128,7 +124,42 @@ impl Store {
         conn.execute_batch(&format!("BEGIN; {SCHEMA} COMMIT;"))?;
         let store = Store { conn };
         store.migrate_cards()?;
+        store.drop_unrecorded_revisions()?;
+        if store.meta::<Ts>("skill_use_since")?.is_none() {
+            store.set_meta("skill_use_since", &chrono::Utc::now())?;
+        }
+        if store.meta::<Ts>("typed_answers_since")?.is_none() {
+            store.set_meta("typed_answers_since", &chrono::Utc::now())?;
+        }
         Ok(store)
+    }
+
+    /// Once: deletes the revisions older builds recorded of files that skill snapshots now leave out, as
+    /// `own_skills` does: anything in a dependency or cache folder, and data files. Nobody wrote them, and they
+    /// were most of the table.
+    fn drop_unrecorded_revisions(&self) -> Result<()> {
+        const DIRS: [&str; 5] = ["node_modules", "__pycache__", ".cache", ".venv", ".git"];
+        const EXTS: [&str; 3] = ["json", "jsonl", "csv"];
+        if self.meta::<bool>("unrecorded_revisions_dropped")?.unwrap_or(false) {
+            return Ok(());
+        }
+        let left_out: Vec<String> = DIRS.iter().map(|d| format!("instr(f, '/{d}/') > 0")).chain(EXTS.iter().map(|x| format!("f LIKE '%.{x}'"))).collect();
+        self.tx(|| {
+            let n = self.conn.execute(
+                &format!(
+                    "DELETE FROM skill_revisions WHERE id IN (
+                       SELECT id FROM (SELECT id, '/' || json_extract(data, '$.file') AS f FROM skill_revisions
+                                       WHERE json_valid(data) AND json_extract(data, '$.skill') NOT LIKE '@%')
+                       WHERE {})",
+                    left_out.join(" OR ")
+                ),
+                [],
+            )?;
+            if n > 0 {
+                log!("deleted {n} skill revisions of dependency and data files, which skills no longer record");
+            }
+            self.set_meta("unrecorded_revisions_dropped", &true)
+        })
     }
 
     /// Once: a run's one `card` becomes its list of `cards`, and a chore card gets the key every card now
@@ -212,12 +243,27 @@ impl Store {
     pub fn set_held_until(&self, t: Option<Ts>) -> Result<()> {
         self.set_meta("held_until", &t)
     }
+    /// Rate limits in a row since a run last succeeded, and whether the hold on work is for one, so a restart keeps
+    /// the backoff and a usage check cannot end the hold.
+    pub fn rate_limits(&self) -> Result<(u32, bool)> {
+        Ok(self.meta::<(u32, bool)>("rate_limits")?.unwrap_or_default())
+    }
+    pub fn set_rate_limits(&self, in_a_row: u32, holding: bool) -> Result<()> {
+        self.set_meta("rate_limits", &(in_a_row, holding))
+    }
     /// Whether every employee hired before weekly reviews existed has been given one.
     pub fn reviews_seeded(&self) -> Result<bool> {
         Ok(self.meta::<bool>("reviewsSeeded")?.unwrap_or(false))
     }
     pub fn set_reviews_seeded(&self) -> Result<()> {
         self.set_meta("reviewsSeeded", &true)
+    }
+    /// Whether the transcripts runs saved before images were left out of them have had theirs taken out.
+    pub fn transcripts_compacted(&self) -> Result<bool> {
+        Ok(self.meta::<bool>("transcriptsCompacted")?.unwrap_or(false))
+    }
+    pub fn set_transcripts_compacted(&self) -> Result<()> {
+        self.set_meta("transcriptsCompacted", &true)
     }
 
     /// Writes a consistent copy of the whole database to `path`, which must not exist.
@@ -487,6 +533,11 @@ impl Store {
             .and_then(|r| r.ended_at))
     }
 
+    /// The finished runs of a session other than `except`, newest first.
+    pub fn turns_of_session(&self, session: &str, except: &str) -> Result<Vec<Run>> {
+        self.runs_where("WHERE session = ? AND id != ? AND state NOT IN ('queued', 'running') ORDER BY created_at DESC, rowid DESC", &[&session, &except])
+    }
+
     /// An employee's finished runs with a card you have not answered yet, oldest first.
     pub fn open_cards(&self, employee_id: &str) -> Result<Vec<Run>> {
         self.runs_where(
@@ -539,6 +590,7 @@ impl Store {
                    OR (COALESCE(json_array_length(data, '$.denials'), 0) > 0 AND json_extract(data, '$.kind.type') IS NOT 'tidy')
                    OR state IN ('failed', 'lost')
                    OR json_extract(data, '$.repliedAt') IS NOT NULL
+                   OR json_extract(data, '$.steered') = 1
                  ELSE 0 END",
             "created_at DESC, rowid DESC",
         )
@@ -554,29 +606,105 @@ impl Store {
         )
     }
 
-    /// An employee's finished routine runs since `since`, one count per schedule, busiest first. Reviews
-    /// and due checks are not routines. A run reached someone when it notified you or handed work to a colleague.
-    pub fn routine_counts(&self, employee_id: &str, since: Ts) -> Result<Vec<RoutineCount>> {
+    /// Finished routine runs since `since`, of one employee or with `None` everyone's, one count per schedule,
+    /// busiest first. Reviews and due checks are not routines. A run reached someone when it notified you or handed
+    /// work to a colleague, and did something when it reached someone, changed a skill or failed.
+    pub fn routine_counts(&self, employee_id: Option<&str>, since: Ts) -> Result<Vec<RoutineUsage>> {
         let mut st = self.conn.prepare(
-            "SELECT MAX(json_extract(r.data, '$.kind.label')), MAX(COALESCE(json_extract(r.data, '$.kind.quiet'), 0)), COUNT(*),
-               SUM(COALESCE(json_array_length(r.data, '$.needsYou'), 0) > 0 OR EXISTS (SELECT 1 FROM runs c WHERE c.parent_run_id = r.id)),
-               SUM(r.state IN ('failed', 'lost'))
-             FROM runs r
-             WHERE r.employee_id = ?1 AND r.schedule_id IS NOT NULL AND r.schedule_id NOT LIKE 'check:%' AND r.created_at >= ?2
-               AND r.state NOT IN ('queued', 'running') AND json_valid(r.data)
-               AND COALESCE(json_extract(r.data, '$.kind.review'), 0) = 0
-             GROUP BY r.schedule_id ORDER BY 3 DESC",
+            "SELECT schedule_id, MAX(employee_id), MAX(json_extract(data, '$.kind.label')), MAX(COALESCE(json_extract(data, '$.kind.quiet'), 0)), COUNT(*),
+               SUM(reached), SUM(failed), SUM(reached OR failed OR COALESCE(json_array_length(data, '$.skillChanges'), 0) > 0), TOTAL(json_extract(data, '$.costUsd'))
+             FROM (SELECT r.*, r.state IN ('failed', 'lost') AS failed,
+                     COALESCE(json_array_length(r.data, '$.needsYou'), 0) > 0 OR EXISTS (SELECT 1 FROM runs c WHERE c.parent_run_id = r.id) AS reached
+                   FROM runs r
+                   WHERE (?1 IS NULL OR r.employee_id = ?1) AND r.schedule_id IS NOT NULL AND r.schedule_id NOT LIKE 'check:%' AND r.created_at >= ?2
+                     AND r.state NOT IN ('queued', 'running') AND json_valid(r.data)
+                     AND COALESCE(json_extract(r.data, '$.kind.review'), 0) = 0)
+             GROUP BY schedule_id ORDER BY 5 DESC",
         )?;
         let rows = st.query_map(params![employee_id, ms(since)], |r| {
-            Ok(RoutineCount {
-                label: r.get::<_, Option<String>>(0)?.unwrap_or_default(),
-                quiet: r.get::<_, i64>(1)? != 0,
-                runs: r.get(2)?,
-                reached: r.get(3)?,
-                failed: r.get(4)?,
+            Ok(RoutineUsage {
+                schedule_id: r.get(0)?,
+                employee_id: r.get(1)?,
+                label: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                quiet: r.get::<_, i64>(3)? != 0,
+                runs: r.get(4)?,
+                reached: r.get(5)?,
+                failed: r.get(6)?,
+                useful: r.get(7)?,
+                cost_usd: r.get(8)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Each employee's finished runs since `since`: how many, the cards they raised, the work they handed to
+    /// colleagues since then, how many failed, and what they cost.
+    pub fn employee_usage(&self, since: Ts) -> Result<Vec<EmployeeUsage>> {
+        let mut st = self.conn.prepare(
+            "SELECT r.employee_id, COUNT(*), SUM(COALESCE(json_array_length(r.data, '$.cards'), 0)), MAX(COALESCE(h.n, 0)),
+               SUM(r.state IN ('failed', 'lost')), TOTAL(json_extract(r.data, '$.costUsd'))
+             FROM runs r
+             LEFT JOIN (SELECT p.employee_id, COUNT(*) AS n FROM runs c JOIN runs p ON p.id = c.parent_run_id
+                        WHERE c.created_at >= ?1 GROUP BY p.employee_id) h ON h.employee_id = r.employee_id
+             WHERE r.created_at >= ?1 AND r.state NOT IN ('queued', 'running') AND json_valid(r.data)
+             GROUP BY r.employee_id",
+        )?;
+        let rows = st.query_map([ms(since)], |r| {
+            Ok(EmployeeUsage { employee_id: r.get(0)?, runs: r.get(1)?, decisions: r.get(2)?, handoffs: r.get(3)?, failed: r.get(4)?, cost_usd: r.get(5)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The newest `limit` runs of the employees still here whose instruction, report or a card's question
+    /// contains `query`, ignoring case in ASCII letters as SQLite's `lower` does.
+    pub fn search_runs(&self, query: &str, limit: u32) -> Result<Vec<Run>> {
+        let q = query.trim().to_ascii_lowercase();
+        if q.is_empty() {
+            return Ok(vec![]);
+        }
+        self.runs_where(
+            "WHERE employee_id IN (SELECT id FROM employees WHERE departed_at IS NULL)
+               AND CASE WHEN json_valid(data) THEN
+                     instr(lower(COALESCE(json_extract(data, '$.prompt'), '')), ?1) > 0
+                     OR instr(lower(COALESCE(json_extract(data, '$.summary'), '')), ?1) > 0
+                     OR EXISTS (SELECT 1 FROM json_each(data, '$.cards') c WHERE instr(lower(COALESCE(json_extract(c.value, '$.message'), '')), ?1) > 0)
+                   ELSE 0 END
+             ORDER BY created_at DESC, rowid DESC LIMIT ?2",
+            &[&q, &limit],
+        )
+    }
+
+    /// The number an employee's latest weekly review recorded, from the reviews among their schedules. A number
+    /// this build cannot read counts as none.
+    pub fn latest_score(&self, employee_id: &str) -> Result<Option<Score>> {
+        let score: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT json_extract(data, '$.score') FROM runs
+                 WHERE schedule_id IN (SELECT id FROM schedules WHERE employee_id = ?1 AND json_valid(data) AND json_extract(data, '$.review') = 1)
+                   AND json_valid(data) AND json_type(data, '$.score') = 'object'
+                 ORDER BY slot DESC LIMIT 1",
+                [employee_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(score.and_then(|s| serde_json::from_str(&s).ok()))
+    }
+
+    /// An employee's newest report since `since`: a work run that succeeded with something to say, other than a
+    /// turn of a conversation, a reply check, a nudge, a tidy or a quiet run that raised nothing.
+    pub fn last_report(&self, employee_id: &str, since: Ts) -> Result<Option<Run>> {
+        Ok(self
+            .runs_where(
+                "WHERE employee_id = ? AND created_at >= ? AND lane = 'work' AND state = 'succeeded' AND json_valid(data)
+                   AND json_extract(data, '$.kind.type') NOT IN ('task', 'reply', 'replyCheck', 'nudge', 'tidy')
+                   AND json_extract(data, '$.kind.thread') IS NULL
+                   AND NOT (COALESCE(json_extract(data, '$.kind.quiet'), 0) = 1 AND COALESCE(json_array_length(data, '$.needsYou'), 0) = 0)
+                   AND trim(COALESCE(json_extract(data, '$.summary'), '')) != ''
+                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                &[&employee_id, &ms(since)],
+            )?
+            .pop())
     }
 
     /// Skill revisions since `since` that an employee's runs made with nobody watching (not in a conversation
@@ -626,15 +754,19 @@ impl Store {
                           AND (COALESCE(json_array_length(data, '$.needsYou'), 0) > 0
                                OR (COALESCE(json_array_length(data, '$.denials'), 0) > 0 AND json_extract(data, '$.kind.type') IS NOT 'tidy')
                                OR (parent_run_id IS NOT NULL AND state IN ('failed', 'lost'))
-                               OR json_extract(data, '$.kind.review') = 1)))
+                               OR json_extract(data, '$.kind.review') = 1
+                               OR json_extract(data, '$.steered') = 1)))
                  AND state NOT IN ('queued', 'running')
                  AND NOT (json_extract(data, '$.kind.type') = 'nudge' AND state = 'cancelled')
                  AND NOT ((COALESCE(json_extract(data, '$.kind.quiet'), 0) = 1 OR json_extract(data, '$.kind.type') IN ('tidy', 'nudge'))
+                          AND NOT (schedule_id LIKE 'check:%' AND COALESCE(json_extract(data, '$.durationMs'), 0) > {long})
                           AND state = 'succeeded'
                           AND COALESCE(json_array_length(data, '$.needsYou'), 0) = 0
-                          AND (COALESCE(json_array_length(data, '$.denials'), 0) = 0 OR json_extract(data, '$.kind.type') = 'tidy'))
+                          AND (COALESCE(json_array_length(data, '$.denials'), 0) = 0 OR json_extract(data, '$.kind.type') = 'tidy')
+                          AND COALESCE(json_extract(data, '$.steered'), 0) = 0)
                  AND {archived}
-                 ORDER BY {order} LIMIT ?"
+                 ORDER BY {order} LIMIT ?",
+                long = crate::threads::CHECK_QUIET_MS
             ),
             &[&roots, &flagged, &limit.map_or(-1, i64::from)],
         )
@@ -654,25 +786,184 @@ impl Store {
         )
     }
 
-    /// Work runs with a card about `topic` (`Card::topic`) you have not answered yet, oldest first: finished
-    /// ones, and ones the usage limit sent back to the queue with the cards they raised.
+    /// Work runs with a card about `topic` (`Card::topic`) still waiting on you (`Card::waiting`: no answer yet, or put
+    /// off with Later), oldest first: finished ones, and ones the usage limit sent back to the queue with the cards
+    /// they raised.
     pub fn open_topic_runs(&self, topic: &str) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE json_valid(data)
                AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
-                           WHERE json_extract(c.value, '$.key') = ? AND json_extract(c.value, '$.answer') IS NULL)
+                           WHERE json_extract(c.value, '$.key') = ? AND (json_extract(c.value, '$.answer') IS NULL
+                             OR json_extract(c.value, '$.backAt') IS NOT NULL OR json_extract(c.value, '$.parked') = 1))
                AND state != 'running' AND lane = 'work'
              ORDER BY created_at, rowid",
             &[&topic],
         )
     }
 
-    /// A schedule's runs from before `before` with a decision or item card still open, oldest first.
+    /// Every run bringing back the answer or report of the hand-off `asked_run_id`, oldest first.
+    pub fn answers_to(&self, asked_run_id: &str) -> Result<Vec<Run>> {
+        self.runs_where(
+            "WHERE json_valid(data) AND json_extract(data, '$.kind.type') = 'answered' AND json_extract(data, '$.kind.askedRunId') = ?
+             ORDER BY created_at, rowid",
+            &[&asked_run_id],
+        )
+    }
+
+    /// Every hand-off (delegated or asked run) in the chain `chain` (`Run::chain`): who handed it over, to whom, when,
+    /// and whether it was delegated work.
+    pub fn chain_handoffs(&self, chain: &str) -> Result<Vec<(String, String, Ts, bool)>> {
+        let mut st = self.conn.prepare(
+            "SELECT p.employee_id, r.employee_id, r.created_at, json_extract(r.data, '$.kind.type') = 'delegated' FROM runs r JOIN runs p ON p.id = r.parent_run_id
+             WHERE r.parent_run_id IS NOT NULL AND json_valid(r.data) AND json_extract(r.data, '$.chain') = ?",
+        )?;
+        let rows = st.query_map([chain], |r| Ok((r.get(0)?, r.get(1)?, Ts::from_timestamp_millis(r.get::<_, i64>(2)?).unwrap_or_default(), r.get(3)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// How many asks between `a` and `b`, either way, the loop guard paused since `since`: each paused one starts a
+    /// chain of its own (`Run::chain`).
+    pub fn paused_asks(&self, a: &str, b: &str, since: Ts) -> Result<u32> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM runs r JOIN runs p ON p.id = r.parent_run_id
+             WHERE r.created_at >= ?3 AND ((p.employee_id = ?1 AND r.employee_id = ?2) OR (p.employee_id = ?2 AND r.employee_id = ?1))
+               AND json_valid(r.data) AND json_extract(r.data, '$.kind.type') = 'asked' AND json_extract(r.data, '$.chain') = r.id",
+            params![a, b, ms(since)],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// How many tasks `manager_id`'s runs handed `report_id` since `since`, leaving out the ones you stopped.
+    pub fn delegated_since(&self, manager_id: &str, report_id: &str, since: Ts) -> Result<u32> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM runs r JOIN runs p ON p.id = r.parent_run_id
+             WHERE r.employee_id = ?1 AND p.employee_id = ?2 AND r.created_at >= ?3 AND r.state != 'cancelled'
+               AND json_valid(r.data) AND json_extract(r.data, '$.kind.type') = 'delegated'",
+            params![report_id, manager_id, ms(since)],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// The held reports whose opening note was `run_id`'s (`Run::noted_in`), oldest first.
+    pub fn noted_in(&self, run_id: &str) -> Result<Vec<Run>> {
+        self.runs_where(
+            "WHERE parent_run_id IS NOT NULL AND json_valid(data) AND json_extract(data, '$.notedIn') = ? ORDER BY created_at, rowid",
+            &[&run_id],
+        )
+    }
+
+    /// Deletes a run that never started: reports held for a manager, once a run of theirs took them in instead.
+    pub fn delete_queued_run(&self, id: &str) -> Result<bool> {
+        Ok(self.conn.execute("DELETE FROM runs WHERE id = ? AND state = 'queued'", [id])? == 1)
+    }
+
+    /// When a session's first run was made, and the context its newest finished run that measured one ended with.
+    pub fn session_size(&self, session: &str) -> Result<(Option<Ts>, Option<u64>)> {
+        let began: Option<i64> = self.conn.query_row("SELECT MIN(created_at) FROM runs WHERE session = ?", [session], |r| r.get(0))?;
+        let context: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT json_extract(data, '$.contextTokens') FROM runs
+                 WHERE session = ? AND state NOT IN ('queued', 'running') AND json_valid(data) AND json_extract(data, '$.contextTokens') IS NOT NULL
+                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                [session],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok((began.and_then(Ts::from_timestamp_millis), context.map(|c| c.max(0) as u64)))
+    }
+
+    /// An employee's cards that a newer card replaced after `since`, with when, oldest first.
+    pub fn replaced_cards(&self, employee_id: &str, since: Ts) -> Result<Vec<(Ts, Card)>> {
+        // The stored times compare as text: a second's leeway keeps every later one, and the exact test is below.
+        let after = serde_json::to_value(since - chrono::Duration::seconds(1))?;
+        let runs = self.runs_where(
+            "WHERE employee_id = ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+                           WHERE json_extract(c.value, '$.answer.how') = 'replaced' AND json_extract(c.value, '$.answer.at') > ?)",
+            &[&employee_id, &after.as_str()],
+        )?;
+        let mut v: Vec<(Ts, Card)> = runs
+            .into_iter()
+            .flat_map(|r| r.cards)
+            .filter_map(|c| c.answer.as_ref().filter(|a| a.how == AnswerHow::Replaced && a.at > since).map(|a| (a.at, c.clone())))
+            .collect();
+        v.sort_by_key(|(at, _)| *at);
+        Ok(v)
+    }
+
+    /// An employee's decision and item cards you answered after `since` (a tap, your own words or No), newest first,
+    /// leaving out the runs of `session`, which heard them already, and answers still held back for their run. Your own
+    /// words count only from when this build first opened the office: an older build put one typed reply on every card
+    /// open in its thread, so an answer typed before then may not be about its card at all.
+    pub fn answered_cards(&self, employee_id: &str, since: Ts, session: &str) -> Result<Vec<Card>> {
+        let typed_since = self.meta::<Ts>("typed_answers_since")?.unwrap_or(since);
+        // The stored times compare as text: a second's leeway keeps every later one, and the exact test is below.
+        let after = serde_json::to_value(since - chrono::Duration::seconds(1))?;
+        let runs = self.runs_where(
+            "WHERE employee_id = ? AND session != ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+                           WHERE json_extract(c.value, '$.answer.how') IN ('tapped', 'typed', 'rejected') AND json_extract(c.value, '$.answer.at') > ?)",
+            &[&employee_id, &session, &after.as_str()],
+        )?;
+        let mut v: Vec<Card> = runs
+            .into_iter()
+            .flat_map(|r| r.cards)
+            .filter(|c| !matches!(c.ask, CardAsk::Chore { .. }))
+            .filter(|c| c.answer.as_ref().is_some_and(|a| matches!(a.how, AnswerHow::Tapped | AnswerHow::Typed | AnswerHow::Rejected) && !a.held && a.at > since))
+            .filter(|c| c.answer.as_ref().is_some_and(|a| a.how != AnswerHow::Typed || a.at > typed_since))
+            .collect();
+        v.sort_by_key(|c| std::cmp::Reverse(c.answer.as_ref().map(|a| a.at)));
+        Ok(v)
+    }
+
+    /// Runs not working right now with a card you said Later to that is due back by `at`, oldest first.
+    pub fn cards_due_back(&self, at: Ts) -> Result<Vec<Run>> {
+        // The stored times compare as text: a second's leeway keeps every earlier one, and the exact test is below.
+        let by = serde_json::to_value(at + chrono::Duration::seconds(1))?;
+        let runs = self.runs_where(
+            "WHERE json_valid(data) AND state != 'running'
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+                           WHERE json_extract(c.value, '$.backAt') IS NOT NULL AND json_extract(c.value, '$.backAt') <= ?)
+             ORDER BY created_at, rowid",
+            &[&by.as_str()],
+        )?;
+        Ok(runs.into_iter().filter(|r| r.cards.iter().any(|c| c.back_at.is_some_and(|t| t <= at))).collect())
+    }
+
+    /// Current employees' runs holding a card you parked, newest first.
+    pub fn parked_runs(&self) -> Result<Vec<Run>> {
+        self.runs_where(
+            "WHERE employee_id IN (SELECT id FROM employees WHERE departed_at IS NULL) AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+                           WHERE json_extract(c.value, '$.parked') = 1)
+             ORDER BY created_at DESC, rowid DESC",
+            &[],
+        )
+    }
+
+    /// Whether `employee_id` closed a card about `topic` with `close_ask` after `since`.
+    pub fn withdrew_since(&self, employee_id: &str, topic: &str, since: Ts) -> Result<bool> {
+        let after = serde_json::to_value(since - chrono::Duration::seconds(1))?;
+        let runs = self.runs_where(
+            "WHERE employee_id = ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+                           WHERE json_extract(c.value, '$.key') = ? AND json_extract(c.value, '$.answer.how') = 'withdrawn'
+                             AND json_extract(c.value, '$.answer.at') > ?)",
+            &[&employee_id, &topic, &after.as_str()],
+        )?;
+        let withdrawn = |c: &Card| c.key.as_deref() == Some(topic) && c.answer.as_ref().is_some_and(|a| a.how == AnswerHow::Withdrawn && a.at > since);
+        Ok(runs.iter().flat_map(|r| &r.cards).any(withdrawn))
+    }
+
+    /// A schedule's runs from before `before` with a decision or item card still waiting on you (`Card::waiting`),
+    /// oldest first.
     pub fn open_cards_of_schedule(&self, schedule_id: &str, before: Ts) -> Result<Vec<Run>> {
         self.runs_where(
             "WHERE schedule_id = ? AND created_at < ? AND json_valid(data)
                AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
-                           WHERE json_extract(c.value, '$.ask.type') IN ('choices', 'items') AND json_extract(c.value, '$.answer') IS NULL)
+                           WHERE json_extract(c.value, '$.ask.type') IN ('choices', 'items') AND (json_extract(c.value, '$.answer') IS NULL
+                             OR json_extract(c.value, '$.backAt') IS NOT NULL OR json_extract(c.value, '$.parked') = 1))
              ORDER BY created_at, rowid",
             &[&schedule_id, &ms(before)],
         )
@@ -909,6 +1200,54 @@ impl Store {
         Ok(v)
     }
 
+    // ---- news ----
+
+    pub fn save_news(&self, n: &News) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO news(id, employee_id, created_at, read_at, data) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET read_at = ?4, data = ?5",
+            params![n.id, n.employee_id, ms(n.created_at), n.read_at.map(ms), to_json(n)?],
+        )?;
+        Ok(())
+    }
+
+    /// News for an employee that they have not read yet, oldest first.
+    pub fn unread_news(&self, employee_id: &str) -> Result<Vec<News>> {
+        let mut st = self.conn.prepare("SELECT data FROM news WHERE employee_id = ? AND read_at IS NULL ORDER BY created_at, rowid")?;
+        let v = readable("news", st.query_map([employee_id], |r| from_row(r, 0))?)?;
+        Ok(v)
+    }
+
+    /// Makes the news `run_id`'s opening note showed unread again, for a run that never started. Returns how many.
+    pub fn unread_news_of(&self, run_id: &str) -> Result<usize> {
+        Ok(self.conn.execute(
+            "UPDATE news SET read_at = NULL, data = json_remove(data, '$.readAt', '$.readIn') WHERE json_valid(data) AND json_extract(data, '$.readIn') = ?",
+            [run_id],
+        )?)
+    }
+
+    // ---- skill use ----
+
+    /// Records that a run used `skills` at `at`, keeping each skill's latest use.
+    pub fn record_skill_use(&self, employee_id: &str, skills: &HashSet<String>, at: Ts) -> Result<()> {
+        for skill in skills {
+            self.conn.execute(
+                "INSERT INTO skill_use(employee_id, skill, used_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(employee_id, skill) DO UPDATE SET used_at = MAX(used_at, ?3)",
+                params![employee_id, skill, ms(at)],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// When each of an employee's skills was last used, and since when uses have been recorded at all.
+    pub fn skill_use(&self, employee_id: &str) -> Result<(Vec<(String, Ts)>, Ts)> {
+        let mut st = self.conn.prepare("SELECT skill, used_at FROM skill_use WHERE employee_id = ?")?;
+        let rows = st.query_map([employee_id], |r| Ok((r.get(0)?, Ts::from_timestamp_millis(r.get(1)?).unwrap_or_default())))?;
+        let used = rows.collect::<rusqlite::Result<_>>()?;
+        Ok((used, self.meta("skill_use_since")?.unwrap_or_else(chrono::Utc::now)))
+    }
+
     // ---- skill revisions ----
 
     pub fn insert_revision(&self, employee_id: &str, r: &SkillRevision) -> Result<()> {
@@ -916,6 +1255,24 @@ impl Store {
             "INSERT INTO skill_revisions(id, employee_id, run_id, at, data) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![r.id, employee_id, r.run_id, ms(r.at), to_json(r)?],
         )?;
+        Ok(())
+    }
+
+    /// The newest revision since `since` of the same file with the same text before and after, if one is recorded.
+    pub fn same_revision(&self, employee_id: &str, c: &SkillChange, before: Option<&str>, after: Option<&str>, since: Ts) -> Result<Option<SkillRevision>> {
+        let mut st = self.conn.prepare(
+            "SELECT data FROM skill_revisions WHERE employee_id = ?1 AND at >= ?2 AND json_valid(data)
+               AND json_extract(data, '$.skill') = ?3 AND json_extract(data, '$.file') = ?4
+               AND json_extract(data, '$.before') IS ?5 AND json_extract(data, '$.after') IS ?6
+             ORDER BY at DESC, rowid DESC LIMIT 1",
+        )?;
+        let v = readable("skill_revisions", st.query_map(params![employee_id, ms(since), c.skill, c.file, before, after], |r| from_row(r, 0))?)?;
+        Ok(v.into_iter().next())
+    }
+
+    /// Credits a revision recorded with no run to the run that made it.
+    pub fn credit_revision(&self, id: &str, run_id: &str) -> Result<()> {
+        self.conn.execute("UPDATE skill_revisions SET run_id = ?2, data = json_set(data, '$.runId', ?2) WHERE id = ?1 AND json_valid(data)", params![id, run_id])?;
         Ok(())
     }
 
@@ -1011,6 +1368,7 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
+            lanes: 1,
             workspaces: vec![format!("/office/employees/{id}")],
             hue: 0,
             chat_session: format!("chat-{name}"),
@@ -1080,7 +1438,7 @@ mod tests {
 
         let choices = || CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 };
         let open = insert(with_card(run(&ada, RunKind::Manual, RunState::Succeeded), choices(), false), 50, "c1");
-        let chore = insert(with_card(run(&ada, RunKind::Manual, RunState::Failed), CardAsk::Chore { subject: "chrome".into() }, false), 40, "c2");
+        let chore = insert(with_card(run(&ada, RunKind::Manual, RunState::Failed), CardAsk::Chore { subject: "chrome".into(), url: None }, false), 40, "c2");
         insert(with_card(run(&ada, RunKind::Manual, RunState::Succeeded), choices(), true), 45, "c3");
         insert(with_card(run(&ada, RunKind::Manual, RunState::Running), choices(), false), 3, "c4");
         assert_eq!(db.open_cards(&ada.id).unwrap().iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![open.id, chore.id]);
@@ -1136,6 +1494,14 @@ mod tests {
         assert!(db.active_run_for("req-1", "nudge").unwrap().is_none());
         assert!(db.tidy_runs(&ada.id).unwrap().is_empty());
         assert!(db.taught_since(&ada.id, None, 10).unwrap().is_empty());
+        // And the hand-off queries.
+        assert!(db.replaced_cards(&ada.id, Utc::now() - chrono::Duration::days(1)).unwrap().is_empty());
+        raw(&db, &ada, "bad-handoff", "succeeded", "s-bad", "not json");
+        db.conn.execute("UPDATE runs SET parent_run_id = ?1 WHERE id = 'bad-handoff'", [&queued_id]).unwrap();
+        assert!(db.chain_handoffs("c1").unwrap().is_empty());
+        assert!(db.noted_in("r1").unwrap().is_empty());
+        assert_eq!(db.delegated_since(&ada.id, &ada.id, Utc::now() - chrono::Duration::days(1)).unwrap(), 0);
+        assert_eq!(db.session_size("s-bad").unwrap().1, None);
         let now = ms(Utc::now());
         db.conn
             .execute(
@@ -1227,7 +1593,7 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
         let mut st = db.conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").unwrap();
         let tables: BTreeSet<String> = st.query_map([], |r| r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
         drop(st);
-        for t in ["checks", "proposals", "skill_revisions", "requests"] {
+        for t in ["checks", "proposals", "skill_revisions", "requests", "news", "skill_use"] {
             assert!(tables.contains(t), "{t} created");
         }
         let lane_index: Option<String> =
@@ -1244,6 +1610,101 @@ INSERT INTO runs(id, employee_id, lane, state, session, inited, created_at, data
         assert_eq!(s.max_concurrent_runs, 2);
         assert_eq!(s.backup, BackupSettings::default());
         assert_eq!(s.watch, WatchSettings::default());
+        assert_eq!((s.notifications.mode, s.notifications.quiet), (NotifyMode::Batched, None));
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn news_is_unread_until_marked() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let (ada, bo) = (employee("Ada", None), employee("Bo", None));
+        let news = |text: &str, mins: i64| News {
+            id: uuid::Uuid::new_v4().to_string(),
+            employee_id: bo.id.clone(),
+            from: ada.id.clone(),
+            text: text.into(),
+            created_at: Utc::now() - chrono::Duration::minutes(mins),
+            read_at: None,
+            read_in: None,
+        };
+        let (later, earlier) = (news("The till is counted.", 5), news("The shelf is counted.", 10));
+        db.save_news(&later).unwrap();
+        db.save_news(&earlier).unwrap();
+        let unread: Vec<String> = db.unread_news(&bo.id).unwrap().into_iter().map(|n| n.text).collect();
+        assert_eq!(unread, vec!["The shelf is counted.", "The till is counted."], "oldest first");
+        assert!(db.unread_news(&ada.id).unwrap().is_empty());
+        db.save_news(&News { read_at: Some(Utc::now()), read_in: Some("r1".into()), ..earlier.clone() }).unwrap();
+        assert_eq!(db.unread_news(&bo.id).unwrap(), vec![later.clone()]);
+
+        // The run that showed it never started, so the next one shows it again.
+        assert_eq!(db.unread_news_of("r2").unwrap(), 0);
+        assert_eq!(db.unread_news_of("r1").unwrap(), 1);
+        assert_eq!(db.unread_news(&bo.id).unwrap(), vec![earlier, later]);
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn answered_cards_are_your_decisions_this_session_has_not_heard() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada", None);
+        let card = |question: &str, ask: CardAsk, how: AnswerHow, mins: i64, held: bool| {
+            let mut c = Card::new(question, None, Some(format!("ask:{question}")), ask);
+            c.answer = Some(CardAnswer { at: Utc::now() - chrono::Duration::minutes(mins), how, text: "Chose: Book.".into(), held });
+            c
+        };
+        let choices = || CardAsk::Choices { choices: vec!["Book".into()], recommended: 0 };
+        // This build first opened the office 25 minutes ago.
+        db.set_meta("typed_answers_since", &(Utc::now() - chrono::Duration::minutes(25))).unwrap();
+        let mut r = run(&ada, RunKind::Manual, RunState::Succeeded);
+        r.cards = vec![
+            card("Book the room?", choices(), AnswerHow::Tapped, 30, false),
+            card("Order lunch?", choices(), AnswerHow::Rejected, 10, false),
+            card("Which caterer?", choices(), AnswerHow::Typed, 20, false),
+            card("Which florist?", choices(), AnswerHow::Typed, 40, false),
+            card("Print menus?", choices(), AnswerHow::Dismissed, 5, false),
+            card("Move chairs?", choices(), AnswerHow::Replaced, 5, false),
+            card("Hang the sign?", choices(), AnswerHow::Withdrawn, 5, false),
+            card("Count the till?", choices(), AnswerHow::Tapped, 2, true),
+            card("Sign in?", CardAsk::Chore { subject: "sign-in:example.com".into(), url: None }, AnswerHow::Tapped, 2, false),
+            card("Paint the wall?", choices(), AnswerHow::Tapped, 60 * 24 * 8, false),
+        ];
+        assert!(db.insert_run(&r, "s1").unwrap());
+        let week = Utc::now() - chrono::Duration::days(7);
+        let found: Vec<String> = db.answered_cards(&ada.id, week, "s2").unwrap().into_iter().map(|c| c.message).collect();
+        assert_eq!(found, ["Order lunch?", "Which caterer?", "Book the room?"], "your taps, words and noes this week, newest first");
+        assert!(!found.contains(&"Which florist?".to_string()), "words typed before this build may be an older build's reply put on every card");
+        assert!(db.answered_cards(&ada.id, week, "s1").unwrap().is_empty(), "the session they came back to heard them");
+        assert!(db.answered_cards(&employee("Bo", None).id, week, "s2").unwrap().is_empty());
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_skill_keeps_its_latest_use() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let (used, since) = db.skill_use("e1").unwrap();
+        assert!(used.is_empty() && since <= Utc::now());
+        let at = |days: i64| Utc::now() - chrono::Duration::days(days);
+        let (three, one, five) = (at(3), at(1), at(5));
+        let skills = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<HashSet<_>>();
+        db.record_skill_use("e1", &skills(&["ada-invoices", "ada-payroll"]), three).unwrap();
+        db.record_skill_use("e1", &skills(&["ada-invoices"]), one).unwrap();
+        db.record_skill_use("e1", &skills(&["ada-payroll"]), five).unwrap();
+        let mut used: Vec<(String, i64)> = db.skill_use("e1").unwrap().0.into_iter().map(|(s, t)| (s, t.timestamp_millis())).collect();
+        used.sort();
+        assert_eq!(used, [("ada-invoices".to_string(), one.timestamp_millis()), ("ada-payroll".to_string(), three.timestamp_millis())], "an older use never hides a newer one");
+        assert!(db.skill_use("e2").unwrap().0.is_empty());
+        drop(db);
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        assert_eq!(db.skill_use("e1").unwrap().1, since, "counting began once");
 
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1372,12 +1833,41 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
     }
 
     #[test]
+    fn revisions_of_dependency_and_data_files_are_dropped_once() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada", None);
+        db.save_employee(&ada).unwrap();
+        let revise = |skill: &str, file: &str| {
+            let change = SkillChange { skill: skill.into(), file: file.into(), change: ChangeKind::Added };
+            db.insert_revision(&ada.id, &SkillRevision { change, id: uuid::Uuid::new_v4().to_string(), run_id: None, at: Utc::now(), before: None, after: Some("x".into()) }).unwrap();
+        };
+        let left_out = ["node_modules/left-pad/index.js", "scripts/__pycache__/a.pyc", ".venv/lib/x.py", ".git/HEAD", "data/pull.json", "log.JSONL", "rates.csv"];
+        let kept = ["SKILL.md", "scripts/fetch.py", "examples.md", ".github/notes.md", "jsonfeed.md"];
+        for f in left_out.iter().chain(&kept) {
+            revise("ada-reports", f);
+        }
+        revise(crate::own_skills::NOTES, "rates.csv.md");
+        db.conn.execute("DELETE FROM meta WHERE key = 'unrecorded_revisions_dropped'", []).unwrap();
+        db.drop_unrecorded_revisions().unwrap();
+        let files = || db.revisions(&ada.id).unwrap().into_iter().map(|r| r.change.file).collect::<BTreeSet<_>>();
+        let mut want: BTreeSet<String> = kept.iter().map(|f| f.to_string()).collect();
+        want.insert("rates.csv.md".into());
+        assert_eq!(files(), want);
+        revise("ada-reports", "late.json");
+        db.drop_unrecorded_revisions().unwrap();
+        assert!(files().contains("late.json"), "it runs once");
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn open_cards_are_found_by_chore_and_by_schedule() {
         let dir = temp_dir();
         let db = Store::open(&dir.join("office.db")).unwrap();
         let ada = employee("Ada", None);
         db.save_employee(&ada).unwrap();
-        let chrome = || CardAsk::Chore { subject: "chrome".into() };
+        let chrome = || CardAsk::Chore { subject: "chrome".into(), url: None };
         let choices = || CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 };
         let insert = |r: Run| {
             assert!(db.insert_run(&r, &r.id).unwrap());
@@ -1388,7 +1878,7 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         let held = insert(with_card(run(&ada, RunKind::Manual, RunState::Queued), chrome(), false));
         insert(with_card(run(&ada, RunKind::Manual, RunState::Running), chrome(), false));
         insert(with_card(run(&ada, RunKind::Chat, RunState::Succeeded), chrome(), false));
-        insert(with_card(run(&ada, RunKind::Manual, RunState::Succeeded), CardAsk::Chore { subject: "sign-in:acme".into() }, false));
+        insert(with_card(run(&ada, RunKind::Manual, RunState::Succeeded), CardAsk::Chore { subject: "sign-in:acme".into(), url: None }, false));
         insert(with_card(run(&ada, RunKind::Manual, RunState::Succeeded), choices(), false));
         assert_eq!(ids(&db.open_topic_runs("chore:chrome").unwrap()), ids(&[waiting, held]), "a run held for the usage limit still waits; a chat turn never does");
 
@@ -1403,12 +1893,58 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         let items = CardAsk::Items { verb: "Post".into(), items: vec![CardItem { id: "d1".into(), text: "Draft".into(), about: None, recommended: true }] };
         let older_items = scheduled("s1", 20, items, false);
         scheduled("s1", 15, choices(), true);
+        // Put off with Later, it still waits on you.
+        let mut put_off = scheduled("s1", 14, choices(), true);
+        put_off.cards[0].back_at = Some(at(-60));
+        db.save_run(&put_off).unwrap();
         scheduled("s1", 12, chrome(), false);
         scheduled("s2", 10, choices(), false);
         let newer = scheduled("s1", 5, choices(), false);
         let found = db.open_cards_of_schedule("s1", newer.created_at).unwrap();
-        assert_eq!(found.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![older.id, older_items.id]);
+        assert_eq!(found.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![older.id, older_items.id, put_off.id]);
 
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cards_said_later_to_parked_and_withdrawn_are_found() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let (ada, bo) = (employee("Ada", None), employee("Bo", None));
+        db.save_employee(&ada).unwrap();
+        db.save_employee(&bo).unwrap();
+        let now = Utc::now();
+        let insert = |e: &Employee, state: RunState, mins: i64, f: &dyn Fn(&mut Card)| {
+            let mut r = with_card(run(e, RunKind::Manual, state), CardAsk::Choices { choices: vec!["Go".into()], recommended: 0 }, true);
+            r.created_at = now - chrono::Duration::minutes(mins);
+            f(&mut r.cards[0]);
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r
+        };
+        // Due a moment ago, a fraction of a second from now, and tomorrow; one is due but still working.
+        let due = insert(&ada, RunState::Succeeded, 30, &|c| c.back_at = Some(now - chrono::Duration::milliseconds(1500)));
+        let just = insert(&ada, RunState::Succeeded, 20, &|c| c.back_at = Some(now + chrono::Duration::milliseconds(300)));
+        let tomorrow = insert(&ada, RunState::Succeeded, 10, &|c| c.back_at = Some(now + chrono::Duration::days(1)));
+        insert(&ada, RunState::Running, 5, &|c| c.back_at = Some(now - chrono::Duration::hours(1)));
+        assert_eq!(ids(&db.cards_due_back(now).unwrap()), ids(std::slice::from_ref(&due)));
+        assert_eq!(ids(&db.cards_due_back(now + chrono::Duration::seconds(1)).unwrap()), ids(&[due.clone(), just.clone()]));
+
+        let older = insert(&ada, RunState::Succeeded, 40, &|c| c.parked = true);
+        let newer = insert(&bo, RunState::Succeeded, 1, &|c| c.parked = true);
+        // Put off or parked, a card still waits on you: a newer one about the same thing replaces it, and an answer reaches it.
+        assert_eq!(ids(&db.open_topic_runs("ask:boost").unwrap()), ids(&[due, just, tomorrow, older.clone(), newer.clone()]));
+        assert_eq!(db.parked_runs().unwrap().iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![newer.id.clone(), older.id.clone()], "newest first");
+        db.depart_employee(&bo.id, now).unwrap();
+        assert_eq!(ids(&db.parked_runs().unwrap()), ids(&[older]), "only people still here");
+
+        let withdrawn = |mins: i64| move |c: &mut Card| c.answer = Some(CardAnswer { at: now - chrono::Duration::minutes(mins), how: AnswerHow::Withdrawn, text: "Settled.".into(), held: false });
+        insert(&ada, RunState::Succeeded, 50, &withdrawn(30));
+        assert!(!db.withdrew_since(&ada.id, "ask:boost", now - chrono::Duration::minutes(15)).unwrap(), "half an hour ago");
+        insert(&ada, RunState::Succeeded, 50, &withdrawn(5));
+        assert!(db.withdrew_since(&ada.id, "ask:boost", now - chrono::Duration::minutes(15)).unwrap());
+        assert!(!db.withdrew_since(&bo.id, "ask:boost", now - chrono::Duration::minutes(15)).unwrap(), "someone else's");
+        assert!(!db.withdrew_since(&ada.id, "ask:other", now - chrono::Duration::minutes(15)).unwrap());
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1466,6 +2002,8 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
             RunKind::Scheduled { schedule_id: format!("loud-{i}"), slot, label: "Sweep".into(), quiet: false, model: None, effort: None, review: false },
             RunKind::Scheduled { schedule_id: format!("quiet-{i}"), slot, label: "Sweep".into(), quiet: true, model: None, effort: None, review: false },
             RunKind::Scheduled { schedule_id: format!("review-{i}"), slot, label: "Weekly review".into(), quiet: false, model: None, effort: None, review: true },
+            RunKind::Scheduled { schedule_id: format!("{CHECK_PREFIX}short-{i}"), slot, label: "Check: Did it ship".into(), quiet: true, model: None, effort: None, review: false },
+            RunKind::Scheduled { schedule_id: format!("{CHECK_PREFIX}long-{i}"), slot, label: "Check: Did it ship".into(), quiet: true, model: None, effort: None, review: false },
             RunKind::Delegated { parent_run_id: format!("parent-{i}") },
             RunKind::Asked { parent_run_id: format!("parent-{i}"), asked_by: "e0".into(), task: false },
             RunKind::Answered { asked_run_id: format!("asked-{i}"), from: "e0".into(), task: false, chat: false, thread: None },
@@ -1504,12 +2042,17 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
                         i += 1;
                         for (j, kind) in every_kind(i).into_iter().enumerate() {
                             let mut r = run(e, kind, state);
+                            // A due check's run that worked for long reports like other work.
+                            if r.kind.check_id().is_some_and(|c| c.starts_with("long")) {
+                                r.duration_ms = Some(threads::CHECK_QUIET_MS + 1);
+                            }
                             if flag {
                                 r.needs_you = vec!["Look at this.".into()];
                             }
                             if j % 2 == 0 {
                                 r.replied_at = Some(Utc::now());
                             }
+                            r.steered = (i + j) % 3 == 0;
                             if blocked {
                                 r.denials = vec![denial.clone()];
                             }
@@ -1576,7 +2119,7 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         insert(&bo, scheduled("s3", "Bo's sweep", true, false, 8), RunState::Succeeded, 8);
 
         let counts: Vec<(String, bool, u32, u32, u32)> =
-            db.routine_counts(&ada.id, since).unwrap().into_iter().map(|c| (c.label, c.quiet, c.runs, c.reached, c.failed)).collect();
+            db.routine_counts(Some(&ada.id), since).unwrap().into_iter().map(|c| (c.label, c.quiet, c.runs, c.reached, c.failed)).collect();
         assert_eq!(counts, vec![("Sweep".to_string(), true, 4, 2, 1), ("Post".to_string(), false, 1, 0, 0)]);
 
         let delegated = insert(&ada, RunKind::Delegated { parent_run_id: "p1".into() }, RunState::Succeeded, 10);
@@ -1634,6 +2177,162 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         assert!(!db.revised_since("@own", "what-you-own.md", Some(&bo.id), start).unwrap());
         revise(&bo, "@company", "CLAUDE.md", start + chrono::Duration::minutes(2));
         assert!(db.revised_since("@company", "CLAUDE.md", None, start).unwrap());
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+
+    fn sweep(id: &str, label: &str, quiet: bool, review: bool, slot: Ts) -> RunKind {
+        RunKind::Scheduled { schedule_id: id.into(), slot, label: label.into(), quiet, model: None, effort: None, review }
+    }
+
+    #[test]
+    fn usage_counts_what_runs_did_and_cost() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let (ada, bo) = (employee("Ada", None), employee("Bo", None));
+        db.save_employee(&ada).unwrap();
+        db.save_employee(&bo).unwrap();
+        let at = |hours: i64| Utc::now() - chrono::Duration::hours(hours);
+        let since = at(24);
+        let insert = |e: &Employee, kind: RunKind, state: RunState, hours: i64, cost: Option<f64>, edit: &dyn Fn(&mut Run)| {
+            let mut r = run(e, kind, state);
+            r.created_at = at(hours);
+            r.cost_usd = cost;
+            edit(&mut r);
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r
+        };
+        insert(&ada, sweep("s1", "Sweep", true, false, at(1)), RunState::Succeeded, 1, Some(0.1), &|_| {});
+        insert(&ada, sweep("s1", "Sweep", true, false, at(2)), RunState::Succeeded, 2, Some(0.2), &|r| {
+            r.skill_changes = vec![SkillChange { skill: "ops".into(), file: "SKILL.md".into(), change: ChangeKind::Modified }];
+        });
+        insert(&ada, sweep("s1", "Sweep", true, false, at(3)), RunState::Failed, 3, None, &|_| {});
+        let asker = insert(&ada, sweep("s1", "Sweep", true, false, at(4)), RunState::Succeeded, 4, Some(0.3), &|_| {});
+        insert(&ada, sweep("s1", "Sweep", true, false, at(30)), RunState::Succeeded, 30, Some(5.0), &|_| {});
+        insert(&ada, sweep("s1", "Sweep", true, false, at(0)), RunState::Queued, 0, None, &|_| {});
+        insert(&ada, RunKind::Manual, RunState::Succeeded, 5, Some(1.0), &|r| {
+            let ask = || CardAsk::Choices { choices: vec!["Go".into()], recommended: 0 };
+            r.cards = vec![Card::new("Post it?", None, Some("ask:post".into()), ask()), Card::new("Boost it?", None, Some("ask:boost".into()), ask())];
+        });
+        insert(&ada, sweep("r1", "Weekly review", false, true, at(6)), RunState::Succeeded, 6, Some(0.4), &|_| {});
+        insert(&bo, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: false }, RunState::Succeeded, 4, Some(0.05), &|_| {});
+        insert(&bo, sweep("s2", "Digest", false, false, at(7)), RunState::Succeeded, 7, None, &|_| {});
+
+        let round = |c: f64| (c * 100.0).round() / 100.0;
+        let routines: Vec<(String, String, u32, u32, u32, u32, f64)> = db
+            .routine_counts(None, since)
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.schedule_id, c.employee_id, c.runs, c.reached, c.failed, c.useful, round(c.cost_usd)))
+            .collect();
+        assert_eq!(
+            routines,
+            vec![("s1".to_string(), ada.id.clone(), 4, 1, 1, 3, 0.6), ("s2".to_string(), bo.id.clone(), 1, 0, 0, 0, 0.0)],
+            "the review is not a routine; the hand-off, the skill change and the failure did something"
+        );
+        assert_eq!(db.routine_counts(Some(&bo.id), since).unwrap().len(), 1);
+
+        let usage: Vec<(String, u32, u32, u32, u32, f64)> =
+            db.employee_usage(since).unwrap().into_iter().map(|u| (u.employee_id, u.runs, u.decisions, u.handoffs, u.failed, round(u.cost_usd))).collect();
+        let of = |e: &Employee| usage.iter().find(|u| u.0 == e.id).cloned();
+        assert_eq!(of(&ada), Some((ada.id.clone(), 6, 2, 1, 1, 2.0)), "finished runs since then, everything they did and cost");
+        assert_eq!(of(&bo), Some((bo.id.clone(), 2, 0, 0, 0, 0.05)));
+        assert_eq!(usage.len(), 2);
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_finds_runs_by_their_words_newest_first() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let (ada, bo, cy) = (employee("Ada", None), employee("Bo", None), employee("Cy", None));
+        for e in [&ada, &bo, &cy] {
+            db.save_employee(e).unwrap();
+        }
+        let insert = |e: &Employee, days: i64, edit: &dyn Fn(&mut Run)| {
+            let mut r = run(e, RunKind::Manual, RunState::Succeeded);
+            r.created_at = Utc::now() - chrono::Duration::days(days);
+            edit(&mut r);
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r.id
+        };
+        let asked = insert(&ada, 90, &|r| r.prompt = "Send the Quarterly Invoice to Acme.".into());
+        let reported = insert(&bo, 30, &|r| r.summary = Some("Done.\n\nThe INVOICE is paid.".into()));
+        let carded = insert(&ada, 2, &|r| {
+            r.cards = vec![Card::new("Chase the invoice with Acme?", None, Some("ask:chase".into()), CardAsk::Choices { choices: vec!["Chase".into()], recommended: 0 })];
+        });
+        insert(&ada, 1, &|r| r.summary = Some("Nothing new in the inbox.".into()));
+        insert(&cy, 1, &|r| r.prompt = "Find the invoice.".into());
+        db.depart_employee(&cy.id, Utc::now()).unwrap();
+        raw(&db, &ada, "broken", "succeeded", "broken", "not json, an invoice");
+
+        let found = |q: &str, limit: u32| db.search_runs(q, limit).unwrap().into_iter().map(|r| r.id).collect::<Vec<_>>();
+        assert_eq!(found("invoice", 10), vec![carded.clone(), reported.clone(), asked], "newest first; a departed employee's are left out");
+        assert_eq!(found("  Invoice ", 2), vec![carded, reported]);
+        assert!(found("refund", 10).is_empty());
+        assert!(found("  ", 10).is_empty());
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_latest_number_and_report_are_found() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada", None);
+        db.save_employee(&ada).unwrap();
+        let t = Utc::now();
+        let hours = |h: i64| t - chrono::Duration::hours(h);
+        let schedule = |id: &str, review: bool| Schedule {
+            id: id.into(),
+            employee_id: ada.id.clone(),
+            label: if review { "Weekly review".into() } else { "Sweep".into() },
+            cron: "0 7 * * 1".into(),
+            instruction: "Go.".into(),
+            enabled: true,
+            misfire: Misfire::CatchUp,
+            quiet: !review,
+            model: None,
+            effort: None,
+            review,
+            active_hours: false,
+            next_fire: None,
+        };
+        db.save_schedule(&schedule("r1", true), t).unwrap();
+        db.save_schedule(&schedule("s1", false), t).unwrap();
+        let insert = |kind: RunKind, h: i64, edit: &dyn Fn(&mut Run)| {
+            let mut r = run(&ada, kind, RunState::Succeeded);
+            r.created_at = hours(h);
+            r.ended_at = Some(hours(h));
+            edit(&mut r);
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r.id
+        };
+        assert_eq!(db.latest_score(&ada.id).unwrap(), None);
+        let score = |value: &str| Score { metric: "Signups".into(), value: value.into(), change: String::new(), note: String::new() };
+        insert(sweep("r1", "Weekly review", false, true, hours(24 * 14)), 24 * 14, &|r| r.score = Some(score("30")));
+        insert(sweep("r1", "Weekly review", false, true, hours(24 * 7)), 24 * 7, &|r| r.score = Some(score("42")));
+        insert(sweep("r1", "Weekly review", false, true, hours(2)), 2, &|_| {});
+        assert_eq!(db.latest_score(&ada.id).unwrap(), Some(score("42")), "the newest review that recorded one");
+
+        let since = hours(24 * 30);
+        let report = insert(RunKind::Manual, 10, &|r| r.summary = Some("Paused both campaigns.".into()));
+        insert(sweep("s1", "Sweep", true, false, hours(5)), 5, &|r| r.summary = Some("Nothing new.".into()));
+        insert(RunKind::Task { label: "Plan".into(), from: None, context: String::new() }, 4, &|r| r.summary = Some("Sure.".into()));
+        insert(RunKind::ReplyCheck { request_id: "q1".into(), person_id: "p1".into() }, 3, &|r| r.summary = Some("No reply yet.".into()));
+        insert(RunKind::Manual, 1, &|r| r.summary = Some("  ".into()));
+        assert_eq!(db.last_report(&ada.id, since).unwrap().map(|r| r.id), Some(report), "the newest that says something to you");
+        let raised = insert(sweep("s1", "Sweep", true, false, hours(0)), 0, &|r| {
+            r.summary = Some("Found a refund request.".into());
+            r.needs_you = vec!["Refund it?".into()];
+        });
+        assert_eq!(db.last_report(&ada.id, since).unwrap().map(|r| r.id), Some(raised), "a quiet run that raised something");
+        assert_eq!(db.last_report(&ada.id, t + chrono::Duration::hours(1)).unwrap(), None);
 
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);

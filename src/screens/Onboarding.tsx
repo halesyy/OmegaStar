@@ -20,11 +20,33 @@ function Step({ n, done, title, kind = "check", children }: { n: number; done: b
   );
 }
 
+/** What every employee should know, each under the company page section it goes in. */
+const KNOW = [
+  { section: "What we sell", label: "What we sell", placeholder: "e.g. Garden tools for small shops" },
+  { section: "What we use", label: "What we use", placeholder: "e.g. Gmail, GitHub, Stripe" },
+  { section: "How things work here", label: "How I like to work", placeholder: "e.g. Show me a draft before it goes out" },
+  { section: "Voice and style", label: "Voice", placeholder: "e.g. Plain and warm, no jargon" },
+];
+
+/** The company page with `line` at the end of `section`, which goes at the end when the page has none. A line already on it is left as it is. */
+function withLine(page: string, section: string, line: string): string {
+  const lines = page.split("\n");
+  if (lines.some((l) => l.trim() === line)) return page;
+  const head = lines.findIndex((l) => l.trim() === `## ${section}`);
+  if (head < 0) return `${page.trimEnd()}\n\n## ${section}\n\n${line}\n`;
+  let end = lines.findIndex((l, i) => i > head && l.startsWith("#"));
+  if (end < 0) end = lines.length;
+  while (end > head + 1 && lines[end - 1].trim() === "") end--;
+  lines.splice(end, 0, ...(lines[end - 1].startsWith("- ") ? [line] : ["", line]));
+  return lines.join("\n");
+}
+
 export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: (s: SetupStatus) => void }) {
   const [status, setStatus] = useState(initial);
   const [company, setCompany] = useState("");
   const [ceo, setCeo] = useState("");
   const [title, setTitle] = useState("");
+  const [know, setKnow] = useState<Record<string, string>>({});
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -33,6 +55,7 @@ export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: 
   const loggedIn = status.account?.loggedIn ?? false;
   const named = company.trim().length > 0 && ceo.trim().length > 0;
   const ready = found && loggedIn && named;
+  const known = KNOW.filter((k) => (know[k.section] ?? "").trim());
 
   const recheck = async () => {
     setChecking(true);
@@ -46,6 +69,12 @@ export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: 
     setBusy(true);
     setErr(null);
     try {
+      // Before setup completes, so trying again after a failure adds nothing twice.
+      if (known.length > 0) {
+        const page = (await call("company_page")).text;
+        const text = known.reduce((p, k) => withLine(p, k.section, `- ${know[k.section].trim()}`), page);
+        if (text !== page) await call("save_company_page", { text });
+      }
       const c = await call("complete_setup", { companyName: company.trim(), ceoName: ceo.trim(), title: title.trim() || null });
       onDone({ ...status, company: c });
     } catch (e) {
@@ -60,7 +89,7 @@ export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: 
         <div className="ob-head">
           <LogoMark size={44} />
           <h1 className="h-xl">Connect to Claude Code</h1>
-          <p className="muted">Omega Star turns the Claude Code on this computer into a company you run. Four quick steps and you're in charge.</p>
+          <p className="muted">Omega Star turns the Claude Code on this computer into a company you run. Five quick steps and you're in charge.</p>
         </div>
         <ol className="ob-steps">
           <Step n={1} done={found} title={found ? "Claude Code found" : "Claude Code not found"}>
@@ -101,7 +130,19 @@ export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: 
               </label>
             </div>
           </Step>
-          <Step n={4} done={status.background} kind="pref" title="Keep Omega Star running in the background">
+          <Step n={4} done={known.length > 0} kind="input" title="What should every employee know?">
+            <span className="ob-detail">Optional. It goes on the company page, which every employee reads. You can change it any time in You.</span>
+            <div className="form-2">
+              {KNOW.map((k) => (
+                <label key={k.section} className="field">
+                  <span className="field-label">{k.label}</span>
+                  <input className="input" value={know[k.section] ?? ""} onChange={(e) => setKnow((v) => ({ ...v, [k.section]: e.target.value }))} placeholder={k.placeholder}
+                    onKeyDown={(e) => { if (e.key === "Enter" && ready) void finish(); }} />
+                </label>
+              ))}
+            </div>
+          </Step>
+          <Step n={5} done={status.background} kind="pref" title="Keep Omega Star running in the background">
             <div className="ob-bg">
               <span className="ob-detail">Schedules only fire while Omega Star runs, so it will start at login and wait quietly in the tray.</span>
               <Switch checked={status.background} onChange={(v) => void setBackground(v)} label="Keep running in the background" />

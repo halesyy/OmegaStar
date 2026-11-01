@@ -65,7 +65,7 @@ async fn call(office: &Office, token: &str, name: &str, args: &Value) -> Result<
         "team" => office.team(&me),
         "delegate" => office.delegate(&run_id, &me, s("to"), s("task")),
         "colleagues" => office.colleagues(&me),
-        "ask_colleague" => office.ask_colleague(&run_id, &me, s("to"), s("question"), s("kind") == "task"),
+        "ask_colleague" => office.ask_colleague(&run_id, &me, s("to"), s("question"), s("kind")),
         "await_reports" => {
             let ids: Vec<String> = args
                 .get("runIds")
@@ -88,6 +88,7 @@ async fn call(office: &Office, token: &str, name: &str, args: &Value) -> Result<
         "unschedule" => office.unschedule_tool(&me, s("id")),
         "notify" => office.notify_tool(&run_id, &me, args),
         "close_ask" => office.close_ask_tool(&me, s("key"), s("reason")),
+        "propose_company_line" => office.propose_company_line_tool(&run_id, &me, args),
         "report_number" => office.report_number_tool(&run_id, args),
         "catalog" => office.catalog_tool(),
         "propose_hire" => office.propose_hire_tool(&run_id, &me, args),
@@ -100,12 +101,58 @@ async fn call(office: &Office, token: &str, name: &str, args: &Value) -> Result<
         "move_skill" => office.move_skill_tool(&me, s("from"), s("to")),
         "retire_skill" => office.retire_skill_tool(&run_id, &me, s("name")),
         "show" => office.show_tool(&run_id, args),
+        "open" => office.open_tool(&run_id, &me, s("target")),
+        "name_thread" => office.name_thread_tool(&run_id, s("title")),
         _ => Err(AppError::invalid(format!("unknown tool '{name}'"))),
     }
 }
 
 fn tools() -> Value {
     let obj = |props: Value, required: &[&str]| json!({ "type": "object", "properties": props, "required": required });
+    // Notify's schema and its task are built apart, so each stays within json!'s recursion limit.
+    let mut task = obj(
+        json!({
+            "steps": { "type": "string", "description": "What to do, in order, at most 1000 characters." },
+            "url": { "type": "string", "description": "Optional. The page to do it on. http or https only." }
+        }),
+        &["steps"],
+    );
+    task["description"] = "A to-do only they can do, e.g. approving a new payee in the bank's site. They press Done or Can't.".into();
+    let notify = obj(
+        json!({
+            "message": { "type": "string", "description": "The question, at most 80 characters, e.g. 'Merge PR #12, the pricing page?'. For news, the headline. Never a code or password." },
+            "why": { "type": "string", "description": "Optional. One line, at most 140 characters: what it changes or costs, e.g. 'Our busiest page. Built and reviewed.'" },
+            "key": { "type": "string", "description": "What the card is about, e.g. 'pr:12' or 'spring-sale'. Required for all but a chore. Notify again with it to change your card; close it with close_ask once it is settled without them." },
+            "file": { "type": "string", "description": "Optional, with any card but a chore. The markdown or text file (.md or .txt, up to 200 KB) it is about, e.g. 'workspace/drafts/supplier-reply.md', in your folder or one of your workspaces. The card shows it as it is when they read it, so finish it first." },
+            "link": { "type": "string", "description": "Optional. The web page it is about, e.g. the pull request. http or https only." },
+            "images": { "type": "array", "maxItems": 3, "items": { "type": "string" }, "description": "Optional. Up to 3 png, jpg, gif or webp files in your folder or one of your workspaces that show what it is about, e.g. a page before and after." },
+            "choices": {
+                "type": "array", "maxItems": 4,
+                "description": "1 to 4 ways to go ahead with one decision, e.g. [{\"label\": \"Merge\", \"recommended\": true}]. Later and No are built in. Mark exactly one recommended.",
+                "items": obj(json!({
+                    "label": { "type": "string", "description": "A few words, e.g. 'Merge'." },
+                    "recommended": { "type": "boolean" }
+                }), &["label"])
+            },
+            "items": {
+                "type": "array", "maxItems": 10,
+                "description": "Things to approve one by one, up to 10. Each gets a tick box and an optional note.",
+                "items": obj(json!({
+                    "id": { "type": "string", "description": "A short id they and you can refer to, e.g. 'd1' or the name of who it answers." },
+                    "text": { "type": "string", "description": "Exactly what would go out, in full, at most 2000 characters, e.g. the post. Put what it is about in about, not here." },
+                    "about": { "type": "string", "description": "Optional. One line, at most 200 characters, on what it is about and anything that decides it, shown above text, e.g. the post it answers and how old it is." },
+                    "recommended": { "type": "boolean", "description": "true for the ones you would approve. They start ticked." }
+                }), &["id", "text"])
+            },
+            "itemVerb": { "type": "string", "description": "What a tick means, one word, e.g. 'Post'. Default 'Approve'." },
+            "chore": { "type": "string", "description": "Something only they can do, as one of: 'chrome' (reconnect Claude in Chrome) or 'sign-in:<site>' (sign in to a site, e.g. 'sign-in:acme'). They press Done and every run waiting on it carries on. Needs no key." },
+            "url": { "type": "string", "description": "Optional, with chore: the page it is done on, e.g. the site's sign-in page, which opens in their browser. http or https only." },
+            "task": task,
+            "question": { "type": "boolean", "description": "true: a fact only they know, e.g. which account a bill is paid from. They answer in their own words, so never guess options for it." },
+            "news": { "type": "boolean", "description": "true: something material they should know that needs no decision, e.g. spend started or stopped, something shipped, a number crossed a line. A promise to tell them is kept with news." }
+        }),
+        &["message"],
+    );
     json!([
         {
             "name": "schedules",
@@ -122,6 +169,7 @@ fn tools() -> Value {
                 "instruction": { "type": "string", "description": "What you do each time it fires. Keep it short; the how lives in your skills." },
                 "quiet": { "type": "boolean", "description": "true: a run's report reaches anyone only if the run calls notify or fails. Use for frequent watches. Default false: every report goes where your handbook's Your report section says." },
                 "enabled": { "type": "boolean" },
+                "activeHours": { "type": "boolean", "description": "true: it runs only inside the office's business hours, and slots outside them are skipped, not made up later. Use for routines that only matter while people are at work. Default false." },
                 "model": { "type": "string", "description": "Optional. The model this routine runs on, e.g. 'haiku' for a frequent, simple check. Leave it out to use your usual model; pass 'default' to go back to it." },
                 "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max", "default"], "description": "Optional. How hard this routine thinks: 'low' for a quick check, 'high' or more for research. 'default' goes back to your usual effort." }
             }), &[]),
@@ -133,33 +181,8 @@ fn tools() -> Value {
         },
         {
             "name": "notify",
-            "description": "Put one decision in front of the person you work for, as a card in their Inbox with the answer built in, and send a desktop notification. The card is all they read, so it stands alone: the question in message, one line of why, and choices (1 to 4 ways to go ahead, mark the one you recommend), items (a list they approve one by one) or chore (something only they can do). One decision per card; a run may raise up to five. Name what it is about in key: the same key from you or a colleague is one item in their Inbox, and asking again replaces your earlier card. When it is about something you wrote, such as a draft to approve, pass its path in file so they read it on the card, and leave the path out of message and why. Going ahead is never the answer you assume for spending, public posts, customer messages, deleting data, new vendors or payment details. Their answers come back to you in this conversation as one short fixed message, once every card of the run is answered. Choices and items cards have Not now and No built in, so never add them: Not now is not a no, and Omega Star brings it back to you the next day to ask again if it still matters; No means do not do it and do not ask again. Never for updates or results: those go in your report.",
-            "inputSchema": obj(json!({
-                "message": { "type": "string", "description": "The question, at most 80 characters, e.g. 'Merge PR #12, the pricing page?'. Never a code or password." },
-                "why": { "type": "string", "description": "Optional. One line, at most 140 characters: what it changes or costs, e.g. 'Our busiest page. Built and reviewed.'" },
-                "key": { "type": "string", "description": "What the card is about, e.g. 'pr:12' or 'spring-sale'. Required for choices and items. Close it with close_ask once it is settled without them." },
-                "file": { "type": "string", "description": "Optional, with choices or items. The markdown or text file (.md or .txt, up to 200 KB) the decision is about, e.g. 'workspace/drafts/supplier-reply.md', in your folder or one of your workspaces. The card shows it as it is when they read it, so finish it first." },
-                "choices": {
-                    "type": "array", "maxItems": 4,
-                    "description": "1 to 4 ways to go ahead with one decision, e.g. [{\"label\": \"Merge\", \"recommended\": true}]. Not now and No are built in. Mark exactly one recommended.",
-                    "items": obj(json!({
-                        "label": { "type": "string", "description": "A few words, e.g. 'Merge'." },
-                        "recommended": { "type": "boolean" }
-                    }), &["label"])
-                },
-                "items": {
-                    "type": "array", "maxItems": 10,
-                    "description": "Things to approve one by one, up to 10. Each gets a tick box and an optional note.",
-                    "items": obj(json!({
-                        "id": { "type": "string", "description": "A short id they and you can refer to, e.g. 'd1' or the name of who it answers." },
-                        "text": { "type": "string", "description": "Exactly what would go out, in full, at most 2000 characters, e.g. the post. Put what it is about in about, not here." },
-                        "about": { "type": "string", "description": "Optional. One line, at most 200 characters, on what it is about and anything that decides it, shown above text, e.g. the post it answers and how old it is." },
-                        "recommended": { "type": "boolean", "description": "true for the ones you would approve. They start ticked." }
-                    }), &["id", "text"])
-                },
-                "itemVerb": { "type": "string", "description": "What a tick means, one word, e.g. 'Post'. Default 'Approve'." },
-                "chore": { "type": "string", "description": "Something only they can do, as one of: 'chrome' (reconnect Claude in Chrome) or 'sign-in:<site>' (sign in to a site, e.g. 'sign-in:acme'). They press Done and every run waiting on it carries on. Needs no key." }
-            }), &["message"]),
+            "description": "Put one thing in front of the person you work for, as a card in their Inbox with the answer built in, and send a desktop notification. The card is all they read, so it stands alone: the question in message, one line of why, and one of choices (1 to 4 ways to go ahead, mark the one you recommend), items (a list they approve one by one), chore (reconnect Chrome or sign in to a site), task (a to-do only they can do), question (a fact only they know, answered in their own words) or news (something material they should know that needs no decision). One thing per card; a run may raise up to five. Name what it is about in key: the same key from you or a colleague is one item in their Inbox, and notifying again with your key changes your card in place with no new notification, which is how you edit a card; a list raised with the key of your open list adds to it. When it is about something you wrote, such as a draft to approve, pass its path in file, and for something online, such as a pull request, its link, so they read it on the card; leave paths and links out of message and why. Going ahead is never the answer you assume for spending, public posts, customer messages, deleting data, new vendors or payment details. Their answers come back to you in this conversation as one short fixed message, once every card of the run is answered. Choices and items cards have Later and No built in, and tasks and questions Later, so never add them: Later is not a no, and the card comes back to them by itself on the day they pick, then a second Later parks it in their Parked list; No means do not do it and do not ask again. News stays in their Inbox until they mark it seen, and nothing comes back. Never for routine updates or results: those go in your report.",
+            "inputSchema": notify,
         },
         {
             "name": "show",
@@ -170,12 +193,35 @@ fn tools() -> Value {
             }), &["title", "html"]),
         },
         {
+            "name": "open",
+            "description": "Open something on the screen of the person you work for, when they ask to see it: a file in its app, a folder in a window, or a web page in their browser. It works only in a conversation they are in; anywhere else, put the link on your card instead, such as a sign-in page in the chore's url. A file that could run a program is shown in its folder instead. Pass a full path in your folder, one of your workspaces or the folder that holds the company page, or an https link. Returns whether it opened.",
+            "inputSchema": obj(json!({
+                "target": { "type": "string", "description": "The full path of a file or folder, or an https link, e.g. 'https://acme.example/sign-in'." }
+            }), &["target"]),
+        },
+        {
+            "name": "name_thread",
+            "description": "Name the conversation or thread this run is in, in a few words, so the person you work for can find it again. It replaces the name Omega Star gave it from its first message or its kind. Name a new conversation once you know what it is about; rename it only when its subject changes.",
+            "inputSchema": obj(json!({
+                "title": { "type": "string", "description": "At most 60 characters, e.g. 'Spring sale emails'." }
+            }), &["title"]),
+        },
+        {
             "name": "close_ask",
-            "description": "Close your open card about key: it was settled without the person you work for (merged, paid, no longer needed). It leaves their Inbox.",
+            "description": "Close your open card about key: it was settled without the person you work for (merged, paid, no longer needed). It leaves their Inbox. Never use it to edit a card: notify again with the same key instead.",
             "inputSchema": obj(json!({
                 "key": { "type": "string", "description": "The key you gave the card, e.g. 'pr:12'." },
                 "reason": { "type": "string", "description": "One line on how it was settled." }
             }), &["key", "reason"]),
+        },
+        {
+            "name": "propose_company_line",
+            "description": "Propose one line for the company page, which every employee reads at the start of every run: something true for everyone, such as a tool or account you all use, how the person you work for likes to work, or a decision they made. It goes to them on a card, from any run, and when they tap Add it, Omega Star adds it as a bullet under that section. Use it whenever they teach you something like that, instead of changing the page yourself.",
+            "inputSchema": obj(json!({
+                "section": { "type": "string", "description": "The page's heading it goes under, e.g. 'Who to ask' or 'How things work here'. A heading the page lacks is added." },
+                "line": { "type": "string", "description": "One fact, at most 300 characters, e.g. 'Refunds over 100 go to Bo.'" },
+                "why": { "type": "string", "description": "One line, at most 140 characters: why everyone should know it." }
+            }), &["section", "line", "why"]),
         },
         {
             "name": "report_number",
@@ -194,11 +240,11 @@ fn tools() -> Value {
         },
         {
             "name": "check_later",
-            "description": "Set yourself a check: something you must find out or do later and cannot now (a change that needs a day to show up, a follow-up you promised). On its due date Omega Star starts a quiet run of yours with what and how as its instruction, whether or not anything else runs. Use it for anything you will do later, instead of writing 'I'll check' in a report or 'verify later' in a skill or notes file. Max 20 open at once.",
+            "description": "Set yourself a check: something you must find out or do later and cannot now (a change that needs a day to show up, a follow-up you promised). On its due date Omega Star starts a quiet run of yours with what and how as its instruction, whether or not anything else runs; set in a conversation that is still open, it comes back into that conversation. Do what you can now: use it only for what must wait for time to pass, instead of writing 'I'll check' in a report or 'verify later' in a skill or notes file. Max 20 open at once.",
             "inputSchema": obj(json!({
                 "what": { "type": "string", "description": "What you will find out, in one sentence." },
                 "how": { "type": "string", "description": "Where or how you will look: the command, the page, who to ask. Specific enough that a future run can do it cold." },
-                "inDays": { "type": "number", "description": "Days from now until it is worth checking (0 to 180, default 7)." }
+                "inDays": { "type": "number", "description": "Days from now until it is worth checking (0.25, six hours, to 180; default 7). Checks are at least six hours away." }
             }), &["what", "how"]),
         },
         {
@@ -229,12 +275,12 @@ fn tools() -> Value {
         },
         {
             "name": "team",
-            "description": "List your direct reports (agents) with title, objective, presence and their last run summary.",
+            "description": "List your direct reports (agents) with title, objective, presence, their last run summary and how many tasks you handed them today (tasksToday, at most tasksPerDay).",
             "inputSchema": obj(json!({}), &[]),
         },
         {
             "name": "delegate",
-            "description": "Hand one direct report a self-contained task. Returns {runId} immediately. Their report always comes back to you: wait with await_reports only if it should take a few minutes; otherwise finish, and a new run brings it to you.",
+            "description": "Hand one direct report a self-contained task, at most 4 a day to each. Returns {runId} immediately. Their report always comes back to you: wait with await_reports only if it should take a few minutes; otherwise finish. Handed over in a conversation the person you work for started, it comes back as its next turn; any other report waits for your next run, or comes with your team's other reports in one run once 30 minutes pass without a new one. When a chain of hand-offs grows long, Omega Star pauses the task and sends it by itself later: never send it again.",
             "inputSchema": obj(json!({
                 "to": { "type": "string", "description": "The report's name, slug or id." },
                 "task": { "type": "string", "description": "What to do, why, and what done looks like." }
@@ -247,16 +293,16 @@ fn tools() -> Value {
         },
         {
             "name": "ask_colleague",
-            "description": "Ask another agent a question, or hand them a task, that falls in their area, not yours. They work on it in a run of their own. Returns {runId} immediately. The answer or report always comes back to you: wait with await_reports only if it should take a few minutes and you need it now; otherwise finish without it, and a new run brings it to you. Only when it genuinely helps: never for what you can find or do yourself.",
+            "description": "Ask another agent a question, or hand them a task, that falls in their area, not yours. They work on it in a run of their own. Returns {runId} immediately. The answer or report always comes back to you: wait with await_reports only if it should take a few minutes and you need it now; otherwise finish without it, and a new run brings it to you. If they have not started your earlier question or task yet, this one is added to it. With kind info, it leaves them news instead: no run, nothing comes back, and they read it at the top of their next run. When a chain of hand-offs grows long, Omega Star pauses the next one and sends it by itself later: never send it again. Only when it genuinely helps: never for what you can find or do yourself.",
             "inputSchema": obj(json!({
-                "to": { "type": "string", "description": "The colleague's name, slug or id." },
-                "kind": { "type": "string", "enum": ["question", "task"], "description": "question (default): they answer and change nothing. task: they do the work, e.g. set something up once it is approved, or act on news you pass on." },
-                "question": { "type": "string", "description": "The question or task, self-contained: they see nothing of your run. For a task, what done looks like and who approved it." }
+                "to": { "type": "string", "description": "The colleague's name, slug or id, or 'everyone' with kind info to tell every colleague." },
+                "kind": { "type": "string", "enum": ["question", "task", "info"], "description": "question (default): they answer and change nothing. task: they do the work, e.g. set something up once it is approved, or act on news you pass on. info: news that needs no answer and no work; it starts no run. When you raise a card in work a colleague handed you, its outcome already reaches them, so never send a separate notice about it." },
+                "question": { "type": "string", "description": "The question, task or news, self-contained: they see nothing of your run. For a task, what done looks like and who approved it." }
             }), &["to", "question"]),
         },
         {
             "name": "await_reports",
-            "description": "Wait (up to 4 minutes) for runs you delegated or questions you asked to finish, and return each run's state and report or answer. Use it only for hand-offs that take a few minutes: anything still going comes back to you in a new run when it finishes.",
+            "description": "Wait (up to 4 minutes) for runs you delegated or questions you asked to finish, and return each run's state and report or answer. Use it only for hand-offs that take a few minutes: anything still going comes back to you when it finishes.",
             "inputSchema": obj(json!({ "runIds": { "type": "array", "items": { "type": "string" } } }), &["runIds"]),
         },
         {
@@ -337,4 +383,38 @@ fn tools() -> Value {
             }), &["id", "state"]),
         },
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every string in `v`: the tools' names, descriptions and choices.
+    fn strings(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::String(s) => out.push(s.clone()),
+            Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
+            Value::Object(o) => o.values().for_each(|x| strings(x, out)),
+            _ => {}
+        }
+    }
+
+    fn description(tool: &str) -> String {
+        let tools = tools();
+        let t = tools.as_array().unwrap().iter().find(|t| t["name"] == tool).unwrap();
+        t["description"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn no_tool_text_has_an_em_dash_or_the_old_wording() {
+        let mut texts = vec![];
+        strings(&tools(), &mut texts);
+        assert!(texts.len() > 100, "every tool and argument: {}", texts.len());
+        for t in &texts {
+            assert!(!t.contains('\u{2014}'), "{t}");
+            assert!(!t.to_lowercase().contains("anything you will do later"), "{t}");
+        }
+        assert!(description("check_later").contains("Do what you can now: use it only for what must wait for time to pass"));
+        assert!(description("open").contains("It works only in a conversation they are in; anywhere else, put the link on your card instead, such as a sign-in page in the chore's url."));
+    }
 }

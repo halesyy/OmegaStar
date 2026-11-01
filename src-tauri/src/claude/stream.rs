@@ -1,6 +1,7 @@
 //! Parsing Claude Code's stream-json output into run events.
 
 use super::*;
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 #[derive(Clone)]
@@ -11,8 +12,36 @@ pub struct Outcome {
     pub turns: u32,
     pub duration_ms: u64,
     pub denials: Vec<Denied>,
-    /// The run stopped at the subscription's usage limit.
-    pub limit: bool,
+    /// A limit stopped the run.
+    pub limit: Option<Limit>,
+    /// The segment answered a background task's notice that came after the run's turn, not a message.
+    pub notice: bool,
+}
+
+/// A limit that stops a run, which Omega Star waits out instead of failing the run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Limit {
+    /// The subscription's usage limit, which resets at a set time.
+    Usage,
+    /// Claude, or a proxy in front of it, turning requests away for now (HTTP 429 or 529) with no time it resets.
+    Transient,
+}
+
+impl Limit {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Limit::Usage => "the usage limit",
+            Limit::Transient => "a rate limit",
+        }
+    }
+}
+
+/// What a result line says the run spent: its own cost since the previous result (each model's `costUSD` in
+/// `model_usage_since_last_result`), and the session's running total (`total_cost_usd`).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Spend {
+    pub own: Option<f64>,
+    pub total: Option<f64>,
 }
 
 /// A denial from the result, with the call it stopped.
@@ -42,9 +71,16 @@ pub struct Parsed {
     pub claude_version: Option<String>,
     /// The usage limit was hit; it resets at this time.
     pub limited: Option<Ts>,
+    /// Requests were turned away for now: a rejected rate limit with no reset time, or Claude Code's error
+    /// message for a rate limit or an overload.
+    pub throttled: bool,
     pub denied: Option<DeniedReason>,
     /// The context size in tokens after this top-level assistant message.
     pub context: Option<u64>,
+    /// From an init line: Claude in Chrome's tools are among the run's tools.
+    pub chrome: Option<bool>,
+    /// From a top-level result line.
+    pub spend: Option<Spend>,
 }
 
 /// One observation of the subscription usage windows. Both `None` means the account has none.
@@ -112,6 +148,27 @@ pub fn mcp_server_rule(tool: &str) -> Option<String> {
 
 /// Every tool of the Claude in Chrome extension, which `--chrome` connects.
 pub const CHROME_RULE: &str = "mcp__claude-in-chrome__*";
+const CHROME_TOOLS: &str = "mcp__claude-in-chrome__";
+
+/// What a failed result says when Claude or a proxy is turning requests away for now, in older builds that send no
+/// status with it.
+const TURNED_AWAY: [&str; 2] = ["temporarily limiting requests", "cooling down"];
+
+/// The limit a result line says stopped the run. Pure.
+fn limit_of(v: &Value, ok: bool) -> Option<Limit> {
+    if v["api_error"] == "usage_limit_reached" {
+        return Some(Limit::Usage);
+    }
+    let text = v["result"].as_str().unwrap_or("");
+    let turned_away = matches!(v["api_error_status"].as_u64(), Some(429 | 529)) || TURNED_AWAY.iter().any(|t| text.contains(t));
+    (!ok && turned_away).then_some(Limit::Transient)
+}
+
+/// What a result line says the run spent. An empty `model_usage_since_last_result` means nothing since the last one.
+fn spend_of(v: &Value) -> Spend {
+    let own = v["model_usage_since_last_result"].as_object().and_then(|m| m.values().map(|u| u["costUSD"].as_f64()).sum::<Option<f64>>());
+    Spend { own, total: v["total_cost_usd"].as_f64() }
+}
 
 /// The text of a tool result, whether its content is a string or a list of text blocks.
 pub fn result_text(content: &Value) -> String {
@@ -141,6 +198,7 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
             let skills = v["skills"].as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default();
             p.events.push(RunEvent::Init { model: str_at(&v, "model"), skills });
             p.claude_version = v["claude_code_version"].as_str().map(String::from);
+            p.chrome = Some(v["tools"].as_array().into_iter().flatten().any(|t| t.as_str().is_some_and(|t| t.starts_with(CHROME_TOOLS))));
         }
         "system" if v["subtype"] == "permission_denied" => {
             p.denied = Some(DeniedReason {
@@ -194,6 +252,7 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
             if m["model"] != "<synthetic>" && size > 0 {
                 p.context = Some(size);
             }
+            p.throttled = v["error"] == "rate_limit" || matches!(v["api_error_status"].as_u64(), Some(429 | 529));
             for b in v["message"]["content"].as_array().into_iter().flatten() {
                 match b["type"].as_str() {
                     Some("text") if !str_at(b, "text").trim().is_empty() => p.events.push(RunEvent::Text { text: str_at(b, "text") }),
@@ -216,8 +275,9 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
             }
         }
         "result" => {
+            let ok = !v["is_error"].as_bool().unwrap_or(false) && v["subtype"] == "success";
             let o = Outcome {
-                ok: !v["is_error"].as_bool().unwrap_or(false) && v["subtype"] == "success",
+                ok,
                 text: str_at(&v, "result"),
                 subtype: str_at(&v, "subtype"),
                 turns: v["num_turns"].as_u64().unwrap_or(0) as u32,
@@ -232,7 +292,8 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
                         Denied { tool_use_id: str_at(d, "tool_use_id"), denial }
                     })
                     .collect(),
-                limit: v["api_error"] == "usage_limit_reached",
+                limit: limit_of(&v, ok),
+                notice: v["origin"]["kind"] == "task-notification",
             };
             p.events.push(RunEvent::Result {
                 ok: o.ok,
@@ -241,11 +302,13 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
                 duration_ms: o.duration_ms,
             });
             p.outcome = Some(o);
+            p.spend = (!nested).then(|| spend_of(&v));
         }
         "rate_limit_event" => {
             let info = &v["rate_limit_info"];
             if info["status"] == "rejected" {
                 p.limited = info["resetsAt"].as_i64().or(v["resetsAt"].as_i64()).and_then(|s| chrono::DateTime::from_timestamp(s, 0));
+                p.throttled = p.limited.is_none();
             }
             let windows = &info["unifiedWindows"];
             let window = |k: &str| {
@@ -339,11 +402,19 @@ fn one_liner(text: &str) -> bool {
 }
 
 /// Joins two result segments of one run: a message steered into a working turn ends it with a result
-/// of its own. A trailing one-liner is added to a real report instead of replacing it.
+/// of its own, and so does a background task's notice the run answers after its turn. A trailing one-liner
+/// is added to a real report instead of replacing it, and so is what answered a notice: the report that
+/// answered you stays first. A notice that failed after the report succeeded, a limit included, leaves the run
+/// as the report left it: its work was done.
 pub fn merge_outcome(prev: Outcome, next: Outcome) -> Outcome {
+    if next.notice && !next.ok && prev.ok {
+        let mut denials = prev.denials;
+        denials.extend(next.denials);
+        return Outcome { turns: prev.turns + next.turns, denials, limit: None, ..prev };
+    }
     let text = if next.text.trim().is_empty() {
         prev.text
-    } else if one_liner(&next.text) && !one_liner(&prev.text) {
+    } else if (next.notice && !prev.text.trim().is_empty()) || (one_liner(&next.text) && !one_liner(&prev.text)) {
         format!("{}\n\n{}", prev.text, next.text)
     } else {
         next.text
@@ -358,6 +429,7 @@ pub fn merge_outcome(prev: Outcome, next: Outcome) -> Outcome {
         duration_ms: next.duration_ms,
         denials,
         limit: next.limit,
+        notice: next.notice,
     }
 }
 
@@ -422,11 +494,108 @@ pub fn steered(transcript: &str) -> Vec<String> {
         .collect()
 }
 
+/// The session's running total that the transcript's last top-level result reported.
+pub fn last_total(transcript: &str) -> Option<f64> {
+    json_lines_with(transcript, "\"total_cost_usd\"").filter(|v| v["type"] == "result" && !is_nested(v)).filter_map(|v| v["total_cost_usd"].as_f64()).last()
+}
+
+/// The lines holding `needle` that parse as JSON, so a long transcript is not parsed whole.
+fn json_lines_with<'a>(transcript: &'a str, needle: &'a str) -> impl Iterator<Item = Value> + 'a {
+    transcript.lines().filter(move |l| l.contains(needle)).filter_map(|l| serde_json::from_str::<Value>(l).ok())
+}
+
+/// What a run's result segments cost in US dollars: each one's own cost when it reports it, else how far it took
+/// the session's running total past the total before it, which for the first is `before` (0 for a new session,
+/// `None` when unknown). That total runs on across segments and resumed runs, so it is never added up itself.
+/// `None` when no segment's cost is known. Pure.
+pub fn run_cost(segments: &[Spend], before: Option<f64>) -> Option<f64> {
+    let mut last = before;
+    let mut sum: Option<f64> = None;
+    for s in segments {
+        let rise = || -> Option<f64> { Some((s.total? - last?).max(0.0)) };
+        if let Some(cost) = s.own.or_else(rise) {
+            sum = Some(sum.unwrap_or(0.0) + cost);
+        }
+        last = s.total.or(last);
+    }
+    sum
+}
+
+/// A transcript line without the image data Claude Code keeps in tool results, which the app never shows: each
+/// image's base64 becomes a short note of its media type and size, and the line stays valid JSON. Any other line
+/// comes back as it was, and so does one already stripped.
+pub fn without_images(line: &str) -> Cow<'_, str> {
+    if !line.contains("base64") {
+        return Cow::Borrowed(line);
+    }
+    let Ok(mut v) = serde_json::from_str::<Value>(line) else { return Cow::Borrowed(line) };
+    if strip_images(&mut v) {
+        Cow::Owned(v.to_string())
+    } else {
+        Cow::Borrowed(line)
+    }
+}
+
+/// Replaces the data of every image in `v`: an image block's `source.data`, and the Read tool's own result's
+/// `file.base64`. True when it replaced any.
+fn strip_images(v: &mut Value) -> bool {
+    match v {
+        Value::Object(o) => {
+            let mut changed = false;
+            if o.get("type").and_then(Value::as_str) == Some("image") {
+                for (inner, kind, data) in [("source", "media_type", "data"), ("file", "type", "base64")] {
+                    if let Some(x) = o.get_mut(inner).and_then(Value::as_object_mut) {
+                        changed |= note_image(x, kind, data);
+                    }
+                }
+            }
+            o.values_mut().fold(changed, |c, x| strip_images(x) | c)
+        }
+        Value::Array(a) => a.iter_mut().fold(false, |c, x| strip_images(x) | c),
+        _ => false,
+    }
+}
+
+/// Puts a note such as `[image/png, 12 KB, left out]` in place of base64 image data. A note is never base64,
+/// which has no `[`, so a second pass leaves it alone.
+fn note_image(o: &mut serde_json::Map<String, Value>, kind: &str, data: &str) -> bool {
+    let Some(len) = o.get(data).and_then(Value::as_str).filter(|d| !d.starts_with('[')).map(str::len) else { return false };
+    let media = o.get(kind).and_then(Value::as_str).unwrap_or("image").to_string();
+    o.insert(data.into(), Value::String(format!("[{media}, {} KB, left out]", (len * 3 / 4).div_ceil(1024))));
+    true
+}
+
+/// The line a run's report gets when Claude Code stopped helpers of the run (sub-agents, monitors, shells) that
+/// were still working when its turn ended, naming each one stderr names. `None` when it stopped none.
+pub fn stopped_helpers(stderr: &str) -> Option<String> {
+    let lines: Vec<&str> = stderr.lines().filter(|l| l.contains("Background tasks still running")).collect();
+    if lines.is_empty() {
+        return None;
+    }
+    // "... after the last turn (subagent \"Check the totals\", shell \"npm test\"); stopping them."
+    let names: Vec<String> = lines
+        .iter()
+        .filter_map(|l| l.split_once('(').and_then(|(_, rest)| rest.rsplit_once(')')).map(|(inside, _)| inside))
+        .flat_map(|inside| inside.split('"').skip(1).step_by(2))
+        .map(|n| format!("\"{}\"", clip(&one_line(n), 80)))
+        .collect();
+    Some(match names.len() {
+        0 => "Claude Code stopped helpers that had not finished when the run ended.".to_string(),
+        1 => format!("Claude Code stopped a helper that had not finished when the run ended: {}.", names[0]),
+        n => format!("Claude Code stopped {n} helpers that had not finished when the run ended: {}.", names.join(", ")),
+    })
+}
+
 /// What a Chrome tool returns when the browser extension is not connected (not marked as an error).
 pub const CHROME_DOWN: &str = "Browser extension is not connected";
 
+/// Chrome counts as down once its calls keep finding the extension not connected: this many in a row, or for this
+/// many seconds, with none working since. The first call of a run often loses a race and the next one works.
+const CHROME_FAILURES: u32 = 3;
+const CHROME_GRACE_SECS: i64 = 45;
+
 /// What a run's stream says beyond its events, gathered as it goes: which call each result answers,
-/// why calls were denied, and whether Chrome dropped.
+/// why calls were denied, whether Chrome dropped, and whether requests were turned away.
 #[derive(Default)]
 pub struct RunSignals {
     /// tool_use_id -> (seq, tool)
@@ -436,6 +605,13 @@ pub struct RunSignals {
     last_ok: HashMap<String, usize>,
     seq: usize,
     chrome_told: bool,
+    /// The Chrome calls that found the extension not connected since one last worked: when the first came back,
+    /// and how many.
+    chrome_failing: Option<(Ts, u32)>,
+    /// What the run's first init line said: whether Claude in Chrome's tools loaded.
+    chrome_loaded: Option<bool>,
+    /// Requests were turned away (`Parsed::throttled`) since the model last answered.
+    throttled: bool,
 }
 
 impl RunSignals {
@@ -457,21 +633,46 @@ impl RunSignals {
         if let Some(d) = &p.denied {
             self.denied.insert(d.tool_use_id.clone(), d.clone());
         }
+        if let Some(loaded) = p.chrome {
+            self.chrome_loaded.get_or_insert(loaded);
+        }
+        self.throttled = (self.throttled || p.throttled) && p.context.is_none();
     }
 
-    /// True, once per run, when a Chrome tool reports that the extension is not connected. Call
-    /// `observe` on the same line first.
-    pub fn chrome_down(&mut self, events: &[RunEvent]) -> bool {
+    /// The limit that stopped a result segment: what its result says, or requests turned away just before a
+    /// result that failed. Call `observe` on the result line first.
+    pub fn limit(&mut self, o: &Outcome) -> Option<Limit> {
+        let throttled = std::mem::take(&mut self.throttled);
+        o.limit.or((!o.ok && throttled).then_some(Limit::Transient))
+    }
+
+    /// True, once per run, when Chrome is down: its calls keep finding the extension not connected, `CHROME_FAILURES`
+    /// in a row or for `CHROME_GRACE_SECS`, and none worked since. A tab that fails to close is not Chrome being
+    /// down. Call `observe` on the same line first, and on every line, since the time can run out on any.
+    pub fn chrome_down(&mut self, events: &[RunEvent], at: Ts) -> bool {
         if self.chrome_told {
             return false;
         }
-        self.chrome_told = events.iter().any(|ev| match ev {
-            RunEvent::ToolResult { id, brief, .. } => {
-                brief.contains(CHROME_DOWN) && self.calls.get(id).is_some_and(|(_, tool)| tool.starts_with("mcp__claude-in-chrome__"))
+        for ev in events {
+            let RunEvent::ToolResult { id, ok, brief } = ev else { continue };
+            if !self.calls.get(id).is_some_and(|(_, tool)| tool.starts_with(CHROME_TOOLS) && !tool.contains("tabs_close")) {
+                continue;
             }
-            _ => false,
-        });
+            if brief.contains(CHROME_DOWN) {
+                let (since, n) = self.chrome_failing.unwrap_or((at, 0));
+                self.chrome_failing = Some((since, n + 1));
+            } else if *ok {
+                self.chrome_failing = None;
+            }
+        }
+        self.chrome_told = self.chrome_failing.is_some_and(|(since, n)| n >= CHROME_FAILURES || at - since >= chrono::Duration::seconds(CHROME_GRACE_SECS));
         self.chrome_told
+    }
+
+    /// The employee may use Chrome, but the run's first init line listed none of Claude in Chrome's tools: the
+    /// extension's tools never loaded, which reconnecting Chrome does not fix.
+    pub fn chrome_missing(&self) -> bool {
+        self.chrome_loaded == Some(false)
     }
 
     /// Sorts a run's denials into real blocks and report notes. Safety checks are tool errors; a
@@ -538,6 +739,16 @@ mod tests {
     const CHROME: &str = r#"{"type":"assistant","message":{"model":"claude-sonnet-4-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_chr1","name":"mcp__claude-in-chrome__tabs_context_mcp","input":{}}],"usage":{"input_tokens":4,"cache_read_input_tokens":900,"cache_creation_input_tokens":10,"output_tokens":20}},"parent_tool_use_id":null,"session_id":"sess-6"}
 {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_chr1","content":[{"type":"text","text":"Browser extension is not connected. Please ensure the extension is installed and running."}]}]},"parent_tool_use_id":null,"session_id":"sess-6"}"#;
 
+    // A CLI proxy in front of Claude turning requests away: Claude Code retries, the rate limit comes back
+    // rejected with no reset time, and the run ends on a 429 that names no usage limit.
+    const COOLING: &str = r#"{"type":"assistant","message":{"model":"claude-sonnet-4-5","role":"assistant","content":[{"type":"text","text":"Checking the order totals."}],"usage":{"input_tokens":6,"cache_read_input_tokens":41000,"cache_creation_input_tokens":800,"output_tokens":40}},"parent_tool_use_id":null,"session_id":"sess-7"}
+{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":600,"error_status":429,"error":"rate_limit","session_id":"sess-7"}
+{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","isUsingOverage":false},"session_id":"sess-7"}
+{"type":"assistant","message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"API Error: Server is temporarily limiting requests. Every account in the pool is cooling down."}],"usage":{"input_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"output_tokens":0}},"parent_tool_use_id":null,"session_id":"sess-7","error":"rate_limit","api_error_status":429,"is_api_error_message":true}
+{"type":"result","subtype":"success","is_error":true,"num_turns":12,"duration_ms":81000,"result":"API Error: Server is temporarily limiting requests. Every account in the pool is cooling down.","permission_denials":[],"api_error_status":429,"terminal_reason":"api_error","total_cost_usd":1.25,"model_usage_since_last_result":{"claude-sonnet-4-5":{"costUSD":1.25}},"result_index":0,"session_id":"sess-7"}"#;
+
+    const OVERLOADED: &str = r#"{"type":"result","subtype":"success","is_error":true,"num_turns":3,"duration_ms":2100,"result":"API Error: Repeated 529 Overloaded errors","permission_denials":[],"api_error_status":529,"terminal_reason":"api_error","session_id":"sess-8"}"#;
+
     fn home() -> &'static Path {
         Path::new("/tmp/office/employees/tester")
     }
@@ -567,7 +778,7 @@ mod tests {
     }
 
     fn outcome(text: &str, turns: u32) -> Outcome {
-        Outcome { ok: true, text: text.into(), subtype: "success".into(), turns, duration_ms: 10, denials: vec![], limit: false }
+        Outcome { ok: true, text: text.into(), subtype: "success".into(), turns, duration_ms: 10, denials: vec![], limit: None, notice: false }
     }
 
     #[test]
@@ -613,9 +824,9 @@ mod tests {
         assert_eq!(lines[1].limited, chrono::DateTime::from_timestamp(1_800_000_000, 0));
         assert!(lines[1].usage.is_some());
         let o = last_outcome(LIMIT);
-        assert!(o.limit);
+        assert_eq!(o.limit, Some(Limit::Usage));
         assert!(!o.ok);
-        assert!(!last_outcome(MULTI_RESULT).limit);
+        assert_eq!(last_outcome(MULTI_RESULT).limit, None);
     }
 
     #[test]
@@ -678,7 +889,7 @@ mod tests {
         let status = r#"{"type":"system","subtype":"status","status":"requesting"}"#;
         assert!(transcript_outcome(&format!("{LIMIT}\n{INIT}\n{status}"), home()).is_none());
         let retried = transcript_outcome(&format!("{LIMIT}\n{INIT}\n{MULTI_RESULT}"), home()).expect("an outcome");
-        assert!(!retried.limit);
+        assert_eq!(retried.limit, None);
         assert_eq!(retried.turns, 6, "both attempts' turns");
     }
 
@@ -747,28 +958,186 @@ mod tests {
         assert!(sort(&mode_denial(false), true, true).0.is_empty());
     }
 
-    fn chrome_downs(transcript: &str) -> usize {
+    /// How many times Chrome is told down over `lines`, each read `secs` seconds into the run.
+    fn chrome_downs(lines: &[(i64, String)]) -> usize {
+        let start = chrono::Utc::now();
         let mut s = RunSignals::default();
-        parsed(transcript)
-            .into_iter()
-            .filter(|p| {
-                s.observe(p);
-                s.chrome_down(&p.events)
+        lines
+            .iter()
+            .filter(|(secs, line)| {
+                let p = parse_line(line, home());
+                s.observe(&p);
+                s.chrome_down(&p.events, start + chrono::Duration::seconds(*secs))
             })
             .count()
     }
 
+    /// A Chrome call `id` of `tool` and what it returned, both read at `secs`.
+    fn chrome_call(secs: i64, id: &str, tool: &str, result: &str) -> Vec<(i64, String)> {
+        vec![(secs, call(id, &format!("mcp__claude-in-chrome__{tool}"), json!({}))), (secs, answer(id, false, result))]
+    }
+
+    fn not_connected(secs: i64, id: &str) -> Vec<(i64, String)> {
+        chrome_call(secs, id, "tabs_context_mcp", "Browser extension is not connected. Please ensure the extension is installed and running.")
+    }
+
     #[test]
-    fn chrome_down_is_told_once() {
-        assert_eq!(chrome_downs(CHROME), 1);
-        assert_eq!(chrome_downs(&format!("{CHROME}\n{CHROME}")), 1);
-        let quoted = format!("{}\n{}", call("toolu_b1", "Bash", json!({ "command": "grep -r notes" })), answer("toolu_b1", false, "notes.md: Browser extension is not connected"));
+    fn chrome_is_down_only_once_it_stays_down() {
+        let first: Vec<(i64, String)> = CHROME.lines().map(|l| (0, l.to_string())).collect();
+        assert_eq!(chrome_downs(&first), 0, "a first call often loses a race");
+        let three = [not_connected(0, "c1"), not_connected(2, "c2"), not_connected(4, "c3"), not_connected(6, "c4")].concat();
+        assert_eq!(chrome_downs(&three), 1, "three in a row, told once");
+        let waited = [not_connected(0, "c1"), vec![(46, call("b1", "Bash", json!({ "command": "ls" })))]].concat();
+        assert_eq!(chrome_downs(&waited), 1, "still failing 45 seconds on");
+        let recovered = [not_connected(0, "c1"), not_connected(2, "c2"), chrome_call(3, "c3", "navigate", "Navigated."), not_connected(50, "c4"), not_connected(51, "c5")].concat();
+        assert_eq!(chrome_downs(&recovered), 0, "a call that worked starts the count again");
+        let closing: Vec<(i64, String)> = (0..4).flat_map(|i| chrome_call(i * 30, &format!("t{i}"), "tabs_close_mcp", CHROME_DOWN)).collect();
+        assert_eq!(chrome_downs(&closing), 0, "a tab that will not close is not Chrome down");
+        let quoted = vec![(0, call("toolu_b1", "Bash", json!({ "command": "grep -r notes" }))), (60, answer("toolu_b1", false, "notes.md: Browser extension is not connected"))];
         assert_eq!(chrome_downs(&quoted), 0);
-        let slow = format!(
-            "{}\n{}",
-            call("toolu_c2", "mcp__claude-in-chrome__tabs_context_mcp", json!({})),
-            answer("toolu_c2", false, "The browser did not respond within 8 seconds.")
+        let slow = [not_connected(0, "c1"), not_connected(2, "c2"), chrome_call(3, "c3", "tabs_context_mcp", "The browser did not respond within 8 seconds."), not_connected(4, "c4")].concat();
+        assert_eq!(chrome_downs(&slow), 0, "a slow browser is still connected");
+    }
+
+    #[test]
+    fn chrome_tools_missing_from_the_init_line_are_noticed() {
+        assert!(signals(INIT).chrome_missing());
+        let with = INIT.replace(r#""tools":["Bash","Read"]"#, r#""tools":["Bash","Read","mcp__claude-in-chrome__navigate"]"#);
+        assert!(!signals(&with).chrome_missing());
+        assert!(!signals(&format!("{with}\n{INIT}")).chrome_missing(), "the run's first init line says");
+        assert!(!signals(MULTI_RESULT).chrome_missing(), "no init line, nothing to say");
+    }
+
+    #[test]
+    fn a_rate_limit_with_no_reset_time_is_transient() {
+        let lines = parsed(COOLING);
+        assert!(lines[2].throttled && lines[2].limited.is_none(), "rejected with no reset time");
+        assert!(lines[3].throttled && lines[3].context.is_none(), "the error message Claude Code writes for it");
+        let o = last_outcome(COOLING);
+        assert_eq!((o.ok, o.limit), (false, Some(Limit::Transient)));
+        assert_eq!(last_outcome(OVERLOADED).limit, Some(Limit::Transient), "an overload too");
+        assert_eq!(last_outcome(LIMIT).limit, Some(Limit::Usage), "the usage limit stays the usage limit");
+        let worded = r#"{"type":"result","subtype":"success","is_error":true,"num_turns":1,"duration_ms":60,"result":"API Error: every account is cooling down","permission_denials":[]}"#;
+        assert_eq!(last_outcome(worded).limit, Some(Limit::Transient), "a proxy's words, from a build that sends no status");
+        let fine = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":4,"duration_ms":900,"result":"The oven is cooling down, so the batch is done.","permission_denials":[]}"#;
+        assert_eq!(last_outcome(fine).limit, None, "a run that worked hit no limit");
+        // An older build's session limit says no more than a 429, but its rate limit names the reset.
+        let older = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1800000000,"rateLimitType":"five_hour"},"session_id":"sess-9"}"#;
+        let p = parse_line(older, home());
+        assert!(p.limited.is_some() && !p.throttled);
+    }
+
+    #[test]
+    fn requests_turned_away_just_before_a_failure_are_a_rate_limit() {
+        let rejected = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","isUsingOverage":false},"session_id":"sess-7"}"#;
+        let failed = r#"{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":4,"duration_ms":900,"result":"","permission_denials":[]}"#;
+        let answered = MULTI_RESULT.lines().next().unwrap();
+        let limit_after = |lines: &[&str]| {
+            let mut s = RunSignals::default();
+            let mut limit = None;
+            for p in parsed(&lines.join("\n")) {
+                s.observe(&p);
+                if let Some(o) = &p.outcome {
+                    limit = s.limit(o);
+                }
+            }
+            limit
+        };
+        assert_eq!(limit_after(&[rejected, failed]), Some(Limit::Transient));
+        assert_eq!(limit_after(&[rejected, answered, failed]), None, "Claude answered after it");
+        assert_eq!(limit_after(&[rejected, MULTI_RESULT.lines().nth(1).unwrap()]), None, "the run worked");
+        assert_eq!(limit_after(&[rejected, failed, failed]), None, "it counts once");
+    }
+
+    #[test]
+    fn a_notice_answered_after_the_turn_keeps_the_report_you_were_given() {
+        let report = "Mostly yes, and here is why.\nThe totals match the bank.";
+        let notice = Outcome { notice: true, ..outcome("That was the background check finishing.\nNothing else changed.", 1) };
+        let m = merge_outcome(outcome(report, 3), notice);
+        assert_eq!(m.text, format!("{report}\n\nThat was the background check finishing.\nNothing else changed."));
+        assert_eq!(m.turns, 4);
+        let long = "y".repeat(250);
+        assert_eq!(merge_outcome(outcome(report, 3), outcome(&long, 1)).text, long, "a message you steered in gets its own answer");
+        assert_eq!(merge_outcome(outcome("", 1), Outcome { notice: true, ..outcome("Only the notice.", 1) }).text, "Only the notice.");
+
+        // A limit that stops the notice's answer after the report was written keeps the report, and requeues nothing.
+        for limit in [Limit::Transient, Limit::Usage] {
+            let failed = Outcome { ok: false, notice: true, limit: Some(limit), subtype: "error_during_execution".into(), ..outcome("API Error: 429", 1) };
+            let m = merge_outcome(outcome(report, 3), failed);
+            assert_eq!((m.ok, m.limit, m.text.as_str(), m.turns), (true, None, report, 4), "{limit:?}");
+        }
+        let steered = Outcome { ok: false, limit: Some(Limit::Transient), ..outcome("API Error: 429", 1) };
+        assert_eq!(merge_outcome(outcome(report, 3), steered).limit, Some(Limit::Transient), "a message you sent in still needs its answer");
+
+        let noticed = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"duration_ms":700,"result":"The sub-agent finished; the report above stands.\nNo changes.","permission_denials":[],"origin":{"kind":"task-notification","producer":"session-task","runId":"bg-1"},"result_index":1,"session_id":"sess-1"}"#;
+        let first = MULTI_RESULT.lines().take(2).collect::<Vec<_>>().join("\n");
+        let o = transcript_outcome(&format!("{first}\n{INIT}\n{noticed}"), home()).expect("an outcome");
+        assert_eq!(o.text, "Report line one.\nReport line two.\n\nThe sub-agent finished; the report above stands.\nNo changes.");
+    }
+
+    #[test]
+    fn spend_is_read_from_result_lines() {
+        let line = |extra: &str| format!(r#"{{"type":"result","subtype":"success","is_error":false,"num_turns":1,"duration_ms":10,"result":"Done.","permission_denials":[],"total_cost_usd":4.5{extra}}}"#);
+        let both = line(r#","model_usage_since_last_result":{"claude-sonnet-4-5":{"costUSD":0.5},"claude-haiku-4-5":{"costUSD":0.25}}"#);
+        assert_eq!(parse_line(&both, home()).spend, Some(Spend { own: Some(0.75), total: Some(4.5) }));
+        assert_eq!(parse_line(&line(""), home()).spend, Some(Spend { own: None, total: Some(4.5) }), "an older build reports only the total");
+        assert_eq!(parse_line(&line(r#","model_usage_since_last_result":{}"#), home()).spend, Some(Spend { own: Some(0.0), total: Some(4.5) }), "nothing since the last result");
+        let nested = line(r#","parent_tool_use_id":"toolu_sub""#);
+        assert_eq!(parse_line(&nested, home()).spend, None);
+        assert_eq!(last_total(&format!("{}\n{}\n{nested}", line(""), line(r#","model_usage_since_last_result":{}"#).replace("4.5", "6.25"))), Some(6.25));
+        assert_eq!(last_total(MULTI_RESULT), None);
+    }
+
+    #[test]
+    fn a_runs_cost_is_its_own_segments_never_the_running_total() {
+        let spend = |own: Option<f64>, total: f64| Spend { own, total: Some(total) };
+        // Each segment's own cost, however much the session cost before.
+        assert_eq!(run_cost(&[spend(Some(1.5), 88.0), spend(Some(0.25), 88.25)], None), Some(1.75));
+        // Without it, how far each took the running total.
+        assert_eq!(run_cost(&[spend(None, 12.0), spend(None, 12.5)], Some(10.0)), Some(2.5));
+        assert_eq!(run_cost(&[spend(None, 3.0)], Some(0.0)), Some(3.0), "a new session starts at nothing");
+        assert_eq!(run_cost(&[spend(None, 12.0), spend(None, 12.5)], None), Some(0.5), "an unknown start never counts the whole session");
+        assert_eq!(run_cost(&[spend(None, 12.0)], None), None);
+        assert_eq!(run_cost(&[spend(Some(0.5), 12.0), spend(None, 12.75)], None), Some(1.25), "the two kinds mix");
+        assert_eq!(run_cost(&[], Some(0.0)), None);
+    }
+
+    #[test]
+    fn images_are_left_out_of_saved_lines() {
+        let data = "iVBORw0KGgo".repeat(400);
+        let line = json!({
+            "type": "user", "parent_tool_use_id": null,
+            "message": { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "toolu_img1", "content": [
+                { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": data } },
+                { "type": "text", "text": "Saved the chart." },
+            ] }] },
+            "tool_use_result": { "type": "image", "file": { "base64": data, "type": "image/png", "originalSize": 2048 } },
+        })
+        .to_string();
+        let out = without_images(&line);
+        assert!(out.len() < 500, "{out}");
+        let v: Value = serde_json::from_str(&out).expect("still JSON");
+        assert_eq!(v["message"]["content"][0]["content"][0]["source"]["data"], "[image/png, 4 KB, left out]");
+        assert_eq!(v["tool_use_result"]["file"]["base64"], "[image/png, 4 KB, left out]");
+        assert_eq!(replay(&out, home()), replay(&line, home()), "the app reads the same");
+        assert!(matches!(without_images(&out), Cow::Borrowed(_)), "a stripped line stays as it is");
+        assert!(matches!(without_images(INIT), Cow::Borrowed(_)));
+        let mentions = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"The logo is inlined as base64 in the CSS."}]},"parent_tool_use_id":null}"#;
+        assert!(matches!(without_images(mentions), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn helpers_stopped_at_the_end_are_named() {
+        let tail = "; stopping them. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.";
+        let one = format!("Background tasks still running 10m after the last turn (subagent \"Check the totals\"){tail}");
+        assert_eq!(stopped_helpers(&one).as_deref(), Some("Claude Code stopped a helper that had not finished when the run ended: \"Check the totals\"."));
+        let two = format!("warning: a slow disk\nBackground tasks still running 10m after the last turn (subagent \"Draft the memo (short)\", shell \"npm test\"){tail}\n");
+        assert_eq!(
+            stopped_helpers(&two).as_deref(),
+            Some("Claude Code stopped 2 helpers that had not finished when the run ended: \"Draft the memo (short)\", \"npm test\".")
         );
-        assert_eq!(chrome_downs(&slow), 0);
+        let older = "Background tasks still running after 600s; terminating. Set CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 to wait indefinitely.";
+        assert_eq!(stopped_helpers(older).as_deref(), Some("Claude Code stopped helpers that had not finished when the run ended."));
+        assert_eq!(stopped_helpers("warning: a slow disk"), None);
     }
 }

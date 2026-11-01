@@ -1,6 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { call, errorMessage } from "../api/client";
-import type { AppSettings, BackupFrequency, BackupSettings, BackupStatus, BuildChannel, BusinessHours, CheckFrequency, IsoWeekday, ProxySettings, SetupStatus, WatchSettings } from "../api/types";
+import type {
+  AppSettings, BackupFrequency, BackupSettings, BackupStatus, BuildChannel, BusinessHours, CheckFrequency, IsoWeekday, NotificationSettings, NotifyMode,
+  ProxySettings, QuietHours, SetupStatus, WatchSettings,
+} from "../api/types";
 import { refreshOrg, rescanSkills, useQuery, useSkillScan, type SkillScan } from "../lib/hooks";
 import { toast } from "../lib/toasts";
 import { clockHM, relTime, whenShort } from "../lib/format";
@@ -133,6 +136,8 @@ export function SettingsScreen() {
               </Row>
             </SettingsGroup>
 
+            <NotificationsCard settings={s} save={save} />
+
             <RepliesCard settings={s} save={save} />
 
             <SettingsGroup title="Appearance">
@@ -230,6 +235,13 @@ const FREQUENCIES: { value: BackupFrequency; label: string }[] = [
   { value: "weekly", label: "Weekly" },
 ];
 
+const TRANSCRIPT_DAYS: { value: number | null; label: string }[] = [
+  { value: null, label: "Forever" },
+  { value: 365, label: "1 year" },
+  { value: 90, label: "90 days" },
+  { value: 30, label: "30 days" },
+];
+
 function size(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
@@ -281,12 +293,20 @@ function BackupsCard({ settings: s, save, onOpenData }: { settings: AppSettings;
 
   const st = status.data;
   const running = starting || !!st?.running;
+  const kept = TRANSCRIPT_DAYS.find((t) => t.value === s.transcriptDays);
   return (
     <SettingsGroup title="Data and backups">
       <Row title="Office folder" desc={<span className="mono">{s.dataDir}</span>}>
         <button className="btn" onClick={onOpenData}><Icon name="folder" size={13} /> Open</button>
       </Row>
-      <Row title="Automatic backups" desc={b.frequency === "off" ? "Only when you back up by hand." : "A copy of the office: employees, their history, skills and notes. Skipped when nothing has changed. Large files (over 10 MB), node_modules and app builds in employees' folders are left out."}>
+      <Row title="Keep transcripts" desc={s.transcriptDays == null ? "Every run's full transcript stays in the office folder." : `A run's full transcript is deleted ${kept ? kept.label : `${s.transcriptDays} days`} after it finishes. Its report and any pages it showed stay.`}>
+        <div className="seg" role="group" aria-label="Keep transcripts">
+          {TRANSCRIPT_DAYS.map((t) => (
+            <button key={t.label} aria-pressed={s.transcriptDays === t.value} onClick={() => void save({ ...s, transcriptDays: t.value })}>{t.label}</button>
+          ))}
+        </div>
+      </Row>
+      <Row title="Automatic backups" desc={b.frequency === "off" ? "Only when you back up by hand." : "A copy of the office: employees, their history, skills and notes. Skipped when nothing has changed. Large files (over 10 MB), app builds, and dependency, build and cache folders such as node_modules and dist are left out."}>
         <div className="seg" role="group" aria-label="Backup frequency">
           {FREQUENCIES.map((f) => (
             <button key={f.value} aria-pressed={b.frequency === f.value} onClick={() => void setBackup({ frequency: f.value })}>{f.label}</button>
@@ -341,6 +361,50 @@ const GIVE_UP_DAYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const minuteLabel = (minute: number) => clockHM(Math.floor(minute / 60) % 24, minute % 60);
 const businessDays = (n: number) => `${n} business ${n === 1 ? "day" : "days"}`;
 const withCurrent = (options: number[], current: number) => (options.includes(current) ? options : [...options, current].sort((a, b) => a - b));
+
+const NOTIFY_MODES: { value: NotifyMode; label: string; desc: string }[] = [
+  { value: "all", label: "All", desc: "Each one as it comes." },
+  { value: "batched", label: "Batched", desc: "An employee's decisions that come within 90 seconds of their first show as one notification." },
+  { value: "off", label: "Off", desc: "None. The Inbox and the dock badge still show what waits on you." },
+];
+
+/** Quiet hours when you first turn them on: overnight, 10 pm to 8 am. */
+const QUIET_HOURS: QuietHours = { startMinute: 22 * 60, endMinute: 8 * 60 };
+
+function NotificationsCard({ settings: s, save }: { settings: AppSettings; save: (next: AppSettings, msg?: string) => Promise<void> }) {
+  const n = s.notifications;
+  const q = n.quiet;
+  const setNotifications = (next: Partial<NotificationSettings>) => save({ ...s, notifications: { ...n, ...next } });
+  const mode = NOTIFY_MODES.find((m) => m.value === n.mode);
+  const times = (current: number) => withCurrent(HALF_HOURS.slice(0, -1), current);
+  return (
+    <SettingsGroup title="Notifications" sub="Desktop notifications when an employee needs you.">
+      <Row title="Desktop notifications" desc={mode?.desc}>
+        <div className="seg" role="group" aria-label="Desktop notifications">
+          {NOTIFY_MODES.map((m) => (
+            <button key={m.value} aria-pressed={n.mode === m.value} onClick={() => void setNotifications({ mode: m.value })}>{m.label}</button>
+          ))}
+        </div>
+      </Row>
+      <Row title="Quiet hours" desc={q ? `None between ${minuteLabel(q.startMinute)} and ${minuteLabel(q.endMinute)}. When they end, one notification says what came in.` : "Notifications can come at any hour."}>
+        <div className="row">
+          {q ? (
+            <>
+              <select className="select set-select" aria-label="Start of quiet hours" value={q.startMinute} onChange={(e) => void setNotifications({ quiet: { ...q, startMinute: Number(e.target.value) } })}>
+                {times(q.startMinute).map((m) => <option key={m} value={m} disabled={m === q.endMinute}>{minuteLabel(m)}</option>)}
+              </select>
+              <span className="muted">to</span>
+              <select className="select set-select" aria-label="End of quiet hours" value={q.endMinute} onChange={(e) => void setNotifications({ quiet: { ...q, endMinute: Number(e.target.value) } })}>
+                {times(q.endMinute).map((m) => <option key={m} value={m} disabled={m === q.startMinute}>{minuteLabel(m)}</option>)}
+              </select>
+            </>
+          ) : null}
+          <Switch checked={!!q} onChange={(v) => void setNotifications({ quiet: v ? QUIET_HOURS : null })} label="Quiet hours" />
+        </div>
+      </Row>
+    </SettingsGroup>
+  );
+}
 
 function RepliesCard({ settings: s, save }: { settings: AppSettings; save: (next: AppSettings, msg?: string) => Promise<void> }) {
   const w = s.watch;

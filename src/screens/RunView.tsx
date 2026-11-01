@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { call, errorMessage } from "../api/client";
 import type { EmployeeView, Run } from "../api/types";
 import { mcpServerName, mcpServerRule, toolName } from "../lib/rules";
@@ -6,7 +6,7 @@ import { dateLong, duration, elapsedMs, firstName, runKindLabel, runStateLabel, 
 import { refreshOrg, useNow, useOrg, useProposals, useQuery, useRunDetail } from "../lib/hooks";
 import { toast } from "../lib/toasts";
 import { navigate, openChat, openMember, openRun } from "../lib/router";
-import { threadFocus } from "../lib/threads";
+import { conversationOf, threadFocus } from "../lib/threads";
 import { kindNames } from "../components/RunRow";
 import { Icon } from "../components/Icon";
 import { Markdown } from "../components/Markdown";
@@ -15,6 +15,7 @@ import { Visual } from "../components/Visual";
 import { TidyProposal } from "../components/TidyProposal";
 import { DelegatedCard, ProposedRow, RequestedRow, SkillChip, ToolRows, toItems } from "../components/Transcript";
 import { Avatar, ConfirmButton, ErrorNote, Skeleton, StatePill } from "../components/ui";
+import "../components/panel/ChatTab.css";
 import "./RunView.css";
 
 export function RunView({ runId }: { runId: string }) {
@@ -56,6 +57,8 @@ export function RunView({ runId }: { runId: string }) {
   const label = runKindLabel(run.kind, names);
   const tone = runStateTone(run);
   const result = [...items].reverse().find((i) => i.kind === "result");
+  // Once its transcript is gone, the report kept on the run stands in for the last result.
+  const report = result?.kind === "result" ? result : detail.transcriptGone && run.summary ? { ok: run.state === "succeeded", text: run.summary } : null;
   const cancel = async () => {
     try { await call("cancel_run", { runId: run.id }); toast("Run cancelled", "ok"); }
     catch (x) { toast(errorMessage(x), "err"); }
@@ -94,6 +97,7 @@ export function RunView({ runId }: { runId: string }) {
             <p>{run.prompt}</p>
           </section>
           <SubAgents tasks={detail.tasks} runActive={!!live} />
+          {detail.transcriptGone ? <p className="muted" style={{ fontSize: "var(--t-sm)" }}>This run's transcript is no longer kept.</p> : null}
           <div className="rv-events">
             {items.map((it) => {
               switch (it.kind) {
@@ -116,15 +120,15 @@ export function RunView({ runId }: { runId: string }) {
           </div>
           {run.denials.length && e ? <Denials run={run} e={e} /> : null}
           <TidyProposal run={run} employee={e} />
-          {result && result.kind === "result" ? (
-            <section className={`rv-result ${result.ok ? "" : "rv-result-err"}`}>
+          {report ? (
+            <section className={`rv-result ${report.ok ? "" : "rv-result-err"}`}>
               <div className="rv-result-head">
-                <Icon name={result.ok ? "checkCircle" : "alert"} size={15} />
-                <span>{result.ok ? "Report" : "Didn't finish"}</span>
+                <Icon name={report.ok ? "checkCircle" : "alert"} size={15} />
+                <span>{report.ok ? "Report" : "Didn't finish"}</span>
                 <span className="grow" />
                 <span className="num faint">{duration(elapsedMs(run))}</span>
               </div>
-              {result.text ? <Markdown text={result.text} /> : <p className="muted">No report.</p>}
+              {report.text ? <Markdown text={report.text} /> : <p className="muted">No report.</p>}
               {run.skillChanges.length ? (
                 <div className="rv-grew">
                   <Icon name="sparkle" size={13} /> {e ? firstName(e.name) : "They"} changed {run.skillChanges.length} {run.skillChanges.length === 1 ? "skill" : "skills"} during this run.
@@ -139,6 +143,69 @@ export function RunView({ runId }: { runId: string }) {
             </section>
           ) : null}
       </div>
+      {e ? <SteerBox run={run} e={e} autoFocus={!!live} /> : null}
+      </div>
+    </div>
+  );
+}
+
+/** Your words to the run you are watching: into it while it works, into its instructions while it waits to start,
+ *  and once it has finished, your reply in its thread. Either way its report or answer then waits for you in the
+ *  Inbox. What went in shows on the page as it lands; a reply says where it went. `autoFocus`: the run was working or
+ *  waiting when the page opened, so the box is ready to type in. */
+function SteerBox({ run, e, autoFocus }: { run: Run; e: EmployeeView; autoFocus: boolean }) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const name = firstName(e.name);
+  const live = run.state === "running" || run.state === "queued";
+  const placeholder = run.state === "running" ? `Message ${name}. They'll see it as they work.`
+    : run.state === "queued" ? `Add to ${name}'s instructions before they start.`
+    : `Reply to ${name} about this run…`;
+
+  useEffect(() => { if (autoFocus) input.current?.focus({ preventScroll: true }); }, [autoFocus]);
+
+  // Grows with what you type, as the conversation composer does.
+  useLayoutEffect(() => {
+    const el = input.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${Math.min(200, Math.max(44, el.scrollHeight))}px`;
+  }, [text]);
+
+  const send = async () => {
+    const body = text.trim();
+    if (!body || sending) return;
+    setSending(true);
+    try {
+      const how = await call("steer_run", { runId: run.id, text: body });
+      setText("");
+      if (how === "replied") {
+        const open = () => openChat(e.id, threadFocus(conversationOf(run) ?? run.id));
+        toast(live ? `It couldn't take messages just then, so your message went to ${name} as a reply` : `Sent to ${name} as a reply`, "ok", { label: "Open thread", run: open });
+      }
+    } catch (err) {
+      toast(errorMessage(err), "err");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="rv-steer">
+      <div className={`composer ${sending ? "composer-busy" : ""}`}>
+        <textarea
+          ref={input} className="composer-input" value={text} readOnly={sending} rows={1} placeholder={placeholder} aria-label={placeholder}
+          onChange={(ev) => setText(ev.target.value)}
+          onKeyDown={(ev) => { if (ev.key === "Enter" && !ev.shiftKey && !ev.nativeEvent.isComposing) { ev.preventDefault(); void send(); } }}
+        />
+        <div className="composer-bar">
+          <span className="grow" />
+          <span className="composer-hint faint">{live ? "Their report comes to your Inbox" : "Their answer comes to your Inbox"} · Shift+Enter for a new line</span>
+          <button className="btn btn-primary btn-icon btn-sm composer-send" aria-label="Send" title="Send (Enter). Shift+Enter adds a new line." disabled={sending || !text.trim()} onClick={() => void send()}>
+            <Icon name="send" size={14} strokeWidth={1.8} />
+          </button>
+        </div>
       </div>
     </div>
   );
