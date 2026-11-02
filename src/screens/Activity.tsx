@@ -245,23 +245,23 @@ function WeekUsage({ who, employees }: { who: string | null; employees: Employee
   if (!rows.length) return null;
   return (
     <Section title="This week's usage (API list price)" count={null}>
-      <div className="usage">
+      <div className="week-usage">
         {rows.map(({ e, u, routines }) => (
-          <div key={e.id} className="usage-group">
-            <button className="usage-row" onClick={() => openMember(e.id, "work")}>
+          <div key={e.id} className="week-usage-group">
+            <button className="week-usage-row" onClick={() => openMember(e.id, "work")}>
               <Avatar name={e.name} hue={e.hue} size={20} />
-              <b className="usage-who">{firstName(e.name)}</b>
-              <span className="usage-what">{count(u.runs, "run")}</span>
-              <span className="usage-cost num">{usd(u.costUsd)}</span>
+              <b className="week-usage-who">{firstName(e.name)}</b>
+              <span className="week-usage-what">{count(u.runs, "run")}</span>
+              <span className="week-usage-cost num">{usd(u.costUsd)}</span>
             </button>
             {routines.map((r) => (
-              <button key={r.scheduleId} className="usage-row usage-routine" onClick={() => openMember(e.id, "work")}>
+              <button key={r.scheduleId} className="week-usage-row week-usage-routine" onClick={() => openMember(e.id, "work")}>
                 <span />
-                <span className="usage-name">{r.label}</span>
-                <span className="usage-what" title="A run did something when it raised a card, handed work to a colleague, changed a skill or failed.">
+                <span className="week-usage-name">{r.label}</span>
+                <span className="week-usage-what" title="A run did something when it raised a card, handed work to a colleague, changed a skill or failed.">
                   {count(r.runs, "run")}: {r.useful} did something, {r.runs - r.useful} nothing
                 </span>
-                <span className="usage-cost num">{usd(r.costUsd)}</span>
+                <span className="week-usage-cost num">{usd(r.costUsd)}</span>
               </button>
             ))}
           </div>
