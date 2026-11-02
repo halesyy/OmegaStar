@@ -441,7 +441,8 @@ mod tests {
         let s = write_archive(&office, &snapshot, &dest, serde_json::json!({})).unwrap();
         assert_eq!(s.left_out, 4);
         let zip = zip::ZipArchive::new(File::open(&dest).unwrap()).unwrap();
-        let names: Vec<&str> = zip.file_names().collect();
+        let owned: Vec<_> = zip.file_names().collect::<zip::result::ZipResult<_>>().unwrap();
+        let names: Vec<&str> = owned.iter().map(|n| n.as_ref()).collect();
         assert!(names.contains(&"employees/e1/notes.md"), "{names:?}");
         assert!(names.contains(&"runs/r1/transcript.jsonl"), "transcripts are kept: {names:?}");
         for gone in ["node_modules", "Tool.app", "scratch", "data.bin", RUNNING_MARKER] {
@@ -471,7 +472,8 @@ mod tests {
         let s = write_archive(&office, &snapshot, &dest, serde_json::json!({})).unwrap();
         assert_eq!(s.left_out, BULK_DIRS.len() as u32);
         let zip = zip::ZipArchive::new(File::open(&dest).unwrap()).unwrap();
-        let names: Vec<&str> = zip.file_names().collect();
+        let owned: Vec<_> = zip.file_names().collect::<zip::result::ZipResult<_>>().unwrap();
+        let names: Vec<&str> = owned.iter().map(|n| n.as_ref()).collect();
         for kept in ["employees/e1/workspace/build", "employees/e1/workspace/plans/build-plan.md", "employees/e1/skills/e1-notes/SKILL.md"] {
             assert!(names.contains(&kept), "{kept} kept: {names:?}");
         }
