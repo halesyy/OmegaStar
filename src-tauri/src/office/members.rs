@@ -601,7 +601,9 @@ mod tests {
         let db = Store::open(&dir.join("office.db")).unwrap();
         let ada = employee("Ada");
         db.save_employee(&ada).unwrap();
-        let t = now();
+        use chrono::TimeZone;
+        // On this computer's clock, away from Monday's weekly review. 4 November 2026 is a Wednesday.
+        let t = Local.with_ymd_and_hms(2026, 11, 4, 10, 15, 0).unwrap().with_timezone(&Utc);
         assert_eq!(Office::presence(&db, &ada, t, false).unwrap().status, EmployeeStatus::default());
 
         let schedule = |id: &str, label: &str, cron: &str, review: bool| Schedule {
