@@ -95,9 +95,6 @@ pub struct EmployeeDraft {
     /// Tidies their skills and notes on their own when the health check finds something. On unless you turn it off.
     #[serde(default = "tidy_on")]
     pub auto_tidy: bool,
-    /// How many pieces of background work they do at once: 1, or 2.
-    #[serde(default = "one_lane")]
-    pub lanes: u32,
     pub workspaces: Vec<String>,
     pub hue: u16,
 }
@@ -110,11 +107,6 @@ fn browser_on() -> bool {
 /// Tidying on their own is on unless you turn it off, including for employees saved before it was.
 fn tidy_on() -> bool {
     true
-}
-
-/// One piece of background work at a time unless you allow two, including for employees saved before you could.
-fn one_lane() -> u32 {
-    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -137,9 +129,6 @@ pub struct Employee {
     /// On unless you turn it off.
     #[serde(default = "tidy_on")]
     pub auto_tidy: bool,
-    /// Background runs at once: 1, or 2. A colleague's answer or question never waits for one (`claim_runnable`).
-    #[serde(default = "one_lane")]
-    pub lanes: u32,
     pub workspaces: Vec<String>,
     pub hue: u16,
     /// The session of the one long chat older builds kept. Nothing reads it now, but a hire still gets one of
@@ -156,9 +145,6 @@ impl EmployeeDraft {
         }
         if self.hue > 359 {
             return Err(AppError::invalid("hue must be 0-359"));
-        }
-        if !(1..=2).contains(&self.lanes) {
-            return Err(AppError::invalid("background work runs one or two at a time"));
         }
         Ok(())
     }
@@ -179,7 +165,6 @@ impl EmployeeDraft {
             effort: self.effort,
             browser: self.browser,
             auto_tidy: self.auto_tidy,
-            lanes: self.lanes,
             workspaces: self.workspaces,
             hue: self.hue,
             chat_session,
@@ -203,7 +188,6 @@ impl Employee {
             effort: self.effort,
             browser: self.browser,
             auto_tidy: self.auto_tidy,
-            lanes: self.lanes,
             workspaces: self.workspaces.clone(),
             hue: self.hue,
         }
@@ -919,7 +903,7 @@ impl RunKind {
 
     /// Your conversations with the employee (a thread you started, a reply in a thread, an answer that came
     /// back into one, and an older build's chat) run beside everything else. The rest is background work,
-    /// which an employee does one piece at a time.
+    /// which an employee does as many pieces of at once as the office's cap allows.
     pub fn is_conversation(&self) -> bool {
         matches!(self, RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. } | RunKind::Answered { chat: true, .. } | RunKind::Answered { thread: Some(_), .. })
     }
@@ -2148,7 +2132,6 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
-            lanes: 1,
             workspaces: vec![],
             hue: 0,
         };
@@ -2164,7 +2147,7 @@ mod tests {
     }
 
     #[test]
-    fn background_work_is_one_at_a_time_unless_you_allow_two() {
+    fn an_employee_saved_with_their_own_lanes_still_loads() {
         let mut employee = serde_json::to_value(Employee {
             id: "e1".into(),
             slug: "ada".into(),
@@ -2180,20 +2163,14 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: true,
-            lanes: 2,
             workspaces: vec![],
             hue: 0,
             chat_session: "chat-ada".into(),
             hired_at: Utc::now(),
         })
         .unwrap();
-        let two: Employee = serde_json::from_value(employee.clone()).unwrap();
-        assert_eq!(two.draft().into_employee(two.id.clone(), two.slug.clone(), two.chat_session.clone(), two.hired_at).lanes, 2, "a second lane survives a save");
-        employee.as_object_mut().unwrap().remove("lanes");
-        assert_eq!(serde_json::from_value::<Employee>(employee).unwrap().lanes, 1, "saved before lanes existed");
-        assert!(two.draft().validate().is_ok());
-        assert!(EmployeeDraft { lanes: 3, ..two.draft() }.validate().is_err());
-        assert!(EmployeeDraft { lanes: 0, ..two.draft() }.validate().is_err());
+        employee.as_object_mut().unwrap().insert("lanes".into(), 2.into());
+        assert_eq!(serde_json::from_value::<Employee>(employee).unwrap().name, "Ada", "older builds kept a lane count per employee");
     }
 
     #[test]

@@ -127,7 +127,7 @@ export function SettingsScreen() {
               <Row title="Pause all schedules" desc={s.paused ? "Nobody runs on a schedule until you resume. Manual runs and conversations still work." : "Stop every schedule at once, for a holiday or a noisy week."}>
                 <Switch checked={s.paused} onChange={(v) => void save({ ...s, paused: v }, v ? "Schedules paused" : "Schedules resumed")} label="Pause schedules" />
               </Row>
-              <Row title="Runs at the same time" desc="Extra work waits its turn. What you type to an employee is never held up; card answers and approvals wait like other work.">
+              <Row title="Runs at the same time" desc="Across the office, and for any one employee. Extra work waits its turn. What you type to an employee is never held up; card answers and approvals wait like other work.">
                 <div className="stepper">
                   <button className="btn btn-icon stepper-btn" aria-label="Fewer" disabled={s.maxConcurrentRuns <= 1} onClick={() => void save({ ...s, maxConcurrentRuns: s.maxConcurrentRuns - 1 })}>−</button>
                   <span className="mono num stepper-value">{s.maxConcurrentRuns}</span>

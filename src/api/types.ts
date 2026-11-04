@@ -18,7 +18,6 @@ export type Employee = {
   model: string | null; effort: Effort | null;
   browser: boolean;                         // may drive your Chrome (Claude in Chrome); off for new hires unless you turn it on
   autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on unless you turn it off
-  lanes: number;                            // background runs at once: 1, or 2; a colleague's answer or question never waits for one
   workspaces: string[]; hue: number;        // 0-359, avatar colour
   chatSession: string;                      // the session of the one long chat older builds kept; nothing reads it
   hiredAt: string;

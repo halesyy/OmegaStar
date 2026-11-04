@@ -44,7 +44,7 @@ export const TEMPLATES: Template[] = [
 const emptyDraft = (managerId: string | null): EmployeeDraft => ({
   name: "", title: "", description: "", objective: "", managerId,
   skills: { builtins: false, keys: [] }, clearance: "supervised", allowRules: [],
-  model: null, effort: null, browser: false, autoTidy: true, lanes: 1, workspaces: [], hue: 250,
+  model: null, effort: null, browser: false, autoTidy: true, workspaces: [], hue: 250,
 });
 
 function keysFor(t: Template, catalog: SkillInfo[] | undefined): string[] {

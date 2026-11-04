@@ -174,12 +174,13 @@ impl Office {
         let _ = fs::remove_file(self.0.data_dir.join(RUNNING_MARKER));
     }
 
-    /// Starts every queued run that is free to go, within the global cap. A conversation takes turns (one
-    /// run per session at a time), and an employee does one piece of background work at a time, or two if you
-    /// allow it (`Employee::lanes`); a colleague's answer or question runs beside it (`fast_lane`), and so do
-    /// their conversations with you, which never wait for the cap (`Run::uncapped`). A routine never runs twice at
-    /// once, though, whatever the lanes. Delegated runs whose parent is running bypass the cap too: the parent is
-    /// blocked on them, so capping them could deadlock. Nothing starts while the disk is nearly full.
+    /// Starts every queued run that is free to go, within the global cap (`cap`). A conversation takes turns (one
+    /// run per session at a time), and an employee does as many pieces of background work at once as the cap, each
+    /// in one of their lanes; a colleague's answer or question runs beside it (`fast_lane`), and so do their
+    /// conversations with you, which never wait for the cap (`Run::uncapped`). A routine never runs twice at once,
+    /// though, whatever the lanes. Delegated runs whose parent is running bypass the cap too, though not their
+    /// employee's lanes: the parent is blocked on them, so capping them could deadlock. Nothing starts while the
+    /// disk is nearly full.
     pub(super) fn pump(&self) {
         if self.0.closing.load(Ordering::SeqCst) || self.disk_full() {
             return;
@@ -221,9 +222,8 @@ impl Office {
         let db = self.db();
         // One unit: a run marked running here must be returned, or it would never start.
         let claimed = db.tx(|| {
-            let cap = db.settings()?.map(|s| s.max_concurrent_runs).unwrap_or(3).max(1) as usize;
+            let cap = cap(&db)?;
             let running = db.records_in_state(RunState::Running)?;
-            let lanes: HashMap<String, usize> = db.employees()?.into_iter().map(|e| (e.id, e.lanes.clamp(1, 2) as usize)).collect();
             let mut sessions: HashSet<String> = running.iter().map(|r| r.session.clone()).collect();
             // Background runs going per employee, each in one of their lanes.
             let mut working: HashMap<String, usize> = HashMap::new();
@@ -256,7 +256,7 @@ impl Office {
                     continue;
                 }
                 let lane = takes_a_lane(&r.kind);
-                let free = working.get(&r.employee_id).copied().unwrap_or(0) < lanes.get(&r.employee_id).copied().unwrap_or(1);
+                let free = working.get(&r.employee_id).copied().unwrap_or(0) < cap;
                 let routine = routine_of(&r.kind);
                 if sessions.contains(&session) || (lane && !free) || routine.as_ref().is_some_and(|s| routines.contains(s)) {
                     continue;
@@ -1284,7 +1284,12 @@ pub(super) fn fast_lane(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Answered { .. } | RunKind::Asked { task: false, .. })
 }
 
-/// Background work that takes one of its employee's lanes (`Employee::lanes`). Pure.
+/// Runs at the same time, which is also how many lanes each employee has for background work.
+pub(super) fn cap(db: &Store) -> Result<usize> {
+    Ok(db.settings()?.unwrap_or_default().max_concurrent_runs.max(1) as usize)
+}
+
+/// Background work that takes one of its employee's lanes (`cap`). Pure.
 pub(super) fn takes_a_lane(kind: &RunKind) -> bool {
     !kind.is_conversation() && !fast_lane(kind)
 }
@@ -1636,7 +1641,6 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
-            lanes: 1,
             workspaces: vec![],
             hue: 0,
             chat_session: "chat-ada".into(),
@@ -1918,31 +1922,30 @@ mod tests {
         RunKind::Scheduled { schedule_id: "s1".into(), slot: now() + chrono::Duration::minutes(slot), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false }
     }
 
+    /// Sets how many runs go at the same time.
+    fn set_cap(office: &Office, cap: u32) {
+        let mut s = office.settings().unwrap();
+        s.max_concurrent_runs = cap;
+        office.db().set_settings(&s).unwrap();
+    }
+
     #[tokio::test]
-    async fn a_colleagues_answer_or_question_never_waits_behind_background_work() {
+    async fn a_colleagues_question_never_waits_for_a_lane() {
         let dir = std::env::temp_dir().join(format!("omegastar-fast-lane-{}", uuid::Uuid::new_v4()));
         let (ada, bo) = (employee(Clearance::Supervised), Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), ..employee(Clearance::Supervised) });
         let office = claiming_office(&dir, &[&ada, &bo]).await;
-        let answer = |asked: &str| RunKind::Answered { asked_run_id: asked.into(), from: bo.id.clone(), task: false, chat: false, thread: None };
-        let asked = |task: bool| RunKind::Asked { parent_run_id: "r-bo".into(), asked_by: bo.id.clone(), task };
-        queue(&office, &ada, RunKind::Manual, None, RunState::Running);
+        set_cap(&office, 1);
+        // Bo waits on what they handed Ada, so it skips the cap, but it fills Ada's one lane.
+        let parent = queue(&office, &bo, RunKind::Manual, None, RunState::Running);
+        queue(&office, &ada, RunKind::Delegated { parent_run_id: parent.id.clone() }, None, RunState::Running);
+        let asked = |task: bool| RunKind::Asked { parent_run_id: parent.id.clone(), asked_by: bo.id.clone(), task };
         let sweep = queue(&office, &ada, scheduled(0), None, RunState::Queued);
-        let question = queue(&office, &ada, asked(false), None, RunState::Queued);
         let task = queue(&office, &ada, asked(true), None, RunState::Queued);
-        let first = queue(&office, &ada, answer("a1"), Some("s-ada"), RunState::Queued);
-        let second = queue(&office, &ada, answer("a2"), Some("s-ada"), RunState::Queued);
+        let question = queue(&office, &ada, asked(false), None, RunState::Queued);
         let (started, _) = office.claim_runnable().unwrap();
-        let ids: HashSet<&str> = started.iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(ids, HashSet::from([question.id.as_str(), first.id.as_str()]));
-        assert!(!ids.contains(sweep.id.as_str()) && !ids.contains(task.id.as_str()), "work and tasks wait for Ada's lane");
-        assert!(!ids.contains(second.id.as_str()), "never two runs in one session");
-
-        // The cap still holds them back.
-        let mut s = office.settings().unwrap();
-        s.max_concurrent_runs = 3;
-        office.db().set_settings(&s).unwrap();
-        queue(&office, &ada, answer("a3"), None, RunState::Queued);
-        assert!(office.claim_runnable().unwrap().0.is_empty(), "three runs are going");
+        assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![question.id.as_str()]);
+        assert_eq!(office.run(&sweep.id).unwrap().state, RunState::Queued, "the cap is full");
+        assert_eq!(office.run(&task.id).unwrap().state, RunState::Queued, "a task waits for Ada's lane");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1980,16 +1983,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_second_lane_runs_two_pieces_of_background_work() {
+    async fn an_employee_does_as_much_background_work_at_once_as_the_cap_allows() {
         let dir = std::env::temp_dir().join(format!("omegastar-lanes-{}", uuid::Uuid::new_v4()));
-        let ada = Employee { lanes: 2, ..employee(Clearance::Supervised) };
+        let ada = employee(Clearance::Supervised);
         let office = claiming_office(&dir, &[&ada]).await;
+        set_cap(&office, 3);
         queue(&office, &ada, RunKind::Manual, None, RunState::Running);
-        let next = queue(&office, &ada, scheduled(0), None, RunState::Queued);
-        let third = queue(&office, &ada, scheduled(1), None, RunState::Queued);
+        let work: Vec<Run> = (0..3).map(|_| queue(&office, &ada, RunKind::Manual, None, RunState::Queued)).collect();
         let (started, _) = office.claim_runnable().unwrap();
-        assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![next.id.as_str()]);
-        assert!(office.run(&third.id).unwrap().state == RunState::Queued, "both lanes are busy");
+        assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![work[0].id.as_str(), work[1].id.as_str()]);
+        assert_eq!(office.run(&work[2].id).unwrap().state, RunState::Queued, "three runs are going");
+        set_cap(&office, 4);
+        let (started, _) = office.claim_runnable().unwrap();
+        assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![work[2].id.as_str()], "a fourth lane opens with the cap");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1997,7 +2003,7 @@ mod tests {
     #[tokio::test]
     async fn a_routine_never_runs_twice_at_once_and_a_tidy_waits_for_quiet() {
         let dir = std::env::temp_dir().join(format!("omegastar-one-routine-{}", uuid::Uuid::new_v4()));
-        let ada = Employee { lanes: 2, ..employee(Clearance::Supervised) };
+        let ada = employee(Clearance::Supervised);
         let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), chat_session: "chat-bo".into(), ..employee(Clearance::Supervised) };
         let office = claiming_office(&dir, &[&ada, &bo]).await;
         let tidy = || RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
@@ -2011,7 +2017,7 @@ mod tests {
         let tidying = queue(&office, &bo, tidy(), None, RunState::Queued);
         let (started, _) = office.claim_runnable().unwrap();
         assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![other.id.as_str()], "{started:?}");
-        assert_eq!(office.run(&again.id).unwrap().state, RunState::Queued, "the second lane never runs the same routine twice at once");
+        assert_eq!(office.run(&again.id).unwrap().state, RunState::Queued, "another lane never runs the same routine twice at once");
         assert_eq!(office.run(&tidying.id).unwrap().state, RunState::Queued, "a tidy waits until nothing else of Bo's runs");
         drop(office);
         let _ = fs::remove_dir_all(&dir);

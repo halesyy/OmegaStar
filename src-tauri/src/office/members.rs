@@ -470,7 +470,6 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: true,
-            lanes: 1,
             workspaces: vec![],
             hue: 0,
             chat_session: format!("chat-{name}"),

@@ -1368,7 +1368,6 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
-            lanes: 1,
             workspaces: vec![format!("/office/employees/{id}")],
             hue: 0,
             chat_session: format!("chat-{name}"),
