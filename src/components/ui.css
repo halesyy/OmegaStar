@@ -121,7 +121,7 @@
 .pagecol { height: 100%; display: flex; flex-direction: column; }
 /* The header's controls end where the column does, so a wide window has no void between them. */
 .pagecol > .pagehead { width: min(820px, 100%); padding-right: 24px; }
-.pagecol-scroll { flex: 1; min-height: 0; overflow: auto; --band: 12px; --fade: 20px; }
+.pagecol-scroll { flex: 1; min-height: 0; overflow: auto; --band: 12px; --fade: 20px; --fade-top: 12px; }
 .pagecol-inner { width: min(820px, 100%); padding: 4px 24px 64px; display: flex; flex-direction: column; gap: 36px; }
 
 .psec { display: flex; flex-direction: column; gap: 10px; }

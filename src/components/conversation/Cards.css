@@ -60,18 +60,18 @@
 :is(.cv-card, .cv-slot) .card-proposal-head { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
 :is(.cv-card, .cv-slot) .card-proposal-head b { font-weight: 650; color: var(--ink-2); }
 :is(.cv-card, .cv-slot) .card-proposal-line { color: var(--ink); }
-:is(.cv-card, .cv-slot) .card-file { margin: 0; border: 0; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--surface); overflow: hidden; }
-:is(.cv-card, .cv-slot) .card-file-head { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 14px; border-bottom: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }
-:is(.cv-card, .cv-slot) .card-file-head > svg { flex: none; }
-:is(.cv-card, .cv-slot) .card-file-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); }
-:is(.cv-card, .cv-slot) .card-file-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink-2); }
-:is(.cv-card, .cv-slot) .card-file-body { padding: 14px 16px; }
-:is(.cv-card, .cv-slot) .card-file-body .md { font-size: 14px; }
-:is(.cv-card, .cv-slot) .card-file-clip { max-height: 260px; overflow: hidden; }
-:is(.cv-card, .cv-slot) .card-file-fade { -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
-:is(.cv-card, .cv-slot) .card-file-text { margin: 0; font: inherit; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-:is(.cv-card, .cv-slot) .card-file-note { margin: 0; padding: 12px 16px; font-size: var(--t-sm); color: var(--muted); }
-:is(.cv-card, .cv-slot) .card-file-more { margin: 0 8px 8px; }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file { margin: 0; border: 0; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--surface); overflow: hidden; }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-head { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 14px; border-bottom: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-head > svg { flex: none; }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink-2); }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-body { padding: 14px 16px; }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-body .md { font-size: 14px; }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-clip { max-height: 260px; overflow: hidden; }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-fade { -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-text { margin: 0; font: inherit; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-note { margin: 0; padding: 12px 16px; font-size: var(--t-sm); color: var(--muted); }
+:is(.cv-card, .cv-slot, .cv-file-above) .card-file-more { margin: 0 8px 8px; }
 
 /* A list to approve item by item: the employee's picks ticked, the text that would go out under each. */
 :is(.cv-card, .cv-slot) .card-items { margin: 0; border: 0; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--surface); overflow: hidden; }
@@ -121,7 +121,6 @@
 
 /* The draft a card is about sits above its lead, so each question sits directly over its options. */
 .cv-file-above { margin-bottom: 14px; }
-.cv-file-above .card-file { margin: 0; border: 0; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--surface); overflow: hidden; }
 
 /* Answered: the card stays the record. The option you chose is filled and ticked; the others stay, quiet. */
 :is(.cv-card, .cv-slot) .card-record { gap: 6px; }

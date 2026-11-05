@@ -15,6 +15,8 @@ import { Visual } from "../components/Visual";
 import { TidyProposal } from "../components/TidyProposal";
 import { BlockedCard } from "../components/BlockedCard";
 import { RetryButton } from "../components/conversation/ThreadView";
+import { LiveStrip, WorkSheet } from "../components/conversation/LiveWork";
+import { workOf } from "../components/conversation/work";
 import { ProposedRow, RequestedRow, SkillChip, ToolRows, toItems } from "../components/Transcript";
 import { Avatar, ConfirmButton, Roll, Skeleton, SkillsGrew } from "../components/ui";
 import { ErrorCard } from "./ActivityParts";
@@ -112,6 +114,10 @@ export function RunView({ runId }: { runId: string }) {
   // and what came of it opens its room at the end.
   const [opened, setOpened] = useState<{ id: string; done: boolean } | null>(null);
   if (run && opened?.id !== run.id) setOpened({ id: run.id, done: !live });
+  // Without the work column (a narrow window) the live work is a strip on the composer, as in a conversation; Show opens
+  // the column as a sheet over the talk.
+  const [sheet, setSheet] = useState(false);
+  const liveCards = useMemo(() => (detail ? workOf([detail], employees).cards : []), [detail, employees]);
 
   // The area's one error card, in the place it takes on every page: under Back, on the title's left edge.
   if (error) {
@@ -253,9 +259,20 @@ export function RunView({ runId }: { runId: string }) {
               {wide ? null : <div className="rv-work-inline">{work}</div>}
             </div>
           </div>
+          {!wide && liveCards.length ? (
+            <div className="rv-strip"><LiveStrip cards={liveCards} open={sheet} onShow={() => setSheet(true)} max={2} /></div>
+          ) : null}
           {e ? <div className="rv-composer"><SteerBox run={run} e={e} /></div> : null}
         </div>
         {wide ? <aside className="rv-work" aria-label="The run's work">{work}</aside> : null}
+        {!wide ? (
+          <WorkSheet open={sheet && liveCards.length > 0} onClose={() => setSheet(false)}>
+            <aside className="rv-work rv-work-sheet" aria-label="The run's work">
+              <div className="rv-sheet-head"><span>Live work</span><button type="button" className="btn btn-ghost btn-icon btn-sm" aria-label="Close live work" data-tip="Close (Esc)" onClick={() => setSheet(false)}><Icon name="close" size={15} /></button></div>
+              {work}
+            </aside>
+          </WorkSheet>
+        ) : null}
       </div>
     </div>
   );

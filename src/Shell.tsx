@@ -1,5 +1,5 @@
 // The app once you have a company: sidebar, the current page, and the sheets and palette any page can open.
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import type { HireProposal } from "./api/types";
 import { Icon, LogoMark, type IconName } from "./components/Icon";
 import { CommandPalette } from "./components/CommandPalette";
@@ -77,6 +77,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
   const paletteShown = usePresence(palette, PALETTE_LEAVE_MS);
   const sideRef = useScrollFade<HTMLElement>();
   const navRef = useScrollFade<HTMLElement>();
+  const tight = useTight(navRef);
   const [paletteOpens, setPaletteOpens] = useState({ open: palette, n: 0 });
   if (paletteOpens.open !== palette) setPaletteOpens({ open: palette, n: paletteOpens.n + (palette ? 1 : 0) });
 
@@ -153,7 +154,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
     <ShellCtx.Provider value={api}>
       <div className={`shell ${collapsed ? "shell-collapsed" : ""}`}>
         {macChrome ? <div className="side-chrome" {...dragRegion} /> : null}
-        <aside ref={sideRef} className={`side scroll-fade ${arrive ? "side-arriving" : ""}`} aria-label="Sidebar">
+        <aside ref={sideRef} className={`side scroll-fade ${arrive ? "side-arriving" : ""} ${tight ? "side-tight" : ""}`} aria-label="Sidebar">
           <div className="side-top">
             <SideBrand />
             <button className="side-collapse" onClick={toggleCollapsed} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} data-tip={collapsed ? "Expand" : undefined}>
@@ -217,6 +218,31 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
       {paletteShown ? <CommandPalette key={paletteOpens.n} leaving={!palette} onClose={() => setPalette(false)} api={api} /> : null}
     </ShellCtx.Provider>
   );
+}
+
+/** Whether the usage card should fold to its nearer limit, so the state rows above fit whole: true while the list would
+ *  overflow without the fold. Measured against the room the fold gives (one usage row), so it never flips back and
+ *  forth. */
+function useTight(nav: React.RefObject<HTMLElement | null>): boolean {
+  const [tight, setTight] = useState(false);
+  useLayoutEffect(() => {
+    const el = nav.current;
+    if (!el) return;
+    const check = () => {
+      const row = document.querySelector<HTMLElement>(".usage-row:not(.usage-near)");
+      const gives = tight ? 24 : (row?.offsetHeight ?? 0) + 2;
+      const over = el.scrollHeight - el.clientHeight;
+      setTight(tight ? over + gives > 0 : over > 0 && gives > 0);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    for (const c of el.children) ro.observe(c);
+    const mo = new MutationObserver(check);
+    mo.observe(el, { childList: true, subtree: true });
+    return () => { ro.disconnect(); mo.disconnect(); };
+  }, [nav, tight]);
+  return tight;
 }
 
 /** The count on the app's icon in the Dock (macOS), cleared at 0. Elsewhere it may not be supported, which is fine. */

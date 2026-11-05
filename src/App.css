@@ -146,6 +146,25 @@
 .shell-collapsed .side-item-on .side-badge { box-shadow: 0 0 0 2px var(--side-on); }
 .shell-collapsed .side-you { justify-content: center; padding: 10px 0 0; }
 
+/* ------------------------------------------------ a short window (640 to 760 px tall): the state rows get the height.
+   Every gap in the sidebar tightens a step so the list of who is working or needs you fits whole, never under the
+   fade; if it still doesn't, the usage card folds to its nearer limit (side-tight, set by the Shell). */
+@media (max-height: 760px) {
+  .side { padding-top: calc(10px + var(--chrome-top)); padding-bottom: 8px; }
+  .side-search { margin: 10px 0 6px; }
+  .side-nav { gap: 1px; padding-bottom: 4px; }
+  .side-label { padding: 10px 10px 4px; }
+  .side-team { gap: 1px; }
+  .side-member { height: 30px; }
+  .side-bottom > .side-item { height: 30px; }
+  .side-you { margin-top: 2px; padding-top: 7px; }
+  .shell-collapsed .side-top { gap: 6px; }
+  .shell-collapsed .side-search { height: 30px; margin: 6px 0 4px; }
+  .shell-collapsed .side-item { height: 30px; }
+  .shell-collapsed .side-team { margin-top: 4px; padding-top: 6px; }
+  .shell-collapsed .side-you { padding-top: 6px; }
+}
+
 /* ------------------------------------------------ the hand-off from onboarding: the band is already there with your row
    in it; the sidebar's parts drop into place in reading order, one --stagger apart. */
 .side-arriving .side-search,

@@ -226,6 +226,11 @@ button.d-also-row:focus-visible::before { box-shadow: var(--focus); }
   /* The items card's count gives way first: its button already says how many. */
   .d-slot .card-items-count { display: none; }
 }
+/* Where the foot bar is too narrow for every answer on one line, "Reply in words" gives way to its icon; the words
+   stay its name and its tooltip. */
+@container detail (max-width: 720px) {
+  .d-slot .tip-words { display: none; }
+}
 /* The slot counts as holding something only for what shows there (the card's own Later is the bar's Later). */
 .d-foot:not(:has(.d-acts > *, .d-slot > * > :not([data-card-later]), .d-next)) { display: none; }
 /* 5. A thread's reply box at the widths the Inbox gives it: its hint goes first, so Send keeps its corner. The

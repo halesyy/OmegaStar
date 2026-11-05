@@ -7,7 +7,7 @@
 .usage-refreshing .usage-act svg { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .usage-row {
-  display: grid; grid-template-columns: 44px minmax(0, 1fr) 34px; align-items: center; column-gap: 10px; row-gap: 2px; width: 100%;
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) minmax(34px, auto); align-items: center; column-gap: 10px; row-gap: 2px; width: 100%;
   min-height: 24px; padding: 3px 10px; border-radius: var(--r-input); font-size: 11.5px; color: var(--side-muted); text-align: left;
   transition: background var(--d-ui) var(--ease);
 }
@@ -41,3 +41,25 @@
   border-radius: var(--r-input); transition: background var(--d-ui) var(--ease);
 }
 .shell-collapsed .usage-mini:hover { background: color-mix(in oklab, var(--side-fill) 70%, var(--side)); }
+
+@media (max-height: 760px) {
+  .usage { margin-top: 0; padding: 2px 0 4px; }
+  .usage-row { min-height: 22px; padding-top: 2px; padding-bottom: 2px; }
+  .shell-collapsed .usage-mini { height: 30px; margin-top: 4px; }
+}
+/* When the state rows still need the room, only the limit you will reach first stays; both are in its tooltip. */
+.side-tight .usage-row:not(.usage-near) { display: none; }
+
+/* At the limit (95% and over) the reading says so in the sidebar's own "needs you": the percent on the coral fill that
+   carries white text (4.8:1; coral words would vanish on ultramarine), a coral meter, and the hold note in white after a
+   still coral dot. */
+.usage-err .usage-bar span, .usage-err .usage-mini-bar span { background: var(--err); }
+.usage-row.usage-err .mono, .usage-err .usage-mini-n {
+  min-width: 34px; height: 16px; padding: 0 5px; border-radius: 8px; background: var(--err-fill); color: #ffffff;
+  font: 700 11px/16px var(--font-ui); font-variant-numeric: tabular-nums; text-align: center; justify-self: end;
+}
+.usage-err .usage-mini-n { min-width: 0; }
+.usage-note-warn { color: var(--side-ink); font-weight: 600; }
+.usage-note-warn::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--err); box-shadow: 0 0 0 1.5px var(--side); vertical-align: 1px; }
+.usage-note-warn:not(:has(.btn)) { display: block; }
+.usage-note-warn:has(.btn)::before { display: none; }

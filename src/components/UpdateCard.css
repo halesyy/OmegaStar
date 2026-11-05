@@ -13,7 +13,7 @@
 .update-btn-slot > span { grid-area: 1 / 1; text-align: center; visibility: hidden; }
 .update-btn-slot > span:last-child { visibility: visible; }
 /* While it asks, the row's own Restart steps aside so the confirm's is the only one. */
-.update-asking .update-row .update-btn { visibility: hidden; }
+.update-asking .update-row .update-btn, .update-asking .update-row .update-btn-slot > span { visibility: hidden; }
 .update-confirm { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--side-line); }
 .update-confirm p { font-size: 11.5px; line-height: 1.35; color: var(--side-fill-attn); }
 .update-confirm-acts { display: flex; justify-content: flex-end; gap: 4px; margin-top: 8px; }
@@ -33,3 +33,8 @@
 .shell-collapsed .update-mini-armed { background: var(--side-fill); }
 .shell-collapsed .update-mini-armed::before { background: var(--side-attn); }
 .shell-collapsed .update-mini:disabled { opacity: 0.55; }
+
+@media (max-height: 760px) {
+  .update { margin: 6px 0 2px; padding: 6px 6px 6px 12px; }
+  .shell-collapsed .update-mini { height: 30px; margin: 6px 0 2px; }
+}

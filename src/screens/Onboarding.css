@@ -43,16 +43,11 @@
 .ob-top > .pagehead { padding-right: 24px; }
 .ob-lead { margin: -8px 0 0; padding: 0 24px 16px; color: var(--muted); line-height: var(--lh-body); text-wrap: balance; }
 /* The form takes only the height it needs, so the foot follows the last section; in a short window it scrolls under
-   the header and above the foot, which stays put. The bottom fade is only as tall as the gap between rows; the top one
-   keeps the shared 24px, so the sliver of a line scrolled under the header all but disappears. A field is scrolled only
+   the header and above the foot, which stays put. The bottom fade is only as tall as the gap between rows; at the top a
+   solid band covers a line passing under the header whole, and the fade starts below it. A field is scrolled only
    when it would sit under a fade, never when it is already in view. */
 .ob-scroll { flex: 0 1 auto; scroll-padding-block: 20px; }
-.ob-scroll.scroll-fade { --fade: 16px; --fade-top: 24px; }
-.ob-scroll.scroll-fade[data-fade="top"] { -webkit-mask-image: linear-gradient(transparent, #000 var(--fade-top)); mask-image: linear-gradient(transparent, #000 var(--fade-top)); }
-.ob-scroll.scroll-fade[data-fade="both"] {
-  -webkit-mask-image: linear-gradient(transparent, #000 var(--fade-top), #000 calc(100% - var(--fade)), transparent);
-  mask-image: linear-gradient(transparent, #000 var(--fade-top), #000 calc(100% - var(--fade)), transparent);
-}
+.ob-scroll.scroll-fade { --fade: 16px; --band: 12px; --fade-top: 8px; }
 .ob-stage { width: min(var(--block), 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) var(--aside); column-gap: var(--aside-gap); align-items: start; }
 .ob-inner.pagecol-inner { width: 100%; padding-top: 0; padding-bottom: 20px; gap: 32px; }
 

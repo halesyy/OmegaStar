@@ -299,8 +299,8 @@ export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot
   });
   const wordsButton = (label: string, primary = false) => (
     <button type="button" className={`btn btn-sm ${primary ? "btn-primary" : "btn-ghost"}`} aria-pressed={aimer ? aimed : undefined} aria-expanded={aimer ? undefined : words} disabled={busy}
-      onClick={() => (aimer ? aim() : setWords((w) => !w))}>
-      <Icon name="reply" size={14} /> {label}
+      aria-label={label} data-tip={label} onClick={() => (aimer ? aim() : setWords((w) => !w))}>
+      <Icon name="reply" size={14} /> <span className="tip-words">{label}</span>
     </button>
   );
   const inWords = ask.type === "question" || ask.type === "news" ? null : wordsButton("Reply in words");

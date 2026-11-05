@@ -254,7 +254,9 @@ export function TipLayer() {
     const show = (el: HTMLElement, now: boolean) => {
       window.clearTimeout(timer);
       current = el;
-      const go = () => { if (current === el && el.dataset.tip) setTip({ el, text: el.dataset.tip, key: el.dataset.tipKey }); };
+      // A `.tip-words` inside says the same as the tip: the tip shows only while a narrow layout hides those words.
+      const said = (el.querySelector<HTMLElement>(":scope > .tip-words")?.offsetWidth ?? 0) > 0;
+      const go = () => { if (current === el && el.dataset.tip && !said) setTip({ el, text: el.dataset.tip, key: el.dataset.tipKey }); };
       if (now) go(); else timer = window.setTimeout(go, TIP_DELAY_MS);
     };
     const hide = () => { window.clearTimeout(timer); current = null; setTip(null); };

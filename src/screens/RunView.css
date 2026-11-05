@@ -69,6 +69,14 @@ button.rv-who:hover { color: var(--ink); text-decoration: underline; text-underl
   min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 24px;
   background: var(--raised); border-left: 1px solid var(--line);
 }
+/* A narrow window: the live work's strip sits on the composer's top edge, the column opens as a sheet over the talk. */
+.rv-body { position: relative; }
+.rv-strip { flex: none; width: 100%; max-width: 776px; margin: 0 auto; padding: 0 28px; }
+.rv-strip .live-strip { border-radius: var(--r-card) var(--r-card) 0 0; box-shadow: inset 0 0 0 1px var(--line-strong); border-bottom: 0; }
+.rv-strip + .rv-composer { padding-top: 0; }
+.rv-strip + .rv-composer .composer { border-top-left-radius: 0; border-top-right-radius: 0; }
+.rv-work-sheet { height: 100%; width: 100%; border-left: 0; }
+.rv-sheet-head { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 0 0 6px; font-size: 13px; font-weight: 700; }
 .rv-work-inline { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 18px; border-top: 1px solid var(--line); }
 .rv-work-sec { display: flex; flex-direction: column; gap: 6px; }
 .rv-work-title { display: flex; align-items: center; gap: 8px; padding: 12px 6px 2px; font-size: var(--t-sm); font-weight: 700; color: var(--muted); }

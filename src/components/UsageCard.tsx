@@ -15,14 +15,16 @@ const said = (w: UsageWindow | null, known: boolean) => (w ? `${pct(w)} used` : 
 /** One window: label, meter, percent, each row itself the Refresh: under the pointer its label says so. The tooltip
  *  names the card and holds the reset time and when it was checked; the reset time is on screen once the window runs
  *  high. */
-function Window({ label, w, now, known, checked, refreshing, refresh }: {
+function Window({ label, w, now, known, checked, refreshing, refresh, near = false, other = null }: {
   label: string; w: UsageWindow | null; now: number; known: boolean; checked: string; refreshing: boolean; refresh: () => void;
+  /** The limit you will reach first: on a short window it may be the only row, so its tooltip names the other too. */
+  near?: boolean; other?: string | null;
 }) {
   const resets = w ? resetsLabel(w, new Date(now)) : "";
   const lv = level(w);
-  const tip = `Claude usage, ${label}: ${said(w, known)}${w && resets ? ` · ${resets}` : ""} · ${checked}`;
+  const tip = `Claude usage, ${label}: ${said(w, known)}${w && resets ? ` · ${resets}` : ""}${near && other ? ` · ${other}` : ""} · ${checked}`;
   return (
-    <button className={`usage-row ${lv}`} onClick={refresh} disabled={refreshing} data-tip={tip} aria-label={`${tip}. Refresh`}>
+    <button className={`usage-row ${lv} ${near ? "usage-near" : ""}`} onClick={refresh} disabled={refreshing} data-tip={tip} aria-label={`${tip}. Refresh`}>
       <span className="usage-label">
         <span className="usage-name">{label}</span>
         <span className="usage-act" aria-hidden>{refreshing ? <Icon name="refresh" size={12} /> : "Refresh"}</span>
@@ -86,8 +88,8 @@ export function UsageCard() {
   return (
     <>
       <div className={`usage ${refreshing ? "usage-refreshing" : ""}`} aria-label="Claude usage limits">
-        <Window label="5-hour" w={five} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} />
-        <Window label="7-day" w={week} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} />
+        <Window label="5-hour" w={five} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} near={top === five} other={`7-day ${said(week, known)}`} />
+        <Window label="7-day" w={week} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} near={top === week && top !== five} other={`5-hour ${said(five, known)}`} />
         {held ? <div className="usage-note usage-note-warn">Work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}, when the limit resets.</div> : null}
         {usage?.accountIssue ? <AccountIssue message={usage.accountIssue.message} signedInAs={usage.accountIssue.signedInAs} /> : null}
         {usage?.proxyIssue ? <div className="usage-note usage-note-warn">{usage.proxyIssue}</div> : null}

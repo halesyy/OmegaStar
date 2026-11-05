@@ -47,6 +47,7 @@
   --sel: #0a0c12;           /* a selected row or option, inverted; also tooltips and toasts */
   --sel-ink: #ffffff;
   --sel-muted: #b9bfcc;     /* second line on a selected row, 10:1 */
+  --sel-ring: #0a0c12;      /* the edge of a chosen chip: nothing to see in light */
   --sel-live: #9ab8ff;      /* "Working" on a selected row, 9.9:1 */
   --sel-attn: #ff9a80;      /* "Needs your OK" on a selected row, 9.5:1 */
   --me: #0a0c12;            /* your own message */
@@ -166,6 +167,7 @@
   --sel: #262c39;           /* selection is a raised step in dark, not an inversion */
   --sel-ink: #f3f5f9;
   --sel-muted: #a3aab8;
+  --sel-ring: #7f8797;      /* in dark a chosen chip keeps a light edge, so it stands out from the rest */
   --sel-live: #9ab8ff;
   --sel-attn: #ff9a80;
   --me: #232835;
@@ -228,6 +230,7 @@
     --sel: #262c39;
     --sel-ink: #f3f5f9;
     --sel-muted: #a3aab8;
+    --sel-ring: #7f8797;
     --sel-live: #9ab8ff;
     --sel-attn: #ff9a80;
     --me: #232835;
