@@ -204,7 +204,7 @@ function employee(id: string, name: string, title: string, o: Partial<Employee>)
   return {
     id, slug: name.toLowerCase().replace(/[^a-z]+/g, "-"), name, title, description: "", objective: "", managerId: null,
     skills: { builtins: true, keys: [] }, clearance: "supervised", allowRules: [], model: null, effort: null, browser: false,
-    autoTidy: true, lanes: 1, workspaces: [], hue: 210, chatSession: "", hiredAt: onDay(-40, 10), ...o,
+    autoTidy: true, workspaces: [], hue: 210, chatSession: "", hiredAt: onDay(-40, 10), ...o,
   };
 }
 
@@ -258,7 +258,7 @@ export function fullOffice(): World {
     employee("juniper", "Juniper Hale", "Chief of Staff", {
       description: "Keeps the week on track: plans, follow-ups and the Monday report.",
       objective: "Make sure nothing important slips: every open loop has an owner, a date and a next step.",
-      skills: { builtins: true, keys: ["user:meeting-notes", "user:brand-voice"] }, lanes: 2, hue: 212,
+      skills: { builtins: true, keys: ["user:meeting-notes", "user:brand-voice"] }, hue: 212,
       allowRules: ["Read(~/Fernbrook/**)", "Bash(git log:*)"], workspaces: ["~/Fernbrook/ops"], hiredAt: onDay(-58, 10),
     }),
     employee("otto", "Otto Lindqvist", "Cloud Engineer", {
@@ -282,7 +282,7 @@ export function fullOffice(): World {
     employee("theo", "Theo Marchetti", "Growth Marketer", {
       description: "Writes the newsletter, runs the blog and watches trial signups.",
       objective: "Grow trial signups from studios without discounting.",
-      skills: { builtins: true, keys: ["user:brand-voice", "plugin:chart-kit"] }, hue: 46, lanes: 2,
+      skills: { builtins: true, keys: ["user:brand-voice", "plugin:chart-kit"] }, hue: 46,
       workspaces: ["~/Fernbrook/marketing"], hiredAt: onDay(-38, 9),
     }),
     employee("ines", "Ines Duarte", "Bookkeeper", {
@@ -601,7 +601,7 @@ export function fullOffice(): World {
     description: "Writes the blog, help articles and the newsletter's longer pieces.",
     objective: "Publish one useful post a week that studios find through search.",
     managerId: "theo", skills: { builtins: true, keys: ["user:brand-voice"] }, clearance: "supervised" as const, allowRules: [],
-    model: null, effort: null, browser: false, autoTidy: true, lanes: 1, workspaces: ["~/Fernbrook/marketing/blog"], hue: 24,
+    model: null, effort: null, browser: false, autoTidy: true, workspaces: ["~/Fernbrook/marketing/blog"], hue: 24,
   };
   w.proposals = [
     {

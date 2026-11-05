@@ -486,13 +486,14 @@ function Origin({ parentId, employees, people }: { parentId: string; employees: 
 function Waiting({ run, e, employees, people }: { run: Run; e: EmployeeView | undefined; employees: EmployeeView[]; people: PersonView[] }) {
   const { usage } = useUsage();
   const now = useNow(60_000);
+  const lanes = useQuery(() => call("settings"), []).data?.maxConcurrentRuns ?? 1; // also each employee's limit
   const name = e ? firstName(e.name) : "They";
   const others = (e?.live ?? []).filter((r) => r.id !== run.id);
   const working = others.filter((r) => r.state === "running");
   const ahead = others.filter((r) => r.state === "queued" && r.createdAt < run.createdAt);
   const held = usage?.heldUntil && Date.parse(usage.heldUntil) > now ? usage.heldUntil : null;
   const why = held ? `${heldLabel(held, new Date(now))}.`
-    : working.length >= (e?.lanes ?? 1) ? `${name} starts this once ${working.length === 1 ? "the run below" : "one of the runs below"} finishes.`
+    : working.length >= lanes ? `${name} starts this once ${working.length === 1 ? "the run below" : "one of the runs below"} finishes.`
     : ahead.length ? `${name} starts this after ${ahead.length === 1 ? "the run" : `the ${ahead.length} runs`} ahead of it.`
     : `${name} starts this as soon as they're free. Anything you add below goes into the instruction before they start.`;
   const line = [...working, ...ahead];

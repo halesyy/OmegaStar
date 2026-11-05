@@ -489,7 +489,7 @@ export function SettingsScreen() {
               <Row title="Pause all schedules" desc={<Swap on={String(s.paused)}>{s.paused ? "Nobody runs on a schedule until you resume. Manual runs and conversations still work." : "Stop every schedule at once, for a holiday or a noisy week."}</Swap>}>
                 <Switch checked={s.paused} onChange={(v) => change("Pause all schedules", (x) => ({ ...x, paused: v }))} label="Pause schedules" />
               </Row>
-              <Row title="Runs at the same time" desc="Extra work waits its turn. What you type to an employee is never held up; card answers and approvals wait like other work.">
+              <Row title="Runs at the same time" desc="Across the office, and for any one employee. Extra work waits its turn. What you type to an employee is never held up; card answers and approvals wait like other work.">
                 <Stepper
                   label="Runs at the same time" value={s.maxConcurrentRuns} min={1} max={16} less="Fewer runs at the same time" more="More runs at the same time"
                   onChange={(v) => change("Runs at the same time", (x) => ({ ...x, maxConcurrentRuns: v }))}

@@ -920,7 +920,6 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
                     effort: None,
                     browser: false,
                     auto_tidy: true,
-                    lanes: 1,
                     workspaces: vec![],
                     hue,
                 },
@@ -1171,12 +1170,12 @@ fn guard(db: &Store, run: &mut Run, chain: String, from: &Employee, to: &Employe
 
 /// How many runs are ahead of `of` while its employee is busy: their background work running, and queued before
 /// it and due. 0 when it starts without waiting: a question or an answer, which runs beside other work, or work
-/// that finds one of its employee's lanes free.
+/// that finds one of its employee's lanes free (`runs::cap`).
 fn queue_ahead(db: &Store, of: &Run, at: Ts) -> Result<usize> {
     if !runs::takes_a_lane(&of.kind) {
         return Ok(0);
     }
-    let lanes = db.employee(&of.employee_id)?.map_or(1, |e| e.lanes.max(1) as usize);
+    let lanes = runs::cap(db)?;
     let work: Vec<Run> = db.active_runs_of(&of.employee_id)?.into_iter().filter(|r| r.id != of.id && runs::takes_a_lane(&r.kind)).collect();
     let ahead = work.iter().filter(|r| r.state == RunState::Running || (r.created_at <= of.created_at && r.not_before.is_none_or(|t| t <= at))).count();
     Ok(if ahead < lanes { 0 } else { ahead })
@@ -1638,7 +1637,6 @@ mod tests {
             effort: None,
             browser: false,
             auto_tidy: false,
-            lanes: 1,
             workspaces: vec![],
             hue: 0,
             chat_session: format!("chat-{name}"),
@@ -2141,6 +2139,8 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", None);
+        let cap = |n: u32| o.db.set_settings(&AppSettings { max_concurrent_runs: n, ..AppSettings::default() }).unwrap();
+        cap(1);
         let asker = run(&o.db, &ada, RunKind::Manual, "Ask Bo.", RunState::Succeeded, 30, None);
         run(&o.db, &bo, RunKind::Manual, "A long build.", RunState::Running, 20, None);
         let earlier = run(&o.db, &bo, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: true }, "Fix it.", RunState::Queued, 10, None);
@@ -2149,8 +2149,8 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
         assert_eq!(queue_ahead(&o.db, &task, now()).unwrap(), 2, "the build, and the task queued before it");
         assert_eq!(queue_ahead(&o.db, &earlier, now()).unwrap(), 1);
         assert_eq!(queue_ahead(&o.db, &question, now()).unwrap(), 0, "a question runs beside background work");
-        o.db.save_employee(&Employee { lanes: 2, ..bo }).unwrap();
-        assert_eq!(queue_ahead(&o.db, &earlier, now()).unwrap(), 0, "a second lane is free for it");
+        cap(2);
+        assert_eq!(queue_ahead(&o.db, &earlier, now()).unwrap(), 0, "a second lane opens with the cap");
         assert_eq!(queue_ahead(&o.db, &task, now()).unwrap(), 2);
     }
 

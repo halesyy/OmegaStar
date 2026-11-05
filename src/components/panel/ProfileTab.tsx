@@ -97,13 +97,6 @@ export function ProfileTab({ e, onGone }: { e: EmployeeView; onGone: () => void 
             </form>
           </div>
         </Section>
-        <Section title="Background work" className="tab-form">
-          <div className="seg" role="group" aria-label="Background work">
-            <button type="button" aria-pressed={d.lanes === 1} onClick={() => set("lanes", 1)}>One at a time</button>
-            <button type="button" aria-pressed={d.lanes === 2} onClick={() => set("lanes", 2)}>Two at a time</button>
-          </div>
-          <span className="field-help">Routines, checks and work handed to {name}. A colleague's answer or question never waits behind it. Two at a time gets through more and uses your limits faster.</span>
-        </Section>
         <div className="stack" style={{ gap: 18, marginTop: 24 }}>
           <AdvancedFields value={{ model: d.model, effort: d.effort, browser: d.browser, autoTidy: d.autoTidy, workspaces: d.workspaces }} onChange={(a) => setD((x) => ({ ...x, ...a }))} />
           <div className="danger">

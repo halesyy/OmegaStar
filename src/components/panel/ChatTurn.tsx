@@ -2,7 +2,7 @@ import { Fragment, useMemo, useRef, type ReactNode } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, Run } from "../../api/types";
 import { firstName, heldLabel, threadTitle, timeOrDay, dateLong } from "../../lib/format";
-import { useNow, useOrg, useProposals, useUsage } from "../../lib/hooks";
+import { useNow, useOrg, useProposals, useQuery, useUsage } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import type { LiveRun } from "../../lib/runs";
 import { navigate, openMember, openRun } from "../../lib/router";
@@ -171,13 +171,14 @@ export function Waiting({ run, e }: { run: Run; e: EmployeeView }) {
   const { usage } = useUsage();
   const { snap } = useOrg();
   const now = useNow(60_000);
+  const lanes = useQuery(() => call("settings"), []).data?.maxConcurrentRuns ?? 1; // also each employee's limit
   const name = firstName(e.name);
   const others = (e.live ?? []).filter((r) => r.id !== run.id);
   const working = others.filter((r) => r.state === "running");
   const ahead = others.filter((r) => r.state === "queued" && r.createdAt < run.createdAt);
   const held = usage?.heldUntil && Date.parse(usage.heldUntil) > now ? usage.heldUntil : null;
   const why = held ? `${heldLabel(held, new Date(now))}.`
-    : working.length >= (e.lanes ?? 1) ? `${name} starts this once ${working.length === 1 ? "the run below" : "one of the runs below"} finishes.`
+    : working.length >= lanes ? `${name} starts this once ${working.length === 1 ? "the run below" : "one of the runs below"} finishes.`
     : ahead.length ? `${name} starts this after ${ahead.length === 1 ? "the run" : `the ${ahead.length} runs`} ahead of it.`
     : `${name} starts this as soon as there's room.`;
   const line = [...working, ...ahead];
