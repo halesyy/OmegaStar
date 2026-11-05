@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { call, errorMessage } from "../api/client";
 import type { Check, EmployeeView, HealthFinding, HealthKind, SkillHealth as Health } from "../api/types";
 import { firstName, relTime } from "../lib/format";
@@ -32,16 +32,34 @@ function Finding({ f, onOpenFile }: { f: HealthFinding; onOpenFile: (skill: stri
   const where = f.skill ? `${f.skill}${f.file && f.file !== "SKILL.md" ? ` / ${f.file}` : ""}` : f.file;
   return (
     <li className="hf-row">
-      <span className={`hf-kind ${BROKEN.includes(f.kind) ? "hf-kind-warn" : ""}`}>{LABEL[f.kind]}</span>
       <div className="hf-body">
         {f.skill ? (
-          <button className="hf-where mono linkish" onClick={() => onOpenFile(f.skill!, f.file ?? "SKILL.md")}>{where}</button>
+          <button className="hf-where mono" onClick={() => onOpenFile(f.skill!, f.file ?? "SKILL.md")}>{where}</button>
         ) : where ? (
           <span className="hf-where mono">{where}</span>
         ) : null}
         <span className="hf-detail">{f.detail}</span>
       </div>
+      <span className={`tag hf-kind ${BROKEN.includes(f.kind) ? "tag-warn" : ""}`}>{LABEL[f.kind]}</span>
     </li>
+  );
+}
+
+/** A list that folds under its one-line summary and opens its own space, so what is below moves with it. It starts open
+ *  when something in it is overdue or broken; after that it is yours to open and close. */
+function Fold({ summary, startOpen, children }: { summary: ReactNode; startOpen: boolean; children: ReactNode }) {
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const open = chosen ?? startOpen;
+  return (
+    <div className="upkeep-fold">
+      <button type="button" className="upkeep-summary" aria-expanded={open} onClick={() => setChosen(!open)}>
+        <Icon name="chevronRight" size={12} className="upkeep-chev" />
+        <span>{summary}</span>
+      </button>
+      <div className="collapse" data-open={open} inert={!open}>
+        <div>{children}</div>
+      </div>
+    </div>
   );
 }
 
@@ -113,11 +131,10 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
         </div>
       ) : null}
       {open.length > 0 ? (
-        <details className="upkeep-fold" open={overdue > 0}>
-          <summary>
-            {open.length === 1 ? `1 thing ${name} will check again` : `${open.length} things ${name} will check again`}
-            {overdue ? <span className="upkeep-late"> · {overdue} overdue</span> : null}
-          </summary>
+        <Fold
+          startOpen={overdue > 0}
+          summary={<>{open.length === 1 ? `1 thing ${name} will check again` : `${open.length} things ${name} will check again`}{overdue ? <span className="upkeep-late"> · {overdue} overdue</span> : null}</>}
+        >
           <ul className="hf-list">
             {open.map((c) => {
               const due = dueLabel(c);
@@ -132,15 +149,14 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
               );
             })}
           </ul>
-        </details>
+        </Fold>
       ) : null}
       {findings.length > 0 ? (
-        <details className="upkeep-fold" open={broken}>
-          <summary>{findings.length === 1 ? "1 thing worth tidying" : `${findings.length} things worth tidying`}<span className="faint"> · found by Omega Star, nothing changed</span></summary>
+        <Fold startOpen={broken} summary={<>{findings.length === 1 ? "1 thing worth tidying" : `${findings.length} things worth tidying`}<span className="upkeep-quiet"> · found by Omega Star, nothing changed</span></>}>
           <ul className="hf-list">
             {findings.map((f, i) => <Finding key={`${f.kind}~${f.skill}~${f.file}~${i}`} f={f} onOpenFile={onOpenFile} />)}
           </ul>
-        </details>
+        </Fold>
       ) : null}
     </Section>
   );
