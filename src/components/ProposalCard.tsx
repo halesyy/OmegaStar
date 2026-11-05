@@ -1,86 +1,149 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { call, errorMessage } from "../api/client";
-import type { EmployeeView, HireProposal, OrgSnapshot } from "../api/types";
-import { firstName, relTime } from "../lib/format";
+import type { EmployeeView, HireProposal, OrgSnapshot, SkillInfo } from "../api/types";
+import { firstName } from "../lib/format";
 import { toast } from "../lib/toasts";
-import { openChat, openRun } from "../lib/router";
+import { openRun } from "../lib/router";
 import { Icon } from "./Icon";
 import { Avatar, ErrorNote } from "./ui";
-import "./RequestCard.css";
+import "./ProposalCard.css";
 
 /** Who a proposed hire would report to, by name. */
 function managerOf(p: HireProposal, snap: OrgSnapshot | null): string {
   const id = p.draft.managerId;
-  if (!id) return snap?.company.ceoName ?? "You";
+  if (!id) return snap?.company.ceoName ? firstName(snap.company.ceoName) : "you";
   if (id === p.employeeId) return firstName(snap?.employees.find((e) => e.id === id)?.name ?? "them");
   return snap?.employees.find((e) => e.id === id)?.name ?? snap?.people.find((x) => x.id === id)?.name ?? "someone";
 }
 
-/** A hire an employee proposed: Review & hire opens the hire sheet prefilled, Decline tells them why. */
-export function ProposalCard({ p, proposer, snap, onReview }: {
-  p: HireProposal; proposer: EmployeeView | undefined; snap: OrgSnapshot | null; onReview: () => void;
+/** The decision a hire proposal asks for, as its title: "Hire Noor Haddad as a Content Writer?" */
+export function hireTitle(p: HireProposal): string {
+  const role = p.draft.title.trim();
+  if (!role) return `Hire ${p.draft.name}?`;
+  return `Hire ${p.draft.name} as ${/^[aeiou]/i.test(role) ? "an" : "a"} ${role}?`;
+}
+
+/** A skill's name from its catalog id, "user:brand-voice" as "brand-voice". */
+const skillName = (key: string, catalog: SkillInfo[] | undefined) => catalog?.find((c) => c.id === key)?.name ?? key.replace(/^[a-z]+:/, "");
+
+/**
+ * A hire an employee proposed, as the record of the person they would hire: who, the role and who they report to,
+ * their objective, what they do, their skills (a skill not installed is flagged), and how they start. Under it the
+ * reason in the proposer's own words, with the way to the run that asked.
+ */
+export function ProposalRecord({ p, proposer, snap, catalog }: {
+  p: HireProposal; proposer: EmployeeView | undefined; snap: OrgSnapshot | null; catalog: SkillInfo[] | undefined;
+}) {
+  const who = proposer ? firstName(proposer.name) : "An employee";
+  const d = p.draft;
+  const skills = d.skills.keys.map((k) => skillName(k, catalog));
+  const folder = d.workspaces[0] ?? null;
+  return (
+    <>
+      <section className="hire-rec" aria-label={`${d.name}, proposed`}>
+        <Avatar name={d.name} hue={d.hue} size={64} proposed />
+        <div className="hire-main">
+          <div className="hire-name">{d.name}</div>
+          <div className="hire-role">{d.title ? `${d.title}, would` : "Would"} report to {managerOf(p, snap)}</div>
+          <dl className="hire-dl">
+            {d.objective ? <><dt>Objective</dt><dd>{d.objective}</dd></> : null}
+            {d.description ? <><dt>Does</dt><dd>{d.description}</dd></> : null}
+            {skills.length || p.missingSkills.length ? (
+              <>
+                <dt>Skills</dt>
+                <dd className="hire-skills">
+                  {skills.map((s) => <span key={s} className="hire-skill mono">{s}</span>)}
+                  {p.missingSkills.map((s) => (
+                    <span key={s} className="hire-skill hire-skill-missing mono" title="Not in your Claude Code skills, so it can't be given to them yet">
+                      <Icon name="alert" size={12} />{s}, not installed
+                    </span>
+                  ))}
+                </dd>
+              </>
+            ) : null}
+            <dt>Starts as</dt>
+            <dd>
+              {d.clearance === "supervised" ? "Supervised" : "Autonomous"}
+              {folder ? <>, in <span className="mono">{folder}</span></> : ", in their own folder"}
+            </dd>
+          </dl>
+        </div>
+      </section>
+      {p.reason.trim() ? (
+        <figure className="hire-quote">
+          <blockquote>{p.reason.trim()}</blockquote>
+          <figcaption>
+            {proposer ? <Avatar name={proposer.name} hue={proposer.hue} size={18} /> : null}
+            <span>{who}{proposer?.title ? `, ${proposer.title}` : ""}</span>
+            {p.runId ? (
+              <>
+                <span aria-hidden>·</span>
+                <button type="button" className="hire-why" onClick={() => p.runId && openRun(p.runId)}>Why {who} asked <Icon name="arrowUpRight" size={11} /></button>
+              </>
+            ) : null}
+          </figcaption>
+        </figure>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * A hire proposal's actions: Review & hire opens the hire sheet prefilled (focus comes back to the button when it
+ * closes), and Decline asks for an optional note the proposer reads. `onDecline` settles the entry while the decline
+ * goes; it resolves whether it went.
+ */
+export function ProposalActions({ p, proposer, onReview, onDecline }: {
+  p: HireProposal;
+  proposer: EmployeeView | undefined;
+  onReview: (from: HTMLElement | null) => void;
+  onDecline: (go: () => Promise<boolean>) => void;
 }) {
   const [declining, setDeclining] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const who = proposer ? firstName(proposer.name) : "An employee";
-  
-  const decline = async () => {
+  const review = useRef<HTMLButtonElement>(null);
+  const who = proposer ? firstName(proposer.name) : "them";
+
+  const decline = () => {
     setBusy(true);
     setErr(null);
-    try {
-      await call("decline_proposal", { proposalId: p.id, note: note.trim() || null });
-      toast(`Declined. ${who} hears why and adjusts their plan.`, "ok");
-    } catch (x) {
-      setErr(errorMessage(x));
-      setBusy(false);
-    }
+    onDecline(async () => {
+      try {
+        await call("decline_proposal", { proposalId: p.id, note: note.trim() || null });
+        toast(`Declined. ${proposer ? firstName(proposer.name) : "They"} hears why and adjusts the plan.`, "ok");
+        return true;
+      } catch (x) {
+        setErr(errorMessage(x));
+        setBusy(false);
+        return false;
+      }
+    });
   };
 
-  return (
-    <article className="req req-open">
-      <header className="req-head">
-        {proposer ? <Avatar name={proposer.name} hue={proposer.hue} size={20} /> : null}
-        <span className="req-who">
-          <button className="req-name" onClick={() => proposer && openChat(proposer.id)}>{who}</button>
-          <span className="muted"> wants to hire</span>
-          <span className="faint"> · {relTime(p.createdAt)}</span>
-        </span>
-      </header>
-      <div className="prop-hire">
-        <Avatar name={p.draft.name} hue={p.draft.hue} size={32} />
-        <div className="stack" style={{ minWidth: 0 }}>
-          <span className="prop-name">{p.draft.name} <span className="muted">· {p.draft.title}</span></span>
-          <span className="faint prop-sub">Reports to {managerOf(p, snap)}{p.draft.objective ? <> · {p.draft.objective}</> : null}</span>
+  if (declining) {
+    return (
+      <div className="hire-decline enter-drop">
+        <textarea
+          className="textarea" rows={2} autoFocus value={note} onChange={(e) => setNote(e.target.value)} aria-label={`Why not, for ${who}`}
+          placeholder={`Why not, or what instead? ${proposer ? firstName(proposer.name) : "They"} reads this. Optional.`}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); decline(); } }}
+        />
+        {err ? <ErrorNote text={err} /> : null}
+        <div className="hire-decline-acts">
+          <button type="button" className="btn btn-sm" disabled={busy} data-main onClick={decline}>Decline and tell {who}</button>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { setDeclining(false); setErr(null); }}>Cancel</button>
         </div>
       </div>
-      <p className="req-msg">{p.reason}</p>
-      {p.missingSkills.length ? (
-        <p className="prop-missing" title="Not in your Claude Code skills, so it can't be given to them yet">
-          <Icon name="alert" size={12} /> Needs {p.missingSkills.join(", ")}, which {p.missingSkills.length === 1 ? "isn't" : "aren't"} installed
-        </p>
-      ) : null}
-      {declining ? (
-        <div className="req-reply">
-          <textarea className="textarea" rows={2} autoFocus value={note} onChange={(e) => setNote(e.target.value)}
-            placeholder={`Why not, or what instead? ${who} reads this. Optional.`}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void decline(); } }} />
-          {err ? <ErrorNote text={err} /> : null}
-          <div className="row">
-            <span className="grow" />
-            <button className="btn btn-ghost btn-sm" onClick={() => setDeclining(false)}>Cancel</button>
-            <button className="btn btn-sm" disabled={busy} onClick={() => void decline()}>Decline and tell {who}</button>
-          </div>
-        </div>
-      ) : (
-        <div className="req-actions">
-          <button className="btn btn-primary btn-sm" onClick={onReview}><Icon name="userPlus" size={12} /> Review & hire</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => setDeclining(true)}>Decline</button>
-          <span className="grow" />
-          {p.runId ? <button className="req-link" onClick={() => p.runId && openRun(p.runId)}>Why {who} asked <Icon name="arrowUpRight" size={11} /></button> : null}
-        </div>
-      )}
-    </article>
+    );
+  }
+  return (
+    <>
+      <button ref={review} type="button" className="btn btn-primary" data-main onClick={() => onReview(review.current)}>
+        <Icon name="userPlus" size={14} /> Review &amp; hire <span className="kc">↵</span>
+      </button>
+      <button type="button" className="btn" data-no onClick={() => setDeclining(true)}>Decline</button>
+    </>
   );
 }
