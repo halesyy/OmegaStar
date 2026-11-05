@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { EmployeeView, OrgSnapshot, Thread } from "../../api/types";
 import { threadTitle } from "../../lib/format";
-import { useConversations, useOrg } from "../../lib/hooks";
+import { refreshConversations, useConversations, useOrg } from "../../lib/hooks";
 import { pruneMarks, seenSince, useMarks, type Marks } from "../../lib/marks";
 import { nextWake, threadStatus, type Status, type StatusContext } from "../../lib/status";
 import { kindNames } from "../RunRow";
@@ -36,8 +36,8 @@ function useWakeClock(marks: Marks): number {
   return now;
 }
 
-/** Every open thread as an item (null while loading), and the context a status is read in, for a conversation the
- *  snapshot does not have. */
+/** Every open thread as an item (null while loading), the context a status is read in, for a conversation the
+ *  snapshot does not have, and `reload` for Try again. */
 export function useStatuses() {
   const { data, error } = useConversations();
   const { snap } = useOrg();
@@ -51,7 +51,7 @@ export function useStatuses() {
     const items = data.threads.flatMap((t) => toItem(t, snap, filed.has(t.root.id), ctx) ?? []);
     return { items, filed };
   }, [data, snap, ctx]);
-  return { items: read?.items ?? null, filed: read?.filed ?? null, ctx, error };
+  return { items: read?.items ?? null, filed: read?.filed ?? null, ctx, error, reload: refreshConversations };
 }
 
 /** Forgets the marks of conversations that are no longer open. The shell runs this once. */

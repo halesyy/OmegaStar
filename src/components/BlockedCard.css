@@ -1,13 +1,22 @@
-.blocked { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 12px; padding: 12px 14px; border-radius: 10px; background: var(--warn-soft); }
-.blocked-head { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--ink); }
-.blocked-head svg { color: var(--warn); flex: none; }
-.blocked-lead { margin: -4px 0 0; font-size: var(--t-sm); color: var(--ink-2); }
-.blocked-row { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
-.blocked-what { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
-.blocked-tool { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; }
-.blocked-tool .pill { height: 18px; font-size: 10.5px; }
-.blocked-brief { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* What a run was blocked on: each action, what it tried and the rule it would save, then one pair of buttons. One
+   level, a 1px rule, coral for the shield because it needs you. */
+.blocked { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.blocked-head { display: flex; align-items: center; gap: 8px; font-size: var(--t-md); font-weight: 700; color: var(--ink); }
+.blocked-head svg { flex: none; color: var(--err); }
+.blocked-lead { margin: -4px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.blocked-rows { display: flex; flex-direction: column; }
+.blocked-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.blocked-row:last-child { border-bottom: 1px solid var(--line); }
+.blocked-what { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; min-width: 0; }
+.blocked-tool { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 13px; }
+.blocked-tool b { font-weight: 650; color: var(--ink); }
+.blocked .tag-ok { background: var(--ok-soft); color: var(--ok-text); }
+.blocked-brief { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 11.5px; color: var(--ink-2); }
+.blocked-brief .mono, .blocked-brief .blocked-prose { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.blocked-brief .blocked-prose { font-size: 13px; }
+.blocked-label { flex: none; width: 40px; font-size: var(--t-sm); color: var(--muted); }
 .blocked-scope { flex: none; }
-.blocked-rule { flex: none; font-size: 11.5px; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.blocked-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-@media (max-width: 560px) { .blocked-row { flex-direction: column; align-items: flex-start; } .blocked-rule { max-width: 100%; } }
+/* The chosen scope is drawn as a raised step with an ink edge, as dark draws it, so the one solid block is Allow once. */
+.blocked .blocked-scope button[aria-pressed="true"] { background: var(--sunken); color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink-2); }
+.blocked-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+@media (max-width: 560px) { .blocked-row { flex-direction: column; align-items: flex-start; } }

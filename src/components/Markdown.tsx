@@ -105,9 +105,65 @@ function renderMarkdown(src: string, breaks: boolean): string {
   const html = md.parse(src, { breaks }) as string;
   const doc = DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, RETURN_DOM_FRAGMENT: true });
   galleries(doc);
+  letters(doc);
+  wholeIds(doc);
   const out = document.createElement("div");
   out.append(doc);
   return out.innerHTML;
+}
+
+/** Ids like INV-2291 or PR-88 stay whole on one line: never broken at their hyphen. */
+function wholeIds(root: DocumentFragment) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const hits: Text[] = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (/\b[A-Z][A-Z0-9]*-\d+\b/.test(n.textContent ?? "") && !n.parentElement?.closest("code, pre")) hits.push(n as Text);
+  for (const t of hits) {
+    const parts = (t.textContent ?? "").split(/\b([A-Z][A-Z0-9]*-\d+)\b/);
+    t.replaceWith(...parts.map((p, i) => {
+      if (i % 2 === 0) return document.createTextNode(p);
+      const s = document.createElement("span");
+      s.style.whiteSpace = "nowrap";
+      s.textContent = p;
+      return s;
+    }));
+  }
+}
+
+/** A quoted draft that opens "**Subject:** …" reads as a letter: the subject becomes its own line ("Subject" then the
+ *  words), so a conversation can set it apart from the body. */
+function letters(root: DocumentFragment) {
+  for (const q of root.querySelectorAll("blockquote")) {
+    const p = q.firstElementChild;
+    const lead = p?.tagName === "P" ? p.firstChild : null;
+    if (!p || !(lead instanceof HTMLElement) || lead.tagName !== "STRONG" || !/^subject:?$/i.test(lead.textContent?.trim() ?? "")) continue;
+    q.classList.add("md-letter");
+    p.classList.add("md-subj");
+    // The subject runs to the end of its line; anything after it on the same paragraph becomes the letter's first one.
+    const rest = [...p.childNodes].slice(1);
+    let cut = rest.findIndex((n) => n.nodeName === "BR" || (n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").includes("\n")));
+    const after: Node[] = [];
+    if (cut >= 0) {
+      const n = rest[cut];
+      if (n.nodeType === Node.TEXT_NODE) {
+        const [head, ...tail] = (n.textContent ?? "").split("\n");
+        rest[cut] = document.createTextNode(head);
+        after.push(document.createTextNode(tail.join("\n")));
+        cut++;
+      }
+      after.push(...rest.slice(cut + (n.nodeName === "BR" ? 1 : 0)));
+      rest.length = cut;
+    }
+    const label = document.createElement("span");
+    label.textContent = "Subject";
+    const words = document.createElement("b");
+    words.textContent = rest.map((n) => n.textContent).join("").trim();
+    p.replaceChildren(label, words);
+    if (after.some((n) => (n.textContent ?? "").trim())) {
+      const next = document.createElement("p");
+      next.append(...after);
+      p.after(next);
+    }
+  }
 }
 
 /** Longest caption shown under an image. Longer, it stays a paragraph above it. */
