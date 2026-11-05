@@ -1,0 +1,28 @@
+/* A hire proposal, as the record of the person it would hire, then the reason in the proposer's words. */
+.hire-rec { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 24px; margin-top: 28px; padding: 24px 28px 26px; border: 1px solid var(--line-card); border-radius: var(--r-card); }
+.hire-main { min-width: 0; }
+.hire-name { font-size: var(--t-lg); font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.03em; line-height: var(--lh-tight); color: var(--ink); }
+.hire-role { margin-top: 4px; font-size: var(--t-base); color: var(--muted); }
+.hire-dl { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px 20px; margin: 20px 0 0; font-size: var(--t-base); line-height: 1.5; }
+.hire-dl dt { color: var(--muted); }
+.hire-dl dd { margin: 0; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.hire-dl .mono { font-size: 12.5px; }
+.hire-skills { display: flex; flex-wrap: wrap; gap: 6px; }
+.hire-skill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: var(--r-inner); background: var(--sunken); font-size: 12px; font-weight: 600; color: var(--ink); }
+.hire-skill-missing { background: var(--warn-soft); color: var(--warn); }
+.hire-skill-missing svg { flex: none; }
+
+.hire-quote { margin: 32px 0 0; padding: 2px 0 2px 22px; border-left: 2px solid var(--ink); }
+.hire-quote blockquote { margin: 0; font-size: var(--t-md); line-height: 1.55; color: var(--ink); white-space: pre-line; overflow-wrap: anywhere; }
+.hire-quote figcaption { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; font-size: var(--t-sm); color: var(--muted); }
+.hire-why { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-sm); color: var(--muted); border-radius: var(--r-inner); }
+.hire-why:hover { color: var(--ink); }
+
+/* Declining: the note the proposer reads, in the action bar. */
+.hire-decline { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.hire-decline-acts { display: flex; align-items: center; gap: 8px; }
+
+@container detail (max-width: 600px) {
+  .hire-rec { gap: 16px; padding: 20px; }
+  .hire-dl { grid-template-columns: 84px minmax(0, 1fr); gap: 10px 14px; }
+}
