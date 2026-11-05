@@ -1,18 +1,20 @@
-/* A page an employee showed, in its message (and full-window when expanded). */
-.visual { margin: 4px 0 10px; border: 1px solid var(--line-card); border-radius: var(--r-inner); background: var(--surface); overflow: hidden; }
-.visual-head {
-  display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 6px 4px 12px;
-  border-bottom: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm);
-}
-.visual-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink); }
-.visual-body { padding: 14px 16px 16px; }
+/* A page an employee showed, in its message (and full-window when expanded). The frame and what it loads are the
+   page's own: only the figure around it is styled here. */
+.visual { margin: 2px 0; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--surface); overflow: hidden; }
+.visual-head { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 14px; border-bottom: 1px solid var(--line); }
+.visual-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; overflow: hidden; white-space: nowrap; font-size: 13px; font-weight: 700; color: var(--ink); }
+.visual-title > :first-child { min-width: 0; }
+.visual-from { flex: none; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+/* A page brings its own padding: the figure adds only a little air above it, so its first line sits on the head's edge. */
+.visual-body { padding: 6px 0 0; }
 .visual-frame { display: block; width: 100%; border: 0; transition: opacity var(--d-ui) var(--ease); }
 .visual-wait { opacity: 0; }
 
 .visual-sheet {
   display: flex; flex-direction: column; width: min(1120px, 100%); height: 100%; border-radius: var(--r-card); overflow: hidden;
-  background: var(--canvas); box-shadow: var(--shadow-float); animation: riseIn var(--d-ui) var(--ease);
+  background: var(--canvas); box-shadow: var(--shadow-float);
 }
-.visual-sheet .visual-head { min-height: 44px; padding: 0 16px; font-size: var(--t-base); }
+.visual-sheet .visual-head { min-height: 48px; padding: 0 16px; }
+.visual-sheet .visual-title { font-size: var(--t-base); }
 .visual-sheet .visual-body { flex: 1; min-height: 0; padding: 20px 24px; }
 .visual-sheet .visual-frame { height: 100%; }
