@@ -319,7 +319,8 @@ export function InboxScreen() {
           await answerCard(run, index, reply, name(run));
           return;
         }
-        settle([d.id], () => answerCard(run, index, reply, name(run)), { text: said(run.cards[index], reply, name(run)), undo: () => undoAnswer(run.id, index) });
+        // Quiet: the settle's own toast, with its Undo, is the only one.
+        settle([d.id], () => answerCard(run, index, reply, name(run), { quiet: true }), { text: said(run.cards[index], reply, name(run)), undo: () => undoAnswer(run.id, index) });
       },
       answerMany: (picks, ids) => {
         let cancel = () => {};
@@ -405,7 +406,8 @@ export function InboxScreen() {
       const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const inDetail = !!detail && !!active && detail.contains(active);
       const q = (s: string) => detail?.querySelector<HTMLElement>(s) ?? null;
-      const main = () => q("[data-main]:not(:disabled)") ?? q(".d-card-main .btn-primary:not(:disabled)");
+      // The main action: the bar's own, else the card's in the bar (its buttons sit in .d-slot), else in the card.
+      const main = () => q("[data-main]:not(:disabled)") ?? q(".d-slot .btn-primary:not(:disabled)") ?? q(".d-card-main .btn-primary:not(:disabled)");
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       switch (key) {
         case "j": case "k": case "ArrowDown": case "ArrowUp":
@@ -422,7 +424,7 @@ export function InboxScreen() {
           if (!press(main())) return;
           break;
         case "1": case "2": case "3": case "4":
-          if (!press(q(`.d-card-main [data-card-choice="${Number(key) - 1}"]:not(:disabled)`))) return;
+          if (!press(q(`:is(.d-slot, .d-card-main) [data-card-choice="${Number(key) - 1}"]:not(:disabled)`))) return;
           break;
         case "l": {
           const later = q(".d-bar [data-later], .d-bar [data-card-later]");
@@ -431,7 +433,7 @@ export function InboxScreen() {
           break;
         }
         case "x":
-          if (!press(q(".d-card-main [data-card-no]:not(:disabled)") ?? q("[data-no]:not(:disabled)"))) return;
+          if (!press(q(":is(.d-slot, .d-card-main) [data-card-no]:not(:disabled)") ?? q("[data-no]:not(:disabled)"))) return;
           break;
         case "z": {
           const u = undos.current.pop();
@@ -648,17 +650,17 @@ function LaterControl({ row, ctx, onSnooze, onWake }: {
  *  as the next rises in from just below, or a quick crossfade when you moved. A leaving one lies under the next, inert. */
 function Swap({ row, phase, leaving, ctx, next, onNext }: { row: Row; phase: Layer["phase"]; leaving: boolean; ctx: DetailContext; next: string | null; onNext: () => void }) {
   const [foot, setFoot] = useState<HTMLDivElement | null>(null);
+  const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const fade = useScrollFade<HTMLDivElement>();
   const cls = { none: "", fade: "d-fade-in", fadeout: "d-fade-out", out: "leave-rise", in: "enter-rise" }[phase];
   return (
     <div className={`d-swap ${cls} ${leaving ? "d-swap-leaving" : ""}`} inert={leaving || undefined} aria-hidden={leaving || undefined}>
       <div ref={fade} className="d-body scroll-fade">
-        <DetailBody row={row} ctx={ctx} foot={foot} />
+        <DetailBody row={row} ctx={ctx} foot={foot} slot={slot} />
       </div>
       <div className="d-foot">
-        {/* The card's own buttons go in d-slot once CardView can place them (its actionsSlot); until then the card
-            keeps them in the body. */}
-        <div className="d-slot" />
+        {/* The open card's own buttons (CardView's actionsSlot), then the item's actions. */}
+        <div className="d-slot" ref={setSlot} />
         <div className="d-acts" ref={setFoot} />
         {next ? (
           <button type="button" className="d-next" onClick={onNext}>

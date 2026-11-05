@@ -6,6 +6,7 @@ import { useNow, useOrg } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import { openMember, openRun, openWork, type PanelTab } from "../../lib/router";
 import { Conversation } from "../../screens/Conversation";
+import { ConversationSwitcher } from "../conversation/ConversationSwitcher";
 import { Icon } from "../Icon";
 import { employeeState, numberParts, shortTask, type MemberState } from "../OrgChart";
 import { conversationOf, parseThreadFocus } from "../../lib/threads";
@@ -25,7 +26,7 @@ const TABS: { id: PanelTab; label: string }[] = [
  * column included.
  *
  * The tab row's right end is a slot (`.mpage-slot`, `data-slot="conversation-switcher"`): on the Chat tab it holds the
- * conversation switcher, which the conversation area provides.
+ * conversation switcher (`ConversationSwitcher`): the open conversation, the others, and its actions.
  */
 export function EmployeePanel({ employee: e, tab, focus, short, onClose }: { employee: EmployeeView; tab: PanelTab | null; focus: string | null; short: boolean; onClose: () => void }) {
   const { snap } = useOrg();
@@ -48,7 +49,9 @@ export function EmployeePanel({ employee: e, tab, focus, short, onClose }: { emp
       {fold ? null : <Band e={e} tab={current} focus={focus} />}
       <div className="mpage-tabs">
         <Tabs tabs={TABS} value={current} onChange={(t) => openMember(e.id, t, null, true)} />
-        <div className="mpage-slot" data-slot="conversation-switcher" />
+        <div className="mpage-slot" data-slot="conversation-switcher">
+          {current === "chat" ? <ConversationSwitcher e={e} focus={focus} /> : null}
+        </div>
       </div>
       <div key={current} className="mpage-body enter-rise">
         {current === "chat" ? <Conversation e={e} focus={focus} variant="panel" /> : null}

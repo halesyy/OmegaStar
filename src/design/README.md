@@ -27,7 +27,7 @@ Employee pages (the `show` tool) get this file too: `src-tauri` embeds it, so `-
 | Space | `--sp-1` 4 to `--sp-8` 48 | An 8px grid with 4px halves. Words keep 12px from any edge. |
 | Radii | `--r-card` 6 `--r-inner` 4 `--r-input` 5 `--r-pill` | Pills only for avatars, filter chips and status pills. |
 | Motion | `--ease` `--ease-move` `--ease-arrive`; `--d-ui` 120 `--d-panel` 260 `--d-fold` 420 `--d-arrive` 320 `--d-settle` 380 `--d-swap` 200 `--d-roll` 240 `--d-fade` 140; `--stagger` 40 | See Motion below. |
-| Layout | `--side-w` 216 `--rail-w` 60 `--outline-w` 288 `--work-w` 336 `--head-h` 64 `--panel-w` `--chrome-top` | `--panel-w` is the member panel's resizable width until the Org area replaces the panel. `--chrome-top` is the room the window's own controls take at the top of the sidebar: 30px on macOS (overlay title bar, where `--rail-w` is also 84 so the traffic lights clear it), 0 elsewhere. |
+| Layout | `--side-w` 216 `--rail-w` 60 `--outline-w` 288 `--work-w` 336 `--head-h` 64 `--chrome-top` | `--chrome-top` is the room the window's own controls take at the top of the sidebar: 30px on macOS (overlay title bar, where `--rail-w` is also 84 so the traffic lights clear it), 0 elsewhere. |
 
 ## Shared parts
 
@@ -89,8 +89,8 @@ another area:
 
 - **Conversation** takes `BlockedCard`, `TidyProposal` and the card styles now in `Inbox.css` (the `card-*` rules and
   what its thread uses), moving them into its own stylesheet; the Inbox deletes them from `Inbox.css`.
-- **Org** takes `src/lib/orgLayout.ts`. Once the member panel stops being a `SlideOver`, `PanelEdge` (`ui.tsx`) and
-  `src/lib/panelWidth.ts` have no user; removing them is a foundation change for the orchestrator.
+- **Org** takes `src/lib/orgLayout.ts`. The member panel is now the person's page, so the panel's resize edge
+  (`PanelEdge`, `src/lib/panelWidth.ts`, `--panel-w`) is gone; every `SlideOver` is a modal sheet.
 
 ## Preview and screenshots
 

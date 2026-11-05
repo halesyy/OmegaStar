@@ -8,12 +8,10 @@ import "./design/tokens.css";
 import "./design/base.css";
 import { applyChrome } from "./lib/chrome";
 import { applyTheme } from "./lib/theme";
-import { applyPanelWidth } from "./lib/panelWidth";
 import App from "./App";
 
 applyTheme();
 applyChrome();
-applyPanelWidth();
 
 // A file dropped anywhere but the chat must not navigate the window to it.
 for (const type of ["dragover", "drop"] as const) {

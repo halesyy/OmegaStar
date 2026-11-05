@@ -4,7 +4,7 @@ import { call, errorMessage } from "../api/client";
 import type { Card, CardReply, EmployeeView, HireProposal, NewAttachment, OrgSnapshot, PersonView, Run, SkillInfo, Thread } from "../api/types";
 import type { CardDecision, Decision, Group } from "../lib/decisions";
 import { dateLong, firstName, runKindLabel, shortAge, taskLabel, threadTitle, whenInline } from "../lib/format";
-import { useQuery, useThread } from "../lib/hooks";
+import { useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
 import { openMember } from "../lib/router";
 import { toolName } from "../lib/rules";
@@ -19,7 +19,7 @@ import { Avatar } from "../components/ui";
 import { kindNames } from "../components/RunRow";
 import { CardImages } from "../components/conversation/CardImages";
 import { CardLink, webUrl } from "../components/conversation/CardLink";
-import { CardList, CardView, usePendingAnswers } from "../components/conversation/CardView";
+import { CardFile, CardList, CardView, usePendingAnswers } from "../components/conversation/CardView";
 import { lines } from "../components/conversation/RowHistory";
 import { ThreadView } from "../components/conversation/ThreadView";
 import type { Item } from "../components/conversation/useStatuses";
@@ -277,13 +277,14 @@ export type DetailContext = RowContext & {
 
 type Portal = (node: ReactNode) => ReactNode;
 
-/** The open item's body, and through `foot` (a portal) its actions in the bar at the foot. */
-export function DetailBody({ row, ctx, foot }: { row: Row; ctx: DetailContext; foot: HTMLElement | null }) {
+/** The open item's body, and through `foot` (a portal) its actions in the bar at the foot. `slot`: the bar's place for
+ *  the open card's own buttons (CardView's actionsSlot), so the answer sits where Enter presses it. */
+export function DetailBody({ row, ctx, foot, slot }: { row: Row; ctx: DetailContext; foot: HTMLElement | null; slot: HTMLElement | null }) {
   const actions: Portal = (node) => (foot ? createPortal(node, foot) : null);
   if (row.kind === "hire") return <HireBody p={row.p} ctx={ctx} actions={actions} />;
-  if (row.kind === "parked") return <ParkedBody run={row.run} ctx={ctx} />;
+  if (row.kind === "parked") return <ParkedBody run={row.run} ctx={ctx} slot={slot} />;
   if (row.kind === "archived") return <ArchivedBody row={row} ctx={ctx} actions={actions} />;
-  return <DecisionBody d={row.d} group={row.group} ctx={ctx} actions={actions} />;
+  return <DecisionBody d={row.d} group={row.group} ctx={ctx} actions={actions} slot={slot} />;
 }
 
 /** The open item's first line: who, what they did, what about and when, on one line with even space round each dot.
@@ -372,7 +373,7 @@ function HireBody({ p, ctx, actions }: { p: HireProposal; ctx: DetailContext; ac
   );
 }
 
-function DecisionBody({ d, group, ctx, actions }: { d: Decision<Item>; group: Group<Item> | null; ctx: DetailContext; actions: Portal }) {
+function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; group: Group<Item> | null; ctx: DetailContext; actions: Portal; slot: HTMLElement | null }) {
   const { employees, people } = ctx;
   const e = employees.find((x) => x.id === d.run.employeeId) ?? d.item.employee;
   const who = firstName(e.name);
@@ -398,7 +399,7 @@ function DecisionBody({ d, group, ctx, actions }: { d: Decision<Item>; group: Gr
         const c = d.cards[0];
         body = (
           <>
-            <div className="d-card d-card-main"><CardView card={c.card} runId={c.run.id} index={c.index} e={e} working={isLive(c.run)} onAnswer={(reply) => act.answer(c.run, c.index, reply)} /></div>
+            <div className="d-card d-card-main"><CardView card={c.card} runId={c.run.id} index={c.index} e={e} working={isLive(c.run)} onAnswer={(reply) => act.answer(c.run, c.index, reply)} actionsSlot={slot} /></div>
             {also ? <p className="d-note">{also} {d.also.length === 1 ? "asks" : "ask"} the same. Your answer goes to everyone asking.</p> : null}
             {d.differ.length ? <OtherChoices cards={d.differ} employees={employees} act={act} /> : null}
             {group ? <GroupMore d={d} group={group} who={who} act={act} actions={actions} /> : null}
@@ -557,32 +558,7 @@ function CardContext({ card, runId, index }: { card: Card; runId: string; index:
           {card.images.length ? <CardImages paths={card.images.slice(0, 3)} /> : null}
         </div>
       ) : null}
-      {card.file ? <CardDraft runId={runId} index={index} path={card.file} /> : null}
-    </div>
-  );
-}
-
-/** The file a card is about, such as a draft: its first lines, the rest on Show all, and Open in its app. */
-function CardDraft({ runId, index, path }: { runId: string; index: number; path: string }) {
-  const file = useQuery(() => call("card_file", { runId, card: index }), [runId, index, path], ["run:updated"]);
-  const [all, setAll] = useState(false);
-  const open = () => call("open_report_path", { path }).catch((err) => toast(errorMessage(err), "err"));
-  return (
-    <div className="card-file">
-      <div className="card-file-head">
-        <Icon name="file" size={13} />
-        <span className="card-file-name" title={path}>{path.split("/").pop()}</span>
-        <span className="grow" />
-        <button type="button" className="btn btn-ghost btn-sm" title="Open in its app" onClick={() => void open()}><Icon name="external" size={12} /> Open</button>
-      </div>
-      {file.error ? <p className="card-file-note">{file.error}</p> : file.data === undefined ? null : (
-        <>
-          <div className={`card-file-body ${all ? "" : "card-file-clip card-file-fade"}`}>
-            {/\.txt$/i.test(path) ? <pre className="card-file-text">{file.data}</pre> : <Markdown text={file.data} breaks />}
-          </div>
-          <button type="button" className="btn btn-ghost btn-sm card-file-more" onClick={() => setAll(!all)}>{all ? "Show less" : "Show all"}</button>
-        </>
-      )}
+      {card.file ? <CardFile runId={runId} index={index} path={card.file} /> : null}
     </div>
   );
 }
@@ -665,7 +641,7 @@ function FailureList({ failures, employees, people }: { failures: Extract<Decisi
 }
 
 /** A run holding cards you parked: its cards, answered here as on any card. */
-function ParkedBody({ run, ctx }: { run: Run; ctx: DetailContext }) {
+function ParkedBody({ run, ctx, slot }: { run: Run; ctx: DetailContext; slot: HTMLElement | null }) {
   const e = ctx.employees.find((x) => x.id === run.employeeId);
   if (!e) return null;
   const who = firstName(e.name);
@@ -680,7 +656,7 @@ function ParkedBody({ run, ctx }: { run: Run; ctx: DetailContext }) {
       {one?.card.why ? <p className="d-why">{one.card.why}</p> : null}
       <div className="d-card d-card-main">
         {one
-          ? <CardView card={one.card} runId={run.id} index={one.index} e={e} working={working} onAnswer={(reply) => answer(one.index, reply)} />
+          ? <CardView card={one.card} runId={run.id} index={one.index} e={e} working={working} onAnswer={(reply) => answer(one.index, reply)} actionsSlot={slot} />
           : <CardList runId={run.id} cards={cards} e={e} working={working} onAnswer={answer} />}
       </div>
       <Report who={who} text={run.summary} />
@@ -715,7 +691,7 @@ function ItemThread({ item, thread, e, onSendDone }: { item: Item; thread: Threa
   useMarkSeen(item.status.state === "done" ? null : item.thread.root.id, lastMoved(live.turns?.map((t) => t.run) ?? []));
   return (
     <div className="d-thread">
-      <ThreadView e={e} rootId={id} thread={live} row={lead ? item.thread : null} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent />
+      <ThreadView e={e} rootId={id} thread={live} row={lead ? item.thread : null} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent work="strip" />
     </div>
   );
 }

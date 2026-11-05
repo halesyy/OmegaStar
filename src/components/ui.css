@@ -42,17 +42,6 @@
 }
 .slideover-on { transform: none; }
 .slideover-modal { z-index: 31; border-left: 0; box-shadow: var(--shadow-float); max-width: calc(100vw - 120px); }
-.slideover-edge { position: absolute; top: 0; bottom: 0; left: 0; width: 8px; z-index: 2; cursor: col-resize; touch-action: none; }
-.slideover-edge::before {
-  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--line-strong);
-  opacity: 0; transition: opacity var(--d-ui) var(--ease);
-}
-.slideover-edge:hover::before { opacity: 1; transition-delay: 120ms; }
-.slideover-edge:focus-visible { box-shadow: none; }
-.slideover-edge:focus-visible::before, :root[data-resizing] .slideover-edge::before { opacity: 1; background: var(--live); transition-delay: 0s; }
-/* While the edge is dragged, the whole window shows the resize cursor and no text gets selected. */
-:root[data-resizing], :root[data-resizing] * { cursor: col-resize !important; user-select: none; }
-:root[data-resizing] .slideover { transition: none; }
 @media (prefers-reduced-motion: reduce) {
   .slideover { transform: none; opacity: 0; transition: opacity var(--d-fade) linear; }
   .slideover-on { opacity: 1; }

@@ -5,7 +5,6 @@ import { initials, skillsChanged } from "../lib/format";
 import { ms, rollAnimations } from "../lib/motion";
 import { useScrollFade } from "../lib/scrollFade";
 import { dismissToast, useToasts, type Toast } from "../lib/toasts";
-import { applyPanelWidth, PANEL_MIN, panelMax, setPanelWidth } from "../lib/panelWidth";
 import { Icon, type IconName } from "./Icon";
 import "./ui.css";
 
@@ -30,7 +29,7 @@ export function Avatar({ name, hue, size = 36, presence, person = false, propose
 
 /** A surface that slides in from the window's right edge. Closing returns focus to `returnFocus` when given (pass the
  *  button that opened it: WebKit does not focus a button on click), else to whatever had focus when it opened. */
-export function SlideOver({ open, onClose, width = "var(--panel-w)", children, label, modal = false, returnFocus }: {
+export function SlideOver({ open, onClose, width = 760, children, label, modal = false, returnFocus }: {
   open: boolean; onClose: () => void; width?: number | string; children: ReactNode; label: string; modal?: boolean; returnFocus?: HTMLElement | null;
 }) {
   const [mounted, setMounted] = useState(open);
@@ -86,55 +85,8 @@ export function SlideOver({ open, onClose, width = "var(--panel-w)", children, l
         className={`slideover ${shown ? "slideover-on" : ""} ${modal ? "slideover-modal" : ""}`} style={{ width }}
       >
         {children}
-        {modal ? null : <PanelEdge />}
       </aside>
     </>
-  );
-}
-
-// The member panel's left edge: drag (or arrow keys) to resize it, double-click to go back to the default width.
-function PanelEdge() {
-  const edge = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState<number>();
-  const drag = useRef<{ x: number; from: number; to: number } | null>(null);
-  const panelWidth = () => edge.current?.parentElement?.offsetWidth ?? PANEL_MIN;
-  useLayoutEffect(() => { setWidth(panelWidth()); }, []);
-  const clamp = (px: number) => Math.round(Math.min(panelMax(), Math.max(PANEL_MIN, px)));
-  const save = (px: number | null) => { setPanelWidth(px); setWidth(panelWidth()); };
-  const end = () => {
-    const d = drag.current;
-    if (!d) return;
-    drag.current = null;
-    document.documentElement.removeAttribute("data-resizing");
-    if (d.to !== d.from) save(d.to);
-  };
-  return (
-    <div
-      ref={edge} className="slideover-edge" role="separator" aria-orientation="vertical" aria-label="Resize panel" tabIndex={0}
-      aria-valuenow={width} aria-valuemin={PANEL_MIN} aria-valuemax={panelMax()}
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        const w = panelWidth();
-        drag.current = { x: e.clientX, from: w, to: w };
-        document.documentElement.setAttribute("data-resizing", "");
-      }}
-      onPointerMove={(e) => {
-        const d = drag.current;
-        if (!d) return;
-        d.to = clamp(d.from + d.x - e.clientX);
-        applyPanelWidth(d.to);
-      }}
-      onPointerUp={end} onLostPointerCapture={end}
-      onDoubleClick={() => save(null)}
-      onKeyDown={(e) => {
-        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-        e.preventDefault();
-        const step = (e.shiftKey ? 64 : 16) * (e.key === "ArrowLeft" ? 1 : -1);
-        save(clamp(panelWidth() + step));
-      }}
-    />
   );
 }
 

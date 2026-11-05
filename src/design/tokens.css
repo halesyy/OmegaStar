@@ -125,7 +125,6 @@
   --outline-w: 288px;       /* the chart folded into an outline */
   --work-w: 336px;          /* the Live work column */
   --head-h: 64px;           /* every page header band */
-  --panel-w: clamp(460px, 100vw - 620px, 560px); /* the member panel; src/lib/panelWidth.ts overrides it when dragged */
   --chrome-top: 0px;        /* room the window's own controls take at the top of the sidebar: macOS only, below */
 
   --logo-tile: var(--side-ink);
