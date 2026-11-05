@@ -1,43 +1,33 @@
 import { useMemo, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { Company } from "../../api/types";
-import { firstName, initials } from "../../lib/format";
+import { firstName } from "../../lib/format";
 import { refreshOrg, useDraft, useOrg, useQuery } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
-import { aboveYou, lineAboveYou, reportsToEffect } from "../../lib/org";
+import { aboveYou, reportsToEffect } from "../../lib/org";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
-import { ErrorNote, Section, Skeleton, SlideOver } from "../ui";
+import { Avatar, ErrorNote, Section, Skeleton } from "../ui";
+import { PageHead } from "./EmployeePanel";
 import "./Panel.css";
 import "../Sheet.css";
 
 type YouDraft = Pick<Company, "name" | "ceoName" | "title" | "reportsTo">;
 const draftOf = (c: Company): YouDraft => ({ name: c.name, ceoName: c.ceoName, title: c.title, reportsTo: c.reportsTo });
 
-/** You on the org chart: your name, title, company and who (if anyone) you report to. */
-export function YouPanel({ onClose }: { onClose: () => void }) {
+/** You on the org chart: your name, title, company and who (if anyone) you report to, then the company page. It opens
+ *  with focus on your name's heading, not in a field, so reading it never invites typing over your name. */
+export function YouPanel({ short, onClose }: { short: boolean; onClose: () => void }) {
   const { snap } = useOrg();
   if (!snap) return null;
   const c = snap.company;
-  const line = lineAboveYou(snap).map((id) => snap.people.find((p) => p.id === id)?.name ?? "").filter(Boolean);
   return (
-    <SlideOver open onClose={onClose} label={`${c.ceoName}, ${c.title}`}>
-      <header className="panel-head">
-        <span className="ceo-av you-av">{initials(c.ceoName)}</span>
-        <div className="stack grow" style={{ minWidth: 0 }}>
-          <span className="row" style={{ gap: 8 }}>
-            <h2 className="h-lg panel-name">{c.ceoName}</h2>
-            <span className="mcard-kind" style={{ marginTop: 2 }}><Icon name="person" size={12} />You</span>
-          </span>
-          <span className="panel-sub">{c.title} · {c.name}</span>
-          <span className="panel-sub you-line">{line.length ? `Reports to ${line.join(" → ")}` : "Top of the company"}</span>
-        </div>
-        <button className="btn btn-ghost btn-icon" style={{ alignSelf: "flex-start" }} aria-label="Close panel" onClick={onClose}><Icon name="close" /></button>
-      </header>
-      <div className="panel-body">
+    <section className={`mpage ${short ? "mpage-short" : ""}`} aria-label={`${c.ceoName}, ${c.title}`}>
+      <PageHead av={<Avatar name={c.ceoName} hue={0} size={short ? 32 : 56} you />} name={c.ceoName} role={`${c.title}, you · ${c.name}`} onClose={onClose} />
+      <div className="mpage-body">
         <YouProfile company={c} />
       </div>
-    </SlideOver>
+    </section>
   );
 }
 
@@ -71,11 +61,11 @@ function YouProfile({ company }: { company: Company }) {
   return (
     <div className="fileview">
       <div className="tab-scroll">
-        <div className="stack" style={{ gap: 18 }}>
+        <Section title="About you" className="tab-form">
           <div className="form-2">
             <label className="field">
               <span className="field-label">Your name</span>
-              <input className="input" data-autofocus value={d.ceoName} onChange={(e) => set("ceoName", e.target.value)} placeholder="Your name" />
+              <input className="input" value={d.ceoName} onChange={(e) => set("ceoName", e.target.value)} placeholder="Your name" />
             </label>
             <label className="field">
               <span className="field-label">Your title</span>
@@ -104,13 +94,13 @@ function YouProfile({ company }: { company: Company }) {
                 {effect.agentsToYou.length ? ` ${effect.agentsToYou.join(", ")} will report to you instead.` : ""}
               </span>
             ) : null}
-            {!people.length ? <span className="field-help faint">Add a person to the org chart first if you report to someone.</span> : null}
+            {!people.length ? <span className="field-help">Add a person to the org chart first if you report to someone.</span> : null}
           </label>
-        </div>
-        <div style={{ marginTop: 28 }}><CompanyPageSection /></div>
+        </Section>
+        <CompanyPageSection />
       </div>
       {dirty || err ? (
-        <div className="savebar">
+        <div className="savebar enter-rise">
           {err ? <ErrorNote text={err} /> : effect.error ? <ErrorNote text={effect.error} /> : <span className="muted" style={{ fontSize: "var(--t-sm)" }}>Unsaved changes</span>}
           <span className="grow" />
           <button className="btn btn-ghost" onClick={() => { reset(); setErr(null); }}>Discard</button>
@@ -163,7 +153,7 @@ function CompanyPageSection() {
       ) : q.data ? (
         <>
           {q.data.findings.map((f) => <span key={f.kind} className="muted" style={{ fontSize: "var(--t-sm)" }}>{f.detail}</span>)}
-          <div className="fileview-doc">{q.data.text.trim() ? <Markdown text={q.data.text} /> : <span className="faint">The page is empty.</span>}</div>
+          <div className="fileview-doc">{q.data.text.trim() ? <Markdown text={q.data.text} /> : <span className="muted">The page is empty.</span>}</div>
         </>
       ) : null}
     </Section>

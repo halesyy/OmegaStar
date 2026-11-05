@@ -6,11 +6,12 @@ import { firstName, whenInline, whenShort } from "../../lib/format";
 import { refreshOrg, useDebounced, useQuery } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import { navigate } from "../../lib/router";
+import { useScrollFade } from "../../lib/scrollFade";
 import { Icon } from "../Icon";
 import { ConfirmButton, ErrorNote, Section, Skeleton, Switch } from "../ui";
 import "./Schedules.css";
 
-const blankSchedule = (e: EmployeeView): ScheduleDraft => ({ employeeId: e.id, label: "", cron: "0 9 * * 1-5", instruction: "", enabled: true, quiet: false, model: null, effort: null, activeHours: false });
+export const blankSchedule = (e: EmployeeView): ScheduleDraft => ({ employeeId: e.id, label: "", cron: "0 9 * * 1-5", instruction: "", enabled: true, quiet: false, model: null, effort: null, activeHours: false });
 
 /** The model and effort it runs on, as the schedule's row says them: "haiku, low effort". */
 const runsOn = (s: { model: string | null; effort: string | null }) => [s.model, s.effort && `${s.effort} effort`].filter(Boolean).join(", ");
@@ -81,6 +82,8 @@ export function ScheduleEditor({ e, initial, onDone }: { e: EmployeeView; initia
   const [preview, setPreview] = useState<CronPreview | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // The editor scrolls above its fixed foot; the edge hiding more fades rather than slicing a row.
+  const scroll = useScrollFade<HTMLDivElement>();
   const cron = preset === "custom" ? d.cron : presetCron(preset, time);
   const debounced = useDebounced(cron, 220);
   // More often than hourly: two of the next runs fall under an hour apart.
@@ -121,7 +124,7 @@ export function ScheduleEditor({ e, initial, onDone }: { e: EmployeeView; initia
 
   return (
     <div className="fileview">
-      <div className="tab-scroll">
+      <div className="tab-scroll scroll-fade" ref={scroll}>
         <nav className="crumbs" aria-label="Breadcrumb">
           <button onClick={onDone}>Work</button><Icon name="chevronRight" size={11} />
           <span className="crumb-here">{initial.id ? initial.label : "New schedule"}</span>
@@ -155,13 +158,12 @@ export function ScheduleEditor({ e, initial, onDone }: { e: EmployeeView; initia
                 <>
                   {/* The same words as the schedule's row for a pattern the app knows, else the Office's own description. */}
                   <span className="sched-preview-desc">{describeCron(debounced) ?? preview.description}</span>
-                  <span className="sched-preview-next mono num">
+                  <span className="sched-preview-next num">
                     {preview.next.map((n) => <span key={n}>{whenShort(n)}</span>)}
                   </span>
                 </>
               ) : <span><Icon name="alert" size={12} /> {preview.error}</span>}
             </div>
-            {preset !== "custom" ? <span className="field-help mono" style={{ fontSize: "var(--t-xs)" }}>{cron}</span> : null}
             {frequent && !light ? (
               <span className="field-help">
                 This runs more often than hourly. If each run is a simple check, Haiku at low effort does it for a fraction of the usage.{" "}

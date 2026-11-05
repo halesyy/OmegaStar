@@ -12,6 +12,7 @@ import { ChannelEditor } from "./ChannelEditor";
 import { CHANNEL_ICON, Icon } from "./Icon";
 import { Avatar, ErrorNote, SlideOver } from "./ui";
 import "./Sheet.css";
+import "./AddPersonSheet.css";
 
 const empty = (managerId: string | null): PersonDraft => ({
   name: "", title: "", description: "", strengths: "", responsibilities: "", channels: [], notes: "",
@@ -63,7 +64,8 @@ export function PersonFields({ draft, set, selfId }: { draft: PersonDraft; set: 
         </label>
       </div>
       <div className="field">
-        <span className="field-label">How to reach them <span className="hint">your employees pick the channel whose guidance fits</span></span>
+        <span className="field-label">How to reach them</span>
+        <span className="field-help" style={{ marginTop: -2, marginBottom: 4 }}>Your employees pick the channel whose guidance fits.</span>
         <ChannelEditor value={draft.channels} onChange={(v) => set("channels", v)} />
       </div>
       <label className="field">
@@ -109,7 +111,7 @@ export function AddPersonSheet({ open, managerId, onClose }: { open: boolean; ma
         </div>
         <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
       </header>
-      <div className="sheet-body">
+      <div className="sheet-body person-sheet">
         <form className="sheet-form" onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
           <PersonFields draft={draft} set={set} selfId={null} />
           <button type="submit" hidden />
@@ -118,12 +120,12 @@ export function AddPersonSheet({ open, managerId, onClose }: { open: boolean; ma
           <span className="msg-label">Preview</span>
           <div className="preview-card preview-card-person">
             <div className="mcard-head">
-              <Avatar name={draft.name || "?"} hue={hue} size={40} person />
+              {draft.name.trim() ? <Avatar name={draft.name} hue={hue} size={40} person /> : <span className="av av-person" style={{ "--h": hue, width: 40, height: 40, flex: "none" } as React.CSSProperties} aria-hidden />}
               <div className="stack grow" style={{ minWidth: 0 }}>
                 <span className="card-name">{draft.name.trim() || "Their name"}</span>
                 <span className="card-title">{draft.title.trim() || "Their title"}</span>
               </div>
-              <span className="mcard-kind"><Icon name="person" size={12} />Person</span>
+              <span className="tag" style={{ alignSelf: "flex-start" }}>Person</span>
             </div>
             <div className="preview-meta"><span><Icon name="org" size={12} /> Reports to {managerName}</span></div>
             {draft.strengths.trim() ? <p className="preview-objective">{draft.strengths}</p> : null}
@@ -149,7 +151,7 @@ export function AddPersonSheet({ open, managerId, onClose }: { open: boolean; ma
         </aside>
       </div>
       <footer className="sheet-foot">
-        {error ? <ErrorNote text={error} /> : <span className="faint">People have no skills or schedules. They're who your employees can ask.</span>}
+        {error ? <ErrorNote text={error} /> : <span className="muted">People have no skills or schedules. They're who your employees can ask.</span>}
         <span className="grow" />
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>
