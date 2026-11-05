@@ -346,8 +346,8 @@ export function fullOffice(): World {
     init(11), said("I'll check the last price change and who it touched, then plan this one."),
     ...tool("p1", "Skill", "planning", "Loaded"),
     ...tool("p2", "Read", "notes/pricing-history.md", "48 lines"),
-    ...tool("p3", "Grep", "\"\\$29\" in help-centre/", "3 files"),
-    ...tool("p4", "mcp__omega__people", "Who owns billing and the help centre", "Otto, Mae"),
+    ...tool("p3", "Grep", "\"$29\" in help-centre/", "3 files"),
+    ...tool("p4", "mcp__omega__people", "who owns billing and the help centre", "Otto, Mae"),
     ...tool("p5", "Write", "skills/price-changes/SKILL.md", "Created"),
     { type: "skillChanged", skill: "price-changes", file: "SKILL.md", change: "added" },
     said(planAnswer), done(plan),
@@ -380,7 +380,7 @@ export function fullOffice(): World {
   const pgSummary = "Backups ran and restored cleanly on the test server (3.1 GB, 4 minutes).\n\nOne thing for you: staging still runs Postgres 14, which stops getting security fixes next week. Production is already on 16.";
   add(mk("pg-1", "otto", sched(S.backups, lastAt(2, 30)), S.backups.instruction, {
     end: lastAt(2, 41), mins: 11, summary: pgSummary,
-    cards: [card("Upgrade the staging database to Postgres 16 this weekend?", { type: "choices", choices: ["Upgrade Saturday night", "Wait until after the price change", "Not now"], recommended: 0 }, {
+    cards: [card("Upgrade the staging database to Postgres 16 this weekend?", { type: "choices", choices: ["Upgrade Saturday night", "Wait until after the price change"], recommended: 0 }, {
       why: "Postgres 14 stops getting security fixes next week. Staging would be down for about 20 minutes.", key: "ask:staging-db:upgrade",
       link: "https://code.fernbrook.app/fernbrook/infra/pulls/88",
     })],
@@ -498,7 +498,7 @@ export function fullOffice(): World {
   }));
   const parked = mk("referral-1", "theo", { type: "manual" }, "Ideas to grow signups without discounting.", {
     end: onDay(-9, 11, 10), mins: 9, summary: "Five ideas. The referral one needs your call.",
-    cards: [card("Try a free month for studios that bring another studio?", { type: "choices", choices: ["Try it for a month", "Not now"], recommended: 0 }, { parked: true, timesBack: 1, backAt: onDay(-2, 9) })],
+    cards: [card("Try a free month for studios that bring another studio?", { type: "choices", choices: ["Try it for a month", "Wait until after March"], recommended: 0 }, { parked: true, timesBack: 1, backAt: onDay(-2, 9) })],
   });
   add(parked);
 
@@ -759,7 +759,7 @@ export function largeOffice(): World {
   });
   w.people.push(
     { id: "ada", name: "Ada Quist", title: "Lawyer", hue: 230, addedAt: onDay(-30, 10), description: "Reviews Fernbrook's contracts and terms.", strengths: "Contracts, privacy", responsibilities: "Terms of service and studio contracts", channels: [{ id: "a-mail", kind: "email", address: "ada@quist.law", whenToUse: "Anything contractual" }], notes: "", manager: { type: "you" } },
-    { id: "hugo", name: "Hugo Brandt", title: "Investor", hue: 70, addedAt: onDay(-58, 10), description: "Fernbrook's first investor; sits beside Harriet on the board.", strengths: "Growth, hiring", responsibilities: "Board meetings", channels: [{ id: "u-mail", kind: "email", address: "hugo@brandtventures.vc", whenToUse: "Board papers" }], notes: "", manager: { type: "top" } },
+    { id: "hugo", name: "Hugo Brandt", title: "Investor", hue: 70, addedAt: onDay(-58, 10), description: "Fernbrook's first investor; sits beside Harriet on the board.", strengths: "Growth, hiring", responsibilities: "Board meetings", channels: [{ id: "u-mail", kind: "email", address: "hugo@brandtventures.vc", whenToUse: "Board papers" }], notes: "", manager: { type: "member", id: "harriet" } },
   );
   const first = w.requests.find((r) => r.id === "req-kofi");
   if (first) w.requests.push({ ...first, id: "req-kofi-2", employeeId: "theo", runId: null, message: "Could you mock up the pricing page's hero for the new $34 price?", dueAt: onDay(2, 17), createdAt: ago(55), delivery: first.delivery ? { ...first.delivery, sentAt: ago(55) } : null });
@@ -791,7 +791,7 @@ export function inboxMoreOffice(): World {
   // A decision whose title runs to three lines.
   addOpen(w, mk("dns-1", "otto", { type: "manual" }, "Plan the move to the new DNS provider.", {
     end: ago(27), mins: 12, summary: "The new provider is set up and tested. Ready when you are.",
-    cards: [card("Move fernbrook.app's DNS to the new provider on Saturday night, while bookings are quietest, and keep the old records for a week in case anything still points at them?", { type: "choices", choices: ["Move it Saturday", "Wait a week", "Not now"], recommended: 0 })],
+    cards: [card("Move fernbrook.app's DNS to the new provider on Saturday night, while bookings are quietest, and keep the old records for a week in case anything still points at them?", { type: "choices", choices: ["Move it Saturday", "Wait a week"], recommended: 0 })],
   }));
   // Blocked on a tool from an MCP server.
   const filed = "I sorted the 7 flaky tests and wrote each one up, but I'm not allowed to create Linear issues yet.";

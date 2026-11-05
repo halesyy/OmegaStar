@@ -23,7 +23,7 @@ const STATES = [
   "full", "empty", "first-run", "first-run-no-claude", "first-run-signed-out", "loading", "loading-boot", "error", "error-boot",
   "update-failed", "usage-limit", "api-key",
   "first-run-recheck", "first-run-opening", "first-run-error", "slow-saves", "failed-saves", "quiet", "large-org", "inbox-more",
-  "live-more", "thread-error",
+  "live-more", "thread-error", "live-arrives", "live-ends",
 ] as const;
 type State = (typeof STATES)[number];
 
@@ -71,6 +71,38 @@ function worldFor(state: State): World {
       return w;
     }
   }
+}
+
+/** Whether `n` is in a cron field: `*`, a number, a range `1-5` or a list `1,3,5` (and lists of ranges). */
+function cronHas(field: string, n: number): boolean {
+  if (field === "*") return true;
+  return field.split(",").some((part) => {
+    const [a, b] = part.split("-").map(Number);
+    return b === undefined ? a === n : n >= a && n <= b;
+  });
+}
+
+/** The next three times a five-part schedule fires, from now: minute and hour as numbers (or every hour at a minute),
+ *  day of the month and weekday as cron reads them (either matching when both are given). Anything fancier gets three
+ *  hourly times, which is enough for a preview. */
+function nextFires([min, hour, dom, , dow]: string[]): string[] {
+  const m = Number(min);
+  if (!Number.isFinite(m)) return [ahead(60), ahead(120), ahead(180)];
+  const hours = hour === "*" ? Array.from({ length: 24 }, (_, h) => h) : [Number(hour)];
+  if (hours.some((h) => !Number.isFinite(h))) return [ahead(60), ahead(120), ahead(180)];
+  const out: string[] = [];
+  for (let d = 0; d < 400 && out.length < 3; d++) {
+    const day = new Date(onDay(d, 0));
+    const domOk = cronHas(dom, day.getDate());
+    const dowOk = cronHas(dow.replace(/\b7\b/g, "0"), day.getDay());
+    const matches = dom !== "*" && dow !== "*" ? domOk || dowOk : domOk && dowOk;
+    if (!matches) continue;
+    for (const h of hours) {
+      const at = onDay(d, h, m);
+      if (Date.parse(at) > Date.now() && out.length < 3) out.push(at);
+    }
+  }
+  return out;
 }
 
 export function previewTransport(): PreviewTransport {
@@ -146,7 +178,8 @@ export function previewTransport(): PreviewTransport {
 
   let n = 0;
   const nextId = (prefix: string) => `${prefix}-${++n}`;
-  const loadedAt = Date.now();
+  // performance.now, not Date: the screenshot script holds the clock still, and a re-check must still be "later".
+  const loadedAt = performance.now();
 
   function finish(r: Run, text: string) {
     if (r.state !== "running") return;
@@ -202,6 +235,7 @@ export function previewTransport(): PreviewTransport {
     const start = Math.floor(words.length * 0.42);
     w.events[plan.id].push({ type: "textDelta", text: words.slice(0, start).join("") });
     stream(plan, draft, 700, start, 1);
+    planDraft = { words, start };
 
     const activities = ["Reading billing/annual-plans.md", "Searching for \"$29\" in getting-started/", "Reading getting-started/choose-a-plan.md", "Checking 3 articles against the new price"];
     let step = 0;
@@ -221,7 +255,49 @@ export function previewTransport(): PreviewTransport {
     window.setTimeout(() => finish(billing, "Two places hard-code $29: the pricing page and the upgrade screen. Both now read the price from billing. The new price ID is ready in the infrastructure config; it goes live with one change on 1 March, and annual plans keep their old price ID until renewal."), billingMs);
   }
   // Live work streams in every busy state; in live-more, Otto's delegated check finishes a few seconds in.
+  let planDraft: { words: string[]; start: number } | null = null;
   if (state !== "loading" && state !== "loading-boot" && state !== "quiet") startLive(state === "live-more" ? 6000 : undefined);
+
+  /** live-arrives: three seconds in, Juniper asks Mae to update the help centre, and Mae starts on it. */
+  function arriveLive() {
+    const plan = byId("plan-2");
+    if (!plan) return;
+    const task = "Update the three help-centre articles that quote $29 so they say $34 from 1 March.";
+    window.setTimeout(() => {
+      const help = mk("help-1", "mae", { type: "delegated", parentRunId: plan.id }, task, { state: "running", end: iso(Date.now()) });
+      help.createdAt = help.startedAt = iso(Date.now());
+      w.runs.unshift(help);
+      w.events[help.id] = [init(9), { type: "text", text: "Three articles quote the Studio price. Starting with choose-a-plan." }];
+      emitRun(help);
+      append(plan.id, [...[{ type: "toolCall" as const, id: "q9", tool: "mcp__omega__delegate", brief: "Mae: update the help-centre articles that quote $29" }, { type: "toolResult" as const, id: "q9", ok: true, brief: "Delegated to Mae" }],
+        { type: "delegated", childRunId: help.id, employeeId: "mae", task }]);
+      window.setTimeout(() => append(help.id, [{ type: "toolCall", id: "h1", tool: "Read", brief: "help-centre/billing/choose-a-plan.md" }]), 1500);
+    }, 3000);
+  }
+
+  /** live-ends: everything live finishes in turn: the sub-agent at 2.5 s, Otto's billing check at 4 s, Juniper's
+   *  reply at 6.5 s, and the runs waiting to start get going and finish by 8 s, so nothing is live after that. */
+  function endLive() {
+    const plan = byId("plan-2");
+    const billing = byId("billing-1");
+    window.setTimeout(() => { if (plan) append(plan.id, [{ type: "taskEnded", taskId: "task-help", outcome: "done", toolUses: 14, tokens: 31_200, durationMs: 88_000 }]); }, 2500);
+    window.setTimeout(() => { if (billing) finish(billing, "Two places hard-code $29: the pricing page and the upgrade screen. Both now read the price from billing."); }, 4000);
+    window.setTimeout(() => {
+      if (!plan || plan.state !== "running") return;
+      const rest = planDraft ? planDraft.words.slice(planDraft.start).join("") : "";
+      if (rest) append(plan.id, [{ type: "textDelta", text: rest }]);
+      finish(plan, planDraft ? planDraft.words.join("") : "Done.");
+    }, 6500);
+    window.setTimeout(() => {
+      for (const r of w.runs.filter((x) => x.state === "queued")) {
+        Object.assign(r, { state: "running", startedAt: iso(Date.now()) });
+        emitRun(r);
+        finish(r, "Done. Nothing else to report.");
+      }
+    }, 8000);
+  }
+  if (state === "live-arrives") arriveLive();
+  if (state === "live-ends") endLive();
 
   let toasted = false;
   function toastsOnce() {
@@ -302,7 +378,7 @@ export function previewTransport(): PreviewTransport {
     setup_status: () => {
       // first-run-recheck: the checks while the page opens find no Claude Code; any check from half a second on (a
       // re-check you ask for) finds it, signed in. Timed, not counted: React's dev mode runs the first check twice.
-      if (state === "first-run-recheck" && Date.now() - loadedAt > 500) w.setup = { ...firstRunOffice().setup, background: w.setup.background };
+      if (state === "first-run-recheck" && performance.now() - loadedAt > 500) w.setup = { ...firstRunOffice().setup, background: w.setup.background };
       return { ...w.setup, company: w.company };
     },
     complete_setup: ({ companyName, ceoName, title }) => {
@@ -357,9 +433,7 @@ export function previewTransport(): PreviewTransport {
     cron_preview: ({ cron }) => {
       const p = cron.trim().split(/\s+/);
       if (p.length !== 5) return { ok: false, error: "A schedule has five parts: minute, hour, day of the month, month and weekday." };
-      const [m, hr] = p.map(Number);
-      const at = Number.isFinite(hr) && Number.isFinite(m) ? [1, 2, 3].map((d) => onDay(d, hr, m)) : [ahead(60), ahead(120), ahead(180)];
-      return { ok: true, description: describeCron(cron) ?? "A custom schedule", next: at };
+      return { ok: true, description: describeCron(cron) ?? "A custom schedule", next: nextFires(p) };
     },
     run_now: ({ employeeId, instruction }) => respond(newRun(employeeId, { type: "manual" }, instruction ?? DEFAULT_PROMPT), "Done. Nothing urgent turned up; the details are in my notes."),
     cancel_run: ({ runId }) => {

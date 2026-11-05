@@ -7,7 +7,8 @@ import interOpsz from "@fontsource-variable/inter/files/inter-latin-opsz-normal.
 const PAGES: Record<string, string> = {
   timeline: `
 <style>
-  .tl { display: grid; grid-template-columns: repeat(4, 1fr); padding: 16px 18px 18px; }
+  /* The first stop on the frame title's text edge (14px), 22px of air above the dots and 17px under the labels. */
+  .tl { display: grid; grid-template-columns: repeat(4, 1fr); padding: 16px 14px 17px; }
   .step { position: relative; padding: 22px 12px 0 0; }
   .step::before { content: ""; position: absolute; top: 6px; left: 0; right: 0; height: 2px; background: var(--line-strong); }
   .step:last-child::before { right: auto; width: 14px; }
@@ -16,6 +17,11 @@ const PAGES: Record<string, string> = {
   .when { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .what { font-weight: 560; margin-top: 2px; }
   .who { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  /* Narrow (a person's page): two by two, so no label wraps. */
+  @media (max-width: 520px) {
+    .tl { grid-template-columns: repeat(2, 1fr); row-gap: 18px; }
+    .step:nth-child(2n)::before { right: auto; width: 14px; }
+  }
 </style>
 <div class="tl">
   <div class="step"><span class="dot"></span><div class="when">24 Jan</div><div class="what">Board update</div><div class="who">Juniper, to Harriet</div></div>

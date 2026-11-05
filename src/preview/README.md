@@ -53,6 +53,8 @@ http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts
 | `inbox-more` | `full` plus Inbox cases: three runs failing on one error (`smoke-1`, `links-1`, `widget-1`), Theo's two cards about the launch (`launch-1`, `launch-2`), Mae's question asked by Ines with other choices (`annual-1`), a three-line title (`dns-1`), a blocked MCP tool (`issues-1`) |
 | `live-more` | `full` with three runs going on Juniper's thread (her reply, Otto's `billing-1` and Mae's `help-1`, both delegated); `billing-1` finishes 6 seconds in; `slow-1` has 22 steps |
 | `thread-error` | `full`, but every conversation fails to load (`thread` errors) |
+| `live-arrives` | `full`; 3 seconds in, Juniper asks Mae to update the help centre (`help-1`, delegated from `plan-2`), and Mae starts on it: live work arriving |
+| `live-ends` | `full`; everything live finishes in turn (the sub-agent at 2.5 s, `billing-1` at 4 s, `plan-2` at 6.5 s, the runs waiting to start by 8 s), so nothing is live after that: the work column closing |
 
 ### Routes
 
@@ -63,6 +65,7 @@ The app's own hash routes (`src/lib/router.ts`), with these ids:
 - Panels: `#/org/<id>` with `/chat`, `/work`, `/skills` or `/profile`. Skills files and changes:
   `#/org/juniper/skills/file~price-changes~SKILL.md`, `#/org/juniper/skills/rev~rev-weekly`.
 - Conversations: `#/chat/<employee>/thread~<root run>`, or `#/chat/<employee>` for a new one. Runs: `#/run/<run>`.
+- Activity: `#/activity` (runs), `#/activity/numbers`, `#/activity/skills`.
 - The Inbox: `#/inbox/<view>/<item>`, view `inbox`, `snoozed`, `parked` or `archive`, item the id the Inbox gives an
   entry (`openInbox` in `src/lib/router.ts`). It opens that item once the Inbox reads the route.
 

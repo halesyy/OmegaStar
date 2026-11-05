@@ -31,7 +31,6 @@ const BROWSER = { timezoneId: "Australia/Sydney", locale: "en-AU" };
 // ---------------------------------------------------------------- what to shoot
 
 const palette = async (p) => { await p.keyboard.press("Control+k"); await p.waitForSelector(".palette, [role=dialog]"); };
-const tab = (name) => (p) => p.getByRole("tab", { name, exact: true }).click();
 /** Restart to update. While work runs it asks first: the sidebar's confirm, or the rail's second press. */
 const clickUpdate = async (p) => {
   const row = p.locator(".update-row .update-btn");
@@ -121,9 +120,9 @@ const SHOTS = [
   S("org", "panel-profile", "full", "#/org/theo/profile"),
   S("org", "person", "full", "#/org/kofi"),
   S("org", "you", "full", "#/org/you"),
-  S("org", "hire-sheet", "full", "#/org", { act: (p) => p.locator(".org .pagehead-actions .btn-primary").click() }),
+  S("org", "hire-sheet", "full", "#/org", { act: (p) => p.locator(".org-foot .btn-primary").first().click() }),
   S("org", "hire-sheet-template", "empty", "#/org", { act: (p) => p.locator(".org-empty-templates .chip", { hasText: "Chief of Staff" }).click() }),
-  S("org", "add-person-sheet", "full", "#/org", { act: (p) => p.locator(".org .pagehead-actions .btn:not(.btn-primary)").click() }),
+  S("org", "add-person-sheet", "full", "#/org", { act: (p) => p.locator(".org-foot .btn:not(.btn-primary)").first().click() }),
 
   S("conversation", "thread-working", "full", "#/chat/juniper/thread~plan-1"),
   S("conversation", "thread-reply", "full", "#/chat/otto/thread~slow-1"),
@@ -145,16 +144,19 @@ const SHOTS = [
   S("conversation", "thread", "thread-error", "#/chat/juniper/thread~plan-1"),
   S("conversation", "thread-three-live", "live-more", "#/chat/juniper/thread~plan-1"),
   S("conversation", "thread-many-steps", "live-more", "#/chat/otto/thread~slow-1"),
+  // Live work arriving (Mae is asked 3 s in) and all of it ending (by 8 s): shot once each has landed.
+  S("conversation", "thread-live-arrived", "live-arrives", "#/chat/juniper/thread~plan-1", { act: (p) => p.waitForTimeout(4800) }),
+  S("conversation", "thread-live-ended", "live-ends", "#/chat/juniper/thread~plan-1", { act: (p) => p.waitForTimeout(8800) }),
 
   S("inbox", "inbox", "full", "#/inbox"),
   S("inbox", "inbox-entry-open", "full", "#/inbox", { act: (p) => p.locator(".inbox-list .item-title").first().click() }),
   S("inbox", "inbox-keys", "full", "#/inbox", { act: (p) => p.getByRole("button", { name: "Keyboard shortcuts" }).click() }),
   S("inbox", "proposal-sheet", "full", "#/inbox", { act: (p) => p.getByRole("button", { name: "Review & hire" }).click() }),
-  S("inbox", "snoozed", "full", "#/inbox", { act: tab("Snoozed") }),
-  S("inbox", "parked", "full", "#/inbox", { act: tab("Parked") }),
-  S("inbox", "archive", "full", "#/inbox", { act: tab("Archive") }),
+  S("inbox", "snoozed", "full", "#/inbox/snoozed"),
+  S("inbox", "parked", "full", "#/inbox/parked"),
+  S("inbox", "archive", "full", "#/inbox/archive"),
   S("inbox", "inbox", "empty", "#/inbox"),
-  S("inbox", "archive", "empty", "#/inbox", { act: tab("Archive") }),
+  S("inbox", "archive", "empty", "#/inbox/archive"),
   S("inbox", "inbox", "loading", "#/inbox"),
   S("inbox", "inbox", "error", "#/inbox"),
   S("inbox", "inbox", "inbox-more", "#/inbox"),
@@ -174,12 +176,18 @@ const SHOTS = [
   S("settings", "settings-end", "full", "#/settings", { act: scrollToEnd }),
   S("settings", "settings", "loading", "#/settings"),
   S("settings", "settings", "error", "#/settings"),
-  S("settings", "settings-middle", "full", "#/settings", { act: scrollTo("CLI proxy") }),
-  S("settings", "settings-proxy", "full", "#/settings", { act: async (p) => { await scrollTo("CLI proxy")(p); await p.getByLabel("CLI proxy address").click(); } }),
+  S("settings", "settings-middle", "full", "#/settings", { act: scrollTo("Replies from people") }),
+  // The proxy is one row and Set up while it is off; Set up opens its fields in place.
+  S("settings", "settings-proxy", "full", "#/settings", { act: async (p) => {
+    await scrollTo("CLI proxy")(p);
+    await p.getByRole("button", { name: "Set up", exact: true }).click();
+    await p.getByLabel("CLI proxy address").click();
+  } }),
   S("settings", "settings-saving", "slow-saves", "#/settings", { act: settingsChange("Pause schedules") }),
   S("settings", "settings-saved", "slow-saves", "#/settings", { act: settingsChange("Pause schedules", 1600) }),
-  S("settings", "settings-save-failed", "failed-saves", "#/settings", { act: settingsChange("Pause schedules") }),
-  S("settings", "settings-background-failed", "failed-saves", "#/settings", { act: settingsChange("Run in the background") }),
+  // A failure's line fades in after the save answers (0.6 s); the shot waits for it to settle.
+  S("settings", "settings-save-failed", "failed-saves", "#/settings", { act: settingsChange("Pause schedules", 700) }),
+  S("settings", "settings-background-failed", "failed-saves", "#/settings", { act: settingsChange("Run in the background", 700) }),
 ];
 
 // ---------------------------------------------------------------- running
