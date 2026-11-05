@@ -1,26 +1,163 @@
+/* First run, inside the office's own frame: the ultramarine band folded to the rail so the page leads, then one centred
+   column in the app's grammar. At the hand-off the band opens to the sidebar the office will have. */
 .ob {
-  height: 100%; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 40px 24px;
-  background:
-    radial-gradient(circle, var(--grid-dot-strong) 1px, transparent 1.4px) 0 0 / 22px 22px,
-    var(--canvas);
+  position: relative; height: 100%; display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+  background: var(--canvas); transition: grid-template-columns var(--d-panel) var(--ease);
 }
-.ob-card { width: min(560px, 100%); display: flex; flex-direction: column; gap: 24px; animation: riseIn 480ms var(--ease) both; }
-.ob-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; }
-.ob-head svg { margin-bottom: 6px; filter: drop-shadow(0 6px 16px rgb(0 0 0 / 0.14)); }
-.ob-head p { max-width: 420px; line-height: 1.55; }
-.ob-steps { list-style: none; margin: 0; padding: 6px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
-.ob-step { display: flex; gap: 14px; padding: 14px 18px; }
-.ob-step + .ob-step { border-top: 1px solid var(--line); }
-.ob-mark {
-  flex: none; width: 22px; height: 22px; margin-top: -1px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-  font-size: var(--t-xs); font-weight: 600; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--line-strong); transition: all var(--d-panel) var(--ease);
+.ob-open { grid-template-columns: var(--side-w) minmax(0, 1fr); }
+/* macOS: the window's drag band over the band's top. It is invisible, so it takes the open width at once. */
+.ob .side-chrome { width: var(--rail-w); }
+.ob-open .side-chrome { width: var(--side-w); }
+
+/* ------------------------------------------------ the band: the same box as the shell's sidebar (.side), so the brand and
+   your row sit exactly where the office will draw them, as the rail now and as the full sidebar once it opens */
+.ob-side {
+  --av-ring: var(--side);
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: calc(12px + var(--chrome-top)) 10px 10px;
+  background: var(--side); color: var(--side-ink);
 }
-.ob-step-filled .ob-mark { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
-.ob-step-done .ob-mark { background: var(--ok); color: #fff; box-shadow: none; animation: chipIn 420ms var(--ease); }
-.ob-title { font-weight: 600; }
-.ob-detail { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: var(--t-sm); color: var(--muted); }
-.ob-detail .mono { font-size: 11.5px; color: var(--ink-2); overflow-wrap: anywhere; }
-.ob-detail .pill { height: 20px; font-size: var(--t-xs); }
-.ob-names { margin-top: 2px; }
-.ob-bg { display: flex; align-items: center; gap: 16px; }
-.ob-go { align-self: center; min-width: 220px; }
+.ob-side :focus-visible { box-shadow: var(--side-focus); }
+.ob-side-foot { margin-top: auto; display: flex; flex-direction: column; }
+.ob-side .side-you { cursor: default; }
+.ob-rail .ob-side { padding-left: 8px; padding-right: 8px; align-items: center; }
+.ob-rail .ob-side > * { width: 44px; }
+.ob-rail .side-top { flex-direction: column; height: auto; gap: 10px; padding: 0; }
+.ob-rail .side-brand { height: 30px; }
+.ob-rail .side-word, .ob-rail .side-you-text { display: none; }
+.ob-rail .side-you { justify-content: center; padding: 10px 0 0; }
+/* Opening: the words arrive once the band is most of the way to its width, never squeezed into a narrow one. */
+.ob-open .side-word, .ob-open .side-you-text { animation: m-fade-in var(--d-ui) var(--ease) calc(var(--d-panel) * 0.6) both; }
+.ob-open .side-you-text, .ob-open .side-word { min-width: 0; white-space: nowrap; }
+
+/* ------------------------------------------------ the page: one centred block. The form's column leads; where the window
+   has room, your card as the org chart will draw it sits beside it. Header, form and foot share the column's edges.
+   (The variables live on .ob-main so the page's exit copy, which leaves from outside .ob, keeps its layout.) */
+/* A tall window sets the column a little lower, so the page sits in the window rather than hanging from its top edge.
+   A fixed offset, not centring: the column never moves when a block inside it opens or closes. */
+.ob-main {
+  --col: 768px; --aside: 0px; --aside-gap: 0px; --block: calc(var(--col) + var(--aside-gap) + var(--aside));
+  min-width: 0; min-height: 0; overflow: hidden; padding-top: clamp(0px, calc((100vh - 760px) / 3), 88px);
+}
+@media (min-width: 1240px) { .ob-main { --aside: 248px; --aside-gap: 32px; } }
+.ob-top, .ob-foot-wrap { flex: none; width: min(var(--block), 100%); margin: 0 auto; padding-right: calc(var(--aside) + var(--aside-gap)); }
+.ob-top > .pagehead { padding-right: 24px; }
+.ob-lead { margin: -8px 0 0; padding: 0 24px 16px; color: var(--muted); line-height: var(--lh-body); text-wrap: balance; }
+/* The form takes only the height it needs, so the foot follows the last section; in a short window it scrolls under
+   the header and above the foot, which stays put. The bottom fade is only as tall as the gap between rows; the top one
+   keeps the shared 24px, so the sliver of a line scrolled under the header all but disappears. A field is scrolled only
+   when it would sit under a fade, never when it is already in view. */
+.ob-scroll { flex: 0 1 auto; scroll-padding-block: 20px; }
+.ob-scroll.scroll-fade { --fade: 16px; --fade-top: 24px; }
+.ob-scroll.scroll-fade[data-fade="top"] { -webkit-mask-image: linear-gradient(transparent, #000 var(--fade-top)); mask-image: linear-gradient(transparent, #000 var(--fade-top)); }
+.ob-scroll.scroll-fade[data-fade="both"] {
+  -webkit-mask-image: linear-gradient(transparent, #000 var(--fade-top), #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(transparent, #000 var(--fade-top), #000 calc(100% - var(--fade)), transparent);
+}
+.ob-stage { width: min(var(--block), 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) var(--aside); column-gap: var(--aside-gap); align-items: start; }
+.ob-inner.pagecol-inner { width: 100%; padding-top: 0; padding-bottom: 20px; gap: 32px; }
+
+.ob-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.ob-wide { grid-column: 1 / -1; }
+/* The one section heading on the page, a clear step above the field labels under it. */
+.ob-know { margin-top: calc(4px + var(--fold-gap, 0px)); }
+.ob-know .psec-title { font-size: var(--t-md); font-weight: 650; letter-spacing: -0.01em; }
+.ob-optional { font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
+.ob-help { margin-top: -4px; }
+/* A field's message opens its own space under the field; closed, it takes none (the field's gap included). */
+.ob-err { margin-top: -6px; }
+.ob-err > * > .field-error { padding-top: 6px; }
+
+/* ------------------------------------------------ your card, as the org chart will draw it */
+.ob-chart { display: none; }
+@media (min-width: 1240px) { .ob-chart { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; } }
+/* Its label's capitals line up with the top of the Claude Code row beside it. */
+.ob-chart-label { align-self: stretch; margin-bottom: 12px; font-size: var(--t-sm); font-weight: 600; line-height: 1.3; color: var(--muted); text-box: trim-both cap alphabetic; }
+.ob-node { align-self: stretch; display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border-radius: var(--r-card); background: var(--surface); border: 1px solid var(--line-strong); }
+.ob-node-av { flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.ob-node-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ob-node-name, .ob-node-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ob-node-name { font-weight: 650; line-height: 1.35; }
+.ob-node-blank { font-weight: 500; color: var(--muted); }
+.ob-node-sub { font-size: var(--t-sm); line-height: 1.4; color: var(--muted); }
+.ob-node-you { margin-top: 5px; font-size: 11.5px; color: var(--muted); }
+.ob-node-line { display: block; width: 1px; height: 24px; background: var(--line-strong); }
+.ob-node-next {
+  align-self: stretch; display: flex; align-items: center; justify-content: center; height: 52px; border-radius: var(--r-card);
+  border: 1px dashed var(--line-strong); font-size: var(--t-sm); color: var(--muted);
+}
+
+/* ------------------------------------------------ Claude Code: a status, so a tinted well rather than a box like the
+   fields; a state word pinned right */
+.ob-cc { border-radius: var(--r-card); background: var(--raised); }
+.ob-row { display: flex; flex-direction: column; padding: 14px 18px; }
+.ob-row-next { border-top: 1px solid var(--line); }
+.ob-row-head { display: flex; align-items: center; gap: 12px; min-height: 22px; }
+.ob-row-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
+.ob-row-title > * { flex: none; }
+.ob-row-title .tag { margin-left: 4px; background: var(--sunken); }
+.ob-ver { font-weight: 500; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ob-acct { flex: 0 1 auto !important; min-width: 0; display: flex; gap: 6px; font-weight: 450; color: var(--muted); }
+.ob-sep { color: var(--faint); }
+.ob-trunc { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ob-waiting { font-weight: 500; color: var(--muted); }
+/* What a passing check adds to the line arrives after its cause: the state word has started to roll, the rows have
+   started to close. */
+.ob-after.enter-fade { animation-delay: calc(var(--d-roll) / 2); }
+/* Under reduced motion the state fades out, then in (ob-after-out), and only then do the details arrive. */
+.ob-after-out { animation-delay: var(--d-fade); }
+@media (prefers-reduced-motion: reduce) { .ob-after.enter-fade { animation-delay: calc(var(--d-fade) * 2); } }
+/* The body's own 4px inset holds the focus rings of the command and the button inside the collapsing block. */
+.ob-body { margin: 0 -4px; }
+.ob-body-in { display: flex; flex-direction: column; gap: 10px; padding: 6px 4px 4px; }
+.ob-line { font-size: var(--t-sm); color: var(--muted); line-height: 1.5; }
+/* The command's well and Check again share one height: the button stretches to the well beside it. */
+.ob-act { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.ob-check { height: auto; min-height: 32px; }
+/* Copy and Copied share one footprint, so the well never changes width and never shoves Check again; the label sits in
+   its middle, with even insets at rest. */
+.ob-act .copycmd .btn { min-width: 84px; }
+.ob-act .copycmd .roll { justify-items: center; }
+.ob-cc-err { padding: 0 18px 14px; }
+
+.ob-state { transition: color var(--d-ui) var(--ease); }
+.ob-state::before { display: none; }
+.ob-mark { display: inline-grid; place-items: center; width: 12px; height: 12px; flex: none; }
+.ob-mark > * { grid-area: 1 / 1; transition: opacity var(--d-roll) var(--ease), scale var(--d-roll) var(--ease); }
+.ob-mark > i { width: 7px; height: 7px; border-radius: 50%; background: var(--err); }
+.status-ok .ob-mark > i { opacity: 0; scale: 0.4; }
+.status-attn .ob-mark > svg { opacity: 0; scale: 0.6; }
+/* Reduced motion: the old state and the new one crossfade whole, in one place, right-aligned. */
+.ob-state-x { display: inline-grid; justify-items: end; }
+.ob-state-x > * { grid-area: 1 / 1; }
+/* One track as wide as the slot, so while the slot eases to its new width both words stay against its right edge. */
+.ob-word { display: inline-grid; grid-template-columns: minmax(0, 1fr); overflow: hidden; vertical-align: bottom; }
+.ob-word-end { justify-items: end; }
+.ob-word-start { justify-items: start; }
+.ob-word > span { grid-area: 1 / 1; white-space: nowrap; }
+
+/* ------------------------------------------------ start at login: a plain setting row, not a box like the fields */
+.ob-bg-row { display: flex; align-items: center; gap: 24px; }
+.ob-bg-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ob-bg-title { font-weight: 600; }
+.ob-bg-err { padding-top: 8px; }
+
+/* ------------------------------------------------ the foot: the one action, and why it waits or what comes next */
+.ob-foot { margin: 0 24px; padding: calc(16px + var(--fold-foot, 0px)) 0 32px; border-top: 1px solid transparent; transition: border-color var(--d-ui) var(--ease); }
+/* Pinned over more of the page (a short window): a hairline says the column carries on under it. Only its colour
+   changes, so the foot never shifts as you scroll. */
+.ob-scroll[data-fade="bottom"] + .ob-foot-wrap .ob-foot, .ob-scroll[data-fade="both"] + .ob-foot-wrap .ob-foot { border-top-color: var(--line); }
+/* The error note: its space opens first, then the note drops in whole from just above, border and all. */
+.ob-foot-err[data-open="true"] > * { overflow: visible; }
+.ob-foot-err .error-note { margin-bottom: 12px; animation: m-drop-in var(--d-arrive) var(--ease-arrive) calc(var(--d-arrive) * 0.7) both; }
+.ob-go-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.ob-go[aria-disabled="true"] { cursor: default; }
+.ob-note { font-size: var(--t-sm); color: var(--muted); }
+
+/* A button's label and icon, held in the footprint of its longest label and kept together in its middle. */
+.ob-held { display: inline-grid; justify-items: center; align-items: center; }
+.ob-held > * { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 7px; }
+.ob-held-size { visibility: hidden; }
+
+/* The page's exit copy (leaveAsGhost): it covers the office's canvas while it rises and fades, and the chart rises in
+   under it. */
+.ob-ghost { z-index: 40; background: var(--canvas); pointer-events: none; }
