@@ -99,8 +99,8 @@ export function FileView({ e, skill, file, history, onBack, onOpenRev, onChanged
         ) : null}
       </div>
       {editing ? (
-        <div className="savebar">
-          {err ? <ErrorNote text={err} /> : <span className="faint" style={{ fontSize: "var(--t-sm)" }}>You can undo this later under Changes.</span>}
+        <div className="savebar enter-rise">
+          {err ? <ErrorNote text={err} /> : <span className="muted" style={{ fontSize: "var(--t-sm)" }}>You can undo this later under Changes.</span>}
           <span className="grow" />
           <button className="btn btn-ghost" onClick={() => setEditing(false)}>Cancel</button>
           <button className="btn btn-primary" disabled={saving} onClick={() => void save()}>{saving ? "Saving…" : "Save"}</button>
@@ -144,7 +144,7 @@ export function RevisionView({ e, rev, run, onBack, onOpenFile, onChanged }: {
                 {run ? (run.kind.type === "chat" ? "Learned in a conversation" : runKindLabel(run.kind)) : "During a run"} <Icon name="arrowUpRight" size={11} />
               </button>
             ) : "Edited by you"}
-            <span className="faint"> · {dateLong(rev.at)}</span>
+            <span className="muted"> · {dateLong(rev.at)}</span>
             <span className="mono num rev-lines">{stats.added ? <span className="tl-add">+{stats.added}</span> : null} {stats.removed ? <span className="tl-del">−{stats.removed}</span> : null}</span>
           </span>
         </div>

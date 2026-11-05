@@ -51,7 +51,7 @@ export function ImportSheet({ e, preselect, onClose }: { e: EmployeeView; presel
         </div>
       </div>
       <footer className="sheet-foot">
-        {err ? <ErrorNote text={err} /> : <span className="faint">{name} starts organizing as soon as they land.</span>}
+        {err ? <ErrorNote text={err} /> : <span className="muted">{name} starts organizing as soon as they land.</span>}
         <span className="grow" />
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" disabled={busy || keys.length === 0} onClick={() => void submit()}>
@@ -125,10 +125,10 @@ export function OriginalsSheet({ e, run, onClose }: { e: EmployeeView; run: Orga
             })}
           </div>
         ) : null}
-        <p className="faint" style={{ fontSize: "var(--t-sm)", marginTop: 10 }}>Removed skills go to the Recycle Bin, so you can restore them from there.</p>
+        <p className="muted" style={{ fontSize: "var(--t-sm)", marginTop: 10 }}>Removed skills go to the Recycle Bin, so you can restore them from there.</p>
       </div>
       <footer className="sheet-foot">
-        {err ? <ErrorNote text={err} /> : <span className="faint">{picked.length ? `${picked.length} selected` : "Nothing is removed unless you tick it."}</span>}
+        {err ? <ErrorNote text={err} /> : <span className="muted">{picked.length ? `${picked.length} selected` : "Nothing is removed unless you tick it."}</span>}
         <span className="grow" />
         <button className="btn btn-ghost" disabled={busy || picked.length === 0} onClick={() => void finish(picked)}>Remove selected</button>
         <button className="btn btn-primary" disabled={busy} onClick={() => void finish([])}>Keep my skills</button>

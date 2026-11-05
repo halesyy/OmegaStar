@@ -83,7 +83,7 @@ export function ProfileTab({ e, onGone }: { e: EmployeeView; onGone: () => void 
           <div className="field">
             <span className="field-label">Allowed without asking <span className="hint">{d.clearance === "autonomous" ? "not needed while autonomous" : "everything else is blocked"}</span></span>
             <div className="rules">
-              {d.allowRules.length === 0 ? <span className="faint" style={{ fontSize: "var(--t-sm)" }}>Nothing extra yet. When something is blocked, you can allow it from the Inbox.</span> : null}
+              {d.allowRules.length === 0 ? <span className="muted" style={{ fontSize: "var(--t-sm)" }}>Nothing extra yet. When something is blocked, you can allow it from the Inbox.</span> : null}
               {d.allowRules.map((r) => (
                 <span key={r} className="rule mono">
                   {r}
@@ -119,7 +119,7 @@ export function ProfileTab({ e, onGone }: { e: EmployeeView; onGone: () => void 
         </div>
       </div>
       {dirty || err ? (
-        <div className="savebar">
+        <div className="savebar enter-rise">
           {err ? <ErrorNote text={err} /> : <span className="muted" style={{ fontSize: "var(--t-sm)" }}>Unsaved changes</span>}
           <span className="grow" />
           <button className="btn btn-ghost" onClick={() => { reset(); setErr(null); }}>Discard</button>
@@ -180,7 +180,7 @@ function Owns({ e, name }: { e: EmployeeView; name: string }) {
       ) : q.data?.trim() ? (
         <div className="fileview-doc"><Markdown text={q.data} /></div>
       ) : q.data !== undefined ? (
-        <span className="faint" style={{ fontSize: "var(--t-sm)" }}>Not set yet. {name} proposes it in their first weekly review.</span>
+        <span className="muted" style={{ fontSize: "var(--t-sm)" }}>Not set yet. {name} proposes it in their first weekly review.</span>
       ) : null}
     </Section>
   );
