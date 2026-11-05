@@ -1,21 +1,158 @@
-.set-sub { margin-top: -4px; font-size: var(--t-sm); color: var(--muted); line-height: 1.5; }
-.set-group { border: 1px solid var(--line); border-radius: var(--r-card); }
-.set-row { display: flex; align-items: center; gap: 20px; padding: 14px 18px; }
-.set-row + .set-row { border-top: 1px solid var(--line); }
-.set-title { font-weight: 500; }
-.set-desc { font-size: var(--t-sm); color: var(--muted); line-height: 1.5; margin-top: 2px; overflow-wrap: anywhere; }
-.set-control { flex: none; display: flex; align-items: center; }
-.set-path { width: 240px; }
-.stepper { display: inline-flex; align-items: center; gap: 4px; }
-.stepper-btn.btn-icon { width: 28px; height: 28px; font-size: var(--t-md); }
-.stepper-value { width: 40px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 7px; background: var(--sunken); border: 1px solid var(--line); font-size: 13px; }
-.seg button { display: inline-flex; align-items: center; gap: 5px; }
-.copycmd { display: inline-flex; align-items: center; gap: 4px; padding: 3px 3px 3px 10px; border-radius: 8px; background: var(--sunken); border: 1px solid var(--line); }
-.copycmd code { font-size: var(--t-sm); color: var(--ink); }
-.set-note { display: block; margin-top: 2px; color: var(--muted); }
-.set-err { color: var(--err); }
+/* Settings: one document of plain sections. Each row says what a setting does, then its control; a change saves at
+   once and its own row says how it went. On wide windows the section names sit beside the page. */
+
+/* ------------------------------------------------ the page: the column (and the section list, from 1280px) as one
+   block, centred in the work surface, with the page's title on the column's left edge. At the smallest window the
+   column fills it to a 24px gutter on both sides. */
+.pagecol.set-col { --set-col: 872px; --set-index: 168px; --set-gap: var(--sp-8); --set-block: var(--set-col); }
+.pagecol.set-col > .pagehead,
+.pagecol.set-col .pagecol-inner { width: min(100%, calc(var(--set-block) + 48px)); margin-inline: auto; }
+
+/* The first section sits 24px under the page header (the column's own 4px plus 20), so it clears the header's fade
+   and lines up with the section list beside it. Loading and the error state keep the same top. */
+.set-page { display: grid; grid-template-columns: minmax(0, 1fr); padding-top: 20px; animation: m-fade-in var(--d-fade) linear both; }
+.set-state { max-width: var(--set-col); padding-top: 20px; }
+.set-main { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+
+/* ------------------------------------------------ sections: a Display head you can scan by, then a hairline list */
+.set-sec { gap: 0; scroll-margin-top: 24px; }
+.set-sec > .psec-head { min-height: 28px; }
+.set-sec .psec-title { font-size: var(--t-md); font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.02em; line-height: var(--lh-tight); }
+.set-sub { margin-top: -4px; max-width: 64ch; font-size: var(--t-sm); line-height: 1.5; color: var(--muted); text-wrap: pretty; }
+.set-list { margin-top: var(--sp-3); border-bottom: 1px solid var(--line); }
+/* A link beside a section's title: no surface, an underline under the pointer. */
+.set-link { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--muted); transition: color var(--d-ui) var(--ease); }
+.set-link:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+/* A note under a section's list. */
+.set-aside { margin-top: var(--sp-3); max-width: 64ch; font-size: var(--t-sm); line-height: 1.5; color: var(--muted); text-wrap: pretty; }
+.set-aside-title { margin-right: 4px; font-weight: 600; color: var(--ink-2); }
+
+/* ------------------------------------------------ rows: the words in a flexible track, the control in a fixed one.
+   Every control is centred on the title's line (18px tall) inside a 32px box that starts 7px above it, so a control
+   never moves when the words beside it change length; the row's 15px top keeps that box 8px clear of the rule. */
+.set-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; column-gap: var(--sp-5);
+  padding: 15px 0 var(--sp-3); border-top: 1px solid var(--line);
+}
+.set-words { min-width: 0; }
+.set-title-line { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; min-height: 18px; }
+.set-title { min-width: 0; font-weight: 600; line-height: 1.35; color: var(--ink); }
+.set-desc { margin-top: 2px; max-width: 62ch; font-size: var(--t-sm); line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; text-wrap: pretty; }
+.set-desc .mono, .set-aside .mono { font-size: var(--t-xs); }
+.set-note { display: block; }
+.set-err { color: var(--err-text); }
 .set-warn { color: var(--warn); }
-.set-select { width: auto; min-width: 104px; height: 30px; font-size: var(--t-sm); }
-.set-hours { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.set-days { display: flex; gap: 4px; }
-.set-days .chip { height: 26px; padding: 0 9px; }
+.set-control { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); min-width: 0; min-height: 32px; margin-top: -7px; }
+.set-control .input, .set-control .select { height: 32px; }
+.set-input { width: 260px; }
+.set-select { width: auto; min-width: 112px; font-size: var(--t-sm); }
+.set-times { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.set-hours { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-2); }
+.set-version { font-size: var(--t-sm); font-weight: 600; color: var(--ink-2); }
+.set-count { font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
+.set-count-warn { color: var(--warn); }
+
+/* ------------------------------------------------ saving, row by row
+   "Saving…" and "Saved" share one slot beside the title. "Saving…" waits 400 ms, so a quick save shows only "Saved";
+   "Saved" fades out slower than it came. */
+.set-mark { flex: none; display: inline-grid; font-size: var(--t-sm); font-weight: 550; line-height: 1; white-space: nowrap; }
+.set-mark > span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 4px; opacity: 0; transition: opacity var(--d-ui) var(--ease); }
+.set-mark-saving { color: var(--muted); }
+.set-mark-saved { color: var(--ok-text); transition-duration: var(--d-arrive); }
+.set-mark[data-state="saving"] > .set-mark-saving { opacity: 1; transition-delay: 400ms; }
+.set-mark[data-state="saved"] > .set-mark-saved { opacity: 1; transition: opacity var(--d-ui) var(--ease) 60ms; }
+
+/* A failed save: the reason in coral words, then Try again, under the description. Every save fails this one way. */
+.set-fail { display: flex; align-items: flex-start; gap: 6px; padding-top: 6px; font-size: var(--t-sm); font-weight: 550; line-height: 1.45; color: var(--err-text); }
+.set-fail > svg { flex: none; margin-top: 3px; }
+.set-retry {
+  margin-left: 6px; font-weight: 650; color: var(--ink); text-decoration: underline; text-underline-offset: 3px;
+  text-decoration-thickness: 1px; text-decoration-color: var(--accent-line); transition: text-decoration-color var(--d-ui) var(--ease);
+}
+.set-retry:hover { text-decoration-color: currentColor; }
+
+/* A field and the error under it (the proxy's own checks): the error wraps inside the field's width. */
+.set-field { display: flex; flex-direction: column; width: min-content; }
+.set-field-row { display: flex; align-items: center; gap: var(--sp-2); }
+.set-field-error { align-items: flex-start; padding-top: 6px; line-height: 1.4; }
+.set-field-error > svg { flex: none; margin-top: 2px; }
+
+/* A button's labels in one slot, at the widest one's width. */
+.set-states { display: inline-grid; }
+.set-states > span { grid-area: 1 / 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; opacity: 0; transition: opacity var(--d-ui) var(--ease); }
+.set-states[data-at="0"] > :nth-child(1), .set-states[data-at="1"] > :nth-child(2), .set-states[data-at="2"] > :nth-child(3) { opacity: 1; }
+.set-save:disabled:not([data-state="idle"]) { opacity: 1; }
+.set-save svg { color: var(--ok-text); }
+
+/* Words that follow a value: the old fade out where they were (out of the flow) while the box eases to the new words'
+   height (Swap animates it) and the new words fade in. */
+.set-swap { position: relative; display: block; }
+.set-swap-out { position: absolute; inset: 0 0 auto; animation: m-fade-out var(--d-ui) var(--ease) both; pointer-events: none; }
+.set-swap-in { display: block; animation: m-fade-in var(--d-ui) var(--ease) var(--swap-delay, 60ms) both; }
+
+/* ------------------------------------------------ stepper: minus, the value and plus in one outlined control. The
+   outline is drawn over the buttons, so a hover fill runs flush to it with the outer corners. */
+.set-stepper { position: relative; display: inline-flex; align-items: center; height: 32px; border-radius: var(--r-input); background: var(--surface); }
+.set-stepper::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--line-strong); pointer-events: none; }
+.set-stepper button {
+  display: grid; place-items: center; width: 32px; height: 32px; color: var(--ink-2);
+  transition: background var(--d-ui) var(--ease), color var(--d-ui) var(--ease);
+}
+.set-stepper button:first-child { border-radius: var(--r-input) 0 0 var(--r-input); }
+.set-stepper button:last-child { border-radius: 0 var(--r-input) var(--r-input) 0; }
+.set-stepper button:hover:not(:disabled) { background: var(--sunken); color: var(--ink); }
+.set-stepper button:active:not(:disabled) > svg { transform: scale(0.9); }
+.set-stepper button > svg { transition: transform var(--d-ui) var(--ease); }
+.set-stepper button:disabled { color: var(--faint); cursor: default; }
+.set-stepper-value { min-width: 26px; text-align: center; font-size: var(--t-base); font-weight: 600; color: var(--ink); }
+
+/* ------------------------------------------------ working days: seven small toggles a little apart, so the chosen
+   days read as so many choices and weigh less than the section's heading. The focus ring is the shared one, drawn
+   over the outline and above the neighbouring days. */
+.set-days { display: inline-flex; gap: var(--sp-1); }
+.set-days button {
+  position: relative; height: 24px; min-width: 32px; padding: 0 6px; border-radius: var(--r-inner); box-shadow: inset 0 0 0 1px var(--line-strong);
+  font-size: var(--t-sm); font-weight: 600; color: var(--muted);
+  transition: background var(--d-ui) var(--ease), color var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease);
+}
+.set-days button:hover { color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.set-days button[aria-pressed="true"] { background: var(--sel); color: var(--sel-ink); box-shadow: none; }
+.set-days button:focus-visible { z-index: 1; border-radius: var(--r-inner); box-shadow: inset 0 0 0 1px var(--line-strong), var(--focus); }
+.set-days button[aria-pressed="true"]:focus-visible { box-shadow: var(--focus); }
+.set-days button[aria-disabled="true"] { cursor: default; }
+
+/* ------------------------------------------------ the section list, beside the page on wide windows */
+.set-index { display: none; }
+.set-index-item {
+  height: 28px; display: flex; align-items: center; font-size: 12.5px; font-weight: 500; color: var(--muted); text-align: left;
+  white-space: nowrap; transition: color var(--d-ui) var(--ease);
+}
+.set-index-item:hover, .set-index-item[aria-current] { color: var(--ink); }
+.set-index-item[aria-current] { font-weight: 600; }
+/* The marker slides to the section you are reading. */
+.set-index-bar {
+  position: absolute; left: 0; top: 6px; width: 2px; height: 16px; border-radius: 1px; background: var(--ink);
+  transform: translateY(calc(var(--at) * 28px)); transition: transform var(--d-ui) var(--ease);
+}
+@media (min-width: 1280px) {
+  .pagecol.set-col { --set-block: calc(var(--set-col) + var(--set-gap) + var(--set-index)); }
+  .set-page { grid-template-columns: minmax(0, 1fr) var(--set-index); column-gap: var(--set-gap); }
+  .set-index { position: sticky; top: 24px; align-self: start; display: flex; flex-direction: column; padding-left: 14px; box-shadow: inset 1px 0 0 var(--line); }
+}
+
+/* A short window: a little less air between sections, still four times the gap under each heading. */
+@media (max-height: 700px) {
+  .set-main { gap: 40px; }
+}
+
+/* ------------------------------------------------ loading: each section's own rows and the section list's place,
+   held still */
+.set-loading .set-sec { display: flex; flex-direction: column; }
+.set-sk-head { display: flex; align-items: center; justify-content: space-between; height: 28px; }
+.set-sk-sub { margin-top: -4px; }
+.set-sk-line { display: flex; align-items: center; height: 18px; }
+.set-words > .set-sk-line:nth-child(2) { margin-top: 2px; }
+.set-sk-index { display: flex; align-items: center; height: 28px; }
+
+/* Read aloud, not shown. */
+.set-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
