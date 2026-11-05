@@ -17,10 +17,14 @@ export function applyTheme(pref: ThemePref = theme.get()) {
   else root.setAttribute("data-theme", pref);
 }
 
-export function setTheme(pref: ThemePref) {
+/** Saves and applies a theme. `fade`: the whole window crossfades to it (a view transition, about 200ms) rather than
+ *  flipping in one frame; off under reduced motion, where the browser has no view transitions, and for set-up calls. */
+export function setTheme(pref: ThemePref, fade = true) {
   storageSet(KEY, pref);
-  applyTheme(pref);
-  theme.set(pref);
+  const apply = () => { applyTheme(pref); theme.set(pref); };
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+  if (fade && doc.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) doc.startViewTransition(apply);
+  else apply();
 }
 
 export const useTheme = () => useStore(theme);

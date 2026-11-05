@@ -5,7 +5,7 @@ import { conversationOf, threadFocus } from "./threads";
 
 /** An employee panel's tabs. People and you have a single page, so no tab. */
 export type PanelTab = "chat" | "work" | "skills" | "profile";
-export type ActivityView = "runs" | "skills";
+export type ActivityView = "runs" | "numbers" | "skills";
 /** The Inbox's tabs. */
 export type InboxView = "inbox" | "snoozed" | "parked" | "archive";
 const INBOX_VIEWS: InboxView[] = ["inbox", "snoozed", "parked", "archive"];
@@ -28,7 +28,7 @@ function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   switch (parts[0]) {
     case "inbox": return { page: "inbox", view: INBOX_VIEWS.find((v) => v === parts[1]) ?? "inbox", item: parts[2] ?? null };
-    case "activity": return { page: "activity", view: parts[1] === "skills" ? "skills" : "runs" };
+    case "activity": return { page: "activity", view: parts[1] === "skills" || parts[1] === "numbers" ? parts[1] : "runs" };
     case "settings": return { page: "settings" };
     case "run": if (parts[1]) return { page: "run", runId: parts[1] }; break;
     case "chat": if (parts[1]) return { page: "chat", employeeId: parts[1], focus: parts[2] ?? null }; break;
@@ -50,7 +50,7 @@ function routeHash(r: Route): string {
     }
     case "run": return `#/run/${encodeURIComponent(r.runId)}`;
     case "chat": return "#/" + ["chat", r.employeeId, ...(r.focus ? [r.focus] : [])].map(encodeURIComponent).join("/");
-    case "activity": return r.view === "skills" ? "#/activity/skills" : "#/activity";
+    case "activity": return r.view === "runs" ? "#/activity" : `#/activity/${r.view}`;
     case "inbox": {
       const view = r.view ?? "inbox";
       if (view === "inbox" && !r.item) return "#/inbox";

@@ -42,7 +42,8 @@ export function UpdateCard() {
     setUpdate({ kind: "installing" });
     call("install_update").catch((e) => setUpdate({ kind: "failed", message: errorMessage(e) }));
   };
-  const label = installing ? "Updating…" : failed ? "Try again" : "Restart";
+  // The button keeps one short word; what is happening is the line under the title.
+  const label = failed ? "Retry" : "Restart";
   const tip = installing ? "Updating…" : armed ? "Restarting stops work in progress. Click again to restart" : `Update ready: version ${version}`;
 
   return (
@@ -51,11 +52,11 @@ export function UpdateCard() {
         <div className="update-row">
           <div className="update-text">
             <div className="update-title">Update ready</div>
-            {failed ? null : <div className="update-sub">Version {version}</div>}
+            {failed ? null : <div className="update-sub">{installing ? "Updating…" : `Version ${version}`}</div>}
           </div>
           <button className="btn btn-sm update-btn" onClick={working && !installing ? () => setAsking(true) : install} disabled={installing || asking} aria-expanded={working ? asking : undefined}>
-            {/* Every label in one slot, so the button holds the width of the longest and never shoves the row. */}
-            <span className="update-btn-slot"><span aria-hidden>Updating…</span><span aria-hidden>Try again</span><span>{label}</span></span>
+            {/* Both labels in one slot, so the button holds its width when Restart becomes Retry. */}
+            <span className="update-btn-slot"><span aria-hidden>Restart</span><span aria-hidden>Retry</span><span>{label}</span></span>
           </button>
         </div>
         {failed ? <div className="update-err" role="alert">{failed}</div> : null}

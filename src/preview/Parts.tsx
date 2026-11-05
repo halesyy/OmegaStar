@@ -23,7 +23,7 @@ const Row = ({ label, children }: { label?: string; children: ReactNode }) => (
 
 export function Parts() {
   const q = new URLSearchParams(location.search).get("theme");
-  if (q === "dark" || q === "light") setTheme(q);
+  if (q === "dark" || q === "light") setTheme(q, false);
   const [tab, setTab] = useState<"chat" | "work" | "skills" | "profile">("chat");
   const [seg, setSeg] = useState("everyone");
   const [on, setOn] = useState(true);

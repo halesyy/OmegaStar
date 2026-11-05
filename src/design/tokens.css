@@ -70,6 +70,7 @@
   --line-card: var(--line);
   --shadow-card: none;      /* cards are 1px rules, never lifted */
   --shadow-float: 0 1px 2px rgb(10 12 18 / 0.08), 0 16px 36px -14px rgb(10 12 18 / 0.22); /* menus, palette, sheets, toasts */
+  --float: var(--surface);  /* a menu or popover's own surface: one step up from the page in dark */
   --focus: 0 0 0 2px var(--canvas), 0 0 0 4px var(--live);
 
   --av-bg-l: 0.93;
@@ -184,7 +185,8 @@
   --scrim: rgb(0 0 0 / 0.6);
   --line-card: var(--line);
   --shadow-card: none;
-  --shadow-float: 0 0 0 1px #262b36, 0 16px 36px -14px rgb(0 0 0 / 0.8);
+  --shadow-float: 0 0 0 1px #2e3441, 0 16px 36px -14px rgb(0 0 0 / 0.8);
+  --float: #161a21;
   --av-bg-l: 0.32;
   --av-bg-c: 0.06;
   --av-fg-l: 0.9;
@@ -245,7 +247,8 @@
     --scrim: rgb(0 0 0 / 0.6);
     --line-card: var(--line);
     --shadow-card: none;
-    --shadow-float: 0 0 0 1px #262b36, 0 16px 36px -14px rgb(0 0 0 / 0.8);
+    --shadow-float: 0 0 0 1px #2e3441, 0 16px 36px -14px rgb(0 0 0 / 0.8);
+  --float: #161a21;
     --av-bg-l: 0.32;
     --av-bg-c: 0.06;
     --av-fg-l: 0.9;

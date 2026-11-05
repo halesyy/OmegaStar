@@ -243,7 +243,8 @@ const TIP_DELAY_MS = 250;
  *  window has no room), drawn above everything so no scrolling sidebar or panel clips it. It shows on hover after a
  *  short rest, at once on keyboard focus, and follows the element's `data-tip` while shown. Mounted once, in App. */
 export function TipLayer() {
-  const [tip, setTip] = useState<{ el: HTMLElement; text: string } | null>(null);
+  // `key`: the element's data-tip-key, the key that does the same, drawn as a keycap after the text.
+  const [tip, setTip] = useState<{ el: HTMLElement; text: string; key?: string } | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
@@ -253,7 +254,7 @@ export function TipLayer() {
     const show = (el: HTMLElement, now: boolean) => {
       window.clearTimeout(timer);
       current = el;
-      const go = () => { if (current === el && el.dataset.tip) setTip({ el, text: el.dataset.tip }); };
+      const go = () => { if (current === el && el.dataset.tip) setTip({ el, text: el.dataset.tip, key: el.dataset.tipKey }); };
       if (now) go(); else timer = window.setTimeout(go, TIP_DELAY_MS);
     };
     const hide = () => { window.clearTimeout(timer); current = null; setTip(null); };
@@ -291,11 +292,12 @@ export function TipLayer() {
     if (!tip) return;
     const follow = () => {
       const text = tip.el.dataset.tip;
+      const key = tip.el.dataset.tipKey;
       if (!text || !tip.el.isConnected) setTip(null);
-      else if (text !== tip.text) setTip({ el: tip.el, text });
+      else if (text !== tip.text || key !== tip.key) setTip({ el: tip.el, text, key });
     };
     const watch = new MutationObserver(follow);
-    watch.observe(tip.el, { attributes: true, attributeFilter: ["data-tip"] });
+    watch.observe(tip.el, { attributes: true, attributeFilter: ["data-tip", "data-tip-key"] });
     follow(); // it may have changed between showing and watching (a click that arms a button)
     return () => watch.disconnect();
   }, [tip]);
@@ -311,7 +313,7 @@ export function TipLayer() {
   if (!tip) return null;
   return createPortal(
     <div ref={box} className={`tip ${pos ? "tip-on" : ""}`} role="tooltip" style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: 0 }}>
-      {tip.text}
+      {tip.text}{tip.key ? <span className="kc">{tip.key}</span> : null}
     </div>,
     document.body,
   );
@@ -501,8 +503,9 @@ const numberOf = (v: string | number) => (typeof v === "number" ? v : NUMBERISH.
 /** A value that rolls to its new value when it changes, in its own clipped slot: the old one leaves as the new one
  *  arrives, upward when the value went up and downward when it went down (numbers and amounts alike). A number or an
  *  amount rolls only the digits that changed, last digit first; unchanged digits hold still. Words roll whole. Under
- *  reduced motion the two crossfade. */
-export function Roll({ value, className }: { value: string | number; className?: string }) {
+ *  reduced motion the two crossfade. `render` draws each value (an icon with its word: they roll as one). */
+export function Roll({ value, className, render }: { value: string | number; className?: string; render?: (v: string | number) => ReactNode }) {
+  const draw = render ?? ((v: string | number) => v);
   const [roll, setRoll] = useState<{ value: string | number; from: string | number | null; up: boolean }>({ value, from: null, up: true });
   if (roll.value !== value) {
     const [a, b] = [numberOf(roll.value), numberOf(value)];
@@ -519,12 +522,12 @@ export function Roll({ value, className }: { value: string | number; className?:
     void Promise.all(anims.map((a) => a.finished)).then(() => { if (live) setRoll((r) => ({ ...r, from: null })); }, () => {});
     return () => { live = false; anims.forEach((a) => a.cancel()); };
   }, [roll.from, roll.up]);
-  if (roll.from === null) return <span ref={slot} className={`roll ${className ?? ""}`}><span>{value}</span></span>;
+  if (roll.from === null) return <span ref={slot} className={`roll ${className ?? ""}`}><span>{draw(value)}</span></span>;
   const [from, to] = [String(roll.from), String(value)];
-  if (!NUMBERISH.test(from) || !NUMBERISH.test(to)) {
+  if (render || !NUMBERISH.test(from) || !NUMBERISH.test(to)) {
     return (
       <span ref={slot} className={`roll ${className ?? ""}`}>
-        <span className="roll" data-roll><span aria-hidden>{from}</span><span>{to}</span></span>
+        <span className="roll" data-roll><span aria-hidden>{draw(roll.from)}</span><span>{draw(value)}</span></span>
       </span>
     );
   }

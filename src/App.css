@@ -146,5 +146,23 @@
 .shell-collapsed .side-item-on .side-badge { box-shadow: 0 0 0 2px var(--side-on); }
 .shell-collapsed .side-you { justify-content: center; padding: 10px 0 0; }
 
+/* ------------------------------------------------ the hand-off from onboarding: the band is already there with your row
+   in it; the sidebar's parts drop into place in reading order, one --stagger apart. */
+.side-arriving .side-search,
+.side-arriving .side-nav > :not(.side-team),
+.side-arriving .side-team > *,
+.side-arriving .side-bottom > :not(.side-you) { animation: m-drop-in var(--d-arrive) var(--ease-arrive) calc(var(--i, 0) * var(--stagger)) both; }
+.side-arriving .side-nav > :nth-child(1) { --i: 1; }
+.side-arriving .side-nav > :nth-child(2) { --i: 2; }
+.side-arriving .side-nav > :nth-child(3) { --i: 3; }
+.side-arriving .side-nav > :nth-child(4) { --i: 4; }
+.side-arriving .side-team > :nth-child(1) { --i: 5; }
+.side-arriving .side-team > :nth-child(2) { --i: 6; }
+.side-arriving .side-team > :nth-child(3) { --i: 7; }
+.side-arriving .side-team > :nth-child(n + 4) { --i: 8; }
+.side-arriving .side-bottom > :nth-child(1) { --i: 9; }
+.side-arriving .side-bottom > :nth-child(2) { --i: 10; }
+.side-arriving .side-bottom > :nth-child(n + 3) { --i: 11; }
+
 .content { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--canvas); }
 .page { position: relative; flex: 1; min-height: 0; overflow: hidden; }

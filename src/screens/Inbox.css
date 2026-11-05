@@ -2,8 +2,7 @@
    The list says what each item needs in one word; the open item has its evidence above and its actions in a bar at
    the foot. Settling an item closes its row as the next rises into place (see Inbox.tsx). */
 .ibx { height: 100%; display: grid; grid-template-columns: clamp(300px, 26% + 100px, 420px) minmax(0, 1fr); min-height: 0; }
-/* A toast lands above the open item's action bar, never on its buttons. Read by .toasts once the foundation's toast
-   layer takes --toasts-bottom (see the Inbox's report). */
+/* A toast lands above the open item's action bar, never on its buttons (.toasts reads --toasts-bottom). */
 :root:has(.ibx) { --toasts-bottom: 92px; }
 
 /* ------------------------------------------------ the list */

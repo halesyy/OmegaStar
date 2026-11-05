@@ -48,8 +48,19 @@ export { COLLAPSE_KEY } from "./lib/sidebar";
 /** The palette's leaving fade (--d-ui), with a frame to spare. */
 const PALETTE_LEAVE_MS = 160;
 
-/** `arriving`: onboarding has just handed over, so the canvas comes in as one body swap. */
+/** How long the sidebar's arrival takes at most: its last row's delay and its own drop. */
+const ARRIVE_MS = 1200;
+
+/** `arriving`: onboarding has just handed over, so the canvas comes in as one body swap and the sidebar's parts drop
+ *  into the band in reading order (your row, already there in onboarding's band, stays put). */
 export function Shell({ arriving = false }: { arriving?: boolean }) {
+  // Only for the hand-off itself: a row that arrives later (someone starts working) is not part of it.
+  const [arrive, setArrive] = useState(arriving);
+  useEffect(() => {
+    if (!arrive) return;
+    const t = window.setTimeout(() => setArrive(false), ARRIVE_MS);
+    return () => window.clearTimeout(t);
+  }, [arrive]);
   const route = useRoute();
   const { snap } = useOrg();
   const [sheet, setSheet] = useState<Sheet>(null);
@@ -142,7 +153,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
     <ShellCtx.Provider value={api}>
       <div className={`shell ${collapsed ? "shell-collapsed" : ""}`}>
         {macChrome ? <div className="side-chrome" {...dragRegion} /> : null}
-        <aside ref={sideRef} className="side scroll-fade" aria-label="Sidebar">
+        <aside ref={sideRef} className={`side scroll-fade ${arrive ? "side-arriving" : ""}`} aria-label="Sidebar">
           <div className="side-top">
             <SideBrand />
             <button className="side-collapse" onClick={toggleCollapsed} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} data-tip={collapsed ? "Expand" : undefined}>

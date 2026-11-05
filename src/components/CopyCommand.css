@@ -5,3 +5,4 @@
 }
 .copycmd code { min-width: 0; font-size: var(--t-sm); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .copycmd .btn { flex: none; }
+.copycmd-lab { display: inline-flex; align-items: center; gap: 6px; }

@@ -18,7 +18,8 @@ export function CopyCommand({ command }: { command: string }) {
     <span className="copycmd">
       <code className="mono">{command}</code>
       <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy()} aria-label={`Copy ${command}`}>
-        <Icon name={copied ? "check" : "copy"} size={12} /> <Roll value={copied ? "Copied" : "Copy"} />
+        {/* The icon and the word roll as one, so the tick never lands before "Copied". */}
+        <Roll value={copied ? "Copied" : "Copy"} className="copycmd-roll" render={(v) => <span className="copycmd-lab"><Icon name={v === "Copied" ? "check" : "copy"} size={12} />{v}</span>} />
       </button>
     </span>
   );

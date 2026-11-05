@@ -54,14 +54,14 @@
 
 /* ------------------------------------------------ popover: opens from its anchor, sized before its first frame */
 .popover {
-  position: fixed; z-index: 60; background: var(--surface); border-radius: var(--r-card);
+  position: fixed; z-index: 60; background: var(--float); border-radius: var(--r-card);
   box-shadow: var(--shadow-float); padding: 12px; animation: m-pop-in var(--d-panel) var(--ease) both;
 }
 @media (prefers-reduced-motion: reduce) { .popover { animation: m-fade-in var(--d-fade) linear both; } }
 
 /* ------------------------------------------------ toasts: one line of what happened, and the way back */
 /* Centred on the canvas, beside whichever sidebar is showing (Shell sets data-shell); centred on the window elsewhere. */
-.toasts { --toasts-left: 0px; position: fixed; left: calc(var(--toasts-left) + (100vw - var(--toasts-left)) / 2); bottom: 24px; translate: -50% 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 80; pointer-events: none; }
+.toasts { --toasts-left: 0px; position: fixed; left: calc(var(--toasts-left) + (100vw - var(--toasts-left)) / 2); bottom: var(--toasts-bottom, 24px); translate: -50% 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 80; pointer-events: none; }
 :root[data-shell="side"] .toasts { --toasts-left: var(--side-w); }
 :root[data-shell="rail"] .toasts { --toasts-left: var(--rail-w); }
 .toast {
@@ -121,7 +121,7 @@
 .pagecol { height: 100%; display: flex; flex-direction: column; }
 /* The header's controls end where the column does, so a wide window has no void between them. */
 .pagecol > .pagehead { width: min(820px, 100%); padding-right: 24px; }
-.pagecol-scroll { flex: 1; min-height: 0; overflow: auto; }
+.pagecol-scroll { flex: 1; min-height: 0; overflow: auto; --band: 12px; --fade: 20px; }
 .pagecol-inner { width: min(820px, 100%); padding: 4px 24px 64px; display: flex; flex-direction: column; gap: 36px; }
 
 .psec { display: flex; flex-direction: column; gap: 10px; }

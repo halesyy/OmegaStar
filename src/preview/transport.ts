@@ -80,7 +80,7 @@ export function previewTransport(): PreviewTransport {
 
   installTauriShim();
   const theme = params.get("theme");
-  if (theme === "light" || theme === "dark" || theme === "system") setTheme(theme);
+  if (theme === "light" || theme === "dark" || theme === "system") setTheme(theme, false);
   // The sidebar at every size: collapsed is the rail everywhere, expanded the full sidebar everywhere (src/lib/sidebar.ts).
   const sidebar = params.get("sidebar");
   if (sidebar) {

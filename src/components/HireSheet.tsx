@@ -244,7 +244,10 @@ export function HireSheet({ open, managerId, template, proposal, onClose, return
                 type="button" className="preview-av" title="Try another colour" aria-label="Try another avatar colour"
                 onClick={() => { setHueTouched(true); set("hue", (hue + 47) % 360); }}
               >
-                <Avatar name={draft.name || "?"} hue={hue} size={40} />
+                {/* A hire not made yet: the dashed proposed-hire avatar, with their initials once they have a name. */}
+                {draft.name.trim()
+                  ? <Avatar name={draft.name} hue={hue} size={40} proposed />
+                  : <span className="av av-proposed" style={{ "--h": hue, width: 40, height: 40 } as React.CSSProperties} aria-hidden />}
               </button>
               <div className="stack grow" style={{ minWidth: 0 }}>
                 <span className="card-name">{draft.name.trim() || "Their name"}</span>

@@ -51,9 +51,8 @@ function useWide(px: number): [(el: HTMLElement | null) => void, boolean] {
 export function ActivityScreen({ view }: { view: ActivityView }) {
   const { snap, error } = useOrg();
   const [who, setWho] = useState<string | null>(null);
-  // Numbers is a view of this page, not a route of its own: the route says runs or skills.
-  const [numbers, setNumbers] = useState(false);
-  const shown: Shown = view === "skills" ? "skills" : numbers ? "numbers" : "runs";
+  // The route says which view: runs, numbers (#/activity/numbers) or skill changes.
+  const shown: Shown = view;
   const employees = useMemo(() => snap?.employees ?? [], [snap]);
   const people = useMemo(() => snap?.people ?? [], [snap]);
   const chosen = employees.find((e) => e.id === who);
@@ -70,10 +69,7 @@ export function ActivityScreen({ view }: { view: ActivityView }) {
   const side = useScrollFade<HTMLElement>();
   const main = useScrollFade<HTMLDivElement>();
 
-  const go = (to: Shown) => {
-    setNumbers(to === "numbers");
-    navigate({ page: "activity", view: to === "skills" ? "skills" : "runs" });
-  };
+  const go = (to: Shown) => navigate({ page: "activity", view: to });
 
   // The work column is drawn only when there is something to put in it; otherwise the page takes the whole width.
   const column = wide && hired && !(!snap && error);

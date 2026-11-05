@@ -188,6 +188,8 @@ input, textarea { caret-color: var(--live); }
   opacity: 0; pointer-events: none; transition: opacity var(--d-ui) var(--ease), translate var(--d-ui) var(--ease);
 }
 .tip-on { opacity: 1; translate: 0 -50%; }
+/* The key that does the same (data-tip-key), as a keycap after the words. */
+.tip .kc { display: inline-block; margin-left: 8px; padding: 3px 5px; border-radius: 3px; box-shadow: inset 0 0 0 1px currentColor; font: 600 11px/1 var(--font-ui); opacity: 0.6; vertical-align: 1px; }
 
 /* ------------------------------------------------ markdown */
 .md { font-size: var(--t-base); line-height: 1.6; color: var(--ink); overflow-wrap: anywhere; }
@@ -238,10 +240,15 @@ input, textarea { caret-color: var(--live); }
 .skeleton-c { border-radius: 50%; }
 
 /* A scrolling area fades only at an edge that hides something (useScrollFade in src/lib/scrollFade.ts sets data-fade). */
-.scroll-fade { --fade: 24px; }
+/* `--band`: a solid strip at the top edge before the fade begins (under a header), so a line passing under the header is
+   covered whole rather than left as half-faded specks. */
+.scroll-fade { --fade: 24px; --band: 0px; }
 .scroll-fade[data-fade="bottom"] { -webkit-mask-image: linear-gradient(#000 calc(100% - var(--fade)), transparent); mask-image: linear-gradient(#000 calc(100% - var(--fade)), transparent); }
-.scroll-fade[data-fade="top"] { -webkit-mask-image: linear-gradient(transparent, #000 var(--fade)); mask-image: linear-gradient(transparent, #000 var(--fade)); }
-.scroll-fade[data-fade="both"] { -webkit-mask-image: linear-gradient(transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent); mask-image: linear-gradient(transparent, #000 var(--fade), #000 calc(100% - var(--fade)), transparent); }
+.scroll-fade[data-fade="top"] { -webkit-mask-image: linear-gradient(transparent var(--band), #000 calc(var(--band) + var(--fade))); mask-image: linear-gradient(transparent var(--band), #000 calc(var(--band) + var(--fade))); }
+.scroll-fade[data-fade="both"] { -webkit-mask-image: linear-gradient(transparent var(--band), #000 calc(var(--band) + var(--fade)), #000 calc(100% - var(--fade)), transparent); mask-image: linear-gradient(transparent var(--band), #000 calc(var(--band) + var(--fade)), #000 calc(100% - var(--fade)), transparent); }
+
+/* A theme change crossfades the whole window (setTheme in src/lib/theme.ts). */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 200ms; animation-timing-function: linear; }
 
 /* ------------------------------------------------ motion
    Nothing moves unless state changes. Each class below is one move with a cause; under reduced motion it becomes a

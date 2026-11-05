@@ -8,7 +8,9 @@ import { Icon } from "./Icon";
 import "./UsageCard.css";
 
 const level = (w: UsageWindow | null) => (!w ? "" : w.percent >= 95 ? "usage-err" : w.percent >= 80 ? "usage-warn" : "");
-const pct = (w: UsageWindow | null) => (w ? `${Math.round(w.percent)}%` : "–");
+/** A window's percent; empty until it is known, so nothing stands in for a number. */
+const pct = (w: UsageWindow | null) => (w ? `${Math.round(w.percent)}%` : "");
+const said = (w: UsageWindow | null, known: boolean) => (w ? `${pct(w)} used` : known ? "not reported" : "not checked yet");
 
 /** One window: label, meter, percent, each row itself the Refresh: under the pointer its label says so. The tooltip
  *  names the card and holds the reset time and when it was checked; the reset time is on screen once the window runs
@@ -18,7 +20,7 @@ function Window({ label, w, now, known, checked, refreshing, refresh }: {
 }) {
   const resets = w ? resetsLabel(w, new Date(now)) : "";
   const lv = level(w);
-  const tip = `Claude usage, ${label}: ${w ? `${pct(w)} used${resets ? ` · ${resets}` : ""}` : known ? "not reported" : "checking"} · ${checked}`;
+  const tip = `Claude usage, ${label}: ${said(w, known)}${w && resets ? ` · ${resets}` : ""} · ${checked}`;
   return (
     <button className={`usage-row ${lv}`} onClick={refresh} disabled={refreshing} data-tip={tip} aria-label={`${tip}. Refresh`}>
       <span className="usage-label">
@@ -27,7 +29,8 @@ function Window({ label, w, now, known, checked, refreshing, refresh }: {
       </span>
       <span className="usage-bar"><span style={{ transform: `scaleX(${w ? Math.min(100, w.percent) / 100 : 0})` }} /></span>
       <span className="mono num">{pct(w)}</span>
-      {lv && resets ? <span className="usage-sub">{resets}</span> : !w ? <span className="usage-sub">{known ? "Not reported" : "Checking…"}</span> : null}
+      {/* Until the first reading arrives the row is its meter and nothing else: no placeholder to flash. */}
+      {lv && resets ? <span className="usage-sub">{resets}</span> : !w && known ? <span className="usage-sub">Not reported</span> : null}
     </button>
   );
 }
@@ -74,6 +77,8 @@ export function UsageCard() {
   const five = usage?.fiveHour ?? null;
   const week = usage?.sevenDay ?? null;
   const known = !!usage?.observedAt;
+  // The limit you will reach first, for the rail.
+  const top = five && week ? (week.percent > five.percent ? week : five) : five ?? week;
   const checked = usage?.observedAt ? `Checked ${relTime(usage.observedAt, now)}` : "Not checked yet";
   const held = usage?.heldUntil && Date.parse(usage.heldUntil) > now ? new Date(usage.heldUntil) : null;
   // A hold from the 7-day limit can end days away, so another day is named.
@@ -87,9 +92,10 @@ export function UsageCard() {
         {usage?.accountIssue ? <AccountIssue message={usage.accountIssue.message} signedInAs={usage.accountIssue.signedInAs} /> : null}
         {usage?.proxyIssue ? <div className="usage-note usage-note-warn">{usage.proxyIssue}</div> : null}
       </div>
-      <button className="usage-mini" onClick={refresh} data-tip={`Claude usage: 5-hour ${pct(five)} · 7-day ${pct(week)}`} aria-label={`Claude usage: 5-hour ${pct(five)}, 7-day ${pct(week)}. Refresh`}>
-        <span className={`usage-mini-bar ${level(five)}`}><span style={{ transform: `scaleX(${five ? Math.min(100, five.percent) / 100 : 0})` }} /></span>
-        <span className={`usage-mini-bar ${level(week)}`}><span style={{ transform: `scaleX(${week ? Math.min(100, week.percent) / 100 : 0})` }} /></span>
+      {/* The rail: the nearer limit as a number over its meter, so it reads as a reading, not a menu glyph. */}
+      <button className={`usage-mini ${level(top)}`} onClick={refresh} data-tip={`Claude usage: 5-hour ${said(five, known)} · 7-day ${said(week, known)}`} aria-label={`Claude usage: 5-hour ${said(five, known)}, 7-day ${said(week, known)}. Refresh`}>
+        <span className="usage-mini-n num">{pct(top)}</span>
+        <span className="usage-mini-bar"><span style={{ transform: `scaleX(${top ? Math.min(100, top.percent) / 100 : 0})` }} /></span>
       </button>
     </>
   );
