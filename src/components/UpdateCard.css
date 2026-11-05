@@ -1,13 +1,35 @@
-.update { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-.update-title { font-size: var(--t-sm); font-weight: 600; color: var(--ink); }
-.update-sub { font-size: var(--t-sm); color: var(--muted); }
-.update-err { font-size: var(--t-sm); color: var(--err-text); overflow-wrap: anywhere; }
-.update-btn { width: 100%; margin-top: 8px; }
+/* The offer of a newer version: one quiet row on the sidebar's own fill, its Restart on the same line. While work is
+   running, Restart opens a one-step confirm beneath it (the row's own space opening, .collapse). */
+.update { margin: 8px 0 4px; padding: 8px 8px 8px 12px; border-radius: var(--r-card); background: var(--side-fill); color: var(--side-ink); }
+.update-row { display: flex; align-items: center; gap: 8px; }
+.update-text { flex: 1; min-width: 0; }
+.update-title { font-size: 12.5px; font-weight: 650; line-height: 1.3; white-space: nowrap; }
+.update-sub { font-size: 11.5px; line-height: 1.3; color: var(--side-fill-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.update-err { margin: 6px 0 2px; font-size: 11.5px; line-height: 1.35; color: var(--side-fill-attn); overflow-wrap: anywhere; }
+.side .update-btn { flex: none; padding: 0 9px; background: var(--side-ink); border-color: var(--side-ink); color: var(--side); }
+.side .update-btn:hover:not(:disabled) { background: var(--side-fill-muted); border-color: var(--side-fill-muted); }
+.side .update-btn:disabled { opacity: 0.6; }
+.update-btn-slot { display: inline-grid; }
+.update-btn-slot > span { grid-area: 1 / 1; text-align: center; visibility: hidden; }
+.update-btn-slot > span:last-child { visibility: visible; }
+/* While it asks, the row's own Restart steps aside so the confirm's is the only one. */
+.update-asking .update-row .update-btn { visibility: hidden; }
+.update-confirm { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--side-line); }
+.update-confirm p { font-size: 11.5px; line-height: 1.35; color: var(--side-fill-attn); }
+.update-confirm-acts { display: flex; justify-content: flex-end; gap: 4px; margin-top: 8px; }
+.side .update-confirm .btn-ghost { color: var(--side-ink); }
+.side .update-confirm .btn-ghost:hover:not(:disabled) { background: color-mix(in oklab, var(--side-fill) 55%, var(--side)); }
 .update-mini { display: none; }
 
+/* The rail: the update is its icon, with a dot that says something is waiting. */
 .shell-collapsed .update { display: none; }
 .shell-collapsed .update-mini {
-  display: inline-flex; align-items: center; justify-content: center; align-self: center; width: 36px; height: 30px; margin-bottom: 6px;
-  border-radius: 8px; background: var(--accent); color: var(--accent-ink);
+  position: relative; display: inline-flex; align-items: center; justify-content: center; align-self: center; width: 44px; height: 34px; margin: 12px 0 2px;
+  border-radius: var(--r-input); color: var(--side-ink); transition: background var(--d-ui) var(--ease);
 }
-.shell-collapsed .update-mini:disabled { opacity: 0.35; }
+.shell-collapsed .update-mini::before { content: ""; position: absolute; top: 7px; right: 11px; width: 7px; height: 7px; border-radius: 50%; background: var(--side-ink); box-shadow: 0 0 0 2px var(--side); }
+.shell-collapsed .update-mini:hover:not(:disabled) { background: color-mix(in oklab, var(--side-fill) 70%, var(--side)); }
+/* Armed: the next press restarts; the dot turns pale coral and its tooltip says what a restart stops. */
+.shell-collapsed .update-mini-armed { background: var(--side-fill); }
+.shell-collapsed .update-mini-armed::before { background: var(--side-attn); }
+.shell-collapsed .update-mini:disabled { opacity: 0.55; }

@@ -1,0 +1,7 @@
+/* A command to copy: the command in mono on a quiet well, Copy at its end. Used by onboarding and Settings. */
+.copycmd {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 3px 3px 10px; border-radius: var(--r-input);
+  background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line);
+}
+.copycmd code { min-width: 0; font-size: var(--t-sm); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.copycmd .btn { flex: none; }

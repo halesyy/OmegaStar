@@ -1,37 +1,47 @@
-/* ------------------------------------------------ avatar */
+/* ------------------------------------------------ avatar
+   Named avatars take their own colour; people are ringed; a proposed hire is dashed; you are the ink disc.
+   A dot sits on the avatar only where there is no room for a word, and it holds still. */
 .av {
   --h: 250;
   position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 50%; font-weight: 600; letter-spacing: -0.01em; user-select: none;
+  border-radius: 50%; font-weight: 700; letter-spacing: -0.01em; user-select: none;
   background: oklch(var(--av-bg-l) var(--av-bg-c) var(--h));
   color: oklch(var(--av-fg-l) var(--av-fg-c) var(--h));
 }
-.av-person {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px oklch(calc(var(--av-fg-l) + 0.08) calc(var(--av-fg-c) * 0.8) var(--h));
+.av-i { line-height: 1; text-box: trim-both cap alphabetic; }
+.av-person { background: transparent; box-shadow: inset 0 0 0 1.5px oklch(var(--av-fg-l) var(--av-fg-c) var(--h)); }
+.av-proposed { background: transparent; outline: 1.5px dashed oklch(var(--av-fg-l) var(--av-fg-c) var(--h)); outline-offset: -1.5px; }
+.av-you { background: var(--ink); color: var(--canvas); }
+/* The presence dot, ringed in whatever the avatar sits on (--av-ring). */
+.av-dot {
+  position: absolute; right: -2px; bottom: -2px; width: max(8px, 30%); height: max(8px, 30%);
+  border-radius: 50%; box-shadow: 0 0 0 2px var(--av-ring, var(--surface)); pointer-events: none;
 }
-.av-working { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px color-mix(in oklab, var(--live) 75%, transparent); }
-.av-queued { outline: 1.5px dashed color-mix(in oklab, var(--live) 70%, transparent); outline-offset: 2px; }
-.av-flag {
-  position: absolute; right: -1px; bottom: -1px; width: 28%; height: 28%; min-width: 8px; min-height: 8px;
-  border-radius: 50%; background: var(--err); box-shadow: 0 0 0 2px var(--surface);
-}
+.av-dot-working { background: var(--live); }
+.av-dot-attention { background: var(--err); }
+.av-dot-queued { background: var(--av-ring, var(--surface)); box-shadow: 0 0 0 2px var(--av-ring, var(--surface)), inset 0 0 0 1.5px var(--muted); }
 
 .state-pill { gap: 6px; }
-.state-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.state-dot-pulse { animation: pulseDot 2.4s ease-in-out infinite; }
+.state-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill-live .state-dot { background: var(--live); }
+.pill-err .state-dot { background: var(--err); }
+.pill-warn .state-dot { background: var(--warn); }
+.pill-ok .state-dot { background: var(--ok); }
+.pill:not(.pill-live, .pill-err, .pill-warn, .pill-ok) .state-dot { background: var(--muted); }
+.pill-wait .state-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 
-/* ------------------------------------------------ slide-over */
+/* ------------------------------------------------ slide-over: flush with the window's right edge, full height. It slides
+   in opaque from that edge (solid things do not fade through) and holds the edge while it opens. */
 .scrim { position: fixed; inset: 0; background: var(--scrim); opacity: 0; transition: opacity var(--d-panel) var(--ease); z-index: 30; }
 .scrim-on { opacity: 1; }
 .slideover {
-  position: fixed; top: 16px; right: 16px; bottom: 16px; z-index: 20; max-width: calc(100vw - 88px);
-  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-float);
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 20; max-width: calc(100vw - var(--rail-w));
+  background: var(--surface); border-left: 1px solid var(--line); overflow: hidden;
   display: flex; flex-direction: column; outline: none;
-  transform: translateX(24px); opacity: 0; transition: transform var(--d-panel) var(--ease), opacity var(--d-panel) var(--ease);
+  transform: translateX(100%); transition: transform var(--d-panel) var(--ease);
 }
-.slideover-on { transform: none; opacity: 1; }
-.slideover-modal { z-index: 31; top: 8px; right: 8px; bottom: 8px; max-width: calc(100vw - 120px); }
+.slideover-on { transform: none; }
+.slideover-modal { z-index: 31; border-left: 0; box-shadow: var(--shadow-float); max-width: calc(100vw - 120px); }
 .slideover-edge { position: absolute; top: 0; bottom: 0; left: 0; width: 8px; z-index: 2; cursor: col-resize; touch-action: none; }
 .slideover-edge::before {
   content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--line-strong);
@@ -39,54 +49,96 @@
 }
 .slideover-edge:hover::before { opacity: 1; transition-delay: 120ms; }
 .slideover-edge:focus-visible { box-shadow: none; }
-.slideover-edge:focus-visible::before, :root[data-resizing] .slideover-edge::before { opacity: 1; background: var(--muted); transition-delay: 0s; }
+.slideover-edge:focus-visible::before, :root[data-resizing] .slideover-edge::before { opacity: 1; background: var(--live); transition-delay: 0s; }
 /* While the edge is dragged, the whole window shows the resize cursor and no text gets selected. */
 :root[data-resizing], :root[data-resizing] * { cursor: col-resize !important; user-select: none; }
+:root[data-resizing] .slideover { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .slideover { transform: none; opacity: 0; transition: opacity var(--d-fade) linear; }
+  .slideover-on { opacity: 1; }
+  .scrim { transition: opacity var(--d-fade) linear; }
+}
 
 /* ------------------------------------------------ confirm */
-.confirm { display: inline-flex; align-items: center; gap: 6px; animation: riseIn var(--d-ui) var(--ease); }
+.confirm { display: inline-flex; align-items: center; gap: 6px; animation: m-fade-in var(--d-ui) var(--ease); }
 .confirm-q { font-size: var(--t-sm); color: var(--ink-2); margin-right: 4px; }
 
-/* ------------------------------------------------ popover */
+/* ------------------------------------------------ popover: opens from its anchor, sized before its first frame */
 .popover {
-  position: fixed; z-index: 60; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card);
-  box-shadow: var(--shadow-float); padding: 12px; animation: riseIn var(--d-ui) var(--ease);
+  position: fixed; z-index: 60; background: var(--surface); border-radius: var(--r-card);
+  box-shadow: var(--shadow-float); padding: 12px; animation: m-pop-in var(--d-panel) var(--ease) both;
 }
+@media (prefers-reduced-motion: reduce) { .popover { animation: m-fade-in var(--d-fade) linear both; } }
 
-/* ------------------------------------------------ toasts */
-.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 80; pointer-events: none; }
+/* ------------------------------------------------ toasts: one line of what happened, and the way back */
+/* Centred on the canvas, beside whichever sidebar is showing (Shell sets data-shell); centred on the window elsewhere. */
+.toasts { --toasts-left: 0px; position: fixed; left: calc(var(--toasts-left) + (100vw - var(--toasts-left)) / 2); bottom: 24px; translate: -50% 0; display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 80; pointer-events: none; }
+:root[data-shell="side"] .toasts { --toasts-left: var(--side-w); }
+:root[data-shell="rail"] .toasts { --toasts-left: var(--rail-w); }
 .toast {
-  pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 12px; border-radius: 10px;
-  background: var(--ink); color: var(--bg); font-size: var(--t-base); font-weight: 500; box-shadow: var(--shadow-float);
-  animation: riseIn var(--d-ui) var(--ease); max-width: 480px;
+  pointer-events: auto; display: flex; align-items: center; gap: 10px; min-height: 40px; max-width: min(560px, calc(100vw - var(--toasts-left) - 48px));
+  padding: 9px 14px; border-radius: var(--r-card); background: var(--sel); color: var(--sel-ink);
+  font-size: 13px; font-weight: 550; line-height: 1.4; box-shadow: var(--shadow-float);
+  animation: m-drop-in var(--d-arrive) var(--ease-arrive) both;
 }
-.toast-ok svg { color: color-mix(in oklab, var(--ok) 60%, var(--bg)); }
-.toast-err svg { color: color-mix(in oklab, var(--err) 60%, var(--bg)); }
-.toast-action { color: var(--bg); text-decoration: underline; text-underline-offset: 2px; font-weight: 600; margin-left: 4px; }
+.toast:has(.toast-action) { padding-right: 6px; }
+.toast > svg { flex: none; color: var(--sel-live); }
+.toast-ok > svg { color: var(--sel-live); }
+.toast-err > svg { color: var(--sel-attn); }
+.toast-action {
+  flex: none; height: 28px; padding: 0 10px; margin-left: auto; border-radius: var(--r-inner); color: var(--sel-ink); font-weight: 650;
+  text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; transition: background var(--d-ui) var(--ease);
+}
+.toast-action:hover { background: color-mix(in oklab, var(--sel-ink) 12%, transparent); }
+/* A failure stays until it is read: its close sits at the end, after any action. */
+.toast:has(.toast-close) { padding-right: 6px; }
+.toast-close {
+  flex: none; width: 28px; height: 28px; margin-left: auto; border-radius: var(--r-inner); display: inline-grid; place-items: center;
+  color: var(--sel-muted); transition: background var(--d-ui) var(--ease), color var(--d-ui) var(--ease);
+}
+.toast-action + .toast-close { margin-left: 0; }
+.toast-close:hover { background: color-mix(in oklab, var(--sel-ink) 12%, transparent); color: var(--sel-ink); }
+.toast-leave { animation: m-fade-out var(--d-ui) var(--ease) both; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: m-fade-in var(--d-fade) linear both; }
+  .toast-leave { animation: m-fade-out var(--d-fade) linear both; }
+}
 
-/* ------------------------------------------------ tabs */
-.tabs { position: relative; display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding: 0 20px; }
+/* ------------------------------------------------ tabs: the underline is the words' width and slides between them */
+.tabs { position: relative; display: flex; gap: 22px; border-bottom: 1px solid var(--line); padding: 0 24px; }
 .tab {
-  position: relative; height: 38px; padding: 0 10px; font-size: var(--t-base); font-weight: 500; color: var(--muted);
-  display: inline-flex; align-items: center; gap: 6px; border-radius: 6px 6px 0 0; transition: color var(--d-ui) var(--ease);
+  position: relative; height: 40px; padding: 0; font-size: var(--t-base); font-weight: 600; color: var(--muted);
+  display: inline-flex; align-items: center; gap: 6px; transition: color var(--d-ui) var(--ease);
 }
 .tab:hover { color: var(--ink); }
 .tab[aria-selected="true"] { color: var(--ink); }
-.tab-badge { min-width: 16px; height: 16px; padding: 0 5px; border-radius: 999px; background: var(--err-soft); color: var(--err-text); font-size: 10.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
-.tabs-bar { position: absolute; bottom: -1px; left: 0; height: 2px; border-radius: 2px; background: var(--ink); transition: transform var(--d-ui) var(--ease), width var(--d-ui) var(--ease); }
+.tab:focus-visible { box-shadow: none; }
+.tab:focus-visible::after { content: ""; position: absolute; inset: 6px -6px; border-radius: var(--r-input); box-shadow: var(--focus); }
+.tab-badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--err-fill); color: #ffffff;
+  font-size: var(--t-xs); font-weight: 650; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums;
+}
+/* One pixel wide, scaled to the tab: the underline slides and resizes on transform alone. */
+.tabs-bar { position: absolute; bottom: -1px; left: 0; width: 1px; height: 2px; background: var(--ink); transform-origin: 0 0; transition: transform var(--d-ui) var(--ease); }
 
-/* ------------------------------------------------ page header, page column, plain sections */
-.pagehead { flex: none; display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 10px 24px; }
-.pagehead-title { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ------------------------------------------------ page header, page column, plain sections
+   Every page header is one 64px band with a 24px Display title, so headers line up across the app. */
+.pagehead { flex: none; display: flex; align-items: center; gap: 12px; min-height: var(--head-h); padding: 10px 16px 10px 24px; }
+.pagehead-title {
+  flex: 1; min-width: 0; font-size: 24px; font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.035em;
+  line-height: var(--lh-tight); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .pagehead-actions { flex: none; display: flex; align-items: center; gap: 8px; }
 .pagecol { height: 100%; display: flex; flex-direction: column; }
+/* The header's controls end where the column does, so a wide window has no void between them. */
+.pagecol > .pagehead { width: min(820px, 100%); padding-right: 24px; }
 .pagecol-scroll { flex: 1; min-height: 0; overflow: auto; }
 .pagecol-inner { width: min(820px, 100%); padding: 4px 24px 64px; display: flex; flex-direction: column; gap: 36px; }
 
 .psec { display: flex; flex-direction: column; gap: 10px; }
 .psec-head { display: flex; align-items: center; gap: 12px; min-height: 28px; }
-.psec-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
-.psec-count { font-size: var(--t-sm); font-weight: 500; color: var(--faint); }
+.psec-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; letter-spacing: -0.005em; color: var(--ink); }
+.psec-count { font-size: var(--t-sm); font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .psec-action { flex: none; display: flex; align-items: center; gap: 8px; }
 /* A list of rows inside a section: hairlines between rows, none around them. */
 .plist { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
@@ -95,27 +147,39 @@
 /* ------------------------------------------------ menu (inside a popover) */
 .popover:has(> .menu) { padding: 4px; }
 .menu { display: flex; flex-direction: column; gap: 1px; }
-.menu-item { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 5px 8px; border-radius: 6px; font-size: var(--t-base); color: var(--ink-2); text-align: left; }
-.menu-item svg { flex: none; color: var(--muted); }
-.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--sunken); color: var(--ink); box-shadow: none; }
-.menu-item:disabled { opacity: 0.45; }
-.menu-item-danger { color: var(--err-text); }
-.menu-item-danger svg { color: var(--err); }
-
-/* ------------------------------------------------ error */
-.error-note {
-  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-input);
-  background: var(--err-soft); color: var(--err); font-size: var(--t-sm); animation: riseIn var(--d-ui) var(--ease);
+.menu-item {
+  display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 5px 10px; border-radius: var(--r-inner);
+  font-size: 13px; font-weight: 500; color: var(--ink); text-align: left; transition: background var(--d-ui) var(--ease);
 }
+.menu-item svg { flex: none; color: var(--muted); }
+.menu-item .kbd { margin-left: auto; }
+.menu-item:hover:not(:disabled), .menu-item:focus-visible { background: var(--sunken); box-shadow: none; }
+.menu-item:disabled { opacity: 0.45; }
+.menu-item-danger, .menu-item-danger svg { color: var(--err-text); }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+/* ------------------------------------------------ error
+   Inline: one line on a quiet rule, its alert in coral. With a title: what happened, what happens next, one way to act. */
+.error-note {
+  display: flex; align-items: center; gap: 10px; min-height: 34px; padding: 6px 6px 6px 12px; border-radius: var(--r-input);
+  box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink-2); font-size: var(--t-sm); line-height: 1.4;
+  animation: m-fade-in var(--d-ui) var(--ease);
+}
+.error-note:not(:has(.btn)) { padding-right: 12px; }
+.error-note > svg { flex: none; color: var(--err-text); }
+.error-note-block { align-items: flex-start; gap: 12px; padding: 14px 14px 14px 16px; border-radius: var(--r-card); }
+.error-note-block > svg { margin-top: 2px; }
+.error-note-title { font-size: var(--t-base); font-weight: 650; color: var(--ink); line-height: 1.35; }
+.error-note-text { margin-top: 2px; font-size: 13px; color: var(--muted); line-height: 1.45; }
 
 
 /* ---------------------------------------------------------------- overlay: an image or a page, full-window */
 .overlay {
   position: fixed; inset: 0; z-index: 80; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center;
-  padding: 56px 72px 28px; background: rgb(9 9 11 / 0.84); outline: none; animation: fadeIn var(--d-ui) var(--ease);
+  padding: 56px 72px 28px; background: rgb(8 9 12 / 0.86); outline: none; animation: m-fade-in var(--d-ui) var(--ease);
 }
 .overlay-close, .overlay-nav {
-  position: absolute; display: grid; place-items: center; color: #fafafa; background: rgb(255 255 255 / 0.08);
+  position: absolute; display: grid; place-items: center; color: #f3f5f9; background: rgb(255 255 255 / 0.08);
   transition: background var(--d-ui) var(--ease), opacity var(--d-ui) var(--ease);
 }
 .overlay-close:hover, .overlay-nav:hover:not(:disabled) { background: rgb(255 255 255 / 0.18); }
@@ -128,10 +192,10 @@
 .lightbox { display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; gap: 14px; max-width: 100%; max-height: 100%; min-height: 0; }
 .lightbox-img {
   display: block; max-width: 100%; max-height: 100%; min-height: 0; object-fit: contain; border-radius: var(--r-input);
-  box-shadow: 0 24px 64px -24px rgb(0 0 0 / 0.7); animation: riseIn var(--d-ui) var(--ease);
+  box-shadow: 0 24px 64px -24px rgb(0 0 0 / 0.7); animation: m-rise-in var(--d-swap) var(--ease) both;
 }
 .lightbox-wait { width: min(640px, 70vw); aspect-ratio: 16 / 10; background: rgb(255 255 255 / 0.06); }
-.lightbox-bar { display: flex; align-items: center; gap: 14px; max-width: min(760px, 100%); color: #e4e4e7; font-size: var(--t-sm); }
+.lightbox-bar { display: flex; align-items: center; gap: 14px; max-width: min(760px, 100%); color: #cdd2dc; font-size: var(--t-sm); }
 .lightbox-caption { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lightbox-count { flex: none; color: #a1a1aa; }
+.lightbox-count { flex: none; color: #8c93a2; font-variant-numeric: tabular-nums; }
 .lightbox-bar .btn { flex: none; }

@@ -10,17 +10,25 @@ import "./UsageCard.css";
 const level = (w: UsageWindow | null) => (!w ? "" : w.percent >= 95 ? "usage-err" : w.percent >= 80 ? "usage-warn" : "");
 const pct = (w: UsageWindow | null) => (w ? `${Math.round(w.percent)}%` : "–");
 
-/** One window: label, meter, percent. The reset time is in the tooltip, and on screen once the window runs high. */
-function Window({ label, w, now, known }: { label: string; w: UsageWindow | null; now: number; known: boolean }) {
+/** One window: label, meter, percent, each row itself the Refresh: under the pointer its label says so. The tooltip
+ *  names the card and holds the reset time and when it was checked; the reset time is on screen once the window runs
+ *  high. */
+function Window({ label, w, now, known, checked, refreshing, refresh }: {
+  label: string; w: UsageWindow | null; now: number; known: boolean; checked: string; refreshing: boolean; refresh: () => void;
+}) {
   const resets = w ? resetsLabel(w, new Date(now)) : "";
   const lv = level(w);
+  const tip = `Claude usage, ${label}: ${w ? `${pct(w)} used${resets ? ` · ${resets}` : ""}` : known ? "not reported" : "checking"} · ${checked}`;
   return (
-    <div className={`usage-row ${lv}`} title={w ? `${label}: ${pct(w)} used${resets ? ` · ${resets}` : ""}` : undefined}>
-      <span>{label}</span>
-      <span className="usage-bar"><span style={{ width: `${w ? Math.min(100, w.percent) : 0}%` }} /></span>
+    <button className={`usage-row ${lv}`} onClick={refresh} disabled={refreshing} data-tip={tip} aria-label={`${tip}. Refresh`}>
+      <span className="usage-label">
+        <span className="usage-name">{label}</span>
+        <span className="usage-act" aria-hidden>{refreshing ? <Icon name="refresh" size={12} /> : "Refresh"}</span>
+      </span>
+      <span className="usage-bar"><span style={{ transform: `scaleX(${w ? Math.min(100, w.percent) / 100 : 0})` }} /></span>
       <span className="mono num">{pct(w)}</span>
       {lv && resets ? <span className="usage-sub">{resets}</span> : !w ? <span className="usage-sub">{known ? "Not reported" : "Checking…"}</span> : null}
-    </div>
+    </button>
   );
 }
 
@@ -72,22 +80,16 @@ export function UsageCard() {
   const heldDay = held && held.toDateString() !== new Date(now).toDateString() ? `${held.toLocaleDateString(undefined, { weekday: "short" })} ` : "";
   return (
     <>
-      <div className="usage" aria-label="Claude usage limits">
-        <div className="usage-head">
-          <span>Claude usage</span>
-          <button className={`usage-refresh ${refreshing ? "usage-refreshing" : ""}`} onClick={refresh} disabled={refreshing} title={`${checked} · Refresh`} aria-label="Refresh Claude usage">
-            <Icon name="refresh" size={12} />
-          </button>
-        </div>
-        <Window label="5-hour" w={five} now={now} known={known} />
-        <Window label="7-day" w={week} now={now} known={known} />
+      <div className={`usage ${refreshing ? "usage-refreshing" : ""}`} aria-label="Claude usage limits">
+        <Window label="5-hour" w={five} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} />
+        <Window label="7-day" w={week} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} />
         {held ? <div className="usage-note usage-note-warn">Work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}, when the limit resets.</div> : null}
         {usage?.accountIssue ? <AccountIssue message={usage.accountIssue.message} signedInAs={usage.accountIssue.signedInAs} /> : null}
         {usage?.proxyIssue ? <div className="usage-note usage-note-warn">{usage.proxyIssue}</div> : null}
       </div>
-      <button className="usage-mini" onClick={refresh} data-tip={`5-hour ${pct(five)} · 7-day ${pct(week)}`} aria-label={`Claude usage: 5-hour ${pct(five)}, 7-day ${pct(week)}. Refresh`}>
-        <span className={`usage-mini-bar ${level(five)}`}><span style={{ width: `${five ? Math.min(100, five.percent) : 0}%` }} /></span>
-        <span className={`usage-mini-bar ${level(week)}`}><span style={{ width: `${week ? Math.min(100, week.percent) : 0}%` }} /></span>
+      <button className="usage-mini" onClick={refresh} data-tip={`Claude usage: 5-hour ${pct(five)} · 7-day ${pct(week)}`} aria-label={`Claude usage: 5-hour ${pct(five)}, 7-day ${pct(week)}. Refresh`}>
+        <span className={`usage-mini-bar ${level(five)}`}><span style={{ transform: `scaleX(${five ? Math.min(100, five.percent) / 100 : 0})` }} /></span>
+        <span className={`usage-mini-bar ${level(week)}`}><span style={{ transform: `scaleX(${week ? Math.min(100, week.percent) / 100 : 0})` }} /></span>
       </button>
     </>
   );

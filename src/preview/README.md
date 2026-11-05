@@ -13,15 +13,19 @@ the page loads.
 ## The URL
 
 ```
-http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts=1]#<route>
+http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts=1][&chrome=mac]#<route>
 ```
+
+`?preview=parts` is not an office: it is every shared part on one page, from the real components (`Parts.tsx`; add
+`&theme=dark`).
 
 | Parameter | Values | Default |
 |---|---|---|
 | `preview` | a state below | `full` |
 | `theme` | `light`, `dark`, `system` (saved, like the app's own setting) | unchanged |
-| `sidebar` | `collapsed`, `expanded` (saved) | unchanged |
-| `toasts` | `1`: three toasts show once the office loads (they leave after 4 seconds) | off |
+| `sidebar` | `collapsed` (the rail at every size), `expanded` (the full sidebar at every size); saved | the app's rule: the rail below 1180 px |
+| `toasts` | `1`: three toasts show once the office loads (the two that report something done leave after 4 seconds; the failure stays until dismissed) | off |
+| `chrome` | `mac`: the macOS overlay title bar's room at the top of the sidebar (no traffic lights are drawn) | the browser's |
 
 ### States
 
@@ -39,6 +43,16 @@ http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts
 | `update-failed` | `full`, and Restart to update fails |
 | `usage-limit` | `full` at the 5-hour limit: work waits for the reset |
 | `api-key` | `full` on an API-key account: the sidebar counts runs instead of usage |
+| `first-run-recheck` | Onboarding with Claude Code not found; Check again (from half a second after load) finds it, signed in |
+| `first-run-opening` | Onboarding; Open your office never answers ("Opening…") |
+| `first-run-error` | Onboarding; Open your office fails, and so does the start-at-login switch |
+| `slow-saves` | `full`; every Settings save (`save_settings`, `set_background`, `backup_now`) answers after 1.5 seconds |
+| `failed-saves` | `full`; those saves fail: "Couldn't save: the office folder is read-only." |
+| `quiet` | `full` with everything finished: nobody working, waiting or failing |
+| `large-org` | `full` plus 14 employees and 2 people (25 members): `wren` (Data Analyst) was hired today and has no runs; Kofi has two open requests |
+| `inbox-more` | `full` plus Inbox cases: three runs failing on one error (`smoke-1`, `links-1`, `widget-1`), Theo's two cards about the launch (`launch-1`, `launch-2`), Mae's question asked by Ines with other choices (`annual-1`), a three-line title (`dns-1`), a blocked MCP tool (`issues-1`) |
+| `live-more` | `full` with three runs going on Juniper's thread (her reply, Otto's `billing-1` and Mae's `help-1`, both delegated); `billing-1` finishes 6 seconds in; `slow-1` has 22 steps |
+| `thread-error` | `full`, but every conversation fails to load (`thread` errors) |
 
 ### Routes
 
@@ -49,6 +63,8 @@ The app's own hash routes (`src/lib/router.ts`), with these ids:
 - Panels: `#/org/<id>` with `/chat`, `/work`, `/skills` or `/profile`. Skills files and changes:
   `#/org/juniper/skills/file~price-changes~SKILL.md`, `#/org/juniper/skills/rev~rev-weekly`.
 - Conversations: `#/chat/<employee>/thread~<root run>`, or `#/chat/<employee>` for a new one. Runs: `#/run/<run>`.
+- The Inbox: `#/inbox/<view>/<item>`, view `inbox`, `snoozed`, `parked` or `archive`, item the id the Inbox gives an
+  entry (`openInbox` in `src/lib/router.ts`). It opens that item once the Inbox reads the route.
 
 | Thread or run | What it is |
 |---|---|
@@ -83,6 +99,12 @@ Every screen in the list at the top of the script, in light and dark, at 980 x 6
 `<area>--<screen>-<state>--<theme>--<w>x<h>.png`, with a `manifest.json` giving each shot's URL. `--only` reshoots the
 shots whose file name contains the text and updates just those in the manifest. The browser clock is held at
 Thursday 5 November 2026, 2:30 pm Sydney time (en-AU), so two runs pair up as before and after.
+
+Beyond one shot per screen and state, the list covers what the areas asked for: onboarding pressed with a name
+missing, the re-check passing, "Opening…", the create failing and the hand-off (its fields are found by label);
+Settings' middle sections, the proxy, and a save in progress, saved and failed; the quiet, large, Inbox and live-work
+states; the sidebar expanded at every size and with the macOS title bar's room; the update's confirm and the rail's
+armed button; the palette finding nothing.
 
 It reuses a dev server already serving this folder on port 1420, or starts one. It needs Google Chrome and
 `playwright-core` from the Stageshow skill (`cd ~/.claude/skills/stageshow && npm install`), or `PLAYWRIGHT_CORE` set to

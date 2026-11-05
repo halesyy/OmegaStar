@@ -1,6 +1,7 @@
 // What the preview shows where the desktop app reads from disk: the page an employee showed (`show`), and the
 // images cards and messages point at. Plus the one piece of Tauri the UI calls directly, `convertFileSrc`.
 import tokens from "../design/tokens.css?raw";
+import interOpsz from "@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2?inline";
 
 /** The pages employees showed, by visual id. Served the way the app serves them: Omega Star's tokens first. */
 const PAGES: Record<string, string> = {
@@ -28,7 +29,9 @@ const HEIGHT = "new ResizeObserver(() => parent.postMessage({ omegaHeight: Math.
 // The UI adds `?theme=dark` to the address; in a data URL that lands at the end of the page, so the page ends in an
 // open comment that swallows it, and reads the theme from its own address.
 const THEME = "if (/theme=dark$/.test(location.href)) document.documentElement.dataset.theme = 'dark';";
-const BASE = "html { color: var(--ink); background: transparent; font-family: var(--font-ui); font-size: var(--t-base); line-height: 1.5; -webkit-font-smoothing: antialiased; } body { margin: 0; }";
+// As src-tauri/src/office/visuals.rs serves a page: Inter with its optical-size axis embedded, the app's type features.
+const BASE = `@font-face { font-family: "Inter Variable"; font-style: normal; font-weight: 100 900; font-display: block; src: url(${interOpsz}) format("woff2"); }
+html { color: var(--ink); background: transparent; font-family: var(--font-ui); font-size: var(--t-base); line-height: 1.5; font-feature-settings: var(--font-features); -webkit-font-smoothing: antialiased; } body { margin: 0; }`;
 
 function pageUrl(id: string): string {
   const page = PAGES[id] ?? `<p style="padding:16px;color:var(--muted)">This page is no longer there.</p>`;

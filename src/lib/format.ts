@@ -170,9 +170,21 @@ export function taskLabel(text: string, files: string[]): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+/** An age in the short form list rows line up on: "now", "4m", "3h", "2d", "5w"; past a year, the year. */
+export function shortAge(isoStr: string | null, now = Date.now()): string {
+  if (!isoStr) return "";
+  const s = Math.max(0, (now - Date.parse(isoStr)) / 1000);
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h`;
+  if (s < 7 * 86_400) return `${Math.floor(s / 86_400)}d`;
+  if (s < 365 * 86_400) return `${Math.floor(s / (7 * 86_400))}w`;
+  return String(new Date(isoStr).getFullYear());
+}
+
 export function runStateLabel(state: RunState): string {
   switch (state) {
-    case "queued": return "Queued";
+    case "queued": return "Up next";
     case "running": return "Working";
     case "succeeded": return "Succeeded";
     case "failed": return "Failed";
@@ -181,9 +193,10 @@ export function runStateLabel(state: RunState): string {
   }
 }
 
-export function runStateTone(run: Pick<Run, "state" | "denials">): "accent" | "ok" | "warn" | "err" | "neutral" {
+/** A run's state as a StatePill tone: ultramarine only while it runs; waiting to start is the hollow "Up next". */
+export function runStateTone(run: Pick<Run, "state" | "denials">): "accent" | "wait" | "ok" | "warn" | "err" | "neutral" {
   switch (run.state) {
-    case "queued":
+    case "queued": return "wait";
     case "running": return "accent";
     case "succeeded": return run.denials.length > 0 ? "warn" : "ok";
     case "failed": return "err";

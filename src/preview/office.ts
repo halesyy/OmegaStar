@@ -707,3 +707,120 @@ export function cannedAnswer(prompt: string): string {
   }
   return "Got it. I've written that into my skills so it sticks, and I'll report back here when it's done.";
 }
+
+// ---------------------------------------------------------------- variations the areas design against
+
+/** Adds `r` to the world as an open Inbox row (or, `inbox: false`, an open conversation), newest first. */
+function addOpen(w: World, r: Run, events: RunEvent[] = [init(9), ...(r.summary ? [said(r.summary)] : []), done(r)], inbox = true) {
+  w.runs.unshift(r);
+  w.events[r.id] = events;
+  w.open.unshift(r.id);
+  if (inbox) w.inbox.unshift(r.id);
+}
+
+/** The busy office after everything has finished and nothing needs a look: nobody working, waiting or failing. */
+export function quietOffice(): World {
+  const w = fullOffice();
+  for (const r of w.runs) {
+    if (r.state === "running" || r.state === "queued") {
+      Object.assign(r, { state: "succeeded", startedAt: r.startedAt ?? ago(9), endedAt: ago(4), durationMs: 5 * MIN, turns: 6, summary: r.summary ?? "Done. Nothing else to report." });
+      w.events[r.id] = [init(9), said(r.summary!), done(r)];
+    } else if (r.state === "failed" || r.state === "lost") {
+      Object.assign(r, { state: "succeeded", error: null, summary: r.summary ?? "Done. Nothing else to report." });
+    }
+    r.denials = [];
+  }
+  return w;
+}
+
+/** A large org: the busy office plus 14 more employees and 2 more people (25 members), one of them hired today with no
+ *  runs yet, and Kofi with two open requests. Every name is invented. */
+export function largeOffice(): World {
+  const w = fullOffice();
+  const more: [string, string, string, string | null, number, string][] = [
+    ["wren", "Wren Adeyemi", "Data Analyst", "juniper", 130, "Builds the weekly numbers and answers questions about them."],
+    ["sol", "Sol Varga", "Security Engineer", "otto", 4, "Reviews access, patches and the yearly audit."],
+    ["ilse", "Ilse Brandt", "Release Manager", "otto", 250, "Plans each release and writes its notes."],
+    ["tomas", "Tomas Reyes", "Test Automation Engineer", "rafi", 96, "Writes the end-to-end tests for booking and payments."],
+    ["noa", "Noa Lindgren", "Mobile QA Engineer", "rafi", 300, "Tests the iOS and Android apps on real devices."],
+    ["kit", "Kit Okafor", "Support Specialist", "mae", 28, "Answers billing and account tickets."],
+    ["bea", "Bea Moreau", "Support Specialist", "mae", 340, "Answers class and calendar tickets."],
+    ["arlo", "Arlo Petrov", "Help Centre Writer", "mae", 60, "Keeps the help centre's articles and screenshots current."],
+    ["remy", "Remy Castell", "Content Writer", "theo", 20, "Writes the blog and the longer newsletter pieces."],
+    ["iris", "Iris Nakamura", "Social Media Manager", "theo", 320, "Runs Fernbrook's social accounts and replies."],
+    ["dev", "Dev Kapoor", "SEO Specialist", "theo", 180, "Keeps the marketing site findable."],
+    ["oona", "Oona Ferris", "Accounts Payable Clerk", "ines", 270, "Pays suppliers and chases invoices."],
+    ["hal", "Hal Sorensen", "Payroll Assistant", "ines", 210, "Prepares payroll for Maren to approve."],
+    ["mira", "Mira Solano", "Partnerships Lead", null, 150, "Finds studio chains and gyms to partner with."],
+  ];
+  more.forEach(([id, name, title, managerId, hue, description], i) => {
+    w.employees.push(employee(id, name, title, { managerId, hue, description, objective: description, hiredAt: id === "wren" ? ago(40) : onDay(-20 + i, 9) }));
+    if (id !== "wren") w.schedules.push(review(id));
+  });
+  w.people.push(
+    { id: "ada", name: "Ada Quist", title: "Lawyer", hue: 230, addedAt: onDay(-30, 10), description: "Reviews Fernbrook's contracts and terms.", strengths: "Contracts, privacy", responsibilities: "Terms of service and studio contracts", channels: [{ id: "a-mail", kind: "email", address: "ada@quist.law", whenToUse: "Anything contractual" }], notes: "", manager: { type: "you" } },
+    { id: "hugo", name: "Hugo Brandt", title: "Investor", hue: 70, addedAt: onDay(-58, 10), description: "Fernbrook's first investor; sits beside Harriet on the board.", strengths: "Growth, hiring", responsibilities: "Board meetings", channels: [{ id: "u-mail", kind: "email", address: "hugo@brandtventures.vc", whenToUse: "Board papers" }], notes: "", manager: { type: "top" } },
+  );
+  const first = w.requests.find((r) => r.id === "req-kofi");
+  if (first) w.requests.push({ ...first, id: "req-kofi-2", employeeId: "theo", runId: null, message: "Could you mock up the pricing page's hero for the new $34 price?", dueAt: onDay(2, 17), createdAt: ago(55), delivery: first.delivery ? { ...first.delivery, sentAt: ago(55) } : null });
+  return w;
+}
+
+/** More for the Inbox: runs failing together on one error, one employee's two choice cards on the same thing, the same
+ *  question asked by another employee with other choices, a three-line title, and a blocked MCP tool. */
+export function inboxMoreOffice(): World {
+  const w = fullOffice();
+  const offline = "Network error: couldn't reach staging.fernbrook.app (timed out after 30s)";
+  // Two more runs break on staging within the hour, so with Rafi's widget check they are one entry.
+  addOpen(w, mk("smoke-1", "otto", { type: "manual" }, "Smoke-test staging after this morning's deploy.", { state: "failed", end: ago(70), mins: 1, error: offline }));
+  addOpen(w, mk("links-1", "mae", { type: "manual" }, "Check the help-centre links against staging.", { state: "failed", end: ago(61), mins: 1, error: offline }));
+  // Theo's two cards about the launch, asked from two runs: listed together.
+  addOpen(w, mk("launch-1", "theo", { type: "manual" }, "Plan the waitlist launch post.", {
+    end: ago(35), mins: 8, summary: "The launch post is drafted. Two choices about the launch:",
+    cards: [card("Publish the launch post on Tuesday or Thursday?", { type: "choices", choices: ["Tuesday 3 March", "Thursday 5 March"], recommended: 0 }, { key: "ask:launch:day", why: "Tuesday gets the most opens; Thursday gives Kofi time for the screenshots." })],
+  }));
+  addOpen(w, mk("launch-2", "theo", { type: "manual" }, "Plan where the launch goes first.", {
+    end: ago(33), mins: 4, summary: "One more launch choice:",
+    cards: [card("Send the launch email first, or post on the blog first?", { type: "choices", choices: ["Email first", "Blog post first"], recommended: 0 }, { key: "ask:launch:channel" })],
+  }));
+  // The question Mae asked (annual plans by bank transfer), asked again by Ines with choices of her own.
+  addOpen(w, mk("annual-1", "ines", { type: "manual" }, "Work out how annual plans would be paid.", {
+    end: ago(44), mins: 6, summary: "If studios pay a year up front, we need to choose how.",
+    cards: [card("Can Riverbend Pilates pay for a year by bank transfer?", { type: "choices", choices: ["Yes, by bank transfer", "Cards only, as now"], recommended: 1 }, { key: "ask:annual-bank-transfer", why: "Bank transfers take three days to clear and need matching by hand." })],
+  }));
+  // A decision whose title runs to three lines.
+  addOpen(w, mk("dns-1", "otto", { type: "manual" }, "Plan the move to the new DNS provider.", {
+    end: ago(27), mins: 12, summary: "The new provider is set up and tested. Ready when you are.",
+    cards: [card("Move fernbrook.app's DNS to the new provider on Saturday night, while bookings are quietest, and keep the old records for a week in case anything still points at them?", { type: "choices", choices: ["Move it Saturday", "Wait a week", "Not now"], recommended: 0 })],
+  }));
+  // Blocked on a tool from an MCP server.
+  const filed = "I sorted the 7 flaky tests and wrote each one up, but I'm not allowed to create Linear issues yet.";
+  addOpen(w, mk("issues-1", "rafi", { type: "manual" }, "File the flaky tests as Linear issues so they're tracked.", {
+    end: ago(22), mins: 5, summary: filed,
+    denials: [{ tool: "mcp__linear__create_issue", brief: "Create \"Flaky: booking/waitlist-promotes-next-in-line\" in Fernbrook QA", suggestedRule: "mcp__linear__create_issue" }],
+  }), [init(9), ...tool("l1", "Read", "test-results/flaky.json", "7 tests"), ...tool("l2", "mcp__linear__create_issue", "Flaky: booking/waitlist-promotes-next-in-line", "Blocked: not allowed", false), said(filed)]);
+  return w;
+}
+
+/** More live work for conversations: three runs going at once on Juniper's thread (her reply, Otto's billing check
+ *  and Mae's help-centre update, both delegated), and a finished answer of Otto's with 22 steps. Otto's check finishes a
+ *  few seconds after the page loads (the transport times it). */
+export function liveMoreOffice(): World {
+  const w = fullOffice();
+  const help = mk("help-1", "mae", { type: "delegated", parentRunId: "plan-2" }, "Update the three help-centre articles that quote $29 so they say $34 from 1 March.", { state: "running", end: ago(1) });
+  w.runs.unshift(help);
+  w.events[help.id] = [init(9), said("Three articles quote the Studio price. Starting with choose-a-plan."), ...tool("h1", "Read", "help-centre/billing/choose-a-plan.md", "48 lines"), { type: "toolCall", id: "h2", tool: "Edit", brief: "help-centre/billing/choose-a-plan.md" }];
+  const plan = w.events["plan-2"];
+  if (plan) plan.splice(5, 0, ...tool("q1b", "mcp__omega__delegate", "Mae: update the help-centre articles that quote $29", "Delegated to Mae"), { type: "delegated", childRunId: "help-1", employeeId: "mae", task: help.prompt });
+  const slow = w.runs.find((r) => r.id === "slow-1");
+  if (slow) {
+    const steps: RunEvent[] = [];
+    const reads = ["traces/tuesday-18.json", "traces/tuesday-19.json", "web/src/pages/book.tsx", "web/src/api/bookings.ts", "infra/db/indexes.sql", "infra/db/slow-queries.log"];
+    for (let i = 0; i < 22; i++) {
+      const [name, brief, result] = i % 3 === 0 ? ["Bash", `kubectl logs deploy/web --since=48h | grep -c slow # pass ${i / 3 + 1}`, `${200 + i} lines`] : i % 3 === 1 ? ["Read", reads[i % reads.length], `${40 + i * 3} lines`] : ["Grep", `"bookings" in web/src (${i})`, `${i} matches`];
+      steps.push(...tool(`s${i}`, name, brief, result));
+    }
+    w.events[slow.id] = [init(8), said("Looking at Tuesday evening's traces."), ...steps, said(slow.summary ?? ""), done(slow)];
+  }
+  return w;
+}

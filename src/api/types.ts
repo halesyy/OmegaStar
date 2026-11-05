@@ -225,7 +225,7 @@ export type Run = {
   aboutCard?: boolean;         // a question you asked from a card: it does not make the thread a conversation you are in
   deliveredAt: string | null;  // asked and delegated runs: when the answer or report reached whoever handed it over
   check: string | null;        // a due check that came back into the conversation it was set in: the check's id
-  allowOnce: string[];         // rules you granted this run only ("Allow once & retry")
+  allowOnce: string[];         // rules you granted this run only ("Allow once", which retries)
   proposed: string | null;     // a tidy's bigger changes, waiting for your approval
   approvedAt: string | null;   // a tidy: when you approved what it proposed (a reply to it is no decision)
   attachments: string[];       // file names you attached to a message

@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Icon } from "./Icon";
+import { Roll } from "./ui";
+import "./CopyCommand.css";
 
 export function CopyCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
@@ -16,7 +18,7 @@ export function CopyCommand({ command }: { command: string }) {
     <span className="copycmd">
       <code className="mono">{command}</code>
       <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy()} aria-label={`Copy ${command}`}>
-        <Icon name={copied ? "check" : "copy"} size={12} /> {copied ? "Copied" : "Copy"}
+        <Icon name={copied ? "check" : "copy"} size={12} /> <Roll value={copied ? "Copied" : "Copy"} />
       </button>
     </span>
   );

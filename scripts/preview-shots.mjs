@@ -32,17 +32,37 @@ const BROWSER = { timezoneId: "Australia/Sydney", locale: "en-AU" };
 
 const palette = async (p) => { await p.keyboard.press("Control+k"); await p.waitForSelector(".palette, [role=dialog]"); };
 const tab = (name) => (p) => p.getByRole("tab", { name, exact: true }).click();
+/** Restart to update. While work runs it asks first: the sidebar's confirm, or the rail's second press. */
 const clickUpdate = async (p) => {
-  const big = p.locator(".update-btn");
-  await (await big.isVisible() ? big : p.locator(".update-mini")).click();
+  const row = p.locator(".update-row .update-btn");
+  if (await row.isVisible()) {
+    await row.click();
+    if (await p.locator('.update .collapse[data-open="true"]').count()) await p.locator(".update-confirm .update-btn").click();
+  } else {
+    await p.locator(".update-mini").click();
+    if (await p.locator(".update-mini-armed").count()) await p.locator(".update-mini").click();
+  }
 };
-const fillSetup = async (p) => {
-  await p.getByPlaceholder("e.g. Kestrel Labs").fill("Fernbrook");
-  await p.getByPlaceholder("Your name").fill("Maren Holt");
-  await p.getByPlaceholder("CEO").fill("Founder");
-  await p.getByPlaceholder("e.g. Garden tools for small shops").fill("Booking software for small fitness studios");
-  await p.getByPlaceholder("e.g. Show me a draft before it goes out").fill("Show me a draft before it goes to every studio");
+const askUpdate = async (p) => {
+  const row = p.locator(".update-row .update-btn");
+  await (await row.isVisible() ? row : p.locator(".update-mini")).click();
 };
+/** Onboarding's fields, found by their labels. `skip` leaves those out (a field left empty on purpose). */
+const fillSetup = async (p, skip = []) => {
+  const fill = async (label, value, exact = true) => { if (!skip.includes(label)) await p.getByLabel(label, { exact }).fill(value); };
+  await fill("Company", "Fernbrook");
+  await fill("Your name", "Maren Holt");
+  await fill("Your title", "Founder", false);
+  await fill("What we sell", "Booking software for small fitness studios");
+  await fill("How I like to work", "Show me a draft before it goes to every studio");
+};
+const openOffice = (p) => p.getByRole("button", { name: /Open your office|Opening/ }).click({ force: true });
+/** Settings: change a control, then give the save `ms` to answer before the shot. */
+const settingsChange = (label, ms = 0) => async (p) => {
+  await p.getByRole("switch", { name: label }).click({ force: true });
+  if (ms) await p.waitForTimeout(ms);
+};
+const scrollTo = (text) => (p) => p.getByText(text, { exact: true }).first().scrollIntoViewIfNeeded();
 const scrollToEnd = (p) => p.evaluate(() => {
   for (const el of document.querySelectorAll(".content *")) {
     if (el.scrollHeight > el.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(el).overflowY)) el.scrollTop = el.scrollHeight;
@@ -57,6 +77,13 @@ const SHOTS = [
   S("shell", "palette", "full", "#/org", { act: palette }),
   S("shell", "palette-search", "full", "#/org", { act: async (p) => { await palette(p); await p.keyboard.type("price"); } }),
   S("shell", "sidebar-collapsed", "full", "#/inbox", { query: "sidebar=collapsed" }),
+  S("shell", "sidebar-expanded", "full", "#/inbox", { query: "sidebar=expanded" }),
+  S("shell", "sidebar-quiet", "quiet", "#/org", { query: "sidebar=expanded" }),
+  S("shell", "chrome-mac", "full", "#/org", { query: "chrome=mac&sidebar=expanded" }),
+  S("shell", "chrome-mac-rail", "full", "#/org", { query: "chrome=mac&sidebar=collapsed" }),
+  S("shell", "update-confirm", "full", "#/activity", { query: "sidebar=expanded", act: askUpdate }),
+  S("shell", "update-armed", "full", "#/activity", { query: "sidebar=collapsed", act: askUpdate }),
+  S("shell", "palette-nothing", "full", "#/org", { act: async (p) => { await palette(p); await p.keyboard.type("zebra crossing"); } }),
   S("shell", "toasts", "full", "#/org", { query: "toasts=1" }),
   S("shell", "update-installing", "full", "#/activity", { act: clickUpdate }),
   S("shell", "update", "update-failed", "#/activity", { act: clickUpdate }),
@@ -67,12 +94,21 @@ const SHOTS = [
   S("onboarding", "setup-filled", "first-run", "", { act: fillSetup }),
   S("onboarding", "setup", "first-run-no-claude", ""),
   S("onboarding", "setup", "first-run-signed-out", ""),
+  S("onboarding", "setup-name-missing", "first-run", "", { act: async (p) => { await fillSetup(p, ["Your name"]); await openOffice(p); } }),
+  S("onboarding", "setup-recheck", "first-run-recheck", "", { act: (p) => p.getByRole("button", { name: "Check again" }).first().click() }),
+  S("onboarding", "setup-opening", "first-run-opening", "", { act: async (p) => { await fillSetup(p); await openOffice(p); } }),
+  S("onboarding", "setup-create-failed", "first-run-error", "", { act: async (p) => { await fillSetup(p); await openOffice(p); } }),
+  S("onboarding", "handoff", "first-run", "", { act: async (p) => { await fillSetup(p); await openOffice(p); } }),
 
   S("org", "chart", "full", "#/org"),
   S("org", "chart-people", "full", "#/org", { act: (p) => p.getByRole("button", { name: "People", exact: true }).click() }),
   S("org", "chart", "empty", "#/org"),
   S("org", "chart", "loading", "#/org"),
   S("org", "chart", "error", "#/org"),
+  S("org", "chart", "quiet", "#/org"),
+  S("org", "chart", "large-org", "#/org"),
+  S("org", "person-requests", "large-org", "#/org/kofi"),
+  S("org", "panel-new-hire", "large-org", "#/org/wren/work"),
   S("org", "panel-chat", "full", "#/org/juniper/chat/thread~plan-1"),
   S("org", "panel-chat-new", "full", "#/org/mae/chat"),
   S("org", "panel-work", "full", "#/org/otto/work"),
@@ -106,6 +142,9 @@ const SHOTS = [
   S("conversation", "new", "full", "#/chat/mae"),
   S("conversation", "thread", "loading", "#/chat/juniper/thread~plan-1"),
   S("conversation", "thread", "error", "#/chat/juniper/thread~plan-1"),
+  S("conversation", "thread", "thread-error", "#/chat/juniper/thread~plan-1"),
+  S("conversation", "thread-three-live", "live-more", "#/chat/juniper/thread~plan-1"),
+  S("conversation", "thread-many-steps", "live-more", "#/chat/otto/thread~slow-1"),
 
   S("inbox", "inbox", "full", "#/inbox"),
   S("inbox", "inbox-entry-open", "full", "#/inbox", { act: (p) => p.locator(".inbox-list .item-title").first().click() }),
@@ -118,6 +157,7 @@ const SHOTS = [
   S("inbox", "archive", "empty", "#/inbox", { act: tab("Archive") }),
   S("inbox", "inbox", "loading", "#/inbox"),
   S("inbox", "inbox", "error", "#/inbox"),
+  S("inbox", "inbox", "inbox-more", "#/inbox"),
 
   S("activity", "runs", "full", "#/activity"),
   S("activity", "skill-changes", "full", "#/activity/skills"),
@@ -134,6 +174,12 @@ const SHOTS = [
   S("settings", "settings-end", "full", "#/settings", { act: scrollToEnd }),
   S("settings", "settings", "loading", "#/settings"),
   S("settings", "settings", "error", "#/settings"),
+  S("settings", "settings-middle", "full", "#/settings", { act: scrollTo("CLI proxy") }),
+  S("settings", "settings-proxy", "full", "#/settings", { act: async (p) => { await scrollTo("CLI proxy")(p); await p.getByLabel("CLI proxy address").click(); } }),
+  S("settings", "settings-saving", "slow-saves", "#/settings", { act: settingsChange("Pause schedules") }),
+  S("settings", "settings-saved", "slow-saves", "#/settings", { act: settingsChange("Pause schedules", 1600) }),
+  S("settings", "settings-save-failed", "failed-saves", "#/settings", { act: settingsChange("Pause schedules") }),
+  S("settings", "settings-background-failed", "failed-saves", "#/settings", { act: settingsChange("Run in the background") }),
 ];
 
 // ---------------------------------------------------------------- running

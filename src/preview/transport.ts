@@ -7,12 +7,14 @@ import type {
 } from "../api/types";
 import { describeCron } from "../lib/cron";
 import { setMark } from "../lib/marks";
+import { COLLAPSE_KEY, NARROW_EXPANDED_KEY } from "../lib/sidebar";
 import { storageSet } from "../lib/storage";
 import { setTheme } from "../lib/theme";
 import { activityAt, archiveAt, isLive, isOpen, startedByYou } from "../lib/threads";
 import { toast } from "../lib/toasts";
 import {
-  ahead, cannedAnswer, CRAFT, emptyOffice, firstRunOffice, fullOffice, HOME, init, iso, mk, NOW, onDay, own, review, type World,
+  ahead, cannedAnswer, CRAFT, emptyOffice, firstRunOffice, fullOffice, HOME, inboxMoreOffice, init, iso, largeOffice, liveMoreOffice, mk, NOW,
+  onDay, own, quietOffice, review, type World,
 } from "./office";
 import { imageUrl, installTauriShim } from "./pages";
 
@@ -20,6 +22,8 @@ import { imageUrl, installTauriShim } from "./pages";
 const STATES = [
   "full", "empty", "first-run", "first-run-no-claude", "first-run-signed-out", "loading", "loading-boot", "error", "error-boot",
   "update-failed", "usage-limit", "api-key",
+  "first-run-recheck", "first-run-opening", "first-run-error", "slow-saves", "failed-saves", "quiet", "large-org", "inbox-more",
+  "live-more", "thread-error",
 ] as const;
 type State = (typeof STATES)[number];
 
@@ -33,6 +37,13 @@ type Handlers = { [K in CommandName]: (args: Commands[K]["args"]) => Commands[K]
 const OFFICE_ERROR = { code: "io", message: "Couldn't read the office: the database is busy. Close any other copy of Omega Star and try again." };
 const BOOT_ERROR = { code: "io", message: "Couldn't open the office in ~/Library/Application Support/OmegaStar: another copy of Omega Star has it open." };
 const UPDATE_ERROR = { code: "update", message: "Couldn't download the update: the connection timed out." };
+const CREATE_ERROR = { code: "io", message: "Couldn't create the office: the folder ~/Library/Application Support/OmegaStar is read-only." };
+const LOGIN_ITEM_ERROR = { code: "io", message: "Couldn't turn on start at login: macOS didn't allow it. You can turn it on later in Settings." };
+const SAVE_ERROR = { code: "io", message: "Couldn't save: the office folder is read-only." };
+const THREAD_ERROR = { code: "io", message: "Couldn't load this conversation: its transcript file is locked by another program." };
+/** What Settings saves through; the slow-saves and failed-saves states slow or fail exactly these. */
+const SAVES: CommandName[] = ["save_settings", "set_background", "backup_now"];
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const notFound = (message: string) => ({ code: "notFound", message });
 const never = <T>() => new Promise<T>(() => {});
 const DAY = 86_400_000;
@@ -45,6 +56,12 @@ function worldFor(state: State): World {
     case "first-run": return firstRunOffice();
     case "first-run-no-claude": return firstRunOffice(false, false);
     case "first-run-signed-out": return firstRunOffice(true, false);
+    case "first-run-recheck": return firstRunOffice(false, false);
+    case "first-run-opening": case "first-run-error": return firstRunOffice();
+    case "quiet": return quietOffice();
+    case "large-org": return largeOffice();
+    case "inbox-more": return inboxMoreOffice();
+    case "live-more": return liveMoreOffice();
     default: {
       const w = fullOffice();
       if (state === "usage-limit") {
@@ -64,8 +81,12 @@ export function previewTransport(): PreviewTransport {
   installTauriShim();
   const theme = params.get("theme");
   if (theme === "light" || theme === "dark" || theme === "system") setTheme(theme);
+  // The sidebar at every size: collapsed is the rail everywhere, expanded the full sidebar everywhere (src/lib/sidebar.ts).
   const sidebar = params.get("sidebar");
-  if (sidebar) storageSet("omega.sidebarCollapsed", sidebar === "collapsed" ? "1" : "0");
+  if (sidebar) {
+    storageSet(COLLAPSE_KEY, sidebar === "collapsed" ? "1" : "0");
+    storageSet(NARROW_EXPANDED_KEY, sidebar === "collapsed" ? "0" : "1");
+  }
   // What counts as new is the last day, so the same threads are unread on every load.
   storageSet("omega.shelvesSince", iso(NOW - DAY));
   if (w.runs.some((r) => r.id === "board-1")) setMark("board-1", { snoozedUntil: onDay(1, 9) });
@@ -125,6 +146,7 @@ export function previewTransport(): PreviewTransport {
 
   let n = 0;
   const nextId = (prefix: string) => `${prefix}-${++n}`;
+  const loadedAt = Date.now();
 
   function finish(r: Run, text: string) {
     if (r.state !== "running") return;
@@ -171,7 +193,7 @@ export function previewTransport(): PreviewTransport {
   }
 
   /** The live work in the busy office: Juniper's reply streaming, her sub-agent reading, and Otto checking billing. */
-  function startLive() {
+  function startLive(billingMs = 40_000) {
     const plan = byId("plan-2");
     const billing = byId("billing-1");
     if (!plan || !billing) return;
@@ -196,9 +218,10 @@ export function previewTransport(): PreviewTransport {
 
     window.setTimeout(() => append(billing.id, [{ type: "toolResult", id: "b3", ok: true, brief: "2 to change, 0 to destroy" }]), 2500);
     window.setTimeout(() => append(billing.id, [{ type: "toolCall", id: "b4", tool: "Read", brief: "web/src/pages/pricing.tsx" }, { type: "toolResult", id: "b4", ok: true, brief: "140 lines" }]), 6000);
-    window.setTimeout(() => finish(billing, "Two places hard-code $29: the pricing page and the upgrade screen. Both now read the price from billing. The new price ID is ready in the infrastructure config; it goes live with one change on 1 March, and annual plans keep their old price ID until renewal."), 40_000);
+    window.setTimeout(() => finish(billing, "Two places hard-code $29: the pricing page and the upgrade screen. Both now read the price from billing. The new price ID is ready in the infrastructure config; it goes live with one change on 1 March, and annual plans keep their old price ID until renewal."), billingMs);
   }
-  if (state !== "loading" && state !== "loading-boot") startLive();
+  // Live work streams in every busy state; in live-more, Otto's delegated check finishes a few seconds in.
+  if (state !== "loading" && state !== "loading-boot" && state !== "quiet") startLive(state === "live-more" ? 6000 : undefined);
 
   let toasted = false;
   function toastsOnce() {
@@ -276,8 +299,15 @@ export function previewTransport(): PreviewTransport {
   // ---------------------------------------------------------------- every command
 
   const h: Handlers = {
-    setup_status: () => ({ ...w.setup, company: w.company }),
+    setup_status: () => {
+      // first-run-recheck: the checks while the page opens find no Claude Code; any check from half a second on (a
+      // re-check you ask for) finds it, signed in. Timed, not counted: React's dev mode runs the first check twice.
+      if (state === "first-run-recheck" && Date.now() - loadedAt > 500) w.setup = { ...firstRunOffice().setup, background: w.setup.background };
+      return { ...w.setup, company: w.company };
+    },
     complete_setup: ({ companyName, ceoName, title }) => {
+      if (state === "first-run-opening") return never();
+      if (state === "first-run-error") throw CREATE_ERROR;
       w.company = { name: companyName, ceoName, title: title ?? "CEO", email: null, reportsTo: null };
       w.setup.company = w.company;
       w.companyPage = w.companyPage || `# ${companyName}\n\n## What we sell\n\n## What we use\n\n## How things work here\n\n## Voice and style\n`;
@@ -289,6 +319,7 @@ export function previewTransport(): PreviewTransport {
       return w.company;
     },
     set_background: ({ enabled }) => {
+      if (state === "first-run-error") throw LOGIN_ITEM_ERROR;
       w.setup.background = enabled;
       return { ...w.setup, company: w.company };
     },
@@ -616,6 +647,9 @@ export function previewTransport(): PreviewTransport {
       if (state === "loading-boot" || (state === "loading" && name !== "setup_status")) return never();
       if (state === "error-boot" && name === "setup_status") throw BOOT_ERROR;
       if (state === "error" && name !== "setup_status") throw OFFICE_ERROR;
+      if (state === "thread-error" && name === "thread") throw THREAD_ERROR;
+      if (state === "slow-saves" && SAVES.includes(name)) await wait(1500);
+      if (state === "failed-saves" && SAVES.includes(name)) { await wait(600); throw SAVE_ERROR; }
       await new Promise((r) => setTimeout(r, 0));
       const run = h[name] as (a: typeof args) => Commands[typeof name]["ret"] | Promise<Commands[typeof name]["ret"]>;
       return structuredClone(await run(args));
