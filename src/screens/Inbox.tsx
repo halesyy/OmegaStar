@@ -406,8 +406,10 @@ export function InboxScreen() {
       const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       const inDetail = !!detail && !!active && detail.contains(active);
       const q = (s: string) => detail?.querySelector<HTMLElement>(s) ?? null;
-      // The main action: the bar's own, else the card's in the bar (its buttons sit in .d-slot), else in the card.
-      const main = () => q("[data-main]:not(:disabled)") ?? q(".d-slot .btn-primary:not(:disabled)") ?? q(".d-card-main .btn-primary:not(:disabled)");
+      // The main action: the bar's own, else the card's in the bar (its buttons sit in .d-slot: its black button, or for a
+      // choice the employee's pick), else in the card.
+      const main = () => q("[data-main]:not(:disabled)") ?? q(".d-slot .btn-primary:not(:disabled)") ?? q(".d-slot .card-pick:not(:disabled)")
+        ?? q(".d-card-main .btn-primary:not(:disabled)");
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       switch (key) {
         case "j": case "k": case "ArrowDown": case "ArrowUp":
@@ -660,7 +662,7 @@ function Swap({ row, phase, leaving, ctx, next, onNext }: { row: Row; phase: Lay
       </div>
       <div className="d-foot">
         {/* The open card's own buttons (CardView's actionsSlot), then the item's actions. */}
-        <div className="d-slot" ref={setSlot} />
+        <div className="d-slot cv-slot" ref={setSlot} />
         <div className="d-acts" ref={setFoot} />
         {next ? (
           <button type="button" className="d-next" onClick={onNext}>

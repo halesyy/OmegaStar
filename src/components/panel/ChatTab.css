@@ -54,8 +54,6 @@
 /* A draft quoted in a reply reads as a letter: a ruled sheet, its subject as its own line. */
 .chat .md blockquote { margin: 2px 0 12px; padding: 14px 18px 16px; border: 0; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink); font-size: 14.5px; }
 .chat .md blockquote > :last-child { margin-bottom: 0; }
-.chat .md .md-subj { display: flex; align-items: baseline; gap: 10px; margin: -2px 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
-.chat .md .md-subj b { font-size: 13.5px; font-weight: 700; color: var(--ink); }
 
 /* The caret sits after the last word while text streams, steady, in ultramarine; it goes when streaming ends. */
 .md-live > :is(p, h1, h2, h3, h4):last-child::after,

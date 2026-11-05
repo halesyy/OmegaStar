@@ -211,6 +211,12 @@ input, textarea { caret-color: var(--live); }
 .md th, .md td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .md th { font-weight: 600; color: var(--muted); }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 14px 0; }
+/* A quoted draft that opens with its subject (Markdown's letters()): a ruled sheet, the subject its own line. Wherever
+   an employee's words show (a conversation, a run, the Inbox). */
+.md blockquote.md-letter { margin: 2px 0 12px; padding: 14px 18px 16px; border: 0; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--ink); font-size: 14.5px; }
+.md blockquote.md-letter > :last-child { margin-bottom: 0; }
+.md .md-subj { display: flex; align-items: baseline; gap: 10px; margin: -2px 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
+.md .md-subj b { font-size: 13.5px; font-weight: 700; color: var(--ink); }
 .md a { text-decoration: underline; text-decoration-color: var(--accent-line); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .md .md-path { cursor: pointer; text-decoration: underline; }
 .md-img { display: block; max-width: 100%; height: auto; max-height: 360px; object-fit: contain; border: 1px solid var(--line); border-radius: var(--r-card); margin: 6px 0; cursor: zoom-in; }
