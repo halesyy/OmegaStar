@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { call, errorMessage } from "../api/client";
 import type { EmployeeDraft, HireProposal, SkillInfo } from "../api/types";
 import { refreshOrg, useCatalog, useOrg } from "../lib/hooks";
 import { toast } from "../lib/toasts";
 import { setDraft } from "../lib/drafts";
 import { openChat } from "../lib/router";
-import { firstName, hueFromName } from "../lib/format";
+import { firstName, hueFromName, MOD } from "../lib/format";
 import { AdvancedFields, ClearancePicker, EmployeeManagerSelect } from "./EmployeeFields";
 import { Markdown } from "./Markdown";
 import { SkillPicker } from "./SkillPicker";
@@ -68,8 +68,10 @@ function initialDraft(managerId: string | null, template: string | null, proposa
 
 /** Hire an employee; with `proposal`, review a hire an employee proposed and approve it, changed or not.
  *  Its form starts from the props when it mounts, so the Shell remounts it (a new `key`) each time it opens. */
-export function HireSheet({ open, managerId, template, proposal, onClose }: {
+export function HireSheet({ open, managerId, template, proposal, onClose, returnFocus = null }: {
   open: boolean; managerId: string | null; template: string | null; proposal: HireProposal | null; onClose: () => void;
+  /** Where focus goes back to when it closes (the Inbox's Review and hire). */
+  returnFocus?: HTMLElement | null;
 }) {
   const { snap } = useOrg();
   const catalog = useCatalog();
@@ -140,13 +142,27 @@ export function HireSheet({ open, managerId, template, proposal, onClose }: {
     }
   };
 
+  // ⌘ or Ctrl+Enter hires (or approves) from anywhere in the sheet.
+  const latestSubmit = useRef(submit);
+  latestSubmit.current = submit;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey) || e.defaultPrevented) return;
+      e.preventDefault();
+      void latestSubmit.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
-    <SlideOver open={open} onClose={onClose} width={760} label={proposal ? "Review a hire proposal" : "Hire an employee"} modal>
+    <SlideOver open={open} onClose={onClose} width={760} label={proposal ? "Review a hire proposal" : "Hire an employee"} modal returnFocus={returnFocus}>
       <header className="sheet-head">
         <div className="stack">
           <h2 className="h-lg">{proposal ? `${proposerName}'s hire proposal` : "Hire an employee"}</h2>
           <p className="muted">{proposal
-            ? `${proposerName} proposed this hire. Change anything you like, then hire. To say no, decline it from your Inbox.`
+            ? `${proposerName} proposed this hire. Change anything you like, then hire. To say no, close this and press Decline.`
             : "An agent on your Claude Code who works on their own and grows skills as you teach them."}</p>
         </div>
         <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
@@ -228,7 +244,10 @@ export function HireSheet({ open, managerId, template, proposal, onClose }: {
                 type="button" className="preview-av" title="Try another colour" aria-label="Try another avatar colour"
                 onClick={() => { setHueTouched(true); set("hue", (hue + 47) % 360); }}
               >
-                <Avatar name={draft.name || "?"} hue={hue} size={40} />
+                {/* A hire not made yet: the dashed proposed-hire avatar, with their initials once they have a name. */}
+                {draft.name.trim()
+                  ? <Avatar name={draft.name} hue={hue} size={40} proposed />
+                  : <span className="av av-proposed" style={{ "--h": hue, width: 40, height: 40 } as React.CSSProperties} aria-hidden />}
               </button>
               <div className="stack grow" style={{ minWidth: 0 }}>
                 <span className="card-name">{draft.name.trim() || "Their name"}</span>
@@ -258,8 +277,9 @@ export function HireSheet({ open, managerId, template, proposal, onClose }: {
         {error ? <ErrorNote text={error} /> : <span className="faint">You can change all of this later.</span>}
         <span className="grow" />
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>
+        <button className="btn btn-primary" disabled={busy} onClick={() => void submit()} aria-keyshortcuts={MOD === "⌘" ? "Meta+Enter" : "Control+Enter"}>
           {busy ? "Hiring…" : draft.name.trim() ? `${proposal ? "Approve & hire" : "Hire"} ${firstName(draft.name.trim())}` : proposal ? "Approve & hire" : "Hire"}
+          <span className="kc">{MOD} ↵</span>
         </button>
       </footer>
     </SlideOver>

@@ -1,5 +1,5 @@
 // The app once you have a company: sidebar, the current page, and the sheets and palette any page can open.
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import type { HireProposal } from "./api/types";
 import { Icon, LogoMark, type IconName } from "./components/Icon";
 import { CommandPalette } from "./components/CommandPalette";
@@ -8,7 +8,7 @@ import { AddPersonSheet } from "./components/AddPersonSheet";
 import { UpdateCard } from "./components/UpdateCard";
 import { UsageCard } from "./components/UsageCard";
 import { workLabel } from "./components/RunRow";
-import { Avatar } from "./components/ui";
+import { Avatar, Roll } from "./components/ui";
 import { usePruneMarks, useStatuses } from "./components/conversation/useStatuses";
 import { decisions } from "./lib/decisions";
 import { firstName, initials, MOD } from "./lib/format";
@@ -16,7 +16,11 @@ import { openMember, openYou, useRoute } from "./lib/router";
 import { conversationOf, threadFocus } from "./lib/threads";
 import { YOU_ID } from "./lib/org";
 import { useOrg, useProposals } from "./lib/hooks";
-import { storageGet, storageSet } from "./lib/storage";
+import { dragRegion, macChrome } from "./lib/chrome";
+import { usePresence } from "./lib/motion";
+import { usePending } from "./lib/pending";
+import { useScrollFade } from "./lib/scrollFade";
+import { useRail } from "./lib/sidebar";
 import { OrgScreen } from "./screens/Org";
 import { ConversationScreen } from "./screens/Conversation";
 import { InboxScreen } from "./screens/Inbox";
@@ -29,34 +33,60 @@ type Sheet =
   | { kind: "proposal"; proposal: HireProposal }
   | { kind: "person"; managerId: string | null }
   | null;
+/** `from`: the button that opened a sheet, so focus goes back to it on close (WebKit doesn't focus a button on click). */
 type ShellApi = {
-  hire: (managerId?: string | null, template?: string | null) => void;
-  reviewProposal: (p: HireProposal) => void;
-  addPerson: (managerId?: string | null) => void;
+  hire: (managerId?: string | null, template?: string | null, from?: HTMLElement | null) => void;
+  reviewProposal: (p: HireProposal, from?: HTMLElement | null) => void;
+  addPerson: (managerId?: string | null, from?: HTMLElement | null) => void;
   palette: () => void;
 };
 const ShellCtx = createContext<ShellApi>({ hire: () => {}, reviewProposal: () => {}, addPerson: () => {}, palette: () => {} });
 export const useShell = () => useContext(ShellCtx);
 
-const COLLAPSE_KEY = "omega.sidebarCollapsed";
+// Kept for onboarding, which matches the band to the sidebar: src/lib/sidebar.ts holds the rule now.
+export { COLLAPSE_KEY } from "./lib/sidebar";
+/** The palette's leaving fade (--d-ui), with a frame to spare. */
+const PALETTE_LEAVE_MS = 160;
 
-export function Shell() {
+/** How long the sidebar's arrival takes at most: its last row's delay and its own drop. */
+const ARRIVE_MS = 1200;
+
+/** `arriving`: onboarding has just handed over, so the canvas comes in as one body swap and the sidebar's parts drop
+ *  into the band in reading order (your row, already there in onboarding's band, stays put). */
+export function Shell({ arriving = false }: { arriving?: boolean }) {
+  // Only for the hand-off itself: a row that arrives later (someone starts working) is not part of it.
+  const [arrive, setArrive] = useState(arriving);
+  useEffect(() => {
+    if (!arrive) return;
+    const t = window.setTimeout(() => setArrive(false), ARRIVE_MS);
+    return () => window.clearTimeout(t);
+  }, [arrive]);
   const route = useRoute();
   const { snap } = useOrg();
   const [sheet, setSheet] = useState<Sheet>(null);
   // Each opening remounts the sheet, so it starts from a fresh form.
   const [sheetKey, setSheetKey] = useState(0);
+  // The button that opened the last sheet: kept past the close, which is when focus goes back to it.
+  const [sheetFrom, setSheetFrom] = useState<HTMLElement | null>(null);
   const [palette, setPalette] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => storageGet(COLLAPSE_KEY) === "1");
+  // Below 1180 px the sidebar is the rail unless you expanded it there; above, your saved choice (src/lib/sidebar.ts).
+  const { rail: collapsed, toggle: toggleCollapsed } = useRail();
   const { items } = useStatuses();
   usePruneMarks();
+  // The palette fades where it is when it closes; each opening starts it afresh.
+  const paletteShown = usePresence(palette, PALETTE_LEAVE_MS);
+  const sideRef = useScrollFade<HTMLElement>();
+  const navRef = useScrollFade<HTMLElement>();
+  const tight = useTight(navRef);
+  const [paletteOpens, setPaletteOpens] = useState({ open: palette, n: 0 });
+  if (paletteOpens.open !== palette) setPaletteOpens({ open: palette, n: paletteOpens.n + (palette ? 1 : 0) });
 
   const api = useMemo<ShellApi>(() => {
-    const open = (s: Sheet) => { setSheet(s); setSheetKey((k) => k + 1); };
+    const open = (s: Sheet, from: HTMLElement | null) => { setSheet(s); setSheetFrom(from); setSheetKey((k) => k + 1); };
     return {
-      hire: (managerId = null, template = null) => open({ kind: "hire", managerId, template }),
-      reviewProposal: (proposal) => open({ kind: "proposal", proposal }),
-      addPerson: (managerId = null) => open({ kind: "person", managerId }),
+      hire: (managerId = null, template = null, from = null) => open({ kind: "hire", managerId, template }, from),
+      reviewProposal: (proposal, from = null) => open({ kind: "proposal", proposal }, from),
+      addPerson: (managerId = null, from = null) => open({ kind: "person", managerId }, from),
       palette: () => setPalette(true),
     };
   }, []);
@@ -69,12 +99,21 @@ export function Shell() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const proposals = useProposals();
-  // The badge counts decisions: hire proposals, and every entry the Inbox shows. The dock shows it too.
-  const inboxCount = (proposals ?? []).filter((p) => p.state === "open").length + decisions((items ?? []).filter((i) => i.status.inbox)).length;
+  // The badge counts decisions: hire proposals, and every entry the Inbox shows, less the answers still on their way
+  // (inside an Undo), so it always matches the Inbox's own count. The dock shows it too.
+  const pending = usePending();
+  const inboxCount = (proposals ?? []).filter((p) => p.state === "open" && !pending.has(p.id)).length
+    + decisions((items ?? []).filter((i) => i.status.inbox)).filter((d) => !pending.has(d.id)).length;
   useEffect(() => { void dockBadge(inboxCount); }, [inboxCount]);
 
+  // Toasts and other window-level layers centre on the canvas, not the window, so they say which sidebar is showing.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.shell = collapsed ? "rail" : "side";
+    return () => { delete root.dataset.shell; };
+  }, [collapsed]);
+
   const closeSheet = useCallback(() => setSheet(null), []);
-  const toggleCollapsed = () => setCollapsed((c) => { storageSet(COLLAPSE_KEY, c ? "0" : "1"); return !c; });
   const company = snap?.company;
 
   let page: ReactNode;
@@ -87,33 +126,37 @@ export function Shell() {
     case "run": page = <RunView key={route.runId} runId={route.runId} />; break;
   }
   const memberSelected = route.page === "org" ? route.memberId : null;
-  // A working employee's row says what they are on and what waits to start, and a click opens the first of it that is a
-  // conversation.
-  const members = [
-    ...(snap?.employees ?? []).map((e) => {
-      const what = e.live.map((r) => workLabel(r, snap?.employees ?? [], snap?.people ?? []));
-      const on = (state: string) => what.filter((_, i) => e.live[i].state === state).join(", ");
-      const [running, queued] = [on("running"), on("queued")];
-      const doing = [running && `working on ${running}`, queued && `waiting to start: ${queued}`].filter(Boolean).join("; ");
-      return {
-        id: e.id, name: e.name, hue: e.hue, person: false,
-        dot: e.presence === "working" || e.presence === "queued" ? "live" : e.presence === "attention" ? "err" : null, working: e.working,
-        what: what[0] ?? null, label: doing ? `${e.name}, ${doing}` : e.name,
-        focus: (() => { const root = e.live.map(conversationOf).find((r) => r !== null); return root ? threadFocus(root) : null; })(),
-      };
-    }),
-    ...(snap?.people ?? []).map((p) => ({ id: p.id, name: p.name, hue: p.hue, person: true, dot: null, working: 0, what: null, label: p.name, focus: null })),
-  ];
+  // Now: only the employees who are working, waiting to start or need you, each with their state in a word; what they
+  // are on is in the row's tooltip. Everyone else is one click away in the chart and the palette. A click opens the
+  // first of their live work that is a conversation.
+  const employees = snap?.employees ?? [];
+  const people = snap?.people ?? [];
+  const now = employees.filter((e) => e.presence !== "idle").map((e) => {
+    const what = e.live.map((r) => workLabel(r, employees, people));
+    const on = (state: string) => what.filter((_, i) => e.live[i].state === state).join(", ");
+    const [running, queued] = [on("running"), on("queued")];
+    const doing = [running && `working on ${running}`, queued && `up next: ${queued}`].filter(Boolean).join("; ");
+    const failed = e.presence === "attention" && (e.lastRun?.state === "failed" || e.lastRun?.state === "lost");
+    const state = e.presence === "working" ? "Working" : e.presence === "queued" ? "Up next" : failed ? "Failed" : "Needs you";
+    const tone = e.presence === "working" ? "live" : e.presence === "queued" ? "wait" : "attn";
+    const first = firstName(e.name);
+    return {
+      id: e.id, name: e.name, first, hue: e.hue, state, tone,
+      label: `${e.name}, ${doing || state.toLowerCase()}`,
+      tip: collapsed ? `${first}: ${doing || state.toLowerCase()}` : doing ? doing.charAt(0).toUpperCase() + doing.slice(1) : undefined,
+      focus: (() => { const root = e.live.map(conversationOf).find((r) => r !== null); return root ? threadFocus(root) : null; })(),
+    };
+  });
+  const everyone = employees.length + people.length;
+  const rest = everyone - now.length;
 
   return (
     <ShellCtx.Provider value={api}>
       <div className={`shell ${collapsed ? "shell-collapsed" : ""}`}>
-        <aside className="side" aria-label="Sidebar">
+        {macChrome ? <div className="side-chrome" {...dragRegion} /> : null}
+        <aside ref={sideRef} className={`side scroll-fade ${arrive ? "side-arriving" : ""} ${tight ? "side-tight" : ""}`} aria-label="Sidebar">
           <div className="side-top">
-            <a href="#/org" className="side-brand" aria-label="Omega Star">
-              <LogoMark size={24} />
-              <span className="side-word">Omega Star</span>
-            </a>
+            <SideBrand />
             <button className="side-collapse" onClick={toggleCollapsed} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} data-tip={collapsed ? "Expand" : undefined}>
               <Icon name="sidebar" size={15} />
             </button>
@@ -123,26 +166,24 @@ export function Shell() {
             <span className="side-text">Search</span>
             <span className="kbd side-kbd">{MOD} K</span>
           </button>
-          <nav className="side-nav">
+          <nav ref={navRef} className="side-nav scroll-fade">
             <NavItem href="#/org" icon="org" label="Org chart" active={route.page === "org"} collapsed={collapsed} />
             <NavItem href="#/inbox" icon="inbox" label="Inbox" active={route.page === "inbox"} badge={inboxCount || null} collapsed={collapsed} />
             <NavItem href="#/activity" icon="activity" label="Activity" active={route.page === "activity" || route.page === "run"} collapsed={collapsed} />
-            {members.length ? <div className="side-label">Team</div> : null}
+            {everyone ? <div className="side-label">Now</div> : null}
             <div className="side-team">
-              {members.slice(0, 12).map((m) => (
-                <button key={m.id} className={`side-item side-member ${memberSelected === m.id ? "side-item-on" : ""}`} onClick={() => openMember(m.id, m.focus ? "chat" : null, m.focus)} data-tip={collapsed ? m.label : undefined} aria-label={m.label}>
+              {now.map((m) => (
+                <button key={m.id} className={`side-item side-member ${memberSelected === m.id ? "side-item-on" : ""}`} onClick={() => openMember(m.id, m.focus ? "chat" : null, m.focus)} data-tip={m.tip} aria-label={m.label}>
                   <span className="side-member-av">
-                    <Avatar name={m.name} hue={m.hue} size={20} person={m.person} />
-                    {m.dot ? <span className={`side-dot side-dot-${m.dot}`} /> : null}
+                    <Avatar name={m.name} hue={m.hue} size={20} />
+                    <span className={`side-dot side-dot-${m.tone}`} />
                   </span>
-                  <span className="side-text">
-                    {m.person ? m.name : firstName(m.name)}
-                    {m.what ? <span className="side-what"> · {m.what}</span> : null}
-                  </span>
-                  {m.working > 1 ? <span className="side-count num" title={`Working on ${m.working} things`}>{m.working}</span> : null}
+                  <span className="side-text">{m.first}</span>
+                  <span className={`side-state side-state-${m.tone}`}>{m.state}</span>
                 </button>
               ))}
-              {members.length > 12 ? <a href="#/org" className="side-item side-more"><span className="side-text">{members.length - 12} more in the org chart</span></a> : null}
+              {everyone && !now.length ? <span className="side-item side-none"><span className="side-text">Nobody is working</span></span> : null}
+              {rest > 0 ? <a href="#/org" className="side-item side-more"><span className="side-text">{now.length ? `${rest} more` : rest} in the org chart</span></a> : null}
             </div>
           </nav>
           <div className="side-bottom">
@@ -151,7 +192,7 @@ export function Shell() {
             <UsageCard />
             {company ? (
               <button className={`side-you ${memberSelected === YOU_ID ? "side-you-on" : ""}`} onClick={openYou} data-tip={collapsed ? company.ceoName : undefined} aria-label={`${company.ceoName}, ${company.title} of ${company.name}. Edit your profile`}>
-                <span className="side-you-av">{initials(company.ceoName)}</span>
+                <span className="side-you-av"><span className="av-i">{initials(company.ceoName)}</span></span>
                 <span className="side-you-text">
                   <span className="side-you-name">{company.ceoName}</span>
                   <span className="side-you-sub">{company.title} · {company.name}</span>
@@ -160,7 +201,7 @@ export function Shell() {
             ) : null}
           </div>
         </aside>
-        <main className="content">
+        <main className={`content ${arriving ? "enter-rise" : ""}`}>
           <div className="page">{page}</div>
         </main>
       </div>
@@ -170,12 +211,38 @@ export function Shell() {
         managerId={sheet?.kind === "hire" ? sheet.managerId : null}
         template={sheet?.kind === "hire" ? sheet.template : null}
         proposal={sheet?.kind === "proposal" ? sheet.proposal : null}
+        returnFocus={sheetFrom}
         onClose={closeSheet}
       />
       <AddPersonSheet key={`person-${sheetKey}`} open={sheet?.kind === "person"} managerId={sheet?.kind === "person" ? sheet.managerId : null} onClose={closeSheet} />
-      {palette ? <CommandPalette onClose={() => setPalette(false)} api={api} /> : null}
+      {paletteShown ? <CommandPalette key={paletteOpens.n} leaving={!palette} onClose={() => setPalette(false)} api={api} /> : null}
     </ShellCtx.Provider>
   );
+}
+
+/** Whether the usage card should fold to its nearer limit, so the state rows above fit whole: true while the list would
+ *  overflow without the fold. Measured against the room the fold gives (one usage row), so it never flips back and
+ *  forth. */
+function useTight(nav: React.RefObject<HTMLElement | null>): boolean {
+  const [tight, setTight] = useState(false);
+  useLayoutEffect(() => {
+    const el = nav.current;
+    if (!el) return;
+    const check = () => {
+      const row = document.querySelector<HTMLElement>(".usage-row:not(.usage-near)");
+      const gives = tight ? 24 : (row?.offsetHeight ?? 0) + 2;
+      const over = el.scrollHeight - el.clientHeight;
+      setTight(tight ? over + gives > 0 : over > 0 && gives > 0);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    for (const c of el.children) ro.observe(c);
+    const mo = new MutationObserver(check);
+    mo.observe(el, { childList: true, subtree: true });
+    return () => { ro.disconnect(); mo.disconnect(); };
+  }, [nav, tight]);
+  return tight;
 }
 
 /** The count on the app's icon in the Dock (macOS), cleared at 0. Elsewhere it may not be supported, which is fine. */
@@ -185,13 +252,24 @@ async function dockBadge(count: number) {
   await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined).catch(() => {});
 }
 
-/** One of the sidebar's pages, with an optional count; its name moves to a tooltip when the sidebar is collapsed. */
+/** The product's mark and name at the top of the sidebar; the boot screen draws it in the same place. */
+export function SideBrand() {
+  return (
+    <a href="#/org" className="side-brand" aria-label="Omega Star">
+      <LogoMark size={20} tile={false} />
+      <span className="side-word">Omega Star</span>
+    </a>
+  );
+}
+
+/** One of the sidebar's pages, with an optional count that rolls when it changes; its name moves to a tooltip when the
+ *  sidebar is collapsed. */
 function NavItem({ href, icon, label, active, badge, collapsed }: { href: string; icon: IconName; label: string; active: boolean; badge?: number | null; collapsed: boolean }) {
   return (
     <a href={href} className={`side-item ${active ? "side-item-on" : ""}`} aria-current={active ? "page" : undefined} data-tip={collapsed ? (badge ? `${label} · ${badge}` : label) : undefined}>
       <Icon name={icon} size={16} />
       <span className="side-text">{label}</span>
-      {badge ? <span className="side-badge num" aria-label={`${badge} waiting`}>{badge}</span> : null}
+      {badge ? <span className="side-badge num" aria-label={`${badge} waiting`}><Roll value={badge} /></span> : null}
     </a>
   );
 }

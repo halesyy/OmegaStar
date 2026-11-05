@@ -16,9 +16,10 @@ pub const PAGE_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; styl
 font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'";
 
 const TOKENS: &str = include_str!("../../../src/design/tokens.css");
-const INTER: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2");
+/// Inter with both its weight and optical-size axes, so a page can use the Display cut (`--display`) as the app does.
+const INTER: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2");
 const BASE: &str = "html { color: var(--ink); background: transparent; font-family: var(--font-ui); font-size: var(--t-base); \
-line-height: 1.5; font-feature-settings: \"cv11\", \"ss01\", \"ss03\"; -webkit-font-smoothing: antialiased; }\nbody { margin: 0; }";
+line-height: 1.5; font-feature-settings: var(--font-features); -webkit-font-smoothing: antialiased; }\nbody { margin: 0; }";
 /// Tells the frame how tall the page is, whenever that changes.
 const HEIGHT: &str = "new ResizeObserver(() => parent.postMessage({ omegaHeight: \
 Math.ceil(document.documentElement.getBoundingClientRect().height) }, \"*\")).observe(document.documentElement);";

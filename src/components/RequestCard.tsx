@@ -187,7 +187,7 @@ export function RequestCard({ r, employee, person, showPerson = false, onChanged
           {r.resolvedAt ? <span className="faint">{relTime(r.resolvedAt)}</span> : null}
         </div>
       ) : mode === "reply" ? (
-        <div className="req-reply">
+        <div className="req-reply enter-drop">
           <textarea className="textarea" rows={3} autoFocus value={text} onChange={(e) => setText(e.target.value)}
             placeholder={r.kind === "task" ? `What did ${personName} do? ${empName} continues from this.` : `${personName}'s answer, in their words or yours.`}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && text.trim()) { e.preventDefault(); void resolve(r.kind === "task" ? "done" : "answered", text.trim()); } }} />

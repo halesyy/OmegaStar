@@ -1,4 +1,4 @@
-.sp { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); overflow: hidden; }
+.sp { border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--surface); overflow: hidden; }
 .sp-top { display: flex; align-items: center; gap: 10px; padding: 8px; border-bottom: 1px solid var(--line); }
 .sp-top .input { height: 30px; border-color: transparent; background: var(--sunken); padding-left: 30px; }
 .sp-top .input:focus { background: var(--surface); }
@@ -8,23 +8,24 @@
 .sp-more { width: 100%; display: flex; align-items: center; justify-content: center; gap: 5px; height: 34px; font-size: var(--t-sm); font-weight: 500; color: var(--ink-2); border-top: 1px solid var(--line); }
 .sp-more:hover { background: var(--raised); color: var(--ink); }
 .sp-group + .sp-group { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
-.sp-group-label { padding: 8px 14px 4px; font-size: var(--t-sm); font-weight: 500; color: var(--faint); }
+.sp-group-label { padding: 10px 14px 4px; font-size: var(--t-sm); font-weight: 700; color: var(--muted); }
 .sp-row { position: relative; display: flex; gap: 10px; align-items: flex-start; padding: 7px 14px; cursor: pointer; transition: background var(--d-ui) var(--ease); }
 .sp-row:hover { background: var(--raised); }
+.sp-row:has(input:focus-visible) { background: var(--raised); }
 .sp-row input { position: absolute; opacity: 0; pointer-events: none; }
 .sp-check {
-  flex: none; margin-top: 2px; width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--line-strong); background: var(--surface);
+  flex: none; margin-top: 2px; width: 16px; height: 16px; border-radius: var(--r-inner); border: 1.5px solid var(--line-strong); background: var(--surface);
   display: inline-flex; align-items: center; justify-content: center; color: transparent; transition: all var(--d-ui) var(--ease);
 }
 .sp-row-on .sp-check { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .sp-row input:focus-visible + .sp-check { box-shadow: var(--focus); }
 .sp-name { font-size: var(--t-base); font-weight: 500; color: var(--ink); }
-.sp-sub { color: var(--faint); font-weight: 400; }
+.sp-sub { color: var(--muted); font-weight: 400; }
 .sp-desc { font-size: var(--t-sm); color: var(--muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.sp-plugin-skills { font-size: var(--t-xs); color: var(--faint); margin-top: 2px; word-spacing: 4px; }
+.sp-plugin-skills { font-size: var(--t-xs); color: var(--muted); margin-top: 2px; word-spacing: 4px; }
 .sp-empty { padding: 20px; text-align: center; color: var(--muted); font-size: var(--t-sm); }
 .sp-builtins { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--line); background: var(--raised); }
-.sp-foot { font-size: var(--t-sm); color: var(--faint); padding: 8px 14px 10px; border-top: 1px solid var(--line); background: var(--raised); }
+.sp-foot { font-size: var(--t-sm); color: var(--muted); padding: 8px 14px 10px; border-top: 1px solid var(--line); background: var(--raised); }
 .sp-none { padding: 28px 24px; gap: 6px; }
 .sp-none p { max-width: 420px; font-size: var(--t-sm); line-height: 1.5; overflow-wrap: anywhere; }
 .sp-none .btn { margin-top: 6px; }

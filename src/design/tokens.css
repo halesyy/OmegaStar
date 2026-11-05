@@ -1,165 +1,281 @@
-/* Omega Star design tokens. Near-monochrome zinc neutrals; colour is reserved for state.
-   --accent is the primary action colour (black in light, white in dark).
-   --live is the one restrained hue, used only for "working". */
+/* Omega Star design tokens: direction C, Ultramarine. An ultramarine sidebar that is the team's home, black and white
+   work surfaces, coral for anything that needs you, heavy Inter Display on a strict grid.
+
+   Two colours carry meaning and nothing else: --live (ultramarine, the brand) is "working", --err (coral) is "needs you"
+   or "failed". --accent is the primary action (black in light, white in dark); --sel is a selected row or option.
+
+   Employee pages (the `show` tool) are styled with these same variables: src-tauri embeds this file into every page.
+   Keep --ink --ink-2 --muted --faint --canvas --surface --raised --sunken --line --line-strong --live --ok --warn --err
+   (and each state's -soft) --font-ui --font-mono --r-card --r-inner defined, with the same meaning, in light and dark.
+
+   The dark set appears twice: once for [data-theme="dark"] and once for prefers-color-scheme when no theme is chosen.
+   Keep the two identical. src/design/README.md says what each token is for. */
 :root {
   color-scheme: light;
-  --bg: #f4f4f5;          /* window behind everything */
-  --side: #fafafa;        /* sidebar */
-  --canvas: #ffffff;      /* the content area */
-  --surface: #ffffff;     /* cards */
-  --raised: #fafafa;      /* inner containers, footers */
-  --sunken: #f4f4f5;      /* hover fills, wells */
-  --grid-dot: #dedee2;
-  --grid-dot-strong: #dedee2;
-  --ink: #18181b;
-  --ink-2: #3f3f46;
-  --muted: #5f5f68;
-  --faint: #a1a1aa;
-  --line: #e4e4e7;
-  --line-strong: #d4d4d8;
+  --bg: #ffffff;            /* behind everything; text on --ink surfaces */
+  --side: #1745d6;          /* ultramarine: the brand, and the team's home */
+  --side-ink: #ffffff;      /* text on the sidebar */
+  --side-muted: #c2cff8;    /* quieter text on the sidebar, 4.8:1 */
+  --side-line: #3a62df;     /* rules and meter tracks on the sidebar */
+  --side-fill: #2c58de;     /* fields, hover and the update card on the sidebar */
+  --side-fill-muted: #dce4fc; /* quieter text on --side-fill, 4.65:1 */
+  --side-on: #ffffff;       /* the selected page */
+  --side-on-ink: #1745d6;
+  --side-attn: #ffd3c7;     /* "needs you" words on the sidebar, 5.4:1 */
+  --side-fill-attn: #ffdcd2; /* the same on --side-fill (a selected row, the update card), 4.6:1 */
+  --side-focus: 0 0 0 2px var(--side), 0 0 0 4px var(--side-ink);
+  --canvas: #ffffff;
+  --surface: #ffffff;
+  --raised: #f6f7f9;
+  --sunken: #eff1f5;
+  --grid-dot: #e3e6ec;
+  --grid-dot-strong: #cfd4dd;
+  --ink: #0a0c12;
+  --ink-2: #2b303c;
+  --muted: #5b6170;         /* 6.1:1 on white, 5.8:1 on --raised */
+  --faint: #868c99;         /* large text and marks only (3.4:1) */
+  --line: #e6e8ee;
+  --line-strong: #d2d6df;
 
-  --accent: #111111;
+  --accent: #0a0c12;        /* the primary action: black */
   --accent-ink: #ffffff;
-  --accent-text: #18181b;
-  --accent-soft: #f4f4f5;
-  --accent-line: #d4d4d8;
+  --accent-hover: #23262f;  /* the primary action under the pointer: one step of its own colour */
+  --accent-text: #0a0c12;
+  --accent-soft: #eff1f5;
+  --accent-line: #c9ced8;
 
-  --live: #2f6fe4;
-  --live-soft: #eef3fd;
-  --live-text: #2459c4;
+  --sel: #0a0c12;           /* a selected row or option, inverted; also tooltips and toasts */
+  --sel-ink: #ffffff;
+  --sel-muted: #b9bfcc;     /* second line on a selected row, 10:1 */
+  --sel-ring: #0a0c12;      /* the edge of a chosen chip: nothing to see in light */
+  --sel-live: #9ab8ff;      /* "Working" on a selected row, 9.9:1 */
+  --sel-attn: #ff9a80;      /* "Needs your OK" on a selected row, 9.5:1 */
+  --me: #0a0c12;            /* your own message */
+  --me-ink: #ffffff;
 
-  --ok: #16a34a;
-  --ok-text: #15803d;
-  --ok-soft: #f0fdf4;
-  --warn: #c2710c;
-  --warn-soft: #fff7ed;
-  --err: #dc2626;
-  --err-text: #dc2626;
-  --err-soft: #fef2f2;
+  --live: #1745d6;          /* working is the brand colour: the team at work. The one blue */
+  --live-soft: #e8effd;
+  --live-text: #153bbb;     /* 8.8:1 */
 
-  --scrim: rgb(9 9 11 / 0.2);
+  --ok: #0f9d4f;
+  --ok-text: #0b8041;       /* 5.0:1 */
+  --ok-soft: #e8f6ee;
+  --warn: #a35800;          /* 5.3:1 */
+  --warn-soft: #fff4e5;
+  --err: #f0532c;           /* coral: needs you, failed. Dots, bars and edges; never small text on white */
+  --err-text: #c2360f;      /* coral for words: 5.5:1 on white, 4.9:1 on --err-soft */
+  --err-soft: #fff0eb;
+  --err-fill: #d23c17;      /* coral behind white text (the Inbox count), 4.8:1 */
+
+  --scrim: rgb(10 12 18 / 0.24);
   --line-card: var(--line);
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 12px rgb(0 0 0 / 0.04);
-  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.05), 0 16px 40px -12px rgb(0 0 0 / 0.18);
-  --focus: 0 0 0 2px var(--canvas), 0 0 0 4px color-mix(in oklab, var(--ink) 35%, transparent);
+  --shadow-card: none;      /* cards are 1px rules, never lifted */
+  --shadow-float: 0 1px 2px rgb(10 12 18 / 0.08), 0 16px 36px -14px rgb(10 12 18 / 0.22); /* menus, palette, sheets, toasts */
+  --float: var(--surface);  /* a menu or popover's own surface: one step up from the page in dark */
+  --focus: 0 0 0 2px var(--canvas), 0 0 0 4px var(--live);
 
-  --av-bg-l: 0.94;
-  --av-bg-c: 0.035;
-  --av-fg-l: 0.42;
-  --av-fg-c: 0.1;
+  --av-bg-l: 0.93;
+  --av-bg-c: 0.05;
+  --av-fg-l: 0.4;
+  --av-fg-c: 0.12;
 
   --font-ui: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font-features: "cv11", "cv13";   /* single-storey a, compact t */
+  --display: "opsz" 32;              /* Inter Display, for names and titles (weight 700, tracking -0.03 to -0.04em) */
 
-  --t-xs: 11px;
+  --t-xs: 11px;             /* the floor: keycaps, counts */
   --t-sm: 12px;
   --t-base: 13.5px;
   --t-md: 15px;
-  --t-lg: 20px;
-  --t-xl: 26px;
+  --t-lg: 22px;
+  --t-xl: 30px;
+  --t-title: 26px;          /* page titles: a person, a conversation */
+  --t-hero: 34px;           /* the decision in the Inbox */
+  --lh-tight: 1.2;
+  --lh-body: 1.55;
 
-  --r-card: 12px;
-  --r-inner: 10px;
-  --r-input: 8px;
-  --r-pill: 999px;
+  --sp-1: 4px;              /* an 8px grid with 4px halves */
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-8: 48px;
 
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --d-ui: 160ms;
-  --d-panel: 240ms;
+  --r-card: 6px;
+  --r-inner: 4px;
+  --r-input: 5px;
+  --r-pill: 999px;          /* avatars, filter chips and status pills only */
 
-  --side-w: 232px;
-  --panel-w: clamp(460px, 100vw - 620px, 560px);
+  /* Motion. Nothing moves unless state changes: no pulses, no breathing dots, no idle loops. */
+  --ease: cubic-bezier(0.3, 0, 0, 1);              /* controls answering: a quick start and a long settle */
+  --ease-move: cubic-bezier(0.45, 0, 0.1, 1);      /* travel: things going from one place to another */
+  --ease-arrive: cubic-bezier(0.25, 0.8, 0.25, 1); /* arrival from nowhere: a card or toast landing */
+  --d-ui: 120ms;            /* hovers, presses, a selection sliding between items */
+  --d-panel: 260ms;         /* menus, the palette, sheets */
+  --d-fold: 420ms;          /* the chart folding into the outline while the person's page slides in */
+  --d-arrive: 320ms;        /* a row or card arriving and its space opening */
+  --d-settle: 380ms;        /* a finished item travelling to Done, a settled item closing its space */
+  --d-swap: 200ms;          /* one body giving way to the next (an 8px rise) */
+  --d-roll: 240ms;          /* a count or a status word rolling to its new value */
+  --d-fade: 140ms;          /* the crossfade that replaces travel under reduced motion */
+  --stagger: 40ms;          /* between neighbours that move for one cause */
+
+  --side-w: 216px;
+  --rail-w: 60px;           /* the sidebar collapsed to a rail */
+  --outline-w: 288px;       /* the chart folded into an outline */
+  --work-w: 336px;          /* the Live work column */
+  --head-h: 64px;           /* every page header band */
+  --chrome-top: 0px;        /* room the window's own controls take at the top of the sidebar: macOS only, below */
+
+  --logo-tile: var(--side-ink);
+  --logo-ink: var(--side);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #09090b;
-  --side: #09090b;
-  --canvas: #111113;
-  --surface: #18181b;
-  --raised: #1c1c20;
-  --sunken: #232327;
-  --grid-dot: #2a2a2f;
-  --grid-dot-strong: #3f3f46;
-  --ink: #fafafa;
-  --ink-2: #d4d4d8;
-  --muted: #a1a1aa;
-  --faint: #71717a;
-  --line: #27272a;
-  --line-strong: #3f3f46;
-  --accent: #fafafa;
-  --accent-ink: #09090b;
-  --accent-text: #fafafa;
-  --accent-soft: #27272a;
-  --accent-line: #3f3f46;
-  --live: #6ea0ff;
-  --live-soft: #16213a;
-  --live-text: #8fb5ff;
-  --ok: #34c77b;
-  --ok-text: #4ade80;
-  --ok-soft: #0f2419;
-  --warn: #f0a44b;
-  --warn-soft: #2a1d0e;
-  --err: #f87171;
-  --err-text: #fca5a5;
-  --err-soft: #2c1414;
-  --scrim: rgb(0 0 0 / 0.5);
-  --line-card: #303034;
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 12px rgb(0 0 0 / 0.2);
-  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 20px 48px -12px rgb(0 0 0 / 0.7);
-  --av-bg-l: 0.3;
-  --av-bg-c: 0.04;
-  --av-fg-l: 0.88;
-  --av-fg-c: 0.07;
+  --bg: #08090c;
+  --side: #0e2470;          /* night ultramarine */
+  --side-ink: #ffffff;
+  --side-muted: #abbcf0;
+  --side-line: #22398c;
+  --side-fill: #1a3285;
+  --side-fill-muted: #abbcf0;
+  --side-on: #2d4bb0;       /* a lighter step of the sidebar, not a white block */
+  --side-on-ink: #ffffff;
+  --side-attn: #ffd3c7;
+  --side-fill-attn: #ffd3c7;
+  --canvas: #0b0c10;
+  --surface: #111319;
+  --raised: #14171e;
+  --sunken: #1a1e27;
+  --grid-dot: #1c2029;
+  --grid-dot-strong: #282d38;
+  --ink: #f3f5f9;
+  --ink-2: #cdd2dc;
+  --muted: #8c93a2;
+  --faint: #646b7b;         /* lifted from C's #596070 so it holds 3:1 on every dark surface, as light does */
+  --line: #1d212a;
+  --line-strong: #2a2f3a;
+  --accent: #f3f5f9;        /* the primary action stays the one white thing */
+  --accent-ink: #0b0c10;
+  --accent-hover: #ffffff;
+  --accent-text: #f3f5f9;
+  --accent-soft: #1a1e27;
+  --accent-line: #343a46;
+  --sel: #262c39;           /* selection is a raised step in dark, not an inversion */
+  --sel-ink: #f3f5f9;
+  --sel-muted: #a3aab8;
+  --sel-ring: #7f8797;      /* in dark a chosen chip keeps a light edge, so it stands out from the rest */
+  --sel-live: #9ab8ff;
+  --sel-attn: #ff9a80;
+  --me: #232835;
+  --me-ink: #f3f5f9;
+  --live: #6b93ff;
+  --live-soft: #12203f;
+  --live-text: #9ab8ff;
+  --ok: #2fc775;
+  --ok-text: #5ad892;
+  --ok-soft: #0e2418;
+  --warn: #f2a33a;
+  --warn-soft: #2a1d0b;
+  --err: #ff7452;
+  --err-text: #ff9a80;
+  --err-soft: #2d1610;
+  --err-fill: #d23c17;
+  --scrim: rgb(0 0 0 / 0.6);
+  --line-card: var(--line);
+  --shadow-card: none;
+  --shadow-float: 0 0 0 1px #2e3441, 0 16px 36px -14px rgb(0 0 0 / 0.8);
+  --float: #161a21;
+  --av-bg-l: 0.32;
+  --av-bg-c: 0.06;
+  --av-fg-l: 0.9;
+  --av-fg-c: 0.08;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #09090b;
-    --side: #09090b;
-    --canvas: #111113;
-    --surface: #18181b;
-    --raised: #1c1c20;
-    --sunken: #232327;
-    --grid-dot: #2a2a2f;
-  --grid-dot-strong: #3f3f46;
-    --ink: #fafafa;
-    --ink-2: #d4d4d8;
-    --muted: #a1a1aa;
-    --faint: #71717a;
-    --line: #27272a;
-    --line-strong: #3f3f46;
-    --accent: #fafafa;
-    --accent-ink: #09090b;
-    --accent-text: #fafafa;
-    --accent-soft: #27272a;
-    --accent-line: #3f3f46;
-    --live: #6ea0ff;
-    --live-soft: #16213a;
-    --live-text: #8fb5ff;
-    --ok: #34c77b;
-    --ok-text: #4ade80;
-    --ok-soft: #0f2419;
-    --warn: #f0a44b;
-    --warn-soft: #2a1d0e;
-    --err: #f87171;
-    --err-text: #fca5a5;
-    --err-soft: #2c1414;
-    --scrim: rgb(0 0 0 / 0.5);
-  --line-card: #303034;
-    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 12px rgb(0 0 0 / 0.2);
-    --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 20px 48px -12px rgb(0 0 0 / 0.7);
-    --av-bg-l: 0.3;
-    --av-bg-c: 0.04;
-    --av-fg-l: 0.88;
-    --av-fg-c: 0.07;
+    --bg: #08090c;
+    --side: #0e2470;
+    --side-ink: #ffffff;
+    --side-muted: #abbcf0;
+    --side-line: #22398c;
+    --side-fill: #1a3285;
+    --side-fill-muted: #abbcf0;
+    --side-on: #2d4bb0;
+    --side-on-ink: #ffffff;
+    --side-attn: #ffd3c7;
+    --side-fill-attn: #ffd3c7;
+    --canvas: #0b0c10;
+    --surface: #111319;
+    --raised: #14171e;
+    --sunken: #1a1e27;
+    --grid-dot: #1c2029;
+    --grid-dot-strong: #282d38;
+    --ink: #f3f5f9;
+    --ink-2: #cdd2dc;
+    --muted: #8c93a2;
+    --faint: #646b7b;
+    --line: #1d212a;
+    --line-strong: #2a2f3a;
+    --accent: #f3f5f9;
+    --accent-ink: #0b0c10;
+    --accent-hover: #ffffff;
+    --accent-text: #f3f5f9;
+    --accent-soft: #1a1e27;
+    --accent-line: #343a46;
+    --sel: #262c39;
+    --sel-ink: #f3f5f9;
+    --sel-muted: #a3aab8;
+    --sel-ring: #7f8797;
+    --sel-live: #9ab8ff;
+    --sel-attn: #ff9a80;
+    --me: #232835;
+    --me-ink: #f3f5f9;
+    --live: #6b93ff;
+    --live-soft: #12203f;
+    --live-text: #9ab8ff;
+    --ok: #2fc775;
+    --ok-text: #5ad892;
+    --ok-soft: #0e2418;
+    --warn: #f2a33a;
+    --warn-soft: #2a1d0b;
+    --err: #ff7452;
+    --err-text: #ff9a80;
+    --err-soft: #2d1610;
+    --err-fill: #d23c17;
+    --scrim: rgb(0 0 0 / 0.6);
+    --line-card: var(--line);
+    --shadow-card: none;
+    --shadow-float: 0 0 0 1px #2e3441, 0 16px 36px -14px rgb(0 0 0 / 0.8);
+  --float: #161a21;
+    --av-bg-l: 0.32;
+    --av-bg-c: 0.06;
+    --av-fg-l: 0.9;
+    --av-fg-c: 0.08;
   }
 }
 
+/* macOS draws its traffic lights over the top of the sidebar (an overlay title bar): reserve their band, and widen the
+   rail so all three clear its edge. src/lib/chrome.ts sets data-chrome. */
+:root[data-chrome="mac"] {
+  --chrome-top: 30px;
+  --rail-w: 84px;
+}
+
+/* Reduced motion: nothing travels. What changes crossfades over --d-fade, and counts change without rolling. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --d-ui: 1ms;
     --d-panel: 1ms;
+    --d-fold: 1ms;
+    --d-arrive: 1ms;
+    --d-settle: 1ms;
+    --d-swap: 1ms;
+    --d-roll: 1ms;
+    --stagger: 0ms;
   }
 }

@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import type { Channel, ChannelKind } from "../api/types";
 import { CHANNEL_KINDS } from "../lib/channels";
 import { CHANNEL_ICON, Icon } from "./Icon";
+import "./ChannelEditor.css";
 
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `ch-${Date.now().toString(36)}`);
 
 export function ChannelEditor({ value, onChange }: { value: Channel[]; onChange: (v: Channel[]) => void }) {
   const [picking, setPicking] = useState(value.length === 0);
   const [focusId, setFocusId] = useState<string | null>(null);
+  // The row you just added drops in; the rest hold still.
+  const [added, setAdded] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,6 +31,7 @@ export function ChannelEditor({ value, onChange }: { value: Channel[]; onChange:
     onChange([...value, c]);
     setPicking(false);
     setFocusId(c.id);
+    setAdded(c.id);
   };
 
   return (
@@ -35,7 +39,7 @@ export function ChannelEditor({ value, onChange }: { value: Channel[]; onChange:
       {value.map((c, i) => {
         const meta = CHANNEL_KINDS.find((k) => k.kind === c.kind) ?? CHANNEL_KINDS[CHANNEL_KINDS.length - 1];
         return (
-          <div key={c.id} className="channel">
+          <div key={c.id} className={`channel ${c.id === added ? "enter-drop" : ""}`}>
             <div className="channel-grip">
               <button type="button" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}><Icon name="chevronDown" size={12} className="flip" /></button>
               <button type="button" aria-label="Move down" disabled={i === value.length - 1} onClick={() => move(i, 1)}><Icon name="chevronDown" size={12} /></button>

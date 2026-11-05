@@ -1,0 +1,8 @@
+/* Adding a person: below 1280 wide the form comes first and the preview follows it (the sheet's shared rule puts the
+   preview first under 1100, which pushes the first field below the middle of a small window); from 1280 up the
+   preview sits beside the form. */
+@media (max-width: 1279px) {
+  .person-sheet.sheet-body { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .person-sheet .sheet-preview { position: static; order: 1; }
+  .person-sheet .preview-steps { display: none; }
+}

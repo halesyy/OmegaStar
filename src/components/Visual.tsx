@@ -16,7 +16,7 @@ const pageUrl = (runId: string, id: string, dark: boolean) =>
  * A page an employee showed (`show`), as tall as it is, with Expand for a full-window view. Its frame runs the
  * page's own scripts and nothing else: no network, no access to the app, no origin of its own.
  */
-export function Visual({ runId, id, title }: { runId: string; id: string; title: string }) {
+export function Visual({ runId, id, title, from }: { runId: string; id: string; title: string; from?: string }) {
   const src = pageUrl(runId, id, useResolvedDark());
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState<number | null>(null);
@@ -32,8 +32,8 @@ export function Visual({ runId, id, title }: { runId: string; id: string; title:
   return (
     <figure className="visual">
       <figcaption className="visual-head">
-        <span className="visual-title">{title}</span>
-        <button className="btn btn-ghost btn-sm" onClick={() => setOpen(true)}><Icon name="expand" size={13} /> Expand</button>
+        <span className="visual-title"><span className="trunc">{title}</span>{from ? <span className="visual-from">from {from}</span> : null}</span>
+        <button className="btn btn-ghost btn-icon btn-sm" aria-label={`Expand ${title}`} data-tip="Expand" onClick={() => setOpen(true)}><Icon name="expand" size={14} /></button>
       </figcaption>
       <div className="visual-body">
         <iframe ref={frame} className={`visual-frame ${height === null ? "visual-wait" : ""}`} src={src} sandbox="allow-scripts" title={title} style={{ height: height ?? 160 }} />
@@ -41,7 +41,7 @@ export function Visual({ runId, id, title }: { runId: string; id: string; title:
       {open ? (
         <Overlay label={title} onClose={() => setOpen(false)}>
           <div className="visual-sheet">
-            <div className="visual-head"><span className="visual-title">{title}</span></div>
+            <div className="visual-head"><span className="visual-title"><span className="trunc">{title}</span>{from ? <span className="visual-from">from {from}</span> : null}</span></div>
             <div className="visual-body"><iframe className="visual-frame" src={src} sandbox="allow-scripts" title={title} /></div>
           </div>
         </Overlay>

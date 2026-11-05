@@ -2,17 +2,14 @@ import { useState } from "react";
 import { duration } from "../lib/format";
 import type { TaskView } from "../lib/runs";
 import { Icon } from "./Icon";
-import { toolName } from "./Transcript";
+import { StepMark, toolName } from "./Transcript";
 import "./SubAgents.css";
 
 const compact = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 function Glyph({ state }: { state: TaskView["state"] }) {
-  if (state === "running") return <span className="tool-pending" />;
-  if (state === "done") return <Icon name="check" size={12} className="tool-ok" />;
-  if (state === "failed") return <Icon name="close" size={12} className="tool-err" />;
-  return <span className="tool-stopped" />;
+  return <StepMark status={state === "running" ? "pending" : state === "done" ? "ok" : state === "failed" ? "err" : "stopped"} />;
 }
 
 function rowLine(t: TaskView): string {
@@ -44,25 +41,25 @@ export function SubAgents({ tasks, runActive, defaultOpen = true }: { tasks: Tas
   return (
     <div className={`sa ${open ? "sa-open" : ""}`}>
       <button type="button" className="sa-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <Icon name="chevronRight" size={12} className="sa-chev" />
-        <Glyph state={running ? "running" : failed ? "failed" : "done"} />
+        <Icon name="layers" size={14} className="sa-icon" />
         <span className="sa-title" aria-live="polite">{title}</span>
-        <span className="sa-totals">{plural(calls, "call")} · {compact(tokens)} tokens</span>
+        <span className="sa-totals"><b>{calls}</b> {calls === 1 ? "call" : "calls"} <b>{compact(tokens)}</b> tokens</span>
+        <Icon name="chevronDown" size={13} className="sa-chev" />
       </button>
-      {open ? (
+      <div className="collapse" data-open={open}>
         <ul className="sa-list">
           {shown.map((t) => (
             <li key={t.id} className={`sa-row sa-${t.state}`}>
-              <span className="sa-glyph"><Glyph state={t.state} /></span>
               <span className="sa-main">
                 <span className="sa-name" title={t.name}>{t.name}</span>
                 <span className="sa-line" title={rowLine(t)}>{rowLine(t)}</span>
               </span>
-              <span className="sa-stats">{plural(t.toolUses, "call")} · {duration(t.durationMs)}</span>
+              <span className="sa-stats num">{plural(t.toolUses, "call")} · {duration(t.durationMs)}</span>
+              <Glyph state={t.state} />
             </li>
           ))}
         </ul>
-      ) : null}
+      </div>
     </div>
   );
 }

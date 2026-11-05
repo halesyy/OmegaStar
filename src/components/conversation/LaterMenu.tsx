@@ -39,7 +39,7 @@ export function LaterMenu({ timesBack, disabled, onLater }: { timesBack: number;
       >
         <Icon name="clock" size={13} /> Later
       </button>
-      <Popover anchor={anchor} open={open} onClose={close} align="start" width={240}>
+      <Popover anchor={anchor} open={open} onClose={close} align="end" width={240}>
         <div className="card-later" data-esc-stop>
           {parks ? <p id={note} className="card-later-note">Later parks it: it won't come back by itself.</p> : null}
           {picking ? (

@@ -1,5 +1,5 @@
 /* A request or proposal in a list: flat, no box. The list draws the hairlines between them. */
-.req { display: flex; flex-direction: column; gap: 6px; padding: 14px 0; animation: riseIn var(--d-ui) var(--ease); }
+.req { display: flex; flex-direction: column; gap: 6px; padding: 14px 0; }
 .req-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .req-who { flex: 1; min-width: 0; font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .req-name { font-weight: 600; color: var(--ink); font-size: var(--t-sm); }
@@ -16,7 +16,7 @@
 .req-warn { font-size: var(--t-sm); color: var(--warn); line-height: 1.5; overflow-wrap: anywhere; }
 .req-warn svg { vertical-align: -2px; margin-right: 5px; }
 .req-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 4px; }
-.req-reply { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; animation: riseIn var(--d-ui) var(--ease); }
+.req-reply { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
 .req-resolved { display: flex; align-items: baseline; gap: 8px; font-size: var(--t-sm); padding-top: 2px; }
 .req-resolved .pill { height: 20px; font-size: var(--t-xs); flex: none; align-self: center; }
 .req-response { color: var(--ink-2); }

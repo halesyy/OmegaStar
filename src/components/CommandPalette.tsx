@@ -75,7 +75,16 @@ function useIndex(employeeIds: string[]): Index | null {
   return index;
 }
 
-export function CommandPalette({ onClose, api }: { onClose: () => void; api: { hire: () => void; addPerson: () => void } }) {
+/** The label with the query underlined where its letters appear together; a scattered match is left plain. */
+function highlight(label: string, q: string): ReactNode {
+  const needle = q.trim().toLowerCase();
+  const i = needle ? label.toLowerCase().indexOf(needle) : -1;
+  if (i < 0) return label;
+  return <>{label.slice(0, i)}<mark>{label.slice(i, i + needle.length)}</mark>{label.slice(i + needle.length)}</>;
+}
+
+/** `leaving`: it has been closed and is fading where it is; it unmounts when that ends. */
+export function CommandPalette({ onClose, api, leaving = false }: { onClose: () => void; api: { hire: () => void; addPerson: () => void }; leaving?: boolean }) {
   const { snap } = useOrg();
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
@@ -179,6 +188,9 @@ export function CommandPalette({ onClose, api }: { onClose: () => void; api: { h
       .map((x) => x.it);
   }, [items, q]);
 
+  // Still looking: the index of runs, skills and schedules has not come back, or the search through every run is out.
+  const looking = !index || (q.trim().length >= SEARCH_FROM && found === null);
+
   useEffect(() => setSel(0), [q]);
   useEffect(() => {
     listRef.current?.querySelector(`[data-idx="${sel}"]`)?.scrollIntoView({ block: "nearest" });
@@ -193,8 +205,8 @@ export function CommandPalette({ onClose, api }: { onClose: () => void; api: { h
   let lastGroup = "";
   return (
     <>
-      <div className="palette-scrim" onClick={onClose} />
-      <div className="palette" role="dialog" aria-label="Command menu">
+      <div className={`palette-scrim ${leaving ? "palette-leave" : ""}`} onClick={onClose} />
+      <div className={`palette ${leaving ? "palette-leave" : ""}`} role="dialog" aria-label="Command menu" aria-hidden={leaving || undefined}>
         <div className="palette-input">
           <Icon name="search" size={16} />
           <input
@@ -209,7 +221,12 @@ export function CommandPalette({ onClose, api }: { onClose: () => void; api: { h
           />
         </div>
         <div className="palette-list" id="palette-list" role="listbox" ref={listRef}>
-          {results.length === 0 ? <div className="palette-empty">Nothing matches “{q}”.</div> : null}
+          {results.length === 0 && !looking ? (
+            <div className="palette-empty">
+              <p className="palette-empty-title">Nothing matches “{q.trim()}”</p>
+              <p>Try a name, a skill or a schedule.</p>
+            </div>
+          ) : null}
           {results.map((it, i) => {
             const header = it.group !== lastGroup ? <div className="palette-group">{it.group}</div> : null;
             lastGroup = it.group;
@@ -221,12 +238,13 @@ export function CommandPalette({ onClose, api }: { onClose: () => void; api: { h
                   onMouseMove={() => setSel(i)} onClick={() => choose(it)}
                 >
                   <span className="pi-icon">{it.icon}</span>
-                  <span className={`pi-label ${it.group === "Skills" ? "mono" : ""}`}>{it.label}</span>
+                  <span className={`pi-label ${it.group === "Skills" ? "mono" : ""}`}>{highlight(it.label, q)}</span>
                   {it.hint ? <span className="pi-hint">{it.hint}</span> : null}
                 </button>
               </div>
             );
           })}
+          {looking ? <div className="palette-looking" role="status">Still looking through runs…</div> : null}
         </div>
         <div className="palette-foot">
           <span><span className="kbd">↑</span><span className="kbd">↓</span> move</span>

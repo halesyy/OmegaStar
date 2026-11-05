@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { call, errorMessage } from "../../api/client";
 import type { Card, CardAnswer, CardItem, CardReply, EmployeeView, Proposal, Run } from "../../api/types";
 import { firstName, MOD, whenInline } from "../../lib/format";
@@ -11,7 +12,22 @@ import { Markdown } from "../Markdown";
 import { CardImages } from "./CardImages";
 import { CardLink, openWeb, webUrl } from "./CardLink";
 import { LaterMenu } from "./LaterMenu";
-import "../../screens/Inbox.css";
+import "./Cards.css";
+
+/** A card answered in your own words through the conversation's composer: "Reply in words" aims the composer at it,
+ *  so there is one place to type. `key` is the card (`<run id>:<index>`). */
+export type AimTarget = { key: string; label: string; name: string; send: (text: string) => Promise<boolean>; ask: (text: string) => Promise<boolean>; summarise: () => void };
+/** Present where a composer can take a card's answer (a thread); absent (the Inbox), a card opens its own line. */
+export const CardAim = createContext<{ aim: (target: AimTarget | null) => void; aimed: string | null } | null>(null);
+
+/** Ids like INV-2291 or PR-88 kept whole, never broken at their hyphen. */
+export function keepIds(text: string): ReactNode {
+  const parts = text.split(/\b([A-Z][A-Z0-9]*-\d+)\b/);
+  return parts.length === 1 ? text : parts.map((p, i) => (i % 2 ? <span key={i} className="nowrap">{p}</span> : p));
+}
+
+/** What an open card needs from you, in a word, as its lead. */
+const NEEDS: Partial<Record<Card["ask"]["type"], string>> = { choices: "Needs your decision", items: "Needs your OK", task: "Needs you to do this", chore: "Needs you to do this", question: "Needs your answer" };
 
 /** How long an answer waits, with Undo, before it goes. */
 export const UNDO_MS = 4000;
@@ -46,7 +62,7 @@ export function undoLatest(): boolean {
 
 /** Your answer on the card at `index` of `run`'s cards. It waits `UNDO_MS`, shown as on its way with Undo, then goes,
  *  and says what went. Resolves true once it went; false when you took it back, or when it failed, having said why. */
-export async function answerCard(run: Run, index: number, reply: CardReply, name: string): Promise<boolean> {
+export async function answerCard(run: Run, index: number, reply: CardReply, name: string, opts: { quiet?: boolean } = {}): Promise<boolean> {
   const mine = onCard(run.id, index);
   if (pending.get().some(mine)) return false;
   const card = run.cards[index];
@@ -77,8 +93,8 @@ export async function answerCard(run: Run, index: number, reply: CardReply, name
   // Listed a little longer: runs read before it went still show the card open, so the card goes on showing it on its
   // way, and the run's other answers still count it as answered.
   window.setTimeout(forget, UNDO_MS + 1000);
-  // News sends nothing, so there is nothing to say.
-  if (reply.type === "seen") return true;
+  // News sends nothing, so there is nothing to say; a quiet answer leaves the saying to its caller (the Inbox's own toast).
+  if (reply.type === "seen" || opts.quiet) return true;
   if (rest) {
     toast(`Noted. ${name} hears your answers once you answer ${rest === 1 ? "the other question" : `the other ${rest}`}.`, "ok");
     return true;
@@ -139,28 +155,43 @@ function answered(c: Card, a: CardAnswer): string {
   }
 }
 
-/** A run's cards, each with its question and the answer built in, as a thread shows them. */
+/** A run's cards, each with its question and the answer built in, as a thread shows them: what each needs from you
+ *  leads it in coral, and the thread's own Later stands in for the card's. */
 export function RunCards({ run, e }: { run: Run; e: EmployeeView }) {
   const name = firstName(e.name);
-  return <CardList runId={run.id} cards={run.cards.map((card, index) => ({ card, index }))} e={e} working={isLive(run)} onAnswer={async (i, reply) => { await answerCard(run, i, reply, name); }} />;
+  // The card itself is the record of what you answered, so a thread adds no toast.
+  return <CardList runId={run.id} cards={run.cards.map((card, index) => ({ card, index }))} e={e} working={isLive(run)} lead later={false} onAnswer={(i, reply) => answerCard(run, i, reply, name, { quiet: true })} />;
 }
 
 /** Cards of run `runId`, each with its question and the answer built in. `index`: the card's place in the run's cards.
  *  `working`: the run is still working, so they take no answer yet. */
-export function CardList({ runId, cards, e, working, onAnswer }: {
+export function CardList({ runId, cards, e, working, onAnswer, lead = false, later = true }: {
   runId: string;
   cards: { card: Card; index: number }[];
   e: EmployeeView;
   working: boolean;
-  onAnswer: (index: number, reply: CardReply) => Promise<void>;
+  /** Resolves false when the answer did not go (taken back, or it failed). */
+  onAnswer: (index: number, reply: CardReply) => Promise<void | boolean>;
+  /** Lead each open card with what it needs from you, in coral: the strongest mark in its turn (a thread). The file a
+   *  card is about (a draft) then sits above the lead, so the question sits directly over its options. */
+  lead?: boolean;
+  /** The card's own Later. A thread leaves it to the thread's Later in its header. */
+  later?: boolean;
 }) {
-  return cards.map(({ card: c, index }) => (
-    <div key={index} className="card-ask">
-      <div className="card-q">{c.message}</div>
-      {c.why ? <div className="card-why">{c.why}</div> : null}
-      <CardView card={c} runId={runId} index={index} e={e} working={working} onAnswer={(reply) => onAnswer(index, reply)} />
-    </div>
-  ));
+  const pending = usePendingAnswers();
+  return cards.map(({ card: c, index }) => {
+    const open = (isOpen(c) || c.parked) && !pending.some(onCard(runId, index));
+    const needs = lead && open ? NEEDS[c.ask.type] : undefined;
+    return (
+      <div key={index} className={`card-ask cv-ask ${lead ? (open ? "cv-ask-open" : "cv-ask-done") : ""}`}>
+        {lead && c.file ? <div className="cv-file-above"><CardFile runId={runId} index={index} path={c.file} label={proposedVersion(c.proposal, firstName(e.name))} /></div> : null}
+        {needs ? <div className="cv-needs"><span className="dot dot-attn" />{needs}</div> : null}
+        <div className="card-q">{keepIds(c.message)}</div>
+        {c.why ? <div className="card-why">{keepIds(c.why)}</div> : null}
+        <CardView card={c} runId={runId} index={index} e={e} working={working} later={later} fileAbove={lead} onAnswer={(reply) => onAnswer(index, reply)} />
+      </div>
+    );
+  });
 }
 
 /** A card's answer built in, under the link, images, proposal and file it is about if it has them: buttons for a
@@ -168,27 +199,55 @@ export function CardList({ runId, cards, e, working, onAnswer }: {
  *  most, a line for your own words or a question. An answer shows as on its way, with Undo, until it goes; once
  *  answered, one line on what you did. `index`: its place in run `runId`'s cards. `working`: the run is still working,
  *  so the card takes no answer until it finishes. */
-export function CardView({ card, runId, index, e, working, onAnswer }: {
+export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot, later: withLater = true, fileAbove = false }: {
+  /** The card's own Later (off in a thread, whose header has one). */
+  later?: boolean;
+  /** Its file is shown above the card (CardList in a thread), so not here. */
+  fileAbove?: boolean;
   card: Card;
   runId: string;
   index: number;
   e: EmployeeView;
   working: boolean;
-  onAnswer: (reply: CardReply) => Promise<void>;
+  onAnswer: (reply: CardReply) => Promise<void | boolean>;
+  /** Where the card's answer buttons go when given (the Inbox's action bar), through a portal; inline otherwise. */
+  actionsSlot?: HTMLElement | null;
 }) {
   const [sending, setSending] = useState(false);
   // Your words on the reply line, kept here so Undo gives them back.
   const [text, setText] = useState("");
+  const [words, setWords] = useState(false);
+  const aimer = useContext(CardAim);
   const going = usePendingAnswers().find(onCard(runId, index));
-  // A parked card stays answerable: its Not now is only a placeholder until you decide.
-  if (card.answer && !card.parked) return <p className="card-answered">{card.answer.held ? <Icon name="check" size={12} /> : null}{answered(card, card.answer)}</p>;
-  if (going) return <Sending p={going} />;
-  const name = firstName(e.name);
   const ask = card.ask;
+  const link = webUrl(card.link);
+  const thumbs = card.images.length ? <CardImages paths={card.images.slice(0, 3)} captions={ask.type === "choices" && ask.choices.length === Math.min(3, card.images.length) ? ask.choices.slice(0, 3) : undefined} /> : null;
+  const about = link || thumbs ? <div className="card-about">{link ? <CardLink url={link} /> : null}{thumbs}</div> : null;
+  // Answered, or on its way: the card stays as the record. Its link stays, and a choice keeps its options with the one
+  // you chose filled and ticked, the others quiet. A parked card stays answerable: its Not now is only a placeholder.
+  if ((card.answer && !card.parked) || going) {
+    const said = going ? going.said : card.answer?.how === "tapped" ? card.answer.text : null;
+    const chosen = ask.type === "choices" && said !== null ? ask.choices.indexOf(said) : -1;
+    return (
+      <div className="cv-card cv-card-done">
+        {about}
+        {chosen >= 0 && ask.type === "choices" ? (
+          <div className="card-choices card-record" aria-label="Your answer">
+            {ask.choices.map((c, i) => (
+              <span key={i} className={`card-opt ${i === chosen ? "card-chosen" : ""}`}>{i === chosen ? <Icon name="check" size={13} /> : null}{c}</span>
+            ))}
+          </div>
+        ) : null}
+        {going ? <Sending p={going} short={chosen >= 0} />
+          : <p className="card-answered"><Icon name="check" size={13} />{chosen >= 0 ? (card.answer?.held ? "Sends when the rest are answered." : "Sent") : answered(card, card.answer!)}</p>}
+      </div>
+    );
+  }
+  const name = firstName(e.name);
   const busy = sending || working;
-  const send = async (reply: CardReply) => {
+  const send = async (reply: CardReply): Promise<boolean> => {
     setSending(true);
-    try { await onAnswer(reply); } finally { setSending(false); }
+    try { return (await onAnswer(reply)) !== false; } finally { setSending(false); }
   };
   /** A question answers nothing, so it goes straight to them and the card stays where it is. */
   const askAbout = async (text: string): Promise<boolean> => {
@@ -205,7 +264,7 @@ export function CardView({ card, runId, index, e, working, onAnswer }: {
     }
   };
   // A parked card had its Later: it takes any other answer.
-  const later = card.parked ? null : <LaterMenu timesBack={card.timesBack} disabled={busy} onLater={(until) => void send({ type: "later", until: until.toISOString() })} />;
+  const later = card.parked || !withLater ? null : <LaterMenu timesBack={card.timesBack} disabled={busy} onLater={(until) => void send({ type: "later", until: until.toISOString() })} />;
   /** Later, and No in the card's own words. */
   const decline = (no: string) => (
     <>
@@ -225,38 +284,60 @@ export function CardView({ card, runId, index, e, working, onAnswer }: {
       <Icon name="check" size={13} /> I've done it
     </button>
   );
-  const words = (hint: string) => (
-    <CardText name={name} hint={hint} text={text} setText={setText} sending={busy} onText={(t) => void send({ type: "text", text: t })} onAsk={askAbout} />
+  const line = (hint: string, autoFocus = false) => (
+    <CardText name={name} hint={hint} text={text} setText={setText} sending={busy} autoFocus={autoFocus} onText={(t) => void send({ type: "text", text: t })} onAsk={askAbout} />
   );
+  // Your own words: in a thread, the composer is aimed at this card, so there is one place to type; elsewhere the card
+  // opens its own line.
+  const key = `${runId}:${index}`;
+  const aimed = aimer?.aimed === key;
+  const aim = () => aimer?.aim(aimed ? null : {
+    key, name, label: card.message,
+    send: (t) => send({ type: "text", text: t }),
+    ask: askAbout,
+    summarise: () => void askAbout(SUMMARISE),
+  });
+  const wordsButton = (label: string, primary = false) => (
+    <button type="button" className={`btn btn-sm ${primary ? "btn-primary" : "btn-ghost"}`} aria-pressed={aimer ? aimed : undefined} aria-expanded={aimer ? undefined : words} disabled={busy}
+      aria-label={label} data-tip={label} onClick={() => (aimer ? aim() : setWords((w) => !w))}>
+      <Icon name="reply" size={14} /> <span className="tip-words">{label}</span>
+    </button>
+  );
+  const inWords = ask.type === "question" || ask.type === "news" ? null : wordsButton("Reply in words");
+  const toSlot = (node: ReactNode) => (actionsSlot ? createPortal(node, actionsSlot) : node);
   const answer = (): ReactNode => {
     switch (ask.type) {
+      // No option looks chosen before you choose: the employee's pick is outlined and labelled, not filled.
       case "choices": return (
         <div className="card-choices">
           {ask.choices.map((c, i) => (
             <button
-              key={i} className={`btn btn-sm ${i === ask.recommended ? "btn-primary" : ""}`} disabled={busy}
+              key={i} className={`btn btn-sm ${i === ask.recommended ? "card-pick" : ""}`} disabled={busy}
               data-card-choice={i} data-card-recommended={i === ask.recommended || undefined} onClick={() => void send({ type: "choice", index: i })}
             >
-              {c}{i === ask.recommended ? <span className="card-rec">Recommended</span> : null}
+              {c}{i === ask.recommended ? <span className="card-rec">{name}'s pick</span> : null}
             </button>
           ))}
           {decline("No")}
+          {inWords}
         </div>
       );
-      case "items": return <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={busy} send={send} decline={decline(`Don't ${ask.verb.toLowerCase()}`)} />;
+      case "items": return <ItemsCard verb={ask.verb} items={ask.items} name={name} sending={busy} send={send} decline={<>{decline(`Don't ${ask.verb.toLowerCase()}`)}{inWords}</>} slot={actionsSlot} />;
       case "task": return (
         <>
-          {ask.steps.trim() ? <p className="card-steps">{ask.steps.trim()}</p> : null}
-          <div className="card-choices">
+          {ask.steps.trim() ? <div className="card-steps"><Markdown text={ask.steps.trim()} breaks /></div> : null}
+          {toSlot(<div className="card-choices">
             {open("Open")}
             {did(`Tells ${name} you did it`)}
             <button className="btn btn-ghost btn-sm" title={`Tells ${name} you can't do it`} disabled={busy} data-card-no onClick={() => void send({ type: "cant" })}>Can't</button>
             {later}
-          </div>
+            {inWords}
+          </div>)}
         </>
       );
-      // Your answer is the reply line, so it comes first.
-      case "question": return <>{words("Your answer")}{later ? <div className="card-choices">{later}</div> : null}</>;
+      // Your answer is your words: in a thread the composer takes them; elsewhere the reply line, first.
+      case "question": return aimer ? toSlot(<div className="card-choices">{wordsButton("Answer", true)}{later}</div>)
+        : <>{line("Your answer")}{later ? toSlot(<div className="card-choices">{later}</div>) : null}</>;
       case "news": return (
         <div className="card-choices">
           <button className="btn btn-primary btn-sm" disabled={busy} data-card-recommended onClick={() => void send({ type: "seen" })}><Icon name="check" size={13} /> Got it</button>
@@ -267,30 +348,28 @@ export function CardView({ card, runId, index, e, working, onAnswer }: {
           {open(ask.subject.startsWith("sign-in:") ? "Open sign-in page" : "Open")}
           {did("You did it. Every run waiting on this carries on.")}
           <button className="btn btn-ghost btn-sm" title="Sends nothing, and it doesn't come back" disabled={busy} data-card-no onClick={() => void send({ type: "dismiss" })}>Not now</button>
+          {inWords}
         </div>
       );
     }
   };
-  const link = webUrl(card.link);
   const proposal = card.proposal;
+  // The buttons go to the slot when there is one; the steps, the list and the reply line stay with the card.
+  const answerEl = answer();
+  const split = ask.type === "task" || (ask.type === "question" && !aimer);
   return (
-    <div onClick={(ev) => ev.stopPropagation()}>
-      {link || card.images.length ? (
-        <div className="card-about">
-          {link ? <CardLink url={link} /> : null}
-          {card.images.length ? <CardImages paths={card.images.slice(0, 3)} /> : null}
-        </div>
-      ) : null}
+    <div className="cv-card" onClick={(ev) => ev.stopPropagation()}>
+      {about}
       {proposal?.type === "companyLine" ? (
         <div className="card-proposal">
           <p className="card-proposal-head">Adds to the company page under <b>{proposal.section}</b>:</p>
-          <p className="card-proposal-line">{proposal.line}</p>
+          <div className="card-proposal-line"><Markdown text={proposal.line} /></div>
         </div>
       ) : null}
-      {card.file ? <CardFile runId={runId} index={index} path={card.file} label={proposedVersion(proposal, name)} /> : null}
+      {card.file && !fileAbove ? <CardFile runId={runId} index={index} path={card.file} label={proposedVersion(proposal, name)} /> : null}
       {working ? <p className="card-wait">Waiting for {name} to finish</p> : null}
-      {answer()}
-      {ask.type === "question" || ask.type === "news" ? null : words(`Answer in your own words, or ask ${name} about it`)}
+      {ask.type === "items" || split ? answerEl : toSlot(answerEl)}
+      {words && !aimer ? <div className="enter-drop">{line(`Your answer for ${name}, or a question about it`, true)}</div> : null}
     </div>
   );
 }
@@ -301,10 +380,10 @@ function proposedVersion(p: Proposal | null, name: string): string | undefined {
 }
 
 /** An answer on its way, in place of the card's buttons, with Undo until it goes. */
-function Sending({ p }: { p: PendingAnswer }) {
+function Sending({ p, short = false }: { p: PendingAnswer; short?: boolean }) {
   return (
     <p className="card-answered card-sending" role="status">
-      <span className="card-sending-said">Sending: {p.said}</span>
+      <span className="card-sending-said">{short ? "Sending" : `Sending: ${p.said}`}</span>
       {p.going ? null : (
         <>
           <span aria-hidden="true">·</span>
@@ -317,8 +396,9 @@ function Sending({ p }: { p: PendingAnswer }) {
 
 /** A line under an open card: Enter answers it in your own words, this card only. Ask sends the words as a question,
  *  and Summarise asks for the card in three short lines; either way the card stays open for your answer. */
-function CardText({ name, hint, text, setText, sending, onText, onAsk }: {
+function CardText({ name, hint, text, setText, sending, onText, onAsk, autoFocus = false }: {
   name: string;
+  autoFocus?: boolean;
   /** What the line is for, as its placeholder and label. */
   hint: string;
   text: string;
@@ -332,15 +412,16 @@ function CardText({ name, hint, text, setText, sending, onText, onAsk }: {
   return (
     <div className="card-text">
       <input
-        className="input" value={text} disabled={sending} placeholder={hint} aria-label={hint} data-card-reply
+        className="input" value={text} disabled={sending} placeholder={hint} aria-label={hint} data-card-reply autoFocus={autoFocus}
         onChange={(ev) => setText(ev.target.value)}
         onKeyDown={(ev) => { if (ev.key === "Enter" && !ev.nativeEvent.isComposing && said) { ev.preventDefault(); onText(said); } }}
       />
-      <button className="btn btn-ghost btn-sm" disabled={sending || !said} title="Sends it as a question. The card stays open." onClick={async () => { if (await onAsk(said)) setText(""); }}>
-        <Icon name="ask" size={13} /> Ask
+      <button className="btn btn-sm" disabled={sending || !said} data-tip="Answers the card in your words (Enter)" onClick={() => onText(said)}>Send</button>
+      <button className="btn btn-ghost btn-sm" disabled={sending || !said} data-tip="Sends it as a question. The card stays open." onClick={async () => { if (await onAsk(said)) setText(""); }}>
+        <Icon name="ask" size={14} /> Ask
       </button>
-      <button className="btn btn-ghost btn-sm" disabled={sending} title={`${name} sums it up in three short lines. The card stays open.`} onClick={() => void onAsk(SUMMARISE)}>
-        <Icon name="sparkle" size={13} /> Summarise
+      <button className="btn btn-ghost btn-sm" disabled={sending} data-tip={`${name} sums it up in three short lines. The card stays open.`} onClick={() => void onAsk(SUMMARISE)}>
+        <Icon name="lines" size={14} /> Summarise
       </button>
     </div>
   );
@@ -349,7 +430,7 @@ function CardText({ name, hint, text, setText, sending, onText, onAsk }: {
 /** The file a card is about, e.g. a draft, read as it is now so you see what would go out: its first lines, and the
  *  rest on Show all. Read again whenever a run changes, so a draft the employee reworked shows the new version.
  *  `label`: what it is, in place of its name, such as the version a proposal would put in place. */
-function CardFile({ runId, index, path, label }: { runId: string; index: number; path: string; label?: string }) {
+export function CardFile({ runId, index, path, label }: { runId: string; index: number; path: string; label?: string }) {
   const file = useQuery(() => call("card_file", { runId, card: index }), [runId, index, path], ["run:updated"]);
   const [all, setAll] = useState(false);
   const [long, setLong] = useState(false);
@@ -380,12 +461,13 @@ function CardFile({ runId, index, path, label }: { runId: string; index: number;
 
 /** A list to approve one by one, what the employee recommends ticked already: a note on any item, then Send.
  *  On a focused item, arrows move, Space ticks, Enter shows it all and N adds a note; Cmd or Ctrl + Enter sends. */
-function ItemsCard({ verb, items, name, sending, send, decline }: {
+function ItemsCard({ verb, items, name, sending, send, decline, slot }: {
+  slot?: HTMLElement | null;
   verb: string;
   items: CardItem[];
   name: string;
   sending: boolean;
-  send: (reply: CardReply) => Promise<void>;
+  send: (reply: CardReply) => Promise<unknown>;
   decline: ReactNode;
 }) {
   const [ticks, setTicks] = useState<Record<string, boolean>>(() => Object.fromEntries(items.map((i) => [i.id, i.recommended])));
@@ -410,13 +492,18 @@ function ItemsCard({ verb, items, name, sending, send, decline }: {
           />
         ))}
       </ul>
-      <div className="card-items-foot">
-        <span className="faint grow">{touched || !items.some((i) => i.recommended) ? `${ticked} of ${items.length} ticked` : `${name}'s picks are ticked`}</span>
-        {decline}
-        <button className="btn btn-primary btn-sm" disabled={!ready} data-card-recommended onClick={go}>
-          {ticked ? `${verb} ${ticked}` : noted ? "Send notes" : verb}<span className="card-kbd">{MOD} ↵</span>
-        </button>
-      </div>
+      {(() => {
+        const foot = (
+          <div className="card-items-foot">
+            <button className="btn btn-primary btn-sm" disabled={!ready} data-card-recommended onClick={go}>
+              {ticked ? `${verb} ${ticked}` : noted ? "Send notes" : verb}<span className="card-kbd">{MOD} ↵</span>
+            </button>
+            {decline}
+            <span className="card-items-count">{touched || !items.some((i) => i.recommended) ? `${ticked} of ${items.length} ticked` : `${name}'s picks are ticked`}</span>
+          </div>
+        );
+        return slot ? createPortal(foot, slot) : foot;
+      })()}
     </div>
   );
 }
@@ -458,7 +545,10 @@ function ItemRow({ item, verb, name, sending, ticked, note, onTick, onNote, onMo
   };
   return (
     <li ref={row} className={`card-item ${ticked ? "card-item-on" : ""} ${open ? "card-item-open" : ""}`} tabIndex={0} onKeyDown={onKey}>
-      <input type="checkbox" tabIndex={-1} checked={ticked} disabled={sending} aria-label={`${verb} ${item.id}`} onChange={onTick} />
+      <label className="card-check">
+        <input type="checkbox" tabIndex={-1} checked={ticked} disabled={sending} aria-label={`${verb} ${item.id}`} onChange={onTick} />
+        <span className="card-check-box" aria-hidden><Icon name="check" size={11} strokeWidth={2} /></span>
+      </label>
       <div className="card-item-main">
         <p ref={about} className="card-item-about" onClick={expand}><b>{item.id}</b>{item.about}</p>
         <div ref={text} className={`card-item-text ${clipped.text && !open ? "card-item-fade" : ""}`} onClick={expand}>{item.text}</div>

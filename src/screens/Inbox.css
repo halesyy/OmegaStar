@@ -1,227 +1,243 @@
-.inbox-list { margin: 0 -12px; }
-/* Decisions and Replies, one block, so the pointer never leaves the list between them. */
-.inbox-lists { display: flex; flex-direction: column; gap: 36px; }
-.inbox-clear { margin: 0; padding: 4px 0 2px; font-size: var(--t-sm); color: var(--muted); }
-.inbox-day { padding: 14px 12px 6px; font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
-.inbox-group:first-child .inbox-day { padding-top: 2px; }
+/* ================================================ The Inbox: the list on the left, one item open on the right.
+   The list says what each item needs in one word; the open item has its evidence above and its actions in a bar at
+   the foot. Settling an item closes its row as the next rises into place (see Inbox.tsx). */
+.ibx { height: 100%; display: grid; grid-template-columns: clamp(300px, 26% + 100px, 420px) minmax(0, 1fr); min-height: 0; }
+/* A toast lands above the open item's action bar, never on its buttons (.toasts reads --toasts-bottom). */
+:root:has(.ibx) { --toasts-bottom: 92px; }
+
+/* ------------------------------------------------ the list */
+.ilist { container: ilist / inline-size; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+.ilist-head { flex: none; display: flex; align-items: center; gap: 12px; height: var(--head-h); padding: 0 12px 0 20px; }
+.ilist-h1 { flex: 1; min-width: 0; margin: 0; }
+/* The title is the view switch: the view's name, how many it holds, and a chevron. */
+.ilist-title { display: inline-flex; align-items: baseline; gap: 10px; max-width: 100%; font-size: 24px; font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.035em; line-height: var(--lh-tight); color: var(--ink); white-space: nowrap; }
+.ilist-switch { margin-left: -6px; padding: 3px 6px; border-radius: var(--r-input); transition: background var(--d-ui) var(--ease); }
+.ilist-switch:hover, .ilist-switch[aria-expanded="true"] { background: var(--sunken); }
+.ilist-switch:focus-visible { box-shadow: var(--focus); }
+.ilist-chev { align-self: center; margin-left: -4px; color: var(--muted); }
+.ilist-n { color: var(--faint); }
+.ilist-menu-item { gap: 8px; }
+.ilist-menu-check { width: 13px; flex: none; display: inline-flex; color: var(--ink); }
+/* The filters, or for the other views a line on what they hold: the same height, so the list never jumps. */
+.ilist-chips, .ilist-note { flex: none; position: relative; display: flex; align-items: center; gap: 6px; min-height: 39px; padding: 0 20px 12px; border-bottom: 1px solid var(--line); overflow: hidden; }
+.ilist-note { margin: 0; padding-top: 4px; font-size: var(--t-sm); color: var(--muted); }
+.ilist-chips .chip { flex: none; }
+.ilist-chips .chip svg { margin-right: -2px; color: currentColor; opacity: 0.7; }
+.ilist-ruler { position: absolute; top: 0; left: 0; display: flex; gap: 6px; visibility: hidden; pointer-events: none; }
+
+.irows { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 6px 8px 24px; outline: none; }
+/* The open row's grey: one highlight under the rows, in the open row's slot. It holds still while a settled row closes
+   and the next rises into it, and slides when you move. Quiet, so the open item's title and its button lead. */
+.irow-hl { position: absolute; top: 0; left: 0; z-index: 0; border-radius: var(--r-card); background: var(--sunken); opacity: 0; pointer-events: none; }
+/* A row: avatar, title (two lines at most) over who and what about, and its word and age in a fixed right track. */
+.irow {
+  position: relative; z-index: 1;
+  display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 2px; align-items: start;
+  padding: 10px 12px; border-radius: var(--r-card); outline: none; cursor: default;
+  transition: opacity var(--d-ui) var(--ease);
+}
+/* Its words never transition: under reduced motion every transition is 1ms, and its first frame would still show the
+   old colour on the new fill. */
+.irow * { transition-property: none; }
+.irow > .av, .irow > .irow-noav, .irow > .skeleton-c { grid-row: span 2; margin-top: 1px; }
+.irow-noav { width: 28px; height: 28px; border-radius: 50%; background: var(--sunken); }
+.irow-t {
+  grid-column: 2; min-width: 0; font-size: var(--t-base); font-weight: 560; line-height: 1.35; color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.irow-unread .irow-t { font-weight: 680; }
+/* At the smallest width a question gets a third line, so it keeps its end. */
+@container ilist (max-width: 360px) { .irow-t { -webkit-line-clamp: 3; } }
+.irow-m { grid-column: 2; min-width: 0; font-size: var(--t-sm); line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The word sits on the title's first line and the time on the row's last line, whatever the title's length. */
+.irow-r { grid-column: 3; grid-row: 1 / span 2; align-self: stretch; display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; gap: 5px; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; }
+.irow-age { margin-top: auto; line-height: 16px; }
+.irow-unread .irow-age { color: var(--ink); }
+.irow-cleared { display: inline-flex; align-items: center; gap: 4px; line-height: 20px; }
+/* Hairlines between rows, inset to the words, gone beside the open row and a hovered one. They keep their pixel so
+   nothing shifts when they go. */
+.irow-w + .irow-w > div::before { content: ""; display: block; height: 1px; margin: 0 12px; background: var(--line); }
+.irow-w-on > div::before, .irow-w-on + .irow-w > div::before, .irow-w:has(.irow-day) > div::before,
+.irow-w:has(> div > .irow:not(.irow-held, .irow-skel):hover) > div::before,
+.irow-w:has(> div > .irow:not(.irow-held, .irow-skel):hover) + .irow-w > div::before { background: transparent; }
+/* A hovered row takes only a faint step, so the open row is the one grey row in the list. */
+.irow:not(.irow-on, .irow-held, .irow-skel):hover { background: color-mix(in oklab, var(--raised) 55%, var(--canvas)); }
+/* The focus ring shows for Tab focus only (the grey says where J and K are), inset with the row's radius, over the fill. */
+.irow:focus-visible { box-shadow: none; }
+.irows[data-tab] .irow:focus-visible { box-shadow: inset 0 0 0 2px var(--live); }
+/* On the open row's grey a word's fill steps up, so it stays a tag. */
+.irow-on .tag:not(.tag-hire, .tag-attn) { background: var(--surface); }
+.irow-on .av-proposed { background: var(--surface); }
+/* A row that left while the pointer was over the list keeps its place, faded, until the pointer leaves. */
+.irow-held { opacity: 0.45; }
+/* A row closing its own height: the words fade in the first third, the room closes over --d-settle. Under reduced
+   motion it fades first, then its space closes at once. */
+.irows .irow-w[data-open="false"] { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .irows .irow-w.collapse[data-open="false"] { transition: opacity var(--d-fade) linear, grid-template-rows 1ms linear var(--d-fade); }
+}
+.irow-day { padding: 16px 12px 6px; font-size: var(--t-sm); font-weight: 600; color: var(--muted); }
+.irow-w:first-child .irow-day { padding-top: 8px; }
+.irow-skel .irow-t, .irow-skel .irow-m { display: flex; align-items: center; height: 18px; }
+
+/* ------------------------------------------------ the open item */
+.ibx-detail { container: detail / inline-size; position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--canvas); }
+/* One centred column for bar, body and foot, so a wide window has no dead band. */
+.ibx-detail { --d-pad: max(40px, calc((100% - 720px) / 2)); }
+.d-bar { flex: none; display: flex; align-items: center; gap: 4px; height: var(--head-h); padding: 0 calc(var(--d-pad) - 8px) 0 var(--d-pad); font-size: 12.5px; color: var(--muted); }
+.d-num { min-width: 52px; margin-right: 4px; white-space: nowrap; }
+.d-nav { display: inline-flex; gap: 2px; }
+.d-bar .btn-icon { color: var(--muted); }
+.d-bar .btn-icon:hover:not(:disabled) { color: var(--ink); }
+.d-bar .btn-icon svg { width: 16px; height: 16px; }
+.d-bar [aria-label="More for this item"] svg path { stroke-width: 2.6; }
+.d-bar .btn[aria-expanded="true"] { background: var(--sunken); color: var(--ink); }
+.d-bar .menu-item svg { color: var(--muted); }
+/* Keys on the controls they press: L on Later. */
+.d-bar [data-later]::after, .d-bar [data-card-later]::after { content: "L"; font: 600 11px/1 var(--font-ui); padding: 3px 5px; margin-left: 3px; border-radius: 3px; box-shadow: inset 0 0 0 1px currentColor; opacity: 0.55; }
+
+/* The open item and, while it gives way, the one leaving under it: they overlap, so no frame is empty. */
+.d-stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.d-swap { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--canvas); }
+.d-swap-leaving { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+/* In sequence, never at matching strength: the leaving one fades and lifts out over 120ms (gone by 72ms), and the next
+   starts rising on the arrival curve once the old has passed about 20 percent, so no frame is empty either. */
+.d-swap.leave-rise { animation-duration: 120ms; }
+.d-swap.enter-rise { animation-timing-function: var(--ease-arrive); animation-delay: 32ms; }
+.d-fade-out { animation: m-fade-out 90ms var(--ease) both; }
+.d-fade-in { animation: m-fade-in 120ms var(--ease-arrive) 50ms both; }
+@media (prefers-reduced-motion: reduce) {
+  .d-swap.leave-rise { animation-duration: 100ms; }
+  .d-swap.enter-rise { animation-delay: 70ms; }
+}
+.d-body { flex: 1; min-height: 0; overflow: auto; padding: 4px var(--d-pad) 48px; }
+.d-foot { flex: none; display: flex; align-items: center; gap: 8px; min-height: 68px; padding: 14px var(--d-pad); border-top: 1px solid var(--line); }
+.d-slot:empty { display: none; }
+.d-slot, .d-acts { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.d-acts:empty { display: none; }
+/* Next takes the bar's free width before it gives way. */
+.d-next { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 8px; margin-left: auto; padding: 4px 0 4px 16px; font-size: 12.5px; color: var(--muted); border-radius: var(--r-inner); }
+.d-next:hover { color: var(--ink); }
+.d-next-t { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* One line: who and what they did, what about (which gives way first), and when; a dot with even space each side. */
+.d-from { display: flex; align-items: center; min-width: 0; overflow: hidden; font-size: 13px; line-height: 1.45; color: var(--muted); white-space: nowrap; }
+.d-from .d-off { display: none; }
+.d-from[data-measure] .d-off { display: inline; }
+.d-from > .av { margin-right: 10px; }
+.d-from b { font-weight: 700; color: var(--ink); }
+.d-who { flex: none; }
+.d-about { flex: none; }
+.d-at { flex: none; }
+.d-sep { flex: none; margin: 0 8px; color: var(--faint); }
+.d-title { margin: 14px 0 0; font-size: 34px; font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.04em; line-height: 1.12; color: var(--ink); text-wrap: balance; overflow-wrap: anywhere; }
+.d-title-sm { font-size: 26px; letter-spacing: -0.035em; line-height: 1.2; }
+.d-why { margin: 12px 0 0; max-width: 64ch; font-size: var(--t-md); line-height: 1.5; color: var(--muted); text-wrap: pretty; }
+.d-card { margin-top: 24px; }
+.d-card .card-choices, .d-card .card-items, .d-card .card-answered { margin-bottom: 0; }
+/* The card's own Later is the bar's Later here. */
+.d-body [data-card-later], .d-slot [data-card-later] { display: none; }
+/* Enter presses the main card's black button when the bar has no main action of its own; it wears the key. */
+/* The card's buttons in the bar: the bar's size, no box of their own, and the key Enter here is (plain ↵, not the
+   thread's ⌘↵). For a choice, Enter is the employee's pick. */
+.d-slot .btn-sm { height: 32px; padding: 0 12px; font-size: 13px; }
+/* The card's controls wrap inside the bar rather than run past its edge. */
+.d-slot { flex: 0 1 auto; }
+.d-slot > .card-choices, .d-slot > .card-items-foot { row-gap: 8px; }
+.d-slot .card-items-foot { padding: 0; border: 0; background: none; }
+.d-slot .card-kbd { display: none; }
+.ibx-detail:not(:has([data-main])) .d-slot :is(.btn-primary, .card-pick):not(:disabled, :has(.kbd, .kc))::after,
+.ibx-detail:not(:has([data-main], .d-slot > *)) .d-card-main .btn-primary:not(:disabled, :has(.kbd, .kc, .card-kbd))::after { content: "↵"; font: 600 11px/1 var(--font-ui); padding: 3px 5px; margin-left: 6px; border-radius: 3px; box-shadow: inset 0 0 0 1px currentColor; opacity: 0.55; }
+.ibx-detail:has(.d-slot .btn-primary) .d-slot .card-pick::after { content: none; }
+/* Next gives way when the card's own controls fill the bar. */
+.d-foot:has(.d-slot > * > :nth-child(4)) .d-next { display: none; }
+.d-note { margin: 12px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.d-error { margin: 20px 0 0; max-height: 240px; overflow: auto; padding: 12px 16px; border-radius: var(--r-card); background: var(--sunken); font: 12px/1.6 var(--font-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Sections under the decision: the report, others asking, a group, Also waiting from. */
+.d-sec { margin-top: 36px; }
+.d-sec-h { display: flex; align-items: baseline; gap: 8px; margin: 0; padding-bottom: 9px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 700; color: var(--ink); }
+.d-sec-n { font-weight: 600; color: var(--muted); }
+.d-report-body { margin-top: 14px; }
+.d-report-body .md { font-size: var(--t-base); line-height: 1.6; color: var(--ink-2); }
+.d-also-list { list-style: none; margin: 0; padding: 0; }
+.d-also-list > li + li { border-top: 1px solid var(--line); }
+/* A row's hover fill is inset past its words and rounded; the rules between rows keep the heading's edges. */
+.d-also-row { position: relative; isolation: isolate; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; min-height: 42px; text-align: left; font-size: var(--t-base); color: var(--ink); }
+.d-also-row::before { content: ""; position: absolute; inset: 3px -8px; z-index: -1; border-radius: var(--r-inner); background: transparent; transition: background var(--d-ui) var(--ease); }
+button.d-also-row:hover:not(:disabled)::before { background: var(--sunken); }
+button.d-also-row:focus-visible { box-shadow: none; }
+button.d-also-row:focus-visible::before { box-shadow: var(--focus); }
+.d-also-t { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-also-t b { font-weight: 600; }
+.d-also-age { width: 28px; text-align: right; font-size: var(--t-sm); color: var(--muted); }
+.d-also-still { grid-template-columns: minmax(0, 1fr) auto; }
+.d-also-pick { font-size: var(--t-sm); font-weight: 600; color: var(--ink-2); }
+.d-fails .d-also-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+.d-fails .d-also-t { font-weight: 500; }
+.d-other + .d-other { margin-top: 24px; }
+.d-other .d-q-t { margin: 14px 0 0; }
+.d-other .d-card { margin-top: 12px; }
+
+/* A run's several questions: each with its choices, the employee's pick already chosen. */
+.d-qs { list-style: none; margin: 28px 0 0; padding: 0; display: flex; flex-direction: column; gap: 24px; }
+.d-q-t { font-size: var(--t-md); font-weight: 650; line-height: 1.4; color: var(--ink); }
+.d-q-why { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.d-q-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+.d-q-pick { margin-left: 6px; font-size: var(--t-sm); color: var(--muted); }
+.d-q .d-card { margin-top: 12px; }
+.d-q-about { margin-top: 12px; }
+.d-q-about .card-about { margin: 0 0 8px; }
+.d-q-about .card-file { margin: 0; }
+
+/* The open item's thread, in the column. */
+.d-thread { margin-top: 24px; }
+
+/* Nothing to list: one pane, its title, and a card with what this is for and one way on. */
+.ibx-one { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.ibx-one-head { padding-left: 24px; }
+.ibx-one .ilist-chips { padding-left: 24px; }
+.ibx-one-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 0 24px 48px; }
+/* The parts sheet's empty pattern, as page type: the Display title the heaviest mark, a line on what this is for, and
+   the one action, in the upper third. No box: a dashed edge means "proposed" in this app. */
+.ibx-empty { width: min(560px, 100%); margin-top: clamp(32px, 16vh, 160px); padding: 0; gap: 10px; }
+.ibx-empty .empty-title { display: inline-flex; align-items: center; gap: 10px; margin: 0; font-size: var(--t-title); letter-spacing: -0.035em; }
+.ibx-empty p { margin: 0; max-width: 440px; font-size: var(--t-md); line-height: 1.5; color: var(--muted); text-wrap: balance; }
+.ibx-empty-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 10px; }
+.ibx-empty-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 4px 0 2px; }
+.ibx-empty-alert .empty-title svg { flex: none; color: var(--err-text); }
+.d-skel { flex: 1; display: flex; flex-direction: column; }
+.d-skel .d-body { display: flex; flex-direction: column; overflow: hidden; }
+.d-skel .skeleton { display: block; }
+
 /* The keys ? lists. */
-.inbox-keys { margin: 0; display: flex; flex-direction: column; gap: 7px; font-size: var(--t-sm); color: var(--ink-2); }
-.inbox-keys > div { display: flex; align-items: center; gap: 10px; }
-.inbox-keys dt { flex: none; width: 88px; display: flex; align-items: center; gap: 4px; color: var(--faint); }
-.inbox-keys dd { margin: 0; }
+.ibx-keys { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 8px 14px; font-size: var(--t-sm); color: var(--ink-2); }
+.ibx-keys > div { display: contents; }
+.ibx-keys dt { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.ibx-keys dd { margin: 0; line-height: 1.4; text-wrap: pretty; }
+.ibx-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-.item { border-radius: 10px; }
-/* A hairline between decisions, inset to the row's padding, so hover and open fills stay clean. */
-.dec + .dec::before, .dec-group + .dec::before, .dec + .dec-group::before, .dec-group + .dec-group::before { content: ""; display: block; height: 1px; margin: 0 12px; background: var(--line); }
-.item-open::before, .item-open + .dec::before, .item-open + .dec-group::before { background: transparent; }
-.item-head { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 11px 12px; border-radius: 10px; cursor: pointer; outline: none; transition: background var(--d-ui) var(--ease); }
-.item-head:hover, .item-open .item-head { background: var(--sunken); }
-.item-open { background: var(--sunken); }
-.item-open .item-head { border-radius: 10px 10px 0 0; }
-.item-head:focus-visible, .item:focus-visible { box-shadow: var(--focus); }
-/* An entry that only says what it is, e.g. a parked card, opens nothing. */
-.item-head-still { cursor: default; }
-/* An entry that left while the pointer was over the list keeps its place, faded, until the pointer leaves. */
-.item-settled { opacity: 0.4; transition: opacity var(--d-ui) var(--ease); }
-.item-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.item-context { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-context b { font-weight: 600; }
-.item-title { display: flex; align-items: center; gap: 6px; font-size: var(--t-base); font-weight: 500; color: var(--ink); min-width: 0; }
-.item-title > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-open .item-title > span { white-space: normal; }
-.item-unread .item-title { font-weight: 650; }
-.item-bell { flex: none; color: var(--warn); }
-.item-failed { flex: none; color: var(--err); }
-.item-preview { font-size: var(--t-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.item-tags { display: flex; flex-wrap: wrap; align-items: center; margin-top: 3px; font-size: var(--t-sm); color: var(--muted); }
-.item-tags > * { display: inline-flex; align-items: center; gap: 4px; }
-.item-tags > * + *::before { content: "·"; margin: 0 6px; color: var(--faint); }
-.item-tag-live { color: var(--live-text); }
-.item-tag-warn { color: var(--warn); }
-.item-tag-err { color: var(--err-text); }
-.item-side { flex: none; display: flex; align-items: center; gap: 8px; padding-top: 2px; }
-.item-when { font-size: var(--t-sm); white-space: nowrap; }
-.item-actions { position: absolute; top: 8px; right: 12px; display: flex; gap: 2px; padding: 2px; border-radius: 9px; border: 1px solid var(--line-card); background: var(--surface); box-shadow: var(--shadow-float); opacity: 0; pointer-events: none; transition: opacity var(--d-ui) var(--ease); }
-.item-head:hover .item-actions, .item-head:focus-within .item-actions, .item-actions:has([aria-expanded="true"]) { opacity: 1; pointer-events: auto; }
-/* An open row's head keeps its actions in line, in place of when it moved. */
-.item-open .item-side { display: none; }
-.item-open .item-actions { position: static; align-self: center; opacity: 1; pointer-events: auto; padding: 0; border: 0; background: none; box-shadow: none; }
-/* The open row's thread: the same conversation as on the employee's panel, as a card inside the row. */
-.item-thread { margin: 0 8px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+@container detail (max-width: 640px) {
+  .ibx-detail, .d-bar, .d-body, .d-foot { --d-pad: 28px; }
+  .d-title { font-size: 26px; letter-spacing: -0.035em; line-height: 1.18; }
+  .d-title-sm { font-size: 22px; }
+  .d-foot:has(.d-acts > *, .d-slot > * > :not([data-card-later])) .d-next { display: none; }
+  /* The items card's count gives way first: its button already says how many. */
+  .d-slot .card-items-count { display: none; }
+}
+/* Where the foot bar is too narrow for every answer on one line, "Reply in words" gives way to its icon; the words
+   stay its name and its tooltip. */
+@container detail (max-width: 720px) {
+  .d-slot .tip-words { display: none; }
+}
+/* The slot counts as holding something only for what shows there (the card's own Later is the bar's Later). */
+.d-foot:not(:has(.d-acts > *, .d-slot > * > :not([data-card-later]), .d-next)) { display: none; }
+/* 5. A thread's reply box at the widths the Inbox gives it: its hint goes first, so Send keeps its corner. The
+   composer itself belongs to Conversations, which should make this its own rule. */
+@container detail (max-width: 760px) {
+  .d-thread .composer-hint { display: none; }
+}
 
-/* ------------------------------------------------ a decision: the question, why, and the answer, in a few lines */
-/* Two lines at most until it opens, so a long question cannot take over the list. */
-.dec .item-title > span, .item-why { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.dec.item-open .item-title > span, .dec.item-open .item-why { display: block; }
-.item-why { font-size: var(--t-sm); line-height: 1.45; color: var(--muted); }
-.dec-answer { margin-top: 6px; cursor: default; }
-.dec-answer:empty { display: none; }
-.dec-answer .card-choices, .dec-answer .card-items, .dec-answer .card-answered { margin: 0; }
-/* A run's several questions, one under another. */
-.card-set .card-ask { margin: 0; }
-.card-set .card-ask + .card-ask { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
-.card-set .card-ask .card-choices, .card-set .card-ask .card-items, .card-set .card-ask .card-answered { margin-top: 6px; }
-/* ...in the Inbox as a short list, each with what is recommended; a click shows that card under it. */
-.card-qs { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.card-qs > li + li { border-top: 1px solid var(--line); }
-.card-qs-row { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 12px 6px 10px; font-size: 13px; text-align: left; color: var(--ink); transition: background var(--d-ui) var(--ease); }
-.card-qs-row:hover { background: var(--raised); }
-.card-qs-row:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--ink) 22%, transparent); }
-.card-qs-chev { flex: none; color: var(--muted); transition: transform var(--d-ui) var(--ease); }
-.card-qs-row[aria-expanded="true"] .card-qs-chev { transform: rotate(90deg); }
-.card-qs-q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-qs-a { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--t-sm); color: var(--muted); }
-.card-qs .card-ask { margin: 0; padding: 0 12px 10px 30px; }
-.card-set > .card-choices { margin: 8px 0 0; }
-/* Others asking the same thing with other choices, under the first one asking. */
-.dec-others { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
-.dec-others .card-ask { margin: 0 0 10px; }
-.dec-others-note { margin: 0; font-size: var(--t-sm); color: var(--muted); }
-/* The report behind a decision, on request, without opening the thread. */
-.item-report { margin-top: 4px; cursor: default; }
-.item-report-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: var(--t-sm); font-weight: 500; color: var(--muted); border-radius: 6px; }
-.item-report-toggle:hover { color: var(--ink); }
-.item-report-toggle svg { transition: transform var(--d-ui) var(--ease); }
-.item-report-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
-.item-report-body { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-strong); }
-.item-report-body .md { font-size: 13px; }
-.item-report-more { margin: 2px 0 0 -8px; }
-/* One employee's choice cards about the same thing, under one heading. */
-.dec-group-head { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 12px 12px 4px; font-size: var(--t-sm); color: var(--muted); }
-.dec-group-head b { font-weight: 600; color: var(--ink); }
-/* Answering several at once: each card and the answer it gets, then the go-ahead. */
-.answer-all-q { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
-.answer-all-list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
-.answer-all-list li { display: flex; align-items: baseline; gap: 10px; font-size: var(--t-sm); line-height: 1.45; }
-.answer-all-card { flex: 1; min-width: 0; color: var(--ink-2); }
-.answer-all-pick { flex: none; max-width: 40%; font-weight: 600; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
-.answer-all-note { margin: 8px 0 0; font-size: var(--t-sm); color: var(--muted); }
-.answer-all-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 12px; }
-
-/* ------------------------------------------------ a line in the Archive */
-.feed .item-head { align-items: center; gap: 10px; padding: 7px 12px; }
-.feed .item-side { padding-top: 0; }
-.feed .item-actions { top: 4px; }
-.feed-line { flex: 1; min-width: 0; display: flex; align-items: center; font-size: var(--t-sm); white-space: nowrap; overflow: hidden; }
-.feed-line b { font-weight: 600; }
-.feed-icon { margin-left: 8px; }
-.feed-text { margin-left: 8px; min-width: 0; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
-.item-open .feed-text { white-space: normal; }
-
-.report-new { width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+/* SkillsGrew's chip (ui.tsx): the skills a run changed, under its report. Card styles live in Conversation's Cards.css. */
 .report-grew { display: inline-flex; align-items: center; gap: 5px; font-size: var(--t-sm); color: var(--ok-text); }
-.report-needs { list-style: none; margin: 4px 0 12px; padding: 9px 12px; display: flex; flex-direction: column; gap: 6px; border-radius: 10px; background: var(--warn-soft); }
-.report-needs li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; line-height: 1.5; }
-.report-needs svg { flex: none; margin-top: 3px; color: var(--warn); }
-
-/* ------------------------------------------------ a row's history, at the top of its thread */
-.thread-strip { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.thread-strip-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; border-bottom: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }
-.thread-strip-head > svg { color: var(--muted); flex: none; }
-.thread-strip-title { font-weight: 600; color: var(--ink); }
-.thread-strip-toggle { margin-left: 4px; height: 22px; padding: 0 6px; color: var(--muted); }
-
-/* ------------------------------------------------ a row's other runs: a hand-off, or failures in a row */
-.item-avs { position: relative; width: 30px; height: 30px; flex: none; }
-.item-avs > .av:first-child { position: absolute; left: 0; top: 0; }
-.item-avs > .item-av2 { position: absolute; right: -2px; bottom: -2px; box-shadow: 0 0 0 2px var(--surface); }
-.row-run { display: flex; align-items: flex-start; gap: 10px; padding: 8px 8px 8px 12px; }
-.row-run + .row-run { border-top: 1px solid var(--line); }
-.row-run-lead { background: var(--raised); }
-.row-run-noav { width: 20px; flex: none; }
-.row-run-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.row-run-head { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row-run-head b { font-weight: 600; }
-.row-run-text { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); min-width: 0; }
-.row-run-text > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.row-run-when { font-size: var(--t-xs); white-space: nowrap; padding-top: 3px; }
-
-/* ------------------------------------------------ a card: the answer built into a row or a turn */
-.item-card { margin-top: 8px; }
-.card-choices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 12px; }
-.item-card .card-choices, .item-card .card-items { margin-bottom: 0; }
-.card-rec { margin-left: 6px; font-size: var(--t-xs); font-weight: 500; opacity: 0.7; }
-.card-items { margin: 4px 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.card-items ul { list-style: none; margin: 0; padding: 0; }
-/* An item: its id and what it is about, then the text that would go out, three lines until Show all. */
-.card-item { position: relative; display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; outline: none; transition: background var(--d-ui) var(--ease); }
-.card-item + .card-item { border-top: 1px solid var(--line); }
-.card-item:hover, .card-item:focus-visible { background: var(--raised); }
-.card-item:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--ink) 22%, transparent); }
-.card-item > input { flex: none; margin: 2px 0 0; cursor: pointer; }
-.card-item-main { flex: 1; min-width: 0; padding-right: 48px; }
-.card-item-about { margin: 0; font-size: var(--t-sm); line-height: 1.5; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.card-item-about b { margin-right: 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
-/* The rule beside the text darkens when it is ticked: this goes out. */
-.card-item-text { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line-strong); font-size: var(--t-base); line-height: 1.55; color: var(--ink-2); white-space: pre-line; overflow-wrap: anywhere; max-height: calc(1.55em * 3); overflow: hidden; transition: border-color var(--d-ui) var(--ease); }
-.card-item-on .card-item-text { border-color: var(--muted); }
-.card-item-fade { cursor: pointer; -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent); mask-image: linear-gradient(to bottom, #000 45%, transparent); }
-.card-item-open .card-item-about { display: block; }
-.card-item-open .card-item-text { max-height: none; }
-.card-item-more { display: inline-flex; align-items: center; gap: 3px; margin: 5px 0 0 12px; font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
-.card-item-more:hover { color: var(--ink); }
-.card-item-open .card-item-more svg { transform: rotate(180deg); }
-.card-item-main .input { margin-top: 8px; }
-.card-item-note { position: absolute; top: 7px; right: 8px; opacity: 0; transition: opacity var(--d-ui) var(--ease); }
-.card-item:hover .card-item-note, .card-item:focus-visible .card-item-note, .card-item-open .card-item-note { opacity: 1; }
-.card-items-foot { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 12px; border-top: 1px solid var(--line); background: var(--raised); font-size: var(--t-sm); }
-.card-kbd { margin-left: 6px; font-size: var(--t-xs); opacity: 0.55; }
-.card-answered { margin: 4px 0 12px; font-size: var(--t-sm); color: var(--muted); }
-/* Above the answers of a card whose run is still working: they wait until it finishes. */
-.card-wait { margin: 0 0 6px; font-size: var(--t-sm); color: var(--muted); }
-.card-ask .card-wait { margin-top: 6px; }
-/* Under an open card: your answer in your own words, or a question that leaves it open. */
-.card-text { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-.card-text .input { height: 28px; font-size: var(--t-sm); }
-/* The file a card is about, e.g. a draft: its first lines, the rest on Show all. */
-.card-file { margin: 6px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.dec-answer .card-file { margin-top: 0; }
-.card-file-head { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 12px; border-bottom: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }
-.card-file-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); }
-.card-file-body { padding: 10px 12px; }
-.card-file-body .md { font-size: 13px; }
-.card-file-clip { max-height: 240px; overflow: hidden; }
-.card-file-fade { -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
-.card-file-text { margin: 0; font: inherit; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.card-file-note { margin: 0; padding: 10px 12px; font-size: var(--t-sm); color: var(--muted); }
-.card-file-more { margin: 0 6px 6px; }
-/* A card in a thread: its question and why above the answer. */
-.card-ask { margin: 4px 0 12px; }
-.card-q { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.5; }
-.card-why { font-size: var(--t-sm); color: var(--muted); line-height: 1.45; }
-.card-ask .card-choices, .card-ask .card-items, .card-ask .card-answered { margin: 6px 0 0; }
-
-/* ------------------------------------------------ a card's kinds and context: its link, images, steps or proposal,
-   Later, and an answer on its way. Card styles only: the list's are above. */
-/* What the card is about, above its answer: the link, then up to three thumbnails. */
-.card-about { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 6px 0 8px; }
-.card-link { max-width: 100%; }
-.card-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.card-thumbs { display: flex; flex-wrap: wrap; gap: 6px; }
-.card-thumb { flex: none; width: 112px; aspect-ratio: 16 / 10; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); overflow: hidden; cursor: zoom-in; transition: border-color var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease); }
-.card-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.card-thumb:hover:not(:disabled) { border-color: var(--line-strong); box-shadow: var(--shadow-card); }
-.card-thumb:disabled { cursor: default; }
-.card-thumb-missing { display: grid; place-items: center; color: var(--faint); cursor: default; }
-/* A to-do's steps, and a line proposed for the company page: text to read, set off by a rule. */
-.card-steps, .card-proposal-line { padding-left: 10px; border-left: 2px solid var(--line-strong); font-size: var(--t-base); line-height: 1.55; color: var(--ink-2); white-space: pre-line; overflow-wrap: anywhere; }
-.card-steps { margin: 6px 0 8px; }
-.card-proposal { margin: 6px 0 8px; }
-.card-proposal-head { font-size: var(--t-sm); line-height: 1.45; color: var(--muted); }
-.card-proposal-head b { font-weight: 600; color: var(--ink-2); }
-.card-proposal-line { margin-top: 4px; color: var(--ink); }
-.card-file-label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: var(--ink-2); }
-.dec-answer .card-about, .dec-answer .card-steps, .dec-answer .card-proposal { margin-top: 0; }
-.card-set .card-about, .card-set .card-steps, .card-set .card-proposal { margin-top: 6px; }
-/* A question's Later, under the line you answer it on. */
-.card-text + .card-choices { margin-top: 6px; }
-/* Later's menu: when it comes back, or a day you pick. */
-.popover:has(> .card-later) { padding: 4px; }
-.card-later-note { padding: 6px 8px 4px; font-size: var(--t-sm); line-height: 1.45; color: var(--muted); }
-.card-later-pick { display: flex; align-items: center; gap: 6px; padding: 4px; }
-.card-later-pick .input { height: 28px; font-size: var(--t-sm); }
-/* An answer on its way, with Undo until it goes. */
-.card-sending { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.card-sending-said { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-sending [aria-hidden] { color: var(--faint); }
-.card-undo { flex: none; font-weight: 600; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }

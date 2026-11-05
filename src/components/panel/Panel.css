@@ -1,44 +1,99 @@
-.panel-head { flex: none; display: flex; gap: 14px; align-items: center; padding: 18px 16px 14px 20px; }
-.panel-name { line-height: 1.2; }
-.panel-sub { font-size: var(--t-base); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.panel-presence { align-self: flex-start; max-width: 100%; display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--muted); margin-top: 4px; border-radius: 6px; }
-.panel-presence-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
-.panel-presence-accent { color: var(--live-text); }
-.panel-presence-accent .panel-presence-dot { background: var(--live); animation: pulseDot 2.4s ease-in-out infinite; }
-.panel-presence-warn { color: var(--err-text); }
-.panel-presence-warn .panel-presence-dot { background: var(--err); }
-.panel-presence-what { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-button.panel-presence:hover .panel-presence-what { text-decoration: underline; text-underline-offset: 2px; }
-.panel-presence-link { display: inline-flex; align-items: center; gap: 3px; font-weight: 500; }
-button.panel-presence:hover .panel-presence-link { text-decoration: underline; text-underline-offset: 2px; }
-.panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.panel-body-ruled { border-top: 1px solid var(--line); }
-.tab-scroll { flex: 1; min-height: 0; overflow: auto; padding: 16px 20px 32px; }
-.tab-scroll .psec + .psec { margin-top: 28px; }
+/* A person's page beside the outline: the identity row, one band, the tabs, then a body box that fills the rest. */
+.mpage { flex: 1; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; }
+
+/* Its height matches the outline's head and filter row, so the band's top meets the outline's rule as one line. */
+.mpage-head { flex: none; display: flex; align-items: center; gap: 16px; padding: 18px 16px 18px 24px; min-height: 106px; }
+.mpage-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.mpage-name {
+  font-variation-settings: var(--display); font-weight: 700; font-size: 28px; line-height: 1.1; letter-spacing: -0.035em; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Focus lands on the name when the page opens (programmatically, to announce it): no ring for that. */
+.mpage-name:focus, .mpage-name:focus-visible { outline: none; box-shadow: none; }
+.mpage-role { font-size: var(--t-md); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mpage-acts { flex: none; align-self: flex-start; display: flex; align-items: center; gap: 4px; padding-top: 6px; }
+/* Short windows: one line, name and role side by side. */
+.mpage-short .mpage-head { min-height: 64px; padding-top: 10px; padding-bottom: 10px; gap: 12px; }
+.mpage-short .mpage-id { flex-direction: row; align-items: baseline; gap: 10px; }
+.mpage-short .mpage-name { font-size: 20px; flex: none; max-width: 60%; }
+.mpage-short .mpage-role { font-size: var(--t-base); }
+.mpage-short .mpage-acts { align-self: center; padding-top: 0; }
+
+/* The band: what they are doing now, full width. Nothing in it is ever cut: the task wraps to a second line rather
+   than end in an ellipsis, and the right side (a number, a short report) gives way first on a narrow page. */
+.band {
+  flex: none; display: flex; align-items: flex-start; gap: 16px; min-height: 40px; padding: 10px 24px; font-size: var(--t-base); line-height: 20px;
+  background: var(--raised); color: var(--ink-2); box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line);
+}
+.band::before { content: ""; flex: none; width: 8px; height: 8px; margin: 6px -8px 0 0; border-radius: 50%; background: var(--line-strong); }
+.band-left { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 6px; white-space: nowrap; }
+.band-right { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 12px; color: var(--ink-2); }
+.band-word { flex: none; font-weight: 600; }
+.band-sep { flex: none; }
+.band-what { flex: none; font-weight: 600; text-align: left; border-radius: 4px; color: inherit; }
+.band-what:hover { text-decoration: underline; text-underline-offset: 3px; }
+.band-meta { flex: none; }
+.band-more { display: inline-flex; align-items: center; gap: 3px; font-weight: 500; border-radius: 4px; color: inherit; white-space: nowrap; }
+.band-more:hover { text-decoration: underline; text-underline-offset: 3px; }
+.band-text { color: var(--ink-2); }
+.band-m { white-space: nowrap; }
+.band-m b { font-weight: 700; color: var(--ink); }
+.band-div { width: 1px; height: 16px; align-self: center; background: var(--line-strong); }
+.band-live { background: var(--live-soft); color: var(--live-text); }
+.band-live::before { background: var(--live); }
+.band-live .band-meta { font-weight: 500; }
+.band-wait::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.band-attn, .band-fail { background: var(--err-soft); color: var(--err-text); }
+.band-attn::before, .band-fail::before { background: var(--err); }
+.band-warn::before { background: var(--warn); }
+.band-plain::before { display: none; }
+/* A person's band: who is waiting on them, and the one action. */
+.band-person .band-right { align-self: center; margin: -4px 0; }
+/* No room for the number beside the work: the work keeps the band. */
+@container (max-width: 760px) { .band-employee .band-right { display: none; } }
+
+/* Tabs, then the slot at the row's right end (the conversation switcher on Chat). */
+.mpage-tabs { flex: none; display: flex; align-items: flex-end; gap: 12px; padding: 0 16px 0 24px; box-shadow: inset 0 -1px 0 var(--line); }
+.mpage-tabs .tabs { border-bottom: 0; flex: none; padding: 0; }
+.mpage-slot { flex: 1; min-width: 0; display: flex; justify-content: flex-end; align-items: center; align-self: center; }
+.mpage-slot:empty { display: none; }
+
+/* The body box: full height, full width, no padding. On Chat the conversation fills it. */
+.mpage-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.mpage-ruled { box-shadow: inset 0 1px 0 var(--line); }
+
+/* Inside a tab: a scrolling column with the page's 24px inset. */
+.tab-scroll { flex: 1; min-height: 0; overflow: auto; padding: 20px 24px 32px; }
+.tab-scroll > .psec + .psec, .tab-scroll .psec + .psec { margin-top: 32px; }
 .psec.tab-form { gap: 16px; }
-.section-note { font-size: var(--t-sm); color: var(--faint); }
+.section-note { font-size: var(--t-sm); color: var(--muted); }
 button.section-note { color: var(--muted); font-weight: 500; }
 button.section-note:hover:not(:disabled) { color: var(--ink); text-decoration: none; }
-.crumbs { display: flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--muted); margin-bottom: 12px; min-width: 0; }
-.crumbs button { color: var(--muted); border-radius: 5px; padding: 0 2px; }
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--muted); margin-bottom: 14px; min-width: 0; }
+.crumbs button { color: var(--muted); border-radius: 4px; padding: 0 2px; margin-left: -2px; }
 .crumbs button:hover { color: var(--ink); }
 .crumbs .crumb-here { color: var(--ink); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.crumbs svg { color: var(--faint); flex: none; }
-.savebar {
-  flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-top: 1px solid var(--line); background: var(--raised);
-  animation: riseIn var(--d-ui) var(--ease);
-}
+.crumbs svg { color: var(--muted); flex: none; }
+.savebar { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 16px 10px 24px; background: var(--raised); box-shadow: inset 0 1px 0 var(--line); }
 .rules { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px; }
-.rule { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 9px; border-radius: 7px; background: var(--sunken); border: 1px solid var(--line); font-size: 11.5px; color: var(--ink-2); }
-.rule button { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.rule { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 9px; border-radius: var(--r-inner); background: var(--sunken); font-size: var(--t-sm); color: var(--ink-2); }
+.rule button { width: 18px; height: 18px; border-radius: var(--r-inner); display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
 .rule button:hover { background: var(--line); color: var(--ink); }
-.danger { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: var(--r-card); border: 1px solid color-mix(in oklab, var(--err) 25%, var(--line)); background: color-mix(in oklab, var(--err-soft) 55%, var(--surface)); margin-top: 8px; }
+.danger { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-card); margin-top: 8px; }
 .danger-title { font-weight: 600; }
 .danger-desc { font-size: var(--t-sm); color: var(--muted); }
-.person-waiting { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding: 10px 12px; border-radius: 10px; background: var(--sunken); font-size: var(--t-sm); color: var(--ink-2); }
-.person-waiting > svg { flex: none; color: var(--warn); }
-.person-waiting .btn { flex: none; margin-left: auto; }
-.you-av { width: 44px; height: 44px; font-size: var(--t-md); }
-.you-line { font-size: var(--t-sm); color: var(--faint); margin-top: 2px; }
 .you-effect { display: inline-flex; align-items: flex-start; gap: 6px; color: var(--ink-2); }
 .you-effect svg { flex: none; margin-top: 2px; color: var(--muted); }
+
+/* A run that needs a look leads the Work tab, above the schedules. */
+.tab-scroll > .needs-look + .psec { margin-top: 28px; }
+
+/* A new hire's Work tab: one next step, said once. */
+.first-work { max-width: 560px; padding: 8px 0 0; }
+.first-work-title { font-size: var(--t-lg); font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.03em; line-height: 1.2; color: var(--ink); }
+.first-work-text { margin-top: 8px; font-size: var(--t-base); line-height: 1.55; color: var(--muted); }
+.first-work-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+
+/* A request on a person's page: its menu sits beside its Answer button, not across the page. (RequestCard is shared with
+   Activity; this keeps the change to this page.) */
+.mpage .req-actions > .grow { display: none; }

@@ -1,42 +1,153 @@
-.runview { height: 100%; overflow: auto; }
-.runview-inner { width: min(820px, 100%); padding: 14px 24px 64px; }
-.runview-head { padding: 0 0 16px; border-bottom: 1px solid var(--line); }
-.runview-back { margin-left: -8px; margin-bottom: 10px; color: var(--muted); }
-.runview-title { display: flex; align-items: center; gap: 14px; }
-.runview-who { font-size: var(--t-base); }
-.runview-label { margin-top: 1px; }
-.runview-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; font-size: var(--t-sm); color: var(--muted); padding-left: 54px; }
-.runview-body { padding-top: 24px; }
-.runview-parent { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-ui); font-size: 13px; color: var(--ink-2); }
-.runview-parent:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-.runview-missing { padding-top: 72px; }
-.rv-prompt { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: var(--r-card); background: var(--sunken); margin-bottom: 22px; }
-.rv-prompt-label { font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
-.rv-section-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-.rv-prompt p { color: var(--ink); line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.runview-body > .sa { margin-bottom: 22px; }
-.rv-events { display: flex; flex-direction: column; gap: 14px; }
-.rv-init { display: flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--faint); }
-.rv-stderr { font-size: var(--t-xs); color: var(--muted); background: var(--sunken); padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; margin: 0; }
-.rv-result { margin-top: 24px; padding: 16px 18px; border-radius: var(--r-card); border: 1px solid var(--line); background: var(--surface); }
-.rv-result-err { border-color: color-mix(in oklab, var(--err) 30%, var(--line)); }
-.rv-result-head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 12px; color: var(--ink); }
-.rv-result-head > svg { color: var(--ok); }
-.rv-result-err .rv-result-head > svg { color: var(--err); }
-.rv-result-head .faint { font-weight: 400; font-size: var(--t-xs); }
-.rv-grew { display: flex; align-items: center; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: var(--t-sm); color: var(--ok-text); }
-.rv-denials { margin-top: 24px; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: var(--r-card); background: var(--warn-soft); }
-.rv-denials-head { display: flex; align-items: center; gap: 8px; font-weight: 600; color: var(--ink); }
-.rv-denials-head svg { color: var(--warn); }
-.rv-denial-what { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
-.rv-denial-what .pill { height: 18px; font-size: 10.5px; }
-.rv-denial { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); }
-.rv-denial-brief { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rv-denial-brief b { font-weight: 600; }
-/* Your message to the run, kept in view at the bottom while the page scrolls; what scrolls under it fades out. */
-.rv-steer { position: sticky; bottom: 0; z-index: 1; margin-top: 28px; padding: 14px 0 16px; background: linear-gradient(transparent, var(--canvas) 14px); }
-.runview-inner:has(> .rv-steer) { padding-bottom: 0; }
-.rv-children { margin-top: 24px; display: flex; flex-direction: column; gap: 6px; }
-.rv-child { display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: var(--t-base); }
-.rv-child:hover { border-color: var(--line-strong); }
-.rv-child .grow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* One run, framed the way a conversation is: its title and where it stands over a full-width rule, the talk at one
+   comfortable measure with your message box pinned to the foot, and the run's work in a column beside it. */
+.runview { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+
+/* ------------------------------------------------ head: the task in Display, then who, where it stands and where it came from */
+.rv-head {
+  flex: none; display: flex; align-items: flex-start; gap: 12px; min-width: 0;
+  padding: 22px 16px 16px 20px; border-bottom: 1px solid var(--line);
+}
+.rv-back { flex: none; align-self: flex-start; margin-top: 1px; color: var(--muted); }
+.rv-back-skel { align-self: flex-start; }
+.rv-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rv-title {
+  font-size: var(--t-title); line-height: 1.15; font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.035em;
+  color: var(--ink); text-wrap: balance; overflow-wrap: anywhere;
+}
+.rv-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; font-size: 13px; color: var(--muted); }
+.rv-sub > .av { flex: none; }
+.rv-who { min-width: 0; color: var(--muted); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: var(--r-inner); }
+button.rv-who:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+.rv-sep { flex: none; color: var(--faint); }
+.rv-sub .status { font-size: 13px; }
+.status-ok > svg { flex: none; }
+.rv-status-n { margin-left: 6px; font-weight: 500; }
+.rv-status-note { margin-left: 6px; font-weight: 500; color: var(--muted); }
+.rv-link-wrap { flex: none; display: inline-flex; align-items: center; gap: 8px; }
+.rv-link { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-2); border-radius: var(--r-inner); white-space: nowrap; }
+.rv-sub > .rv-swap { flex: none; }
+.rv-link:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
+/* Centred on the title's first line. Its width is held, so the title doesn't reflow when Cancel gives way to nothing as
+   a run finishes. */
+.rv-actions { flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 4px; min-width: 96px; margin-top: calc((var(--t-title) * 1.15 - 28px) / 2); }
+
+/* A word or a button that changes in place: old and new share one cell, so nothing beside it moves. */
+.rv-swap { display: inline-grid; }
+.rv-swap-end { justify-items: end; }
+.rv-swap-cell { grid-area: 1 / 1; display: inline-flex; align-items: center; }
+
+/* ------------------------------------------------ body: the talk, and the work column */
+.rv-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.runview[data-wide="true"] .rv-body { grid-template-columns: minmax(0, 1fr) var(--work-w); }
+.rv-talk { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.rv-scroll { flex: 1; min-height: 0; overflow: auto; --fade: 40px; }
+.rv-inner { width: 100%; max-width: 776px; margin: 0 auto; padding: 24px 28px 24px; display: flex; flex-direction: column; gap: 20px; }
+.rv-composer { flex: none; width: 100%; max-width: 776px; margin: 0 auto; padding: 4px 28px 20px; }
+.rv-hint { color: var(--muted); }
+
+/* What was asked: a ruled quote, not a box. */
+.rv-quote { margin: 0; padding: 2px 0 2px 16px; box-shadow: inset 2px 0 0 var(--line-strong); display: flex; flex-direction: column; gap: 4px; }
+.rv-quote-label { font-size: var(--t-sm); font-weight: 600; color: var(--muted); }
+.rv-quote p { font-size: var(--t-md); line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* What the employee said reads at the conversation's size. */
+.rv-said > .md { font-size: var(--t-md); line-height: 1.6; }
+.rv-note { font-size: var(--t-sm); color: var(--muted); }
+.rv-stderr { font-size: var(--t-xs); color: var(--muted); background: var(--sunken); padding: 8px 10px; border-radius: var(--r-input); white-space: pre-wrap; margin: 0; }
+.rv-how { margin: 8px 0 -6px; font-size: var(--t-sm); font-weight: 700; color: var(--muted); }
+
+/* ------------------------------------------------ the outcome: the report, or what went wrong and the way forward */
+.rv-report { display: flex; flex-direction: column; gap: 10px; }
+.rv-report-head { display: flex; align-items: center; gap: 6px; font-size: var(--t-sm); font-weight: 700; color: var(--muted); }
+.rv-report-head > svg { color: var(--ok); }
+.rv-failed { align-items: flex-start; }
+.rv-failed-body { min-width: 0; }
+.rv-failed .error-note-text { margin-top: 4px; color: var(--ink-2); }
+.rv-next { margin-top: 8px; font-size: var(--t-sm); color: var(--muted); }
+
+/* ------------------------------------------------ the work column: who it handed work to, its steps, and its facts */
+.rv-work {
+  min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px 24px;
+  background: var(--raised); border-left: 1px solid var(--line);
+}
+/* A narrow window: the live work's strip sits on the composer's top edge, the column opens as a sheet over the talk. */
+.rv-body { position: relative; }
+.rv-strip { flex: none; width: 100%; max-width: 776px; margin: 0 auto; padding: 0 28px; }
+.rv-strip .live-strip { border-radius: var(--r-card) var(--r-card) 0 0; box-shadow: inset 0 0 0 1px var(--line-strong); border-bottom: 0; }
+.rv-strip + .rv-composer { padding-top: 0; }
+.rv-strip + .rv-composer .composer { border-top-left-radius: 0; border-top-right-radius: 0; }
+.rv-work-sheet { height: 100%; width: 100%; border-left: 0; }
+.rv-sheet-head { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 0 0 6px; font-size: 13px; font-weight: 700; }
+.rv-work-inline { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; padding-top: 18px; border-top: 1px solid var(--line); }
+.rv-work-sec { display: flex; flex-direction: column; gap: 6px; }
+.rv-work-title { display: flex; align-items: center; gap: 8px; padding: 12px 6px 2px; font-size: var(--t-sm); font-weight: 700; color: var(--muted); }
+.rv-work-n { font-weight: 600; color: var(--muted); }
+/* Who it handed work to: one line of who and where it stands, the task under it. */
+.rv-hand-list { display: flex; flex-direction: column; }
+.rv-hand {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-areas: "av who state" ". task task";
+  align-items: center; column-gap: 10px; row-gap: 2px; padding: 8px 6px; border-radius: var(--r-inner); text-align: left;
+  transition: background var(--d-ui) var(--ease);
+}
+.rv-hand + .rv-hand { box-shadow: 0 -1px 0 var(--line); }
+.rv-hand:hover { background: var(--sunken); }
+.rv-hand:focus-visible { outline: none; box-shadow: var(--focus); }
+.rv-hand > .av { grid-area: av; }
+.rv-hand-who { grid-area: who; min-width: 0; font-size: 13px; font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-hand-state { grid-area: state; font-size: var(--t-sm); white-space: nowrap; }
+.rv-hand-task {
+  grid-area: task; min-width: 0; font-size: var(--t-sm); line-height: 1.4; color: var(--ink-2);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.rv-facts { display: flex; flex-direction: column; padding: 2px 6px 0; font-size: var(--t-sm); }
+.rv-fact { display: grid; grid-template-columns: 72px minmax(0, 1fr); column-gap: 12px; padding: 3px 0; }
+.rv-fact-k { color: var(--muted); }
+.rv-fact-v { min-width: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.rv-fact-v .mono { font-size: 11.5px; }
+.rv-fact-note { color: var(--muted); }
+/* ------------------------------------------------ messages: a missing run, or one that couldn't be opened */
+.runview-msg { align-items: flex-start; gap: 16px; padding: 22px 20px; }
+.rv-msg-back { margin-left: -4px; color: var(--muted); }
+.runview-msg > .act-error { margin-left: 40px; }
+
+/* ------------------------------------------------ what is known before and around the work */
+.rv-origin {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; max-width: 100%; margin: -6px 0 0 16px;
+  font-size: var(--t-sm); color: var(--ink-2); text-align: left; border-radius: var(--r-inner);
+}
+.rv-origin > svg { flex: none; color: var(--muted); }
+.rv-origin:hover .rv-origin-text b { text-decoration: underline; text-underline-offset: 2px; }
+.rv-origin-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-origin-text b { font-weight: 600; color: var(--ink); }
+.rv-wait { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-top: 4px; }
+.rv-wait .status { font-size: 13px; }
+.rv-wait-why { font-size: var(--t-md); line-height: 1.55; color: var(--ink-2); }
+.rv-wait-list { align-self: stretch; display: flex; flex-direction: column; margin-top: 10px; }
+.rv-wait-label { padding-bottom: 4px; font-size: var(--t-sm); font-weight: 700; color: var(--muted); }
+.rv-wait-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; padding: 9px 0;
+  border-top: 1px solid var(--line); text-align: left; font-size: 13px; color: var(--ink);
+}
+.rv-wait-row:hover .rv-wait-what { text-decoration: underline; text-underline-offset: 2px; }
+.rv-wait-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-wait-row .status { font-size: var(--t-sm); }
+
+/* ------------------------------------------------ loading: the page's own geometry, still */
+.rv-skel { gap: 22px; }
+.rv-skel-quote { display: flex; flex-direction: column; gap: 8px; padding-left: 16px; box-shadow: inset 2px 0 0 var(--line); }
+.rv-skel-lines { display: flex; flex-direction: column; gap: 9px; }
+.rv-work-skel { gap: 14px; padding: 20px 18px; }
+.runview:not([data-wide="true"]) .rv-work-skel { display: none; }
+.rv-skel-step { display: flex; align-items: center; gap: 10px; }
+
+/* A short window: a tighter header, so the talk keeps its room. A run's title is its task, often a long sentence, so
+   the byline keeps its own line rather than squeezing in beside it. */
+@media (max-height: 700px) {
+  .rv-head { padding: 12px 16px 12px 16px; }
+  .rv-id { gap: 4px; }
+  .rv-title { font-size: 20px; }
+  .rv-actions, .rv-back { margin-top: calc((20px * 1.15 - 28px) / 2); }
+}
+.rv-wait-fact { display: grid; grid-template-columns: 180px minmax(0, 1fr); column-gap: 16px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.rv-wait-k { color: var(--muted); }
+.rv-wait-v { min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.rv-wait-list + .rv-wait-list { margin-top: 18px; }

@@ -1,29 +1,105 @@
-.org { height: 100%; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; transition: padding-right var(--d-panel) var(--ease); }
-/* An open panel (fixed, 16px from the window edge) takes the right of the page: the chart re-fits to what is left. */
-.org-panel { padding-right: calc(var(--panel-w) + 20px); }
-/* Dragging the panel's edge: the page follows the pointer instead of easing behind it. */
-:root[data-resizing] .org { transition: none; }
-.org-loading { padding: 4px 24px 24px; }
+/* The org chart and a person opened from it. With nobody open the chart fills the page; with someone open the outline
+   takes the left column and their page the rest. While the fold runs both are on screen: the outline, then the chart,
+   then the travelling copies, then the page over all of them. */
+.org {
+  --ol-w: var(--outline-w);
+  position: relative; isolation: isolate; height: 100%; overflow: hidden; overflow: clip; background: var(--canvas);
+  display: grid; grid-template-columns: var(--ol-w) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+}
+.org-compact { --ol-w: 184px; }
+.org[data-folding] { pointer-events: none; }
 
-/* The chart is the page: no card around it, no dotted grid behind it. */
+.org-chart { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; min-width: 0; }
+.org-outline { position: relative; z-index: 1; grid-column: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--canvas); }
+.org-page { position: relative; z-index: 4; grid-column: 2; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--canvas); box-shadow: inset 1px 0 0 var(--line); }
+.org-page-in { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Under the page: a travelling row is covered by the arriving page, never painted over it. */
+.org-fold-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+
+/* Head, filter and foot: one geometry in both views, so the fold leaves them where they are. */
+.org-head { padding-right: 16px; }
+.org-head .pagehead-title { flex: none; min-width: 0; }
+.org-head > [data-pair="tool"] { margin-left: auto; }
+/* Folded beside a person, the chart's title is a sidebar heading: one step down, so the person's name leads. */
+.org-head-folded .pagehead-title { font-size: 17px; letter-spacing: -0.02em; }
+.org-head-ruled { box-shadow: inset 0 -1px 0 var(--line); }
+.org-views { flex: none; display: flex; padding: 0 24px 14px; box-shadow: inset 0 -1px 0 var(--line); }
+.org-views .seg { background: var(--canvas); }
+.org-foot { flex: none; display: flex; align-items: center; height: 56px; padding: 0 24px; box-shadow: inset 0 1px 0 var(--line); }
+.org-foot-actions { gap: 4px; }
+.org-compact .org-outline .org-foot { padding: 0 16px; }
 .org-canvas { position: relative; flex: 1; min-height: 0; }
-.org-controls { position: absolute; left: 20px; bottom: 18px; z-index: 2; display: flex; align-items: center; gap: 6px; }
-.org-controls .seg { background: var(--canvas); }
-.org-fit.btn { width: 32px; height: 32px; border-color: var(--line); color: var(--muted); }
-.org-fit.btn:hover:not(:disabled) { color: var(--ink); }
-/* Beside an open panel there is only room for the chart: the header buttons keep their icons. */
-@container (max-width: 560px) {
-  .org-btn-label { display: none; }
-  .org .pagehead-actions .btn { width: 32px; padding: 0; }
-}
 
-.org-empty { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 48px 24px 40px; }
-.org-empty-you { width: 236px; height: 76px; flex: none; }
-.org-empty-line { flex: none; }
-.org-empty-line path { stroke: var(--line-strong); stroke-width: 1; fill: none; }
-.org-empty-card {
-  width: min(460px, 100%); display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
-  padding: 28px 28px 24px; border-radius: var(--r-card); border: 1px dashed var(--line-strong); background: var(--surface);
+/* The outline: rows of avatar, name and one line, joined by the tree's lines. Geometry matches OrgChartOutline.tsx. */
+.ol-scroll { flex: 1; min-height: 0; overflow: auto; padding: 10px 0 16px; --fade: 6px; }
+.ol-tree { position: relative; }
+.ol-lines { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+.ol-lines path { fill: none; stroke: var(--line-strong); stroke-width: 1; }
+.ol-lines .ol-line-live { stroke: var(--live); }
+.ol-item { position: relative; height: 44px; display: flex; align-items: center; padding-right: 12px; }
+.org-compact .ol-item { height: 40px; padding-right: 10px; }
+.orow {
+  flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 9px; padding: 0 8px 0 6px; border-radius: var(--r-card);
+  text-align: left; transition: background var(--d-ui) var(--ease);
 }
-.org-empty-card p { max-width: 380px; line-height: 1.55; font-size: 13px; }
-.org-empty-templates { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 6px 0 8px; }
+.org-compact .orow { height: 34px; gap: 8px; }
+.orow:hover { background: var(--sunken); }
+.orow:focus-visible { outline: none; box-shadow: var(--focus); }
+.orow-av { flex: none; display: inline-flex; }
+.orow-text { min-width: 0; display: flex; flex-direction: column; }
+.orow-name { font-size: var(--t-base); font-weight: 600; letter-spacing: -0.008em; line-height: 18px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.orow-line { font-size: var(--t-sm); line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.orow-live { color: var(--live-text); font-weight: 500; }
+.orow-wait { color: var(--ink-2); font-weight: 500; }
+.orow-attn, .orow-fail { color: var(--err-text); font-weight: 500; }
+.orow-warn { color: var(--ink-2); font-weight: 500; }
+.orow-first .name-last { display: none; }
+/* The open person: the inverted row, their state keeping its colour. */
+.orow-on, .orow-on:hover { background: var(--sel); }
+.orow-on .orow-name { color: var(--sel-ink); }
+.orow-on .orow-line { color: var(--sel-muted); }
+.orow-on .orow-live { color: var(--sel-live); }
+.orow-on .orow-attn, .orow-on .orow-fail { color: var(--sel-attn); }
+.orow-on .av { --av-ring: var(--sel); }
+/* Your ink disc and a person's ring would vanish into the inverted row: they invert with it. */
+.orow-on .av-you { background: var(--sel-ink); color: var(--sel); }
+.orow-on .av-person { box-shadow: inset 0 0 0 1.5px var(--sel-muted); color: var(--sel-ink); }
+
+/* The fold's travelling copies. */
+.fnode { position: absolute; overflow: visible; }
+.fnode-frame { position: absolute; inset: 0; border-radius: var(--r-card); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-card); }
+.fpart { position: absolute; display: block; margin: 0; }
+.fpart.mcard-state { display: flex; }
+
+/* Loading: the chart's shape, held still. */
+.org-skel { display: flex; align-items: center; justify-content: center; }
+.org-skel-tree { display: flex; flex-direction: column; align-items: center; }
+.org-skel-card { width: 248px; height: 78px; display: flex; gap: 10px; padding: 12px; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-card); background: var(--surface); }
+.org-skel-stem { width: 1px; height: 40px; background: var(--line-strong); }
+.org-skel-row { position: relative; display: flex; gap: 40px; padding-top: 20px; }
+/* The bus runs from the first card's centre to the last's, each card hanging from it. */
+.org-skel-row::before { content: ""; position: absolute; top: 0; left: 124px; right: 124px; height: 1px; background: var(--line-strong); }
+.org-skel-row .org-skel-card { position: relative; }
+.org-skel-row .org-skel-card::before { content: ""; position: absolute; top: -20px; left: 50%; width: 1px; height: 20px; background: var(--line-strong); }
+.org-compact .org-skel-card { width: 208px; height: 58px; }
+.org-compact .org-skel-row { gap: 28px; }
+.org-compact .org-skel-row::before { left: 104px; right: 104px; }
+.org-compact .org-skel-row > :nth-child(3) { display: none; }
+
+/* An error where the chart would be: the head stays, the note sits in the canvas. */
+.org-state { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.org-state .error-note { width: min(520px, 100%); }
+
+/* Nobody hired yet: your card, a dashed stem, and the slot for your first employee, as the parts sheet draws it. */
+.org-empty { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 40px 24px;
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px); background-size: 20px 20px; background-position: 10px 10px; }
+.org-empty-you { width: 248px; height: 58px; flex: none; margin-top: auto; }
+.org-empty-stem { flex: none; width: 0; height: 28px; border-left: 1px dashed var(--line-strong); }
+.org-empty-slot {
+  width: min(480px, 100%); margin-bottom: auto; display: flex; flex-direction: column; padding: 24px 24px 24px; text-align: left;
+  border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--surface);
+}
+.org-empty-title { font-variation-settings: var(--display); font-size: var(--t-lg); font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; color: var(--ink); }
+.org-empty-text { margin-top: 8px; font-size: var(--t-base); line-height: 1.5; color: var(--muted); }
+.org-empty-templates { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.org-empty-actions { display: flex; align-items: center; gap: 8px; margin-top: 20px; }

@@ -1,9 +1,9 @@
-.tp { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--accent-line); background: color-mix(in oklab, var(--accent-soft) 45%, var(--surface)); }
-.tp-head { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; color: var(--ink); }
-.tp-head svg { color: var(--accent-text); flex: none; }
-.tp-lead { margin: -4px 0 0; font-size: var(--t-sm); color: var(--ink-2); line-height: 1.5; }
-.tp-plan { padding: 10px 12px; border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--line); font-size: 12.5px; }
-.tp-plan > :first-child { margin-top: 0; }
-.tp-plan > :last-child { margin-bottom: 0; }
-.tp-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.tp-hint { font-size: 11.5px; }
+/* A tidy's bigger changes, waiting for your OK: the plan itself, then Approve. One level, a 1px rule. */
+.tp { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.tp-head { display: flex; align-items: center; gap: 8px; font-size: var(--t-md); font-weight: 700; color: var(--ink); }
+.tp-head svg { flex: none; color: var(--err); }
+.tp-lead { margin: -4px 0 0; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.tp-plan { padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.tp-plan .md { font-size: 14px; }
+.tp-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.tp-hint { font-size: var(--t-sm); color: var(--muted); }

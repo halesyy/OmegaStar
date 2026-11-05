@@ -15,7 +15,10 @@ export function AskRow({ run, employees }: { run: Run; employees: EmployeeView[]
   const asker = employees.find((x) => x.id === kind.askedBy);
   const to = employees.find((x) => x.id === run.employeeId);
   const task = kind.task;
-  const state = live ? `Working · ${duration(elapsedMs(run, now))}` : run.state === "queued" ? "Waiting for a turn" : "Answered, not picked up yet";
+  // A word first, its dot saying the same: working, up next (waiting to start), or answered and not picked up yet.
+  const [state, tone] = live ? [`Working · ${duration(elapsedMs(run, now))}`, "status-live"]
+    : run.state === "queued" ? ["Up next", "status-wait"]
+    : ["Answered, not picked up yet", "status-plain"];
   return (
     <button className="ask-row" onClick={() => openRun(run.id)}>
       <span className="ask-pair">
@@ -29,7 +32,7 @@ export function AskRow({ run, employees }: { run: Run; employees: EmployeeView[]
         </span>
         <span className="ask-text">{run.prompt}</span>
       </span>
-      <span className={`ask-state mono num ${live ? "ask-state-live" : ""}`}>{state}</span>
+      <span className={`ask-state status ${tone} num`}>{state}</span>
     </button>
   );
 }

@@ -258,7 +258,7 @@ export function useThread(rootId: string): Conversation {
 // ---------------------------------------------------------------- forms
 
 /**
- * A form's edits over `base`, the saved value. Outside changes to `base` (say, an "Allow from now on"
+ * A form's edits over `base`, the saved value. Outside changes to `base` (say, an "Always allow"
  * elsewhere) flow in while the form is clean; once you have edited it, yours are kept until saved or discarded.
  */
 export function useDraft<T extends object>(base: T) {

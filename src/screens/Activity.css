@@ -1,50 +1,183 @@
-.activity-who { width: auto; min-width: 150px; height: 30px; font-size: var(--t-sm); }
-.activity-list { margin: 0 -12px; }
-.change-skill { font-size: var(--t-sm); color: var(--ink); }
-.change-lines { display: inline-flex; gap: 6px; font-size: var(--t-xs); }
-.tl-add { color: var(--ok); }
-.tl-del { color: var(--err); }
+/* ------------------------------------------------ the page
+   One column, gutter to gutter, when there is no work column to draw. In a wide window with work to show, the history
+   keeps the page and the live work gets C's work column beside it, full height on the raised ground. */
+.activity { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+.activity[data-column="true"] { grid-template-columns: minmax(0, 1fr) var(--work-w); }
+.activity > .pagehead { grid-column: 1; grid-row: 1; padding-right: 24px; }
+.act-main { grid-column: 1; grid-row: 2; min-height: 0; overflow: auto; }
+.act-main-inner { min-height: 100%; padding: 4px 24px 64px; display: flex; flex-direction: column; gap: 28px; }
+.act-side {
+  grid-column: 2; grid-row: 1 / 3; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 24px;
+  padding: 0 16px 32px; background: var(--raised); border-left: 1px solid var(--line);
+}
+/* The column's first heading sits in the page header's band, so the two heads read as one line. */
+.act-side > .psec:first-child > .psec-head { min-height: var(--head-h); }
+.act-side > .psec:first-child { gap: 2px; }
 
-/* ------------------------------------------------ what is going on right now, one line per run */
-.now { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.now-row { display: grid; grid-template-columns: 20px 88px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; text-align: left; transition: background var(--d-ui) var(--ease); }
-.now-row + .now-row { border-top: 1px solid var(--line); }
-.now-row:hover { background: var(--sunken); }
-.now-row:focus-visible { outline: none; box-shadow: var(--focus); }
-.now-who, .now-what { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.now-who { font-weight: 600; }
-.now-what { color: var(--ink-2); }
-.now-state { font-size: 11.5px; color: var(--live-text); }
+/* Whose activity: a quiet control that fits its words. */
+.act-who { gap: 4px; padding: 0 8px; color: var(--ink-2); font-weight: 600; }
+.act-who svg { color: var(--muted); }
+.act-who-mark { width: 14px; display: inline-flex; color: var(--ink); }
+.menu-item .av { flex: none; }
 
-/* ------------------------------------------------ the week's numbers, one line per employee */
-.score { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.score-row { display: grid; grid-template-columns: 20px 88px minmax(0, 1fr) auto minmax(64px, auto); align-items: center; gap: 10px; padding: 8px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background var(--d-ui) var(--ease); }
-.score-row + .score-row { border-top: 1px solid var(--line); }
-.score-row:hover { background: var(--sunken); }
-.score-row:focus-visible { outline: none; box-shadow: var(--focus); }
-.score-who, .score-metric { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.score-who { font-weight: 600; }
-.score-metric { color: var(--ink-2); }
-.score-plain { grid-column: span 3; color: var(--muted); }
-.score-value { font-size: var(--t-base); font-weight: 600; color: var(--ink); }
-.score-change { font-size: var(--t-sm); text-align: right; }
+/* ------------------------------------------------ rows: the run list's own, on hairlines */
+.act-runs { display: flex; flex-direction: column; gap: 12px; }
+.act-list { display: flex; flex-direction: column; margin: 0 -12px; }
+.act-row { position: relative; }
+.act-row + .act-row::before {
+  content: ""; position: absolute; z-index: 1; top: 0; left: 12px; right: 12px; height: 1px; background: var(--line); pointer-events: none;
+}
+.act-row:hover::before, .act-row:hover + .act-row::before, .act-row:focus-within::before, .act-row:focus-within + .act-row::before { opacity: 0; }
+.act-day { padding: 22px 12px 6px; font-size: var(--t-sm); font-weight: 600; color: var(--muted); }
+.act-list > .act-day:first-child { padding-top: 2px; }
+.act-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.act-empty { padding-top: 56px; }
+.act-empty-filter { padding-top: 32px; }
+/* Inside the Failed filter a row needn't say Failed again. */
+.act-list[data-filter="failed"] .runrow[data-state="failed"] .runrow-status { visibility: hidden; }
 
-/* ------------------------------------------------ the run list's filters, right above it */
-.activity-runs { display: flex; flex-direction: column; gap: 12px; }
-.activity-filters { display: flex; flex-wrap: wrap; gap: 6px; }
-.activity-filters .chip { height: 26px; padding: 0 10px; }
+/* What needs you leads the page: its count in the colour of needs you. */
+.act-needs .psec-count { color: var(--err-text); }
 
-/* ------------------------------------------------ today, one line per employee, and this week's usage with each routine under them */
-.digest, .week-usage { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
-.digest-row { display: grid; grid-template-columns: 20px 88px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 12px; text-align: left; transition: background var(--d-ui) var(--ease); }
-.week-usage-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto minmax(56px, auto); align-items: center; gap: 10px; padding: 8px 12px; text-align: left; transition: background var(--d-ui) var(--ease); }
-.digest-row + .digest-row, .week-usage-group + .week-usage-group { border-top: 1px solid var(--line); }
-.digest-row:hover, .week-usage-row:hover { background: var(--sunken); }
-.digest-row:focus-visible, .week-usage-row:focus-visible { outline: none; box-shadow: var(--focus); }
-.digest-who, .digest-what, .week-usage-who, .week-usage-name, .week-usage-what { font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.digest-who, .week-usage-who { font-weight: 600; }
-.digest-what, .week-usage-what { color: var(--ink-2); }
-.digest-failed { color: var(--err-text); }
-.digest-usage, .week-usage-cost { font-size: var(--t-sm); color: var(--muted); text-align: right; }
-.week-usage-routine { padding-top: 4px; padding-bottom: 6px; }
-.week-usage-routine .week-usage-name, .week-usage-routine .week-usage-what { color: var(--muted); }
+/* A routine's quiet runs, folded into one line that opens to list them. */
+.act-fold-icon { color: var(--muted); transition: transform var(--d-ui) var(--ease); }
+.act-quietruns .runrow-status { align-self: center; }
+.act-quietruns[aria-expanded="true"] .act-fold-icon { transform: rotate(180deg); }
+.act-quiet-runs > div { padding-left: 40px; }
+
+/* Loading: everything at its own geometry, still. */
+.act-skeleton { display: flex; flex-direction: column; gap: 28px; }
+.act-skel { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; align-items: center; column-gap: 12px; padding: 13px 12px; }
+.act-skel-lines { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.act-skel-fold { gap: 14px; pointer-events: none; }
+
+/* ------------------------------------------------ who the team waits on: one line, opening to the cards */
+.act-waiting { display: flex; flex-direction: column; }
+.act-fold-head {
+  width: calc(100% + 24px); display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 0 -12px; padding: 6px 12px;
+  border-radius: var(--r-inner); text-align: left; transition: background var(--d-ui) var(--ease);
+}
+button.act-fold-head:hover { background: var(--sunken); }
+.act-fold-head:focus-visible { outline: none; box-shadow: var(--focus); }
+.act-fold-chev { flex: none; margin-left: auto; color: var(--muted); transition: transform var(--d-ui) var(--ease); }
+.act-fold-head[aria-expanded="true"] .act-fold-chev { transform: rotate(180deg); }
+.act-fold-title { flex: none; font-size: 13.5px; font-weight: 700; letter-spacing: -0.005em; color: var(--ink); }
+.act-fold-n { flex: none; font-size: var(--t-sm); font-weight: 600; color: var(--muted); }
+.act-fold-faces { flex: none; display: inline-flex; gap: 4px; margin-left: 8px; }
+.act-fold-sum { min-width: 0; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-waiting-body { display: flex; flex-direction: column; padding-top: 8px; }
+.act-waiting-body .plist + .plist { border-top: 0; }
+
+/* ------------------------------------------------ the rail: live work and what is coming up, one row anatomy */
+.act-rail { display: flex; flex-direction: column; margin: 0 -12px; }
+.act-rail-item { position: relative; }
+.act-rail-item + .act-rail-item::before {
+  content: ""; position: absolute; z-index: 1; top: 0; left: 12px; right: 12px; height: 1px; background: var(--line); pointer-events: none;
+}
+.act-rail-row {
+  width: 100%; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-areas: "av who meta" "av what what" ". now now";
+  align-items: center; column-gap: 12px; row-gap: 2px; padding: 10px 12px; border-radius: var(--r-inner); text-align: left;
+  transition: background var(--d-ui) var(--ease);
+}
+.act-rail-row:hover { background: var(--sunken); }
+.act-rail-row:focus-visible { outline: none; box-shadow: var(--focus); }
+.act-rail-row > .av { grid-area: av; align-self: start; margin-top: 1px; }
+.act-rail-who { grid-area: who; min-width: 0; font-size: var(--t-base); font-weight: 650; line-height: 1.3; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-rail-meta { grid-area: meta; display: inline-flex; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.act-rail-meta .status { font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
+.act-rail-live { font-weight: 600; color: var(--live-text); }
+.act-rail-what {
+  grid-area: what; min-width: 0; font-size: var(--t-sm); line-height: 1.4; color: var(--ink-2);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+.act-rail-now { grid-area: now; display: flex; align-items: baseline; gap: 6px; min-width: 0; margin-top: 2px; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; }
+.act-rail-now-label { flex: none; }
+.act-rail-now-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.act-rail-now-what.mono { font-size: 11.5px; }
+.act-rail-skel { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 12px; padding: 12px; }
+.act-quiet { padding: 4px 0; font-size: var(--t-sm); color: var(--muted); }
+
+/* ------------------------------------------------ numbers: one grid, today or this week, one big total over the week */
+.numbers { display: flex; flex-direction: column; gap: 20px; }
+.num-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "value span" "label label" "days days"; align-items: center; row-gap: 4px; }
+.num-total-value {
+  grid-area: value; display: inline-flex; justify-self: start; font-size: var(--t-xl); font-variation-settings: var(--display); font-weight: 700;
+  letter-spacing: -0.035em; line-height: 1.05; color: var(--ink);
+}
+/* The switch sits on the figure's line, so the figure and what it covers read together. */
+.num-span { grid-area: span; justify-self: end; }
+.num-total-label { grid-area: label; display: inline-flex; white-space: pre; font-size: var(--t-sm); color: var(--muted); }
+/* The week across the column: seven equal columns, a thin bar in each, today labelled with its figure. */
+.num-days { grid-area: days; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); align-items: end; gap: 8px; margin-top: 18px; }
+.num-day { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.num-day-figure { display: inline-flex; min-height: 16px; font-size: var(--t-xs); font-weight: 650; color: var(--ink); }
+/* Each bar is the track's full height, slid down out of its clipped track by what it lacks, so a change of value moves
+   on transform alone and the rounded top never stretches. */
+.num-bar-track { width: 100%; height: 48px; display: flex; justify-content: center; overflow: hidden; box-shadow: 0 1px 0 var(--line-strong); }
+.num-bar {
+  width: 20px; height: 100%; border-radius: 4px 4px 0 0; background: var(--line-strong);
+  transform: translateY(calc(100% - var(--v, 0%))); transition: transform var(--d-roll) var(--ease), background var(--d-roll) var(--ease);
+}
+.num-day[data-on="true"] .num-bar { background: var(--ink-2); }
+.num-day-label { font-size: var(--t-xs); color: var(--muted); white-space: nowrap; }
+.num-day[data-on="true"] .num-day-label { color: var(--ink-2); }
+
+.num-list { display: flex; flex-direction: column; margin: 0 -12px; }
+.num-group { position: relative; }
+.num-group + .num-group::before {
+  content: ""; position: absolute; z-index: 1; top: 0; left: 12px; right: 12px; height: 1px; background: var(--line); pointer-events: none;
+}
+/* The whole row is one hover fill, between its rules with equal room above and below, the chevron inside it and as far
+   from its edge as the avatar is from the other. */
+.num-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; margin: 6px 0; padding-right: 5px;
+  border-radius: var(--r-inner); transition: background var(--d-ui) var(--ease);
+}
+.num-row:hover { background: var(--sunken); }
+/* An open group is read as one: its person line does not light on its own over the routines under it. */
+.num-group[data-open="true"] .num-row:hover { background: none; }
+.num-main, .num-skel {
+  display: grid; grid-template-columns: 20px 96px minmax(0, 1fr) 64px 72px; align-items: center; column-gap: 12px;
+  min-height: 40px; padding: 8px 12px; border-radius: var(--r-inner); text-align: left;
+}
+.num-skel { grid-template-columns: 20px minmax(0, 1fr) 44px; padding-right: 45px; margin: 6px 0; }
+.num-main:focus-visible { outline: none; box-shadow: var(--focus); }
+.num-who { font-size: var(--t-base); font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-what { min-width: 0; display: grid; font-size: 13px; color: var(--ink-2); }
+.num-what-in { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-value { font-weight: 650; color: var(--ink); }
+.num-failed { color: var(--err-text); }
+.num-runs { justify-self: end; display: inline-flex; gap: 0.25em; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; }
+.num-cost { justify-self: end; display: inline-flex; font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.num-fold, .num-fold-slot { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-inner); color: var(--muted); }
+.num-fold:hover { color: var(--ink); }
+.num-fold:focus-visible { outline: none; box-shadow: var(--focus); }
+.num-fold svg { transition: transform var(--d-ui) var(--ease); }
+.num-fold[aria-expanded="true"] svg { transform: rotate(180deg); }
+.num-subs { padding: 0 0 8px; }
+.num-sub {
+  width: 100%; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) 64px 72px; align-items: baseline; column-gap: 12px;
+  padding: 5px 45px 5px 152px; text-align: left; border-radius: var(--r-inner); transition: background var(--d-ui) var(--ease);
+}
+.num-sub:hover { background: var(--sunken); }
+.num-sub:focus-visible { outline: none; box-shadow: var(--focus); }
+.num-sub-name { font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-sub-what { font-size: var(--t-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-sub .num-cost { font-weight: 500; color: var(--ink-2); }
+
+/* ------------------------------------------------ skill changes: the run rows' grid, the line counts quiet in the right track */
+.act-change-what { color: var(--ink-2); }
+.act-change-skill { font-size: 12.5px; color: var(--ink); }
+.act-change-lines { display: inline-flex; gap: 6px; font-size: var(--t-xs); color: var(--muted); align-self: center; }
+
+/* ------------------------------------------------ bodies that give way, and lists that end with intent */
+.act-xfade { display: grid; }
+.act-xfade-cell { grid-area: 1 / 1; min-width: 0; }
+.act-xfade-cell.leave-fade { pointer-events: none; }
+/* A chip or a tab takes its fill on the press, with the content it brings, never after it. */
+.activity .pagehead .seg button, .act-filters .chip { transition: color var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease); }
+.act-end { padding: 28px 0 8px; }
+.act-end-title { font-size: var(--t-md); font-weight: 650; color: var(--ink); }
+.act-end-text { margin-top: 4px; font-size: var(--t-sm); color: var(--muted); }
+/* The line a short list ends on: what it covered, under a rule. */
+.act-foot { display: flex; padding-top: 14px; border-top: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }

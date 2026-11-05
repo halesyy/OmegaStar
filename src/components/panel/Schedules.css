@@ -1,28 +1,31 @@
 .sched-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .sched { display: flex; align-items: center; gap: 12px; padding-right: 2px; border-bottom: 1px solid var(--line); }
-.sched-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 12px; text-align: left; padding: 9px 8px; margin: 0 -8px; border-radius: 8px; transition: background var(--d-ui) var(--ease); }
+.sched-main { flex: 1; min-width: 0; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px; text-align: left; padding: 10px 8px; margin: 0 -8px; border-radius: var(--r-card); transition: background var(--d-ui) var(--ease); }
 .sched-main:hover { background: var(--sunken); }
 .sched-label { font-weight: 500; font-size: var(--t-base); }
 .sched-when { grid-column: 1; font-size: var(--t-sm); color: var(--muted); }
 .sched-next { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: var(--t-sm); color: var(--muted); }
-.sched-off .sched-label, .sched-off .sched-next { color: var(--faint); }
-.sched-paused { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: var(--t-sm); }
+.sched-off .sched-label, .sched-off .sched-next { color: var(--muted); }
+.sched-paused { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--r-card); background: var(--warn-soft); color: var(--ink-2); font-size: var(--t-sm); }
+.sched-paused svg { color: var(--warn); }
 .sched-empty { display: flex; align-items: center; gap: 12px; font-size: var(--t-sm); color: var(--muted); line-height: 1.5; }
 .sched-empty > span { flex: 1; min-width: 0; }
 .sched-empty .btn { flex: none; }
 
-.sched-when-row { margin-top: 4px; }
+/* The time and the preview of the runs it makes read as one block, 12px apart. */
+.sched-when-row { margin-top: 4px; margin-bottom: 6px; }
 .sched-time { width: 120px; }
-.sched-preview { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); font-size: var(--t-sm); }
+.sched-preview { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: var(--r-card); background: var(--raised); border: 1px solid var(--line); font-size: var(--t-sm); }
 .sched-preview-desc { font-weight: 500; color: var(--ink); }
-.sched-preview-next { display: flex; gap: 14px; color: var(--muted); font-size: 11.5px; }
-.sched-preview-err { color: var(--err); background: var(--err-soft); border-color: transparent; }
+.sched-preview-next { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: var(--t-sm); }
+.sched-preview-err { color: var(--err-text); background: var(--err-soft); border-color: transparent; }
 .sched-preview-err span { display: inline-flex; gap: 6px; align-items: center; }
 
 .misfire { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.misfire-opt { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-strong); font-size: var(--t-sm); color: var(--muted); line-height: 1.45; transition: all var(--d-ui) var(--ease); }
+.misfire-opt { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 12px; border-radius: var(--r-card); border: 1px solid var(--line-strong); font-size: var(--t-sm); color: var(--muted); line-height: 1.45; transition: border-color var(--d-ui) var(--ease); }
 .misfire-opt b { color: var(--ink); font-weight: 600; font-size: var(--t-base); }
-.misfire-opt[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 12%, transparent); }
+/* The chosen option: its own edge in ink, no halo. */
+.misfire-opt[aria-checked="true"] { border-color: var(--ink); }
 .misfire-radio { flex: none; width: 14px; height: 14px; margin-top: 2px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-strong); transition: box-shadow var(--d-ui) var(--ease); }
 .misfire-opt[aria-checked="true"] .misfire-radio { box-shadow: inset 0 0 0 4.5px var(--accent); }
 .sched-when svg { vertical-align: -1px; }

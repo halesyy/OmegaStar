@@ -2,29 +2,35 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import type { Presence, Run } from "../api/types";
 import { initials, skillsChanged } from "../lib/format";
-import { dismissToast, useToasts } from "../lib/toasts";
-import { applyPanelWidth, PANEL_MIN, panelMax, setPanelWidth } from "../lib/panelWidth";
+import { ms, rollAnimations } from "../lib/motion";
+import { useScrollFade } from "../lib/scrollFade";
+import { dismissToast, useToasts, type Toast } from "../lib/toasts";
 import { Icon, type IconName } from "./Icon";
 import "./ui.css";
 
 // ---------------------------------------------------------------- Avatar
 
-export function Avatar({ name, hue, size = 36, presence, person = false, className }: {
-  name: string; hue: number; size?: number; presence?: Presence; person?: boolean; className?: string;
+/** A named avatar in its own colour. People are ringed, a proposed hire is dashed, you are the ink disc. Presence is a
+ *  still dot on the avatar (ringed in `--av-ring`, the surface it sits on): only where there is no room for a word. */
+export function Avatar({ name, hue, size = 36, presence, person = false, proposed = false, you = false, className }: {
+  name: string; hue: number; size?: number; presence?: Presence; person?: boolean; proposed?: boolean; you?: boolean; className?: string;
 }) {
-  const style = { "--h": hue, width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.38)) } as React.CSSProperties;
+  const style = { "--h": hue, width: size, height: size, fontSize: Math.max(8, Math.round(size * 0.37)) } as React.CSSProperties;
+  const kind = you ? "av-you" : proposed ? "av-proposed" : person ? "av-person" : "";
   return (
-    <span className={`av ${person ? "av-person" : ""} ${presence ? `av-${presence}` : ""} ${className ?? ""}`} style={style} aria-hidden>
-      {initials(name)}
-      {presence === "attention" ? <span className="av-flag" /> : null}
+    <span className={`av ${kind} ${className ?? ""}`} style={style} aria-hidden>
+      <span className="av-i">{initials(name)}</span>
+      {presence && presence !== "idle" ? <span className={`av-dot av-dot-${presence}`} /> : null}
     </span>
   );
 }
 
 // ---------------------------------------------------------------- Slide-over
 
-export function SlideOver({ open, onClose, width = "var(--panel-w)", children, label, modal = false }: {
-  open: boolean; onClose: () => void; width?: number | string; children: ReactNode; label: string; modal?: boolean;
+/** A surface that slides in from the window's right edge. Closing returns focus to `returnFocus` when given (pass the
+ *  button that opened it: WebKit does not focus a button on click), else to whatever had focus when it opened. */
+export function SlideOver({ open, onClose, width = 760, children, label, modal = false, returnFocus }: {
+  open: boolean; onClose: () => void; width?: number | string; children: ReactNode; label: string; modal?: boolean; returnFocus?: HTMLElement | null;
 }) {
   const [mounted, setMounted] = useState(open);
   const [shown, setShown] = useState(false);
@@ -65,8 +71,10 @@ export function SlideOver({ open, onClose, width = "var(--panel-w)", children, l
   }, [shown]);
 
   useEffect(() => {
-    if (!open && lastFocus.current instanceof HTMLElement) lastFocus.current.focus({ preventScroll: true });
-  }, [open]);
+    if (open) return;
+    const to = returnFocus?.isConnected ? returnFocus : lastFocus.current;
+    if (to instanceof HTMLElement) to.focus({ preventScroll: true });
+  }, [open, returnFocus]);
 
   if (!mounted) return null;
   return (
@@ -77,55 +85,8 @@ export function SlideOver({ open, onClose, width = "var(--panel-w)", children, l
         className={`slideover ${shown ? "slideover-on" : ""} ${modal ? "slideover-modal" : ""}`} style={{ width }}
       >
         {children}
-        {modal ? null : <PanelEdge />}
       </aside>
     </>
-  );
-}
-
-// The member panel's left edge: drag (or arrow keys) to resize it, double-click to go back to the default width.
-function PanelEdge() {
-  const edge = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState<number>();
-  const drag = useRef<{ x: number; from: number; to: number } | null>(null);
-  const panelWidth = () => edge.current?.parentElement?.offsetWidth ?? PANEL_MIN;
-  useLayoutEffect(() => { setWidth(panelWidth()); }, []);
-  const clamp = (px: number) => Math.round(Math.min(panelMax(), Math.max(PANEL_MIN, px)));
-  const save = (px: number | null) => { setPanelWidth(px); setWidth(panelWidth()); };
-  const end = () => {
-    const d = drag.current;
-    if (!d) return;
-    drag.current = null;
-    document.documentElement.removeAttribute("data-resizing");
-    if (d.to !== d.from) save(d.to);
-  };
-  return (
-    <div
-      ref={edge} className="slideover-edge" role="separator" aria-orientation="vertical" aria-label="Resize panel" tabIndex={0}
-      aria-valuenow={width} aria-valuemin={PANEL_MIN} aria-valuemax={panelMax()}
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        const w = panelWidth();
-        drag.current = { x: e.clientX, from: w, to: w };
-        document.documentElement.setAttribute("data-resizing", "");
-      }}
-      onPointerMove={(e) => {
-        const d = drag.current;
-        if (!d) return;
-        d.to = clamp(d.from + d.x - e.clientX);
-        applyPanelWidth(d.to);
-      }}
-      onPointerUp={end} onLostPointerCapture={end}
-      onDoubleClick={() => save(null)}
-      onKeyDown={(e) => {
-        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-        e.preventDefault();
-        const step = (e.shiftKey ? 64 : 16) * (e.key === "ArrowLeft" ? 1 : -1);
-        save(clamp(panelWidth() + step));
-      }}
-    />
   );
 }
 
@@ -233,18 +194,130 @@ export function Overlay({ label, onClose, onKey, children }: {
 
 // ---------------------------------------------------------------- Toasts
 
+/** How long a leaving toast stays mounted while it fades (--d-ui, or --d-fade under reduced motion, both shorter). */
+const TOAST_LEAVE_MS = 160;
+
+/** Toasts land from just above, one line each, and fade where they are when they go: nothing pops. */
 export function Toasts() {
   const toasts = useToasts();
+  const [leaving, setLeaving] = useState<Toast[]>([]);
+  const shown = useRef<Toast[]>([]);
+  // One timer per group that leaves; a later change never cancels an earlier group's removal.
+  const timers = useRef<number[]>([]);
+  useEffect(() => {
+    const gone = shown.current.filter((t) => !toasts.some((x) => x.id === t.id));
+    shown.current = toasts;
+    if (!gone.length) return;
+    setLeaving((l) => [...l, ...gone]);
+    timers.current.push(window.setTimeout(() => setLeaving((l) => l.filter((t) => !gone.includes(t))), TOAST_LEAVE_MS));
+  }, [toasts]);
+  useEffect(() => {
+    const all = timers.current;
+    return () => all.forEach((t) => window.clearTimeout(t));
+  }, []);
+  // Each leaving toast keeps its place in the stack while it fades.
+  const all = [...toasts, ...leaving].sort((a, b) => a.id - b.id);
   return (
     <div className="toasts" role="status" aria-live="polite">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast toast-${t.tone}`}>
-          {t.tone === "ok" ? <Icon name="checkCircle" size={14} /> : t.tone === "err" ? <Icon name="alert" size={14} /> : null}
-          <span>{t.text}</span>
-          {t.action ? <button className="toast-action" onClick={() => { t.action?.run(); dismissToast(t.id); }}>{t.action.label}</button> : null}
-        </div>
-      ))}
+      {all.map((t) => {
+        const out = leaving.includes(t);
+        return (
+          <div key={t.id} className={`toast toast-${t.tone} ${out ? "toast-leave" : ""}`} aria-hidden={out || undefined}>
+            {t.tone === "ok" ? <Icon name="checkCircle" size={14} /> : t.tone === "err" ? <Icon name="alert" size={14} /> : null}
+            <span>{t.text}</span>
+            {t.action ? <button className="toast-action" tabIndex={out ? -1 : undefined} onClick={() => { t.action?.run(); dismissToast(t.id); }}>{t.action.label}</button> : null}
+            {t.ms === null ? <button className="toast-close" tabIndex={out ? -1 : undefined} aria-label="Dismiss" onClick={() => dismissToast(t.id)}><Icon name="close" size={13} /></button> : null}
+          </div>
+        );
+      })}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- Tooltips
+
+/** How long the pointer rests on something before its tooltip shows (moving between tipped things shows at once). */
+const TIP_DELAY_MS = 250;
+
+/** The one tooltip layer: any element with `data-tip` gets its text in a tooltip to its right (or its left, if the
+ *  window has no room), drawn above everything so no scrolling sidebar or panel clips it. It shows on hover after a
+ *  short rest, at once on keyboard focus, and follows the element's `data-tip` while shown. Mounted once, in App. */
+export function TipLayer() {
+  // `key`: the element's data-tip-key, the key that does the same, drawn as a keycap after the text.
+  const [tip, setTip] = useState<{ el: HTMLElement; text: string; key?: string } | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let timer = 0;
+    let current: HTMLElement | null = null;
+    const show = (el: HTMLElement, now: boolean) => {
+      window.clearTimeout(timer);
+      current = el;
+      // A `.tip-words` inside says the same as the tip: the tip shows only while a narrow layout hides those words.
+      const said = (el.querySelector<HTMLElement>(":scope > .tip-words")?.offsetWidth ?? 0) > 0;
+      const go = () => { if (current === el && el.dataset.tip && !said) setTip({ el, text: el.dataset.tip, key: el.dataset.tipKey }); };
+      if (now) go(); else timer = window.setTimeout(go, TIP_DELAY_MS);
+    };
+    const hide = () => { window.clearTimeout(timer); current = null; setTip(null); };
+    const tipped = (t: EventTarget | null) => (t instanceof Element ? t.closest<HTMLElement>("[data-tip]") : null);
+    const over = (e: PointerEvent) => {
+      const el = tipped(e.target);
+      if (el === current) return;
+      if (!el) return hide();
+      show(el, current !== null);
+    };
+    const focus = (e: FocusEvent) => {
+      const el = tipped(e.target);
+      if (el && el.matches(":focus-visible")) show(el, true);
+    };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") hide(); };
+    document.addEventListener("pointerover", over, true);
+    document.addEventListener("focusin", focus, true);
+    document.addEventListener("focusout", hide, true);
+    document.addEventListener("keydown", key, true);
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("blur", hide);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("pointerover", over, true);
+      document.removeEventListener("focusin", focus, true);
+      document.removeEventListener("focusout", hide, true);
+      document.removeEventListener("keydown", key, true);
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("blur", hide);
+    };
+  }, []);
+
+  // While shown, follow the element: its text changing (an armed button), or it leaving the page.
+  useEffect(() => {
+    if (!tip) return;
+    const follow = () => {
+      const text = tip.el.dataset.tip;
+      const key = tip.el.dataset.tipKey;
+      if (!text || !tip.el.isConnected) setTip(null);
+      else if (text !== tip.text || key !== tip.key) setTip({ el: tip.el, text, key });
+    };
+    const watch = new MutationObserver(follow);
+    watch.observe(tip.el, { attributes: true, attributeFilter: ["data-tip", "data-tip-key"] });
+    follow(); // it may have changed between showing and watching (a click that arms a button)
+    return () => watch.disconnect();
+  }, [tip]);
+
+  useLayoutEffect(() => {
+    if (!tip || !box.current) { setPos(null); return; }
+    const r = tip.el.getBoundingClientRect();
+    const w = box.current.offsetWidth;
+    const right = r.right + 10;
+    setPos({ left: right + w <= window.innerWidth - 8 ? right : Math.max(8, r.left - 10 - w), top: r.top + r.height / 2 });
+  }, [tip]);
+
+  if (!tip) return null;
+  return createPortal(
+    <div ref={box} className={`tip ${pos ? "tip-on" : ""}`} role="tooltip" style={pos ? { left: pos.left, top: pos.top } : { left: -9999, top: 0 }}>
+      {tip.text}{tip.key ? <span className="kc">{tip.key}</span> : null}
+    </div>,
+    document.body,
   );
 }
 
@@ -288,7 +361,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, className }: {
           {t.badge ? <span className="tab-badge">{t.badge}</span> : null}
         </button>
       ))}
-      {bar ? <span className="tabs-bar" style={{ transform: `translateX(${bar.left}px)`, width: bar.width }} /> : null}
+      {bar ? <span className="tabs-bar" style={{ transform: `translateX(${bar.left}px) scaleX(${bar.width})` }} /> : null}
     </div>
   );
 }
@@ -307,10 +380,12 @@ export function PageHeader({ title, children }: { title: string; children?: Reac
 
 /** The one content column every page but the Org chart uses: a header that stays put over a column that scrolls. */
 export function PageColumn({ title, actions, children, className }: { title: string; actions?: ReactNode; children: ReactNode; className?: string }) {
+  // Content scrolling under the header fades at that edge (and at the foot while more is below), never sliced.
+  const scroll = useScrollFade<HTMLDivElement>();
   return (
     <div className={`pagecol ${className ?? ""}`}>
       <PageHeader title={title}>{actions}</PageHeader>
-      <div className="pagecol-scroll">
+      <div ref={scroll} className="pagecol-scroll scroll-fade">
         <div className="pagecol-inner">{children}</div>
       </div>
     </div>
@@ -324,7 +399,7 @@ export function Section({ title, count, action, children, id, className }: {
   return (
     <section className={`psec ${className ?? ""}`} id={id}>
       <header className="psec-head">
-        <h2 className="psec-title">{title}{count ? <span className="psec-count num">{count}</span> : null}</h2>
+        <h2 className="psec-title">{title}{count ? <span className="psec-count num"><Roll value={count} /></span> : null}</h2>
         {action ? <div className="psec-action">{action}</div> : null}
       </header>
       {children}
@@ -374,31 +449,99 @@ export function MenuButton({ items, label = "More actions", size = "btn-sm" }: {
 
 // ---------------------------------------------------------------- misc
 
-export function ErrorNote({ text, onRetry }: { text: string; onRetry?: () => void }) {
+/** Something failed. Inline, it is one line. With a `title` it is the full pattern: what happened (title), what happens
+ *  next (text), and one way to act. */
+export function ErrorNote({ text, title, onRetry }: { text: string; title?: string; onRetry?: () => void }) {
+  const retry = onRetry ? <button className="btn btn-sm" onClick={onRetry}><Icon name="refresh" size={12} /> Try again</button> : null;
+  if (title) {
+    return (
+      <div className="error-note error-note-block" role="alert">
+        <Icon name="alert" size={15} />
+        <div className="grow">
+          <div className="error-note-title">{title}</div>
+          <div className="error-note-text">{text}</div>
+        </div>
+        {retry}
+      </div>
+    );
+  }
   return (
     <div className="error-note" role="alert">
       <Icon name="alert" size={14} />
       <span className="grow">{text}</span>
-      {onRetry ? <button className="btn btn-sm" onClick={onRetry}>Try again</button> : null}
+      {retry}
     </div>
   );
 }
 
-export function Skeleton({ h = 14, w = "100%", r = 6 }: { h?: number; w?: number | string; r?: number }) {
-  return <span className="skeleton" style={{ display: "block", height: h, width: w, borderRadius: r }} />;
+/** A block at the content's own geometry while it loads. It holds still. `r` defaults to the square corner; pass
+ *  `r={h / 2}` for an avatar. */
+export function Skeleton({ h = 14, w = "100%", r = 3 }: { h?: number; w?: number | string; r?: number }) {
+  return <span className="skeleton" style={{ height: h, width: w, borderRadius: r }} />;
 }
 
 /** The chip under a report naming the skills the run changed, so the report itself need not say so. */
 export function SkillsGrew({ run }: { run: Pick<Run, "skillChanges"> }) {
   const g = skillsChanged(run.skillChanges);
-  return <span className="report-grew" title={g.title}><Icon name="sparkle" size={12} /> {g.label}</span>;
+  return <span className="report-grew" title={g.title}><Icon name="teach" size={12} /> {g.label}</span>;
 }
 
-export function StatePill({ tone, children, pulse }: { tone: "accent" | "ok" | "warn" | "err" | "neutral"; children: ReactNode; pulse?: boolean }) {
+/** A state in a pill: a still dot, then the word. `wait` is work waiting to start ("Up next"): a hollow ring and a quiet
+ *  word, never ultramarine. (`pulse` is kept for callers; a live dot holds still.) */
+export function StatePill({ tone, children }: { tone: "accent" | "wait" | "ok" | "warn" | "err" | "neutral"; children: ReactNode; pulse?: boolean }) {
   return (
     <span className={`pill ${tone === "neutral" ? "" : tone === "accent" ? "pill-live" : `pill-${tone}`} state-pill`}>
-      <span className={`state-dot ${pulse ? "state-dot-pulse" : ""}`} />
+      <span className="state-dot" />
       {children}
+    </span>
+  );
+}
+
+/** What a value reads as a number: a number, or a string that is one with a sign or unit around it ("$2.94", "38%",
+ *  "1,180"); NaN for anything else ("Working", "3m 04s"). */
+const NUMBERISH = /^[^\d\s-]*-?\d[\d.,]*[^\d\s]*$/;
+const numberOf = (v: string | number) => (typeof v === "number" ? v : NUMBERISH.test(v) ? parseFloat(v.replace(/[^\d.-]/g, "")) : NaN);
+
+/** A value that rolls to its new value when it changes, in its own clipped slot: the old one leaves as the new one
+ *  arrives, upward when the value went up and downward when it went down (numbers and amounts alike). A number or an
+ *  amount rolls only the digits that changed, last digit first; unchanged digits hold still. Words roll whole. Under
+ *  reduced motion the two crossfade. `render` draws each value (an icon with its word: they roll as one). */
+export function Roll({ value, className, render }: { value: string | number; className?: string; render?: (v: string | number) => ReactNode }) {
+  const draw = render ?? ((v: string | number) => v);
+  const [roll, setRoll] = useState<{ value: string | number; from: string | number | null; up: boolean }>({ value, from: null, up: true });
+  if (roll.value !== value) {
+    const [a, b] = [numberOf(roll.value), numberOf(value)];
+    setRoll({ value, from: roll.value, up: Number.isNaN(a) || Number.isNaN(b) ? true : b > a });
+  }
+  const slot = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = slot.current;
+    if (roll.from === null || !el) return;
+    // Changing slots, right to left: the last digit leads and each one to its left follows a beat later.
+    const slots = [...el.querySelectorAll<HTMLElement>("[data-roll]")].reverse();
+    const anims = slots.flatMap((s, i) => rollAnimations(s.children[0] as HTMLElement, s.children[1] as HTMLElement, roll.up, i * ms("--stagger")));
+    let live = true;
+    void Promise.all(anims.map((a) => a.finished)).then(() => { if (live) setRoll((r) => ({ ...r, from: null })); }, () => {});
+    return () => { live = false; anims.forEach((a) => a.cancel()); };
+  }, [roll.from, roll.up]);
+  if (roll.from === null) return <span ref={slot} className={`roll ${className ?? ""}`}><span>{draw(value)}</span></span>;
+  const [from, to] = [String(roll.from), String(value)];
+  if (render || !NUMBERISH.test(from) || !NUMBERISH.test(to)) {
+    return (
+      <span ref={slot} className={`roll ${className ?? ""}`}>
+        <span className="roll" data-roll><span aria-hidden>{draw(roll.from)}</span><span>{draw(value)}</span></span>
+      </span>
+    );
+  }
+  // Digit by digit, lined up from the right so units, tens and cents meet their own.
+  const n = Math.max(from.length, to.length);
+  const at = (t: string, i: number) => t[i - (n - t.length)] ?? "";
+  return (
+    <span ref={slot} className={`roll-digits ${className ?? ""}`}>
+      {Array.from({ length: n }, (_, i) => {
+        const [a, b] = [at(from, i), at(to, i)];
+        return a === b ? <span key={i}>{b}</span> : <span key={i} className="roll" data-roll><span aria-hidden>{a}</span><span>{b}</span></span>;
+      })}
     </span>
   );
 }
