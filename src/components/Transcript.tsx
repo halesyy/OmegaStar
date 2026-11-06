@@ -9,7 +9,7 @@ import "./Transcript.css";
 
 export type TranscriptItem =
   | { kind: "text"; key: string; text: string }
-  | { kind: "user"; key: string; text: string }
+  | { kind: "user"; key: string; text: string; waiting?: boolean }
   | { kind: "tools"; key: string; tools: ToolItem[] }
   | { kind: "skill"; key: string; skill: string; file: string; change: SkillChangeKind }
   | { kind: "delegated"; key: string; childRunId: string; employeeId: string; task: string; asked: boolean; handoff: boolean }
@@ -21,15 +21,20 @@ export type TranscriptItem =
   | { kind: "stderr"; key: string; text: string };
 export type ToolItem = { id: string; tool: string; brief: string; result: { ok: boolean; brief: string } | null };
 
-/** Fold raw events into display items: pair tool calls with results, group consecutive tools. */
+/** Fold raw events into display items: pair tool calls with results, group consecutive tools. A message you sent while
+ *  the employee worked reads where they took it (its `heard`), as Claude Code shows a queued message once it goes in;
+ *  until then it waits at the end. One from an older build, with no id, reads where it was sent. */
 export function toItems(events: RunEvent[]): TranscriptItem[] {
   const out: TranscriptItem[] = [];
   const toolIndex = new Map<string, ToolItem>();
+  const sent = new Map(events.flatMap((ev) => (ev.type === "user" && ev.id ? [[ev.id, ev.text] as const] : [])));
+  const heard = new Set(events.flatMap((ev) => (ev.type === "heard" ? [ev.id] : [])));
   events.forEach((ev, i) => {
     const key = `e${i}`;
     switch (ev.type) {
       case "text": out.push({ kind: "text", key, text: ev.text }); break;
-      case "user": out.push({ kind: "user", key, text: ev.text }); break;
+      case "user": if (!ev.id) out.push({ kind: "user", key, text: ev.text }); break;
+      case "heard": { const text = sent.get(ev.id); if (text !== undefined) out.push({ kind: "user", key, text }); break; }
       case "textDelta": break;
       case "toolCall": {
         const t: ToolItem = { id: ev.id, tool: ev.tool, brief: ev.brief, result: null };
@@ -58,6 +63,7 @@ export function toItems(events: RunEvent[]): TranscriptItem[] {
       default: { const never: never = ev; void never; }
     }
   });
+  for (const [id, text] of sent) if (!heard.has(id)) out.push({ kind: "user", key: `w${id}`, text, waiting: true });
   return out;
 }
 

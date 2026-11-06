@@ -122,6 +122,8 @@ struct Active {
     transcript: Option<Arc<Mutex<File>>>,
     /// The run's open stdin, from its start until its turn ends: `Some` while it still takes messages.
     input: Option<tokio::sync::mpsc::UnboundedSender<String>>,
+    /// The ids of your messages sent in that it has not taken yet: it takes them at its next step.
+    waiting: Vec<String>,
 }
 
 /// Lock order: the store mutex (`Office::db()`) comes first. Never call `db()` while holding `usage`,

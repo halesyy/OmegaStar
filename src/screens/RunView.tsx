@@ -152,7 +152,7 @@ export function RunView({ runId }: { runId: string }) {
 
   const said = items.map((it) => {
     switch (it.kind) {
-      case "user": return <blockquote key={it.key} className="rv-quote"><span className="rv-quote-label">You added</span><p>{it.text}</p></blockquote>;
+      case "user": return it.waiting ? null : <blockquote key={it.key} className="rv-quote"><span className="rv-quote-label">You added</span><p>{it.text}</p></blockquote>;
       // The closing message is the report, shown once rather than twice.
       case "text": return result?.kind === "result" && result.text?.trim() === it.text.trim() ? null : <div key={it.key} className="rv-said"><Markdown text={it.text} /></div>;
       case "skill": return <div key={it.key}><SkillChip skill={it.skill} file={it.file} change={it.change} onClick={e ? () => openMember(e.id, "skills", `diff~${run.id}~${it.skill}~${it.file}`) : undefined} /></div>;
@@ -181,7 +181,9 @@ export function RunView({ runId }: { runId: string }) {
   );
   const hasOutcome = didNotFinish(run) || !!report || (run.state === "succeeded" && run.denials.length > 0) || (run.kind.type === "tidy" && !!run.proposed);
   const leadWithOutcome = !!opened?.done && !live && hasOutcome;
-  const talking = said.length > 0 || !!detail.live;
+  // Your messages it has not taken yet sit after what it is saying now, as Claude Code queues them under its work.
+  const waiting = items.flatMap((it) => (it.kind === "user" && it.waiting ? [it] : []));
+  const talking = said.length > 0 || !!detail.live || waiting.length > 0;
 
   const work = (
     <>
@@ -255,6 +257,12 @@ export function RunView({ runId }: { runId: string }) {
               {leadWithOutcome && talking ? <h2 className="rv-how">How it went</h2> : null}
               {said}
               {detail.live ? <div className="rv-said"><Markdown text={detail.live} className="md-live" /></div> : null}
+              {waiting.map((it) => (
+                <blockquote key={it.key} className="rv-quote rv-quote-wait">
+                  <span className="rv-quote-label">{live ? `Waiting for ${name} to finish this step` : `${name} didn't see this before the run ended`}</span>
+                  <p>{it.text}</p>
+                </blockquote>
+              ))}
               {hasOutcome && !live && !leadWithOutcome ? <Reveal>{outcome}</Reveal> : null}
               {wide ? null : <div className="rv-work-inline">{work}</div>}
             </div>

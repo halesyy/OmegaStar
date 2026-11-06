@@ -49,6 +49,9 @@ button.rv-who:hover { color: var(--ink); text-decoration: underline; text-underl
 .rv-quote { margin: 0; padding: 2px 0 2px 16px; box-shadow: inset 2px 0 0 var(--line-strong); display: flex; flex-direction: column; gap: 4px; }
 .rv-quote-label { font-size: var(--t-sm); font-weight: 600; color: var(--muted); }
 .rv-quote p { font-size: var(--t-md); line-height: 1.55; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Yours, not taken yet: a dashed rule and quieter words until it goes in. */
+.rv-quote-wait { box-shadow: none; border-left: 2px dashed var(--line-strong); padding-left: 14px; }
+.rv-quote-wait p { color: var(--ink-2); }
 /* What the employee said reads at the conversation's size. */
 .rv-said > .md { font-size: var(--t-md); line-height: 1.6; }
 .rv-note { font-size: var(--t-sm); color: var(--muted); }

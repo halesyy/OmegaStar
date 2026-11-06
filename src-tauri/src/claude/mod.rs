@@ -389,9 +389,12 @@ pub fn prepare(s: &Snapshot, run: &Run) -> Invocation {
     let settings_path = s.run_dir.join("settings.json");
     let prompt_path = s.run_dir.join("system-prompt.md");
     let mcp_path = s.run_dir.join("mcp.json");
-    let mut args: Vec<String> = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]
-        .map(String::from)
-        .to_vec();
+    // `--replay-user-messages`: Claude Code echoes each message it takes from stdin, which is how a message you send
+    // while it works is known to have gone in (`RunEvent::Heard`).
+    let mut args: Vec<String> =
+        ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages"]
+            .map(String::from)
+            .to_vec();
     args.push(if s.resume { "--resume" } else { "--session-id" }.into());
     args.push(s.session.clone());
     args.extend(["--settings".into(), path_arg(&settings_path)]);
@@ -466,6 +469,11 @@ pub(crate) fn test_snapshot(company: Company, employee: Employee, opening: Optio
 /// while it works reaches it at its next step.
 pub fn user_line(text: &str) -> String {
     format!("{}\n", json!({ "type": "user", "message": { "role": "user", "content": text } }))
+}
+
+/// `user_line` tagged `id`, which Claude Code echoes back when it takes the message (`Parsed::replayed`).
+pub fn steer_line(text: &str, id: &str) -> String {
+    format!("{}\n", json!({ "type": "user", "message": { "role": "user", "content": text }, "uuid": id }))
 }
 
 // ---------------------------------------------------------------------------------------------

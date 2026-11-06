@@ -1525,7 +1525,7 @@ mod tests {
             r.state = RunState::Running;
             assert!(office.db().insert_run(&r, &r.id).unwrap());
             let (input, heard) = tokio::sync::mpsc::unbounded_channel();
-            let a = Active { token: "t".into(), employee_id: e.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec![], cards: vec![], score: None, proposed: None, verdict: false, title: None, transcript: None, input: Some(input) };
+            let a = Active { token: "t".into(), employee_id: e.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec![], cards: vec![], score: None, proposed: None, verdict: false, title: None, transcript: None, input: Some(input), waiting: vec![] };
             lock(&office.0.active).insert(r.id.clone(), a);
             (r, heard)
         };
@@ -2065,7 +2065,7 @@ mod tests {
         let live = chrome_wait(&e, RunState::Running);
         lock(&office.0.active).insert(
             live.id.clone(),
-            Active { token: "t".into(), employee_id: e.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec!["Open Chrome.".into(), "Totals look off.".into()], cards: live.cards.clone(), score: None, proposed: None, verdict: false, title: None, transcript: None, input: Some(input) },
+            Active { token: "t".into(), employee_id: e.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec!["Open Chrome.".into(), "Totals look off.".into()], cards: live.cards.clone(), score: None, proposed: None, verdict: false, title: None, transcript: None, input: Some(input), waiting: vec![] },
         );
         office.answer_card(&done.id, 0, CardReply::Done).unwrap();
         let active = lock(&office.0.active);

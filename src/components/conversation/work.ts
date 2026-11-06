@@ -33,12 +33,12 @@ export const isRunning = (r: Run) => r.state === "running" || r.state === "queue
 const live = (r?: Run) => !!r && isRunning(r);
 const isWork = (it: TranscriptItem) => it.kind === "tools" || it.kind === "skill" || it.kind === "delegated" || it.kind === "requested" || it.kind === "proposed" || it.kind === "visual";
 
-/** A reply split where a message you sent while it worked landed. In each part the talk keeps the first words (when they
+/** A reply split where a message you sent while it worked landed (one still waiting to go in splits nothing). In each part the talk keeps the first words (when they
  *  came before any work) and the answer (the words after the last of it); the notes between move to the column. */
 export function partsOf(events: TranscriptItem[]): Part[] {
   const raw: { said: string | null; items: TranscriptItem[] }[] = [{ said: null, items: [] }];
   for (const it of events) {
-    if (it.kind === "user") raw.push({ said: it.text, items: [] });
+    if (it.kind === "user") { if (!it.waiting) raw.push({ said: it.text, items: [] }); }
     else if (it.kind !== "init" && it.kind !== "stderr") raw[raw.length - 1].items.push(it);
   }
   return raw.map(({ said, items }) => {

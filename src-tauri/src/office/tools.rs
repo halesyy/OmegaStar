@@ -2158,7 +2158,7 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
     fn steer(o: &Office0, r: &Run, said: &[&str]) {
         let dir = o.dir.join("runs").join(&r.id);
         fs::create_dir_all(&dir).unwrap();
-        let lines: Vec<String> = said.iter().map(|t| claude::omega_line(&RunEvent::User { text: t.to_string() })).collect();
+        let lines: Vec<String> = said.iter().map(|t| claude::omega_line(&RunEvent::User { text: t.to_string(), id: None })).collect();
         fs::write(dir.join("transcript.jsonl"), lines.join("\n") + "\n").unwrap();
     }
 
@@ -2667,7 +2667,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
 
         // A report still being written names its own thread, and its end keeps the name.
         let report = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Running, 5, None);
-        let live = Active { token: "t".into(), employee_id: ada.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec![], cards: vec![], score: None, proposed: None, verdict: false, title: None, transcript: None, input: None };
+        let live = Active { token: "t".into(), employee_id: ada.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec![], cards: vec![], score: None, proposed: None, verdict: false, title: None, transcript: None, input: None, waiting: vec![] };
         lock(&office.0.active).insert(report.id.clone(), live);
         office.name_thread_tool(&report.id, "Weekly numbers").unwrap();
         assert_eq!(saved(&o.db, &report.id).title.as_deref(), Some("Weekly numbers"));

@@ -1693,8 +1693,16 @@ pub struct SkillRevision {
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RunEvent {
     Init { model: String, skills: Vec<String> },
-    /// A message you sent into the run while it worked.
-    User { text: String },
+    /// A message you sent into the run while it worked. `id` tags it on its way in, so `Heard` can say when the
+    /// employee took it; a message from an older build has none and counts as taken where it was sent.
+    User {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    /// The employee took your message `id` (a `User`), at their next step: it reads from here, as Claude Code
+    /// shows a queued message once it goes in.
+    Heard { id: String },
     Text { text: String },
     TextDelta { text: String },
     ToolCall { id: String, tool: String, brief: String },

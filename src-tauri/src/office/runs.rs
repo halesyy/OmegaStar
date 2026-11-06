@@ -310,6 +310,7 @@ impl Office {
                     title: None,
                     transcript: None,
                     input: None,
+                    waiting: vec![],
                 },
             );
         }
@@ -331,21 +332,24 @@ impl Office {
         full
     }
 
-    /// Sends your message into a run that is still working: the employee sees it at their next step.
-    /// `false` when the run no longer takes messages (its turn is over, or it has not started).
+    /// Sends your message into a run that is still working: the employee takes it at their next step, as Claude Code
+    /// takes a message typed while it works, and `RunEvent::Heard` marks when. `false` when the run no longer takes
+    /// messages (its turn is over, or it has not started).
     pub(super) fn steer(&self, run_id: &str, text: &str) -> bool {
         self.steer_as(run_id, text, text)
     }
 
     /// `steer`, where the employee hears `said` and the run's events keep your own words, `text`.
     fn steer_as(&self, run_id: &str, text: &str, said: &str) -> bool {
-        let ev = RunEvent::User { text: text.to_string() };
+        let id = uuid::Uuid::new_v4().to_string();
+        let ev = RunEvent::User { text: text.to_string(), id: Some(id.clone()) };
         {
-            let active = lock(&self.0.active);
-            let Some(a) = active.get(run_id) else { return false };
-            if !a.input.as_ref().is_some_and(|i| i.send(claude::user_line(said)).is_ok()) {
+            let mut active = lock(&self.0.active);
+            let Some(a) = active.get_mut(run_id) else { return false };
+            if !a.input.as_ref().is_some_and(|i| i.send(claude::steer_line(said, &id)).is_ok()) {
                 return false;
             }
+            a.waiting.push(id);
             if let Some(f) = &a.transcript {
                 append_line(f, &claude::omega_line(&ev));
             }
@@ -380,7 +384,7 @@ impl Office {
                         return Ok(SteerHow::Added);
                     }
                     // Marked under the store lock, so the run's end, which keeps the mark (`execute`), cannot miss it.
-                    RunState::Running if self.steer_as(run_id, text, &format!("{ceo} is watching this run and says: {text}")) => {
+                    RunState::Running if self.steer_as(run_id, text, &steer_words(&run, &ceo, text)) => {
                         run.steered = true;
                         db.save_run(&run)?;
                         return Ok(SteerHow::Steered);
@@ -899,12 +903,18 @@ impl Office {
             let _ = stdin.shutdown().await; // claude -p exits once its stdin is closed and its turn is done
         });
         let _ = input.send(claude::user_line(&inv.stdin));
+        // Your messages an earlier attempt never took, as Omega Star stopped before its next step, go in again now.
+        let unheard = if attempt_start > 0 { claude::unheard(&fs::read_to_string(run_dir.join("transcript.jsonl")).unwrap_or_default()) } else { vec![] };
+        for (id, text) in &unheard {
+            let _ = input.send(claude::steer_line(&steer_words(run, &snap.company.ceo_name, text), id));
+        }
         // Active holds the only sender, so stdin closes when the turn ends or the run is removed.
         let cancelled_early = {
             let mut active = lock(&self.0.active);
             active.get_mut(&run.id).map(|a| {
                 a.pid = pid;
                 a.input = Some(input);
+                a.waiting.extend(unheard.into_iter().map(|(id, _)| id));
                 a.cancelled
             })
         };
@@ -941,7 +951,19 @@ impl Office {
                     limited = parsed.limited.or(limited);
                     context = parsed.context.or(context);
                     claude_version = parsed.claude_version.clone().or(claude_version);
-                    if !parsed.partial {
+                    // Its echo of a message it took from stdin is not kept: one of yours is marked heard where it went in.
+                    if let Some(id) = &parsed.replayed {
+                        let yours = lock(&self.0.active).get_mut(&run.id).is_some_and(|a| {
+                            let before = a.waiting.len();
+                            a.waiting.retain(|w| w != id);
+                            a.waiting.len() < before
+                        });
+                        if yours {
+                            let ev = RunEvent::Heard { id: id.clone() };
+                            append_line(&transcript, &claude::omega_line(&ev));
+                            pending.push(ev);
+                        }
+                    } else if !parsed.partial {
                         append_line(&transcript, &claude::without_images(&line));
                     }
                     if parsed.events.iter().any(|e| matches!(e, RunEvent::Init { .. })) {
@@ -1485,6 +1507,11 @@ fn chrome_note(ceo: &str) -> String {
     CHROME_NOTE.replace("{ceo}", ceo)
 }
 
+/// What an employee at work on `run` hears of your words: a conversation with you needs nobody named. Pure.
+fn steer_words(run: &Run, ceo: &str, text: &str) -> String {
+    if run.kind.is_conversation() { text.to_string() } else { format!("{ceo} is watching this run and says: {text}") }
+}
+
 fn append_line(file: &Mutex<File>, line: &str) {
     let mut f = lock(file);
     let _ = f.write_all(line.as_bytes()).and_then(|_| f.write_all(b"\n"));
@@ -1761,6 +1788,7 @@ mod tests {
             title: None,
             transcript: Some(transcript),
             input: open.then_some(input),
+            waiting: vec![],
         };
         lock(&office.0.active).insert(run.id.clone(), a);
         heard
@@ -1786,11 +1814,15 @@ mod tests {
         done.summary = Some("Booked the hall for Friday.".into());
         let office = held_office(&dir, &[&ada, &bo], &[&handed, &talk, &waiting, &again, &done]).await;
 
-        // Working, it hears you at its next step, told who is speaking, and its events show your own words.
+        // Working, it hears you at its next step, told who is speaking, and its events show your own words. The
+        // message goes in tagged, waiting to be taken, so a restart before then sends it again.
         let mut heard = working(&office, &handed, true);
         assert_eq!(office.steer_run(&handed.id, "  Count the back room too. ").unwrap(), SteerHow::Steered);
-        assert_eq!(heard.try_recv().unwrap(), claude::user_line("Pat is watching this run and says: Count the back room too."));
         let transcript = fs::read_to_string(office.run_dir(&handed.id).join("transcript.jsonl")).unwrap();
+        let [(id, text)] = &claude::unheard(&transcript)[..] else { panic!("one message waits: {transcript}") };
+        assert_eq!(text, "Count the back room too.");
+        assert_eq!(heard.try_recv().unwrap(), claude::steer_line("Pat is watching this run and says: Count the back room too.", id));
+        assert_eq!(lock(&office.0.active)[&handed.id].waiting, vec![id.clone()]);
         assert_eq!(claude::steered(&transcript), vec!["Count the back room too.".to_string()]);
         assert!(office.run(&handed.id).unwrap().steered, "its report waits for you");
 
@@ -1802,7 +1834,7 @@ mod tests {
         // A conversation with you needs nobody named.
         let mut heard = working(&office, &talk, true);
         assert_eq!(office.steer_run(&talk.id, "Keep it short.").unwrap(), SteerHow::Steered);
-        assert_eq!(heard.try_recv().unwrap(), claude::user_line("Keep it short."));
+        assert!(heard.try_recv().unwrap().contains(r#""content":"Keep it short.""#));
 
         // Waiting to start, your words join what it starts with.
         assert_eq!(office.steer_run(&waiting.id, "Skip the newsletters.").unwrap(), SteerHow::Added);

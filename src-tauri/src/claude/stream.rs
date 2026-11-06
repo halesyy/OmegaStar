@@ -81,6 +81,8 @@ pub struct Parsed {
     pub chrome: Option<bool>,
     /// From a top-level result line.
     pub spend: Option<Spend>,
+    /// Claude Code took this message from stdin: the id it was sent with (`steer_line`). Its echo is not kept.
+    pub replayed: Option<String>,
 }
 
 /// One observation of the subscription usage windows. Both `None` means the account has none.
@@ -265,6 +267,7 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
                 }
             }
         }
+        "user" if v["isReplay"] == true => p.replayed = Some(str_at(&v, "uuid")),
         "user" if !nested => {
             for b in v["message"]["content"].as_array().into_iter().flatten().filter(|b| b["type"] == "tool_result") {
                 p.events.push(RunEvent::ToolResult {
@@ -485,13 +488,32 @@ pub fn office_calls(transcript: &str, tool: &str) -> Vec<Value> {
 
 /// Your messages steered into the run while it worked, in order.
 pub fn steered(transcript: &str) -> Vec<String> {
-    json_lines(transcript)
-        .filter(|v| v["type"] == "omega")
-        .filter_map(|v| match serde_json::from_value::<RunEvent>(v["event"].clone()) {
-            Ok(RunEvent::User { text }) => Some(text),
+    omega_events(transcript)
+        .filter_map(|ev| match ev {
+            RunEvent::User { text, .. } => Some(text),
             _ => None,
         })
         .collect()
+}
+
+/// Your messages the employee never took, each with its id: the run stopped before its next step. Pure.
+pub fn unheard(transcript: &str) -> Vec<(String, String)> {
+    let mut sent = vec![];
+    let mut heard = std::collections::HashSet::new();
+    for ev in omega_events(transcript) {
+        match ev {
+            RunEvent::User { text, id: Some(id) } => sent.push((id, text)),
+            RunEvent::Heard { id } => {
+                heard.insert(id);
+            }
+            _ => {}
+        }
+    }
+    sent.into_iter().filter(|(id, _)| !heard.contains(id)).collect()
+}
+
+fn omega_events(transcript: &str) -> impl Iterator<Item = RunEvent> + '_ {
+    json_lines_with(transcript, "\"omega\"").filter(|v| v["type"] == "omega").filter_map(|v| serde_json::from_value::<RunEvent>(v["event"].clone()).ok())
 }
 
 /// The session's running total that the transcript's last top-level result reported.
@@ -793,7 +815,7 @@ mod tests {
         let events: Vec<RunEvent> = replay(MULTI_RESULT, home()).into_iter().filter(|e| !matches!(e, RunEvent::Text { .. })).collect();
         assert_eq!(events.len(), 3);
         assert!(matches!(&events[0], RunEvent::Result { turns: 3, .. }));
-        assert_eq!(events[1], RunEvent::User { text: "Add the totals too.".into() });
+        assert_eq!(events[1], RunEvent::User { text: "Add the totals too.".into(), id: None });
         assert!(matches!(&events[2], RunEvent::Result { turns: 2, .. }));
     }
 
@@ -912,8 +934,26 @@ mod tests {
 
     #[test]
     fn steered_returns_your_messages() {
-        let transcript = format!("{MULTI_RESULT}\n{}", omega_line(&RunEvent::User { text: "One more thing.".into() }));
+        let transcript = format!("{MULTI_RESULT}\n{}", omega_line(&RunEvent::User { text: "One more thing.".into(), id: None }));
         assert_eq!(steered(&transcript), vec!["Add the totals too.".to_string(), "One more thing.".to_string()]);
+    }
+
+    #[test]
+    fn a_message_counts_as_heard_once_claude_code_echoes_it() {
+        let echo = r#"{"type":"user","message":{"role":"user","content":"Skip the archive."},"uuid":"m2","isReplay":true,"parent_tool_use_id":null}"#;
+        let p = parse_line(echo, Path::new("/office/employees/ada"));
+        assert_eq!(p.replayed.as_deref(), Some("m2"));
+        assert!(p.events.is_empty(), "an echo is not a step");
+
+        let said = |id: &str, text: &str| omega_line(&RunEvent::User { text: text.into(), id: Some(id.into()) });
+        let transcript = [
+            omega_line(&RunEvent::User { text: "From an older build.".into(), id: None }),
+            said("m1", "Use last week's sheet."),
+            omega_line(&RunEvent::Heard { id: "m1".into() }),
+            said("m2", "Skip the archive."),
+        ]
+        .join("\n");
+        assert_eq!(unheard(&transcript), vec![("m2".to_string(), "Skip the archive.".to_string())]);
     }
 
     /// A Bash denial of kind `mode`, optionally followed by a Bash call that worked.

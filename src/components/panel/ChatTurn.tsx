@@ -83,6 +83,7 @@ export function Turn({ turn, e, withReport = false, footer, earlier = false, lat
   const proposals = useProposals();
   const items = useMemo(() => toItems(turn.events), [turn.events]);
   const parts = useMemo(() => partsOf(items), [items]);
+  const waiting = items.flatMap((it) => (it.kind === "user" && it.waiting ? [it] : []));
   const employees = snap?.employees ?? [];
   const running = turn.run.state === "running" || turn.run.state === "queued";
   const queued = turn.run.state === "queued";
@@ -161,6 +162,13 @@ export function Turn({ turn, e, withReport = false, footer, earlier = false, lat
           </Fragment>
         );
       })}
+      {/* Yours, not taken yet: after the reply so far, as Claude Code queues a message under its work. */}
+      {waiting.map((it) => (
+        <div key={it.key} className="msg-wait">
+          <div className="msg-me">{it.text}</div>
+          <span className="msg-wait-note">{running ? `Waiting for ${firstName(e.name)} to finish this step` : `${firstName(e.name)} didn't see this before the reply ended`}</span>
+        </div>
+      ))}
     </div>
   );
 }

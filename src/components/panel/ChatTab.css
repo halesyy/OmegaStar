@@ -36,6 +36,10 @@
 .msg-me-latest { background: var(--me); color: var(--me-ink); }
 .msg-files { align-self: flex-end; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 78%; }
 .msg-files + .msg-me { margin-top: -10px; }
+/* Yours, not taken yet: the quiet step with a dashed edge, and a note under it until it goes in. */
+.msg-wait { align-self: flex-end; max-width: 78%; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.msg-wait .msg-me { max-width: 100%; box-shadow: inset 0 0 0 1px var(--line-strong); background: transparent; color: var(--ink-2); }
+.msg-wait-note { font-size: var(--t-sm); color: var(--muted); }
 .msg-emp { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .who-line { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13px; color: var(--muted); }
 .who-line b { font-size: 13.5px; font-weight: 700; color: var(--ink); }

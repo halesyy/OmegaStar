@@ -205,6 +205,13 @@ export function previewTransport(): PreviewTransport {
     }, every);
   }
 
+  /** Your words into a working run: taken at its next step a few seconds later, as a real run takes them. */
+  function steer(r: Run, text: string) {
+    const id = `m${Date.now()}`;
+    append(r.id, [{ type: "user", text, id }]);
+    window.setTimeout(() => append(r.id, [{ type: "heard", id }]), 6000);
+  }
+
   /** A run you started: it waits a moment, starts, and answers. */
   function respond(r: Run, text = cannedAnswer(r.prompt)) {
     w.runs.unshift(r);
@@ -514,6 +521,13 @@ export function previewTransport(): PreviewTransport {
     },
     reply_to_run: ({ runId, text, archive, attachments }) => {
       const root = need(rootOf(need(runId)));
+      // A turn still working takes your words at its next step, as the app's does.
+      const replies = threadOf(root.id, false).replies;
+      const latest = replies[replies.length - 1] ?? root;
+      if (latest.state === "running" && !attachments?.length) {
+        steer(latest, text);
+        return latest;
+      }
       root.repliedAt = iso(Date.now());
       if (archive) root.archivedAt = iso(Date.now());
       if (!w.open.includes(root.id)) w.open.unshift(root.id);
@@ -523,7 +537,7 @@ export function previewTransport(): PreviewTransport {
       const r = need(runId);
       if (r.state === "running") {
         r.steered = true;
-        append(r.id, [{ type: "user", text }]);
+        steer(r, text);
         return "steered";
       }
       if (r.state === "queued") {
