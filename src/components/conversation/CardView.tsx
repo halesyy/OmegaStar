@@ -249,19 +249,9 @@ export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot
     setSending(true);
     try { return (await onAnswer(reply)) !== false; } finally { setSending(false); }
   };
-  /** A question answers nothing, so it goes straight to them and the card stays where it is. */
   const askAbout = async (text: string): Promise<boolean> => {
     setSending(true);
-    try {
-      await call("answer_card", { runId, card: index, answer: { type: "ask", text } });
-      toast(`Asked ${name}. The card stays open until you answer it.`, "ok");
-      return true;
-    } catch (err) {
-      toast(errorMessage(err), "err");
-      return false;
-    } finally {
-      setSending(false);
-    }
+    try { return await askAboutCard(runId, index, name, text); } finally { setSending(false); }
   };
   // A parked card had its Later: it takes any other answer.
   const later = card.parked || !withLater ? null : <LaterMenu timesBack={card.timesBack} disabled={busy} onLater={(until) => void send({ type: "later", until: until.toISOString() })} />;
@@ -394,9 +384,22 @@ function Sending({ p, short = false }: { p: PendingAnswer; short?: boolean }) {
   );
 }
 
+/** A question about the card at `index` of run `runId`'s cards. It answers nothing, so it goes straight to them and the
+ *  card stays where it is. Resolves whether it went, having said why when it did not. */
+export async function askAboutCard(runId: string, index: number, name: string, text: string): Promise<boolean> {
+  try {
+    await call("answer_card", { runId, card: index, answer: { type: "ask", text } });
+    toast(`Asked ${name}. The card stays open until you answer it.`, "ok");
+    return true;
+  } catch (err) {
+    toast(errorMessage(err), "err");
+    return false;
+  }
+}
+
 /** A line under an open card: Enter answers it in your own words, this card only. Ask sends the words as a question,
  *  and Summarise asks for the card in three short lines; either way the card stays open for your answer. */
-function CardText({ name, hint, text, setText, sending, onText, onAsk, autoFocus = false }: {
+export function CardText({ name, hint, text, setText, sending, onText, onAsk, autoFocus = false }: {
   name: string;
   autoFocus?: boolean;
   /** What the line is for, as its placeholder and label. */

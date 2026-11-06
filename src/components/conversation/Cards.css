@@ -33,9 +33,9 @@
 :is(.cv-card, .cv-slot) .card-undo { flex: none; font-weight: 650; color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 
 /* Your own words: the line, Send, Ask and Summarise. */
-:is(.cv-card, .cv-slot) .card-text { display: flex; align-items: center; gap: 6px; margin: 0; }
-:is(.cv-card, .cv-slot) .card-text .input { flex: 1; min-width: 0; height: 30px; font-size: 13px; }
-:is(.cv-card, .cv-slot) .card-text .btn { flex: none; }
+:is(.cv-card, .cv-slot, .d-q-words) .card-text { display: flex; align-items: center; gap: 6px; margin: 0; }
+:is(.cv-card, .cv-slot, .d-q-words) .card-text .input { flex: 1; min-width: 0; height: 30px; font-size: 13px; }
+:is(.cv-card, .cv-slot, .d-q-words) .card-text .btn { flex: none; }
 
 /* What the card is about: a link, up to three pictures, a to-do's steps, a line for the company page, a file. */
 :is(.cv-card, .cv-slot) .card-about { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 0; }

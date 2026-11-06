@@ -19,7 +19,7 @@ import { Avatar } from "../components/ui";
 import { kindNames } from "../components/RunRow";
 import { CardImages } from "../components/conversation/CardImages";
 import { CardLink, webUrl } from "../components/conversation/CardLink";
-import { CardFile, CardList, CardView, usePendingAnswers } from "../components/conversation/CardView";
+import { askAboutCard, CardFile, CardList, CardText, CardView, usePendingAnswers } from "../components/conversation/CardView";
 import { lines } from "../components/conversation/RowHistory";
 import { ThreadView } from "../components/conversation/ThreadView";
 import type { Item } from "../components/conversation/useStatuses";
@@ -489,8 +489,9 @@ function recommends(card: Card): string | null {
 
 /**
  * A run's several questions, one under another. A choice shows its choices with the employee's pick already chosen;
- * change any, then one Send answers them all, after an Undo window. A question that needs words, a list or a to-do is
- * answered on its own card, and Send waits for it. While the run is still working nothing is answered yet.
+ * change any, then one Send answers them all, after an Undo window. Reply in words answers a choice in your own words
+ * instead, or asks about it first. A question that needs words, a list or a to-do is answered on its own card, and Send
+ * waits for it. While the run is still working nothing is answered yet.
  */
 function CardSet({ d, e, act, actions }: { d: CardDecision<Item>; e: EmployeeView; act: ItemActions; actions: Portal }) {
   const who = firstName(e.name);
@@ -502,6 +503,15 @@ function CardSet({ d, e, act, actions }: { d: CardDecision<Item>; e: EmployeeVie
   const working = d.cards.some((c) => isLive(c.run));
   // Cards answered on their own (words, a list, a to-do) must be in before Send.
   const waiting = d.cards.filter((c) => c.card.ask.type !== "choices" && c.card.ask.type !== "news" && isOpen(c.card) && !on(c));
+  // A choice you would rather answer in your own words, or ask about first: its line, open under its choices, and the
+  // words on it, kept here so Undo gives them back.
+  const [writing, setWriting] = useState<Record<number, boolean>>({});
+  const [texts, setTexts] = useState<Record<number, string>>({});
+  const [asking, setAsking] = useState(false);
+  const askAbout = (c: OpenCard) => async (text: string) => {
+    setAsking(true);
+    try { return await askAboutCard(c.run.id, c.index, who, text); } finally { setAsking(false); }
+  };
   const n = choices.length;
   const send = () => act.answerMany(choices.map((c) => ({ card: c, reply: { type: "choice", index: picks[c.index] ?? 0 } })), [d.id]);
   const label = n === 2 ? "Send both answers" : n === 1 ? "Send the answer" : `Send ${n} answers`;
@@ -515,17 +525,34 @@ function CardSet({ d, e, act, actions }: { d: CardDecision<Item>; e: EmployeeVie
               <div className="d-q-t">{c.card.message}</div>
               {c.card.why ? <div className="d-q-why">{c.card.why}</div> : null}
               {a.type === "choices" && isOpen(c.card) && !on(c) ? (<>
-                <div className="d-q-picks" role="radiogroup" aria-label={c.card.message}>
-                  {a.choices.map((label, i) => (
-                    <button
-                      key={i} type="button" className="chip" role="radio" aria-checked={picks[c.index] === i} aria-pressed={picks[c.index] === i}
-                      disabled={working} onClick={() => setPicks((p) => ({ ...p, [c.index]: i }))}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                <div className="d-q-picks">
+                  <div className="d-q-radios" role="radiogroup" aria-label={c.card.message}>
+                    {a.choices.map((label, i) => (
+                      <button
+                        key={i} type="button" className="chip" role="radio" aria-checked={picks[c.index] === i} aria-pressed={picks[c.index] === i}
+                        disabled={working} onClick={() => setPicks((p) => ({ ...p, [c.index]: i }))}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button" className="btn btn-ghost btn-sm" aria-expanded={!!writing[c.index]} disabled={working}
+                    onClick={() => setWriting((w) => ({ ...w, [c.index]: !w[c.index] }))}
+                  >
+                    <Icon name="reply" size={14} /> Reply in words
+                  </button>
                   <span className="d-q-pick">{who}'s pick: {a.choices[a.recommended]}</span>
                 </div>
+                {writing[c.index] ? (
+                  <div className="d-q-words enter-drop">
+                    <CardText
+                      name={who} hint={`Your answer for ${who}, or a question about it`} autoFocus sending={working || asking}
+                      text={texts[c.index] ?? ""} setText={(t) => setTexts((x) => ({ ...x, [c.index]: t }))}
+                      onText={(t) => void act.answer(c.run, c.index, { type: "text", text: t })} onAsk={askAbout(c)}
+                    />
+                  </div>
+                ) : null}
                 <CardContext card={c.card} runId={c.run.id} index={c.index} />
               </>) : (
                 <div className="d-card"><CardView card={c.card} runId={c.run.id} index={c.index} e={e} working={isLive(c.run)} onAnswer={(reply) => act.answer(c.run, c.index, reply)} /></div>

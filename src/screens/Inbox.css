@@ -185,6 +185,8 @@ button.d-also-row:focus-visible::before { box-shadow: var(--focus); }
 .d-q-t { font-size: var(--t-md); font-weight: 650; line-height: 1.4; color: var(--ink); }
 .d-q-why { margin: 4px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
 .d-q-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
+.d-q-radios { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.d-q-words { margin-top: 10px; }
 .d-q-pick { margin-left: 6px; font-size: var(--t-sm); color: var(--muted); }
 .d-q .d-card { margin-top: 12px; }
 .d-q-about { margin-top: 12px; }
@@ -225,11 +227,6 @@ button.d-also-row:focus-visible::before { box-shadow: var(--focus); }
   .d-foot:has(.d-acts > *, .d-slot > * > :not([data-card-later])) .d-next { display: none; }
   /* The items card's count gives way first: its button already says how many. */
   .d-slot .card-items-count { display: none; }
-}
-/* Where the foot bar is too narrow for every answer on one line, "Reply in words" gives way to its icon; the words
-   stay its name and its tooltip. */
-@container detail (max-width: 720px) {
-  .d-slot .tip-words { display: none; }
 }
 /* The slot counts as holding something only for what shows there (the card's own Later is the bar's Later). */
 .d-foot:not(:has(.d-acts > *, .d-slot > * > :not([data-card-later]), .d-next)) { display: none; }
