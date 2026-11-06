@@ -143,7 +143,7 @@ function answered(c: Card, a: CardAnswer): string {
   if (c.parked) return `Parked${tail}`;
   // Put off to a day still ahead when you answered: Later, not an answer given once it came back.
   if (c.backAt && Date.parse(c.backAt) > Date.parse(a.at)) return `Later: back on ${backDay(c.backAt)}${tail}`;
-  if (c.ask.type === "news") return "Got it";
+  if (c.ask.type === "news" && a.how !== "typed") return "Got it";
   switch (a.how) {
     case "tapped": return a.held ? `${a.text} Sends when the rest are answered.` : `Sent: ${a.text}`;
     // A dismissed chore sends nothing and does not come back.
@@ -196,9 +196,9 @@ export function CardList({ runId, cards, e, working, onAnswer, lead = false, lat
 
 /** A card's answer built in, under the link, images, proposal and file it is about if it has them: buttons for a
  *  decision, a tick list, I've done it for a to-do or a chore, your own words for a question, or Got it for news. Under
- *  most, a line for your own words or a question. An answer shows as on its way, with Undo, until it goes; once
- *  answered, one line on what you did. `index`: its place in run `runId`'s cards. `working`: the run is still working,
- *  so the card takes no answer until it finishes. */
+ *  every other, a line for your own words or a question (on news, a follow-up). An answer shows as on its way, with
+ *  Undo, until it goes; once answered, one line on what you did. `index`: its place in run `runId`'s cards.
+ *  `working`: the run is still working, so the card takes no answer until it finishes. */
 export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot, later: withLater = true, fileAbove = false }: {
   /** The card's own Later (off in a thread, whose header has one). */
   later?: boolean;
@@ -293,7 +293,7 @@ export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot
       <Icon name="reply" size={14} /> <span className="tip-words">{label}</span>
     </button>
   );
-  const inWords = ask.type === "question" || ask.type === "news" ? null : wordsButton("Reply in words");
+  const inWords = ask.type === "question" ? null : wordsButton("Reply in words");
   const toSlot = (node: ReactNode) => (actionsSlot ? createPortal(node, actionsSlot) : node);
   const answer = (): ReactNode => {
     switch (ask.type) {
@@ -331,6 +331,7 @@ export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot
       case "news": return (
         <div className="card-choices">
           <button className="btn btn-primary btn-sm" disabled={busy} data-card-recommended onClick={() => void send({ type: "seen" })}><Icon name="check" size={13} /> Got it</button>
+          {inWords}
         </div>
       );
       case "chore": return (
@@ -359,7 +360,7 @@ export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot
       {card.file && !fileAbove ? <CardFile runId={runId} index={index} path={card.file} label={proposedVersion(proposal, name)} /> : null}
       {working ? <p className="card-wait">Waiting for {name} to finish</p> : null}
       {ask.type === "items" || split ? answerEl : toSlot(answerEl)}
-      {words && !aimer ? <div className="enter-drop">{line(`Your answer for ${name}, or a question about it`, true)}</div> : null}
+      {words && !aimer ? <div className="enter-drop">{line(ask.type === "news" ? `Your reply to ${name}, or a question about it` : `Your answer for ${name}, or a question about it`, true)}</div> : null}
     </div>
   );
 }

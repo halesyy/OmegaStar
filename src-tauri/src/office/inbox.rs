@@ -1934,9 +1934,23 @@ mod tests {
         let told = office.answer_card(&report.id, 0, CardReply::Choice { index: 1 }).unwrap();
         assert_eq!(told.len(), 1, "unseen news holds no answer back");
         assert!(stored().archived_at.is_none() && in_inbox(), "but keeps its row until you see it");
-        assert!(office.answer_card(&report.id, 1, CardReply::Text { text: "Great.".into() }).is_err(), "news is only seen");
+        assert!(office.answer_card(&report.id, 1, CardReply::Done).is_err(), "news is seen, or followed up in words");
         assert!(office.answer_card(&report.id, 1, CardReply::Seen).unwrap().is_empty(), "seeing it sends nothing");
         assert!(stored().archived_at.is_some() && !in_inbox());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn your_words_on_news_follow_it_up_and_count_as_seeing_it() {
+        let dir = std::env::temp_dir().join(format!("omegastar-news-words-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let e = tester();
+        let report = with_news(&e, false);
+        let office = held_office(&dir, &e, &[&report]).await;
+        let told = office.answer_card(&report.id, 0, CardReply::Text { text: " Does it cover the outlet store? ".into() }).unwrap();
+        assert!(matches!(&told[..], [r] if r.prompt.ends_with("Answered: \"Does it cover the outlet store?\"")), "{told:?}");
+        assert!(office.db().run(&report.id).unwrap().unwrap().run.archived_at.is_some(), "it counts as seen");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

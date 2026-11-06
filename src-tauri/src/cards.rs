@@ -405,13 +405,14 @@ pub fn same_reply(ask: &CardAsk, reply: &CardReply, other: &CardAsk) -> Option<C
 }
 
 /// The fixed message your answer sends to the employee, or None when it sends nothing (a dismissed chore, news you
-/// saw). An answer in your own words is your words as you typed them, on any card but news. Later is `answer`'s.
+/// saw). An answer in your own words is your words as you typed them, on any card: on news, a follow-up that also
+/// counts as seeing it. Later is `answer`'s.
 fn answer_text(ask: &CardAsk, reply: &CardReply, ceo: &str) -> Result<Option<String>> {
     let unfit = || AppError::invalid("That answer does not fit this card.");
     let text = match (ask, reply) {
         (CardAsk::News, CardReply::Seen) => return Ok(None),
-        (CardAsk::News, _) | (_, CardReply::Seen) => return Err(unfit()),
         (_, CardReply::Text { text }) => Some(text.trim()).filter(|t| !t.is_empty()).ok_or_else(|| AppError::invalid("Type your answer first."))?.to_string(),
+        (CardAsk::News, _) | (_, CardReply::Seen) => return Err(unfit()),
         (CardAsk::Choices { choices, .. }, CardReply::Choice { index }) => format!("Chose: {}.", choices.get(*index).ok_or_else(unfit)?),
         (CardAsk::Items { verb, items }, CardReply::Items { picks }) => items_text(verb, items, picks, ceo)?,
         (CardAsk::Choices { .. } | CardAsk::Items { .. }, CardReply::Reject) => REJECTED.into(),
@@ -653,11 +654,11 @@ mod tests {
         assert!(answer_text(&task, &CardReply::Reject, "Pat").is_err(), "Can't is a task's no");
         assert!(answer_text(&CardAsk::Question, &CardReply::Done, "Pat").is_err(), "a question is answered in words");
         assert_eq!(answer_text(&CardAsk::News, &CardReply::Seen, "Pat").unwrap(), None, "seen sends nothing");
-        assert!(answer_text(&CardAsk::News, &CardReply::Text { text: "Great.".into() }, "Pat").is_err());
+        assert!(answer_text(&CardAsk::News, &CardReply::Done, "Pat").is_err(), "news is seen, or followed up in words");
         assert!(answer_text(&choices, &CardReply::Seen, "Pat").is_err());
 
         let typed = CardReply::Text { text: " Only after the copy fix lands. ".into() };
-        for ask in [&choices, &items(), &acme, &task, &CardAsk::Question] {
+        for ask in [&choices, &items(), &acme, &task, &CardAsk::Question, &CardAsk::News] {
             assert_eq!(answer_text(ask, &typed, "Pat").unwrap().as_deref(), Some("Only after the copy fix lands."), "your words on any card");
         }
         assert_eq!(answer_text(&choices, &CardReply::Text { text: " ".into() }, "Pat").unwrap_err().message, "Type your answer first.");
