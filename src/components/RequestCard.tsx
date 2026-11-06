@@ -169,7 +169,7 @@ export function RequestCard({ r, employee, person, showPerson = false, onChanged
   return (
     <article className={`req ${open ? "req-open" : "req-closed"}`}>
       <header className="req-head">
-        {employee ? <Avatar name={employee.name} hue={employee.hue} size={20} /> : null}
+        {employee ? <Avatar name={employee.name} hue={employee.hue} image={employee.image} size={20} /> : null}
         <span className="req-who">
           <Who r={r} emp={empName} person={person} employee={employee} showPerson={showPerson} />
           <span className="faint"> · {relTime(r.createdAt)}</span>

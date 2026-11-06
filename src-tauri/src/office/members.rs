@@ -472,6 +472,7 @@ mod tests {
             auto_tidy: true,
             workspaces: vec![],
             hue: 0,
+            image: None,
             chat_session: format!("chat-{name}"),
             hired_at: now(),
         }
@@ -557,6 +558,7 @@ mod tests {
             notes: String::new(),
             manager: PersonManager::You,
             hue: 0,
+            image: None,
             added_at: now(),
         };
         {

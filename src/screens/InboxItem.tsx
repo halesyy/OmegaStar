@@ -191,7 +191,7 @@ export function rowView(row: Row, { employees, people }: RowContext): RowView {
     return {
       title: cards.length === 1 ? cards[0].message : `${Count(cards.length)} parked questions`,
       meta: `${e ? firstName(e.name) : "Former employee"} · ${topic({ root: row.run, replies: [], related: [] }, employees, people)}`,
-      avatar: e ? <Avatar name={e.name} hue={e.hue} size={28} /> : <span className="irow-noav" />,
+      avatar: e ? <Avatar name={e.name} hue={e.hue} image={e.image} size={28} /> : <span className="irow-noav" />,
       word: null, side: shortAge(at), sideTip: dateLong(at), unread: false,
     };
   }
@@ -202,7 +202,7 @@ export function rowView(row: Row, { employees, people }: RowContext): RowView {
     const text = team ? names(rowThreads(t).map((x) => x.root.employeeId), employees) : run.cards[0] && !lines(run.summary).length ? run.cards[0].message : firstLine(run);
     return {
       title: text, meta: team ? `Your team's week · ${rowThreads(t).length} reviews` : `${firstName(e.name)} · ${topic(t, employees, people)}`,
-      avatar: <Avatar name={e.name} hue={e.hue} size={28} />, word: didNotFinish(run) ? "Failed" : null,
+      avatar: <Avatar name={e.name} hue={e.hue} image={e.image} size={28} />, word: didNotFinish(run) ? "Failed" : null,
       side: "", sideTip: dateLong(activityAt(t)), unread: false,
     };
   }
@@ -213,7 +213,7 @@ export function rowView(row: Row, { employees, people }: RowContext): RowView {
   const meta = d.type === "failures" ? names(d.failures.map((f) => f.run.employeeId), employees) : `${who} · ${topic(d.thread, employees, people)}`;
   const snoozed = d.item.status.snoozedUntil;
   return {
-    title, meta, avatar: <Avatar name={e.name} hue={e.hue} size={28} />, word: wordOf(d),
+    title, meta, avatar: <Avatar name={e.name} hue={e.hue} image={e.image} size={28} />, word: wordOf(d),
     side: snoozed ? `Back ${whenInline(snoozed).replace(/^(today|tomorrow) /, "")}` : shortAge(since(d)),
     sideTip: snoozed ? `Comes back ${whenInline(snoozed)}` : dateLong(since(d)), unread: d.item.status.unread,
   };
@@ -289,7 +289,7 @@ export function DetailBody({ row, ctx, foot, slot }: { row: Row; ctx: DetailCont
 
 /** The open item's first line: who, what they did, what about and when, on one line with even space round each dot.
  *  When what it is about doesn't fit whole, it is left out (the list's row says it), never cut short. */
-function From({ e, verb, about, at }: { e: { name: string; hue: number } | null; verb: ReactNode; about: string | null; at: string | null }) {
+function From({ e, verb, about, at }: { e: { name: string; hue: number; image?: string | null } | null; verb: ReactNode; about: string | null; at: string | null }) {
   const line = useRef<HTMLDivElement>(null);
   const [fits, setFits] = useState(true);
   useLayoutEffect(() => {
@@ -310,7 +310,7 @@ function From({ e, verb, about, at }: { e: { name: string; hue: number } | null;
   const shown = about && fits;
   return (
     <div ref={line} className="d-from">
-      {e ? <Avatar name={e.name} hue={e.hue} size={24} /> : null}
+      {e ? <Avatar name={e.name} hue={e.hue} image={e.image} size={24} /> : null}
       <span className="d-who">{e ? <><b>{e.name}</b> </> : null}{verb}</span>
       {about ? <><span className={`d-sep ${shown ? "" : "d-off"}`} aria-hidden>·</span><span className={`d-about ${shown ? "" : "d-off"}`}>{about}</span></> : null}
       {at ? <><span className="d-sep" aria-hidden>·</span><span className="d-at" title={dateLong(at)}>{ageLong(at)}</span></> : null}
@@ -656,7 +656,7 @@ function FailureList({ failures, employees, people }: { failures: Extract<Decisi
         return (
           <li key={f.id}>
             <button type="button" className="d-also-row" disabled={!e} title={e ? "Open the conversation" : undefined} onClick={() => e && openChat(e.id, threadFocus(f.thread.root.id))}>
-              {e ? <Avatar name={e.name} hue={e.hue} size={20} /> : <span className="irow-noav" />}
+              {e ? <Avatar name={e.name} hue={e.hue} image={e.image} size={20} /> : <span className="irow-noav" />}
               <span className="d-also-t"><b>{e ? firstName(e.name) : "Former employee"}</b> <span className="muted">· {topic(f.thread, employees, people)}</span></span>
               <span className="d-also-age num" title={dateLong(at)}>{shortAge(at)}</span>
             </button>

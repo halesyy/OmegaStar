@@ -121,7 +121,7 @@ export function CommandPalette({ onClose, api, leaving = false }: { onClose: () 
     );
     for (const e of employees) {
       out.push(
-        { id: `open-${e.id}`, group: "Team", label: e.name, hint: e.title, icon: <Avatar name={e.name} hue={e.hue} size={18} />, run: () => openChat(e.id, conversationFor(e, talks)), keywords: e.title },
+        { id: `open-${e.id}`, group: "Team", label: e.name, hint: e.title, icon: <Avatar name={e.name} hue={e.hue} image={e.image} size={18} />, run: () => openChat(e.id, conversationFor(e, talks)), keywords: e.title },
         {
           id: `run-now-${e.id}`, group: "Run now", label: `Run ${e.name} now`, hint: e.presence === "working" ? "Working, will queue" : undefined, icon: <Icon name="play" size={16} />,
           run: () => call("run_now", { employeeId: e.id, instruction: null }).then(
@@ -132,7 +132,7 @@ export function CommandPalette({ onClose, api, leaving = false }: { onClose: () 
       );
     }
     for (const p of people) {
-      out.push({ id: `open-${p.id}`, group: "Team", label: p.name, hint: p.title, icon: <Avatar name={p.name} hue={p.hue} size={18} person />, run: () => openMember(p.id), keywords: p.title });
+      out.push({ id: `open-${p.id}`, group: "Team", label: p.name, hint: p.title, icon: <Avatar name={p.name} hue={p.hue} image={p.image} size={18} person />, run: () => openMember(p.id), keywords: p.title });
     }
     for (const s of index?.schedules ?? []) {
       out.push({

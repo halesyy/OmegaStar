@@ -91,7 +91,7 @@ function StepRow({ row, e }: { row: WorkRow; e: EmployeeView }) {
   const tip = row.skill ? "See what changed" : row.key.startsWith("d:") ? "Open their conversation" : undefined;
   const body = (
     <>
-      {row.avatar ? <Avatar name={row.avatar.name} hue={row.avatar.hue} size={16} /> : <Icon name={row.icon} size={14} className="wl-icon" />}
+      {row.avatar ? <Avatar name={row.avatar.name} hue={row.avatar.hue} image={row.avatar.image} size={16} /> : <Icon name={row.icon} size={14} className="wl-icon" />}
       <span className="wl-text">
         <span className="wl-step">{row.verb}</span>
         <span className={`wl-obj ${row.code ? "mono" : ""}`}>{row.object}</span>

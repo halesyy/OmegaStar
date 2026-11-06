@@ -22,7 +22,7 @@ export function PersonPanel({ person: p, short, onClose }: { person: PersonView;
   return (
     <section className={`mpage ${short ? "mpage-short" : ""}`} aria-label={`${p.name}, ${p.title}`}>
       <PageHead
-        av={<Avatar name={p.name} hue={p.hue} size={short ? 32 : 56} person />}
+        av={<Avatar name={p.name} hue={p.hue} image={p.image} size={short ? 32 : 56} person />}
         name={p.name} role={<>{role} <span className="tag">Person</span></>} onClose={onClose}
       />
       {open.length ? <PersonBand p={p} open={open} /> : null}

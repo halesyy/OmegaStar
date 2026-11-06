@@ -567,7 +567,7 @@ mod tests {
         db.save_run(&run).unwrap();
         let fp5 = fingerprint(&office);
         assert_ne!(fp5, fp4, "an edit of the same length");
-        let company = Company { name: "Sample Co".into(), ceo_name: "Sam".into(), title: "CEO".into(), email: None, reports_to: None };
+        let company = Company { name: "Sample Co".into(), ceo_name: "Sam".into(), title: "CEO".into(), email: None, reports_to: None, image: None };
         db.set_company(&company).unwrap();
         let fp6 = fingerprint(&office);
         assert_ne!(fp6, fp5, "the company profile");

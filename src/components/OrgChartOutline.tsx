@@ -11,7 +11,7 @@ import { Avatar } from "./ui";
 // depth takes one indent from it.
 const ROW = { wide: { h: 44, indent: 22, pad: 16, av: 28, room: 215 }, compact: { h: 40, indent: 20, pad: 12, av: 22, room: 124 } };
 
-type Row = { id: string; depth: number; parentId: string | null; name: string; hue: number; kind: "you" | "employee" | "person";
+type Row = { id: string; depth: number; parentId: string | null; name: string; hue: number; image?: string | null; kind: "you" | "employee" | "person";
   line: { kind: "state" | "role"; tone: StateTone | "warn" | null; text: string } | null; presence: EmployeeView["presence"] | undefined;
   /** The name is set as the first name alone: the full one does not fit at this depth. */
   short: boolean };
@@ -29,18 +29,18 @@ export function OrgOutline({ company, employees, people, view, selectedId, compa
     const org = { company, employees, people };
     const raw = treeOrder(visibleMembers(org, view)).map(({ id, depth, parentId }): Omit<Row, "short"> & { line: NonNullable<Row["line"]> } => {
       if (id === YOU_ID) {
-        return { id, depth, parentId, name: company.ceoName, hue: 0, kind: "you", presence: undefined, line: { kind: "role", tone: null, text: `${company.title}, you` } };
+        return { id, depth, parentId, name: company.ceoName, hue: 0, image: company.image, kind: "you", presence: undefined, line: { kind: "role", tone: null, text: `${company.title}, you` } };
       }
       const e = employees.find((x) => x.id === id);
       if (e) {
         const s = employeeState(e, employees, people);
         const busy = s.tone !== "plain";
-        return { id, depth, parentId, name: e.name, hue: e.hue, kind: "employee", presence: e.presence,
+        return { id, depth, parentId, name: e.name, hue: e.hue, image: e.image, kind: "employee", presence: e.presence,
           line: busy ? { kind: "state", tone: s.tone, text: s.word } : { kind: "role", tone: null, text: e.title } };
       }
       const p = people.find((x) => x.id === id);
       const pl = p ? personLine(p) : { waiting: false, text: "" };
-      return { id, depth, parentId, name: p?.name ?? "", hue: p?.hue ?? 0, kind: "person", presence: undefined,
+      return { id, depth, parentId, name: p?.name ?? "", hue: p?.hue ?? 0, image: p?.image, kind: "person", presence: undefined,
         line: pl.waiting ? { kind: "state", tone: "warn", text: pl.text } : { kind: "role", tone: null, text: p?.title ?? "" } };
     });
     // Nothing in a row is cut, and each level reads alike: where any name at a depth would not fit, that whole level
@@ -123,7 +123,7 @@ export function OrgOutline({ company, employees, people, view, selectedId, compa
                 aria-label={`${r.name}${r.line ? `. ${r.line.text}` : ""}`} data-tip={r.short || !r.line ? [r.name, r.line?.text].filter(Boolean).join(", ") : undefined}
               >
                 <span className="orow-av" data-part="av">
-                  <Avatar name={r.name} hue={r.hue} size={g.av} you={r.kind === "you"} person={r.kind === "person"} presence={compact ? r.presence : undefined} />
+                  <Avatar name={r.name} hue={r.hue} image={r.image} size={g.av} you={r.kind === "you"} person={r.kind === "person"} presence={compact ? r.presence : undefined} />
                 </span>
                 <span className="orow-text">
                   <span className={`orow-name ${r.short ? "orow-first" : ""}`} data-part="name"><NameParts name={r.name} /></span>

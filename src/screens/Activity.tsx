@@ -123,7 +123,7 @@ function WhoPicker({ who, employees, onPick, loading }: { who: string | null; em
           {employees.map((e) => (
             <button key={e.id} type="button" role="menuitem" className="menu-item" aria-checked={who === e.id} onClick={() => pick(e.id)}>
               <span className="act-who-mark">{who === e.id ? <Icon name="check" size={13} /> : null}</span>
-              <Avatar name={e.name} hue={e.hue} size={18} />{e.name}
+              <Avatar name={e.name} hue={e.hue} image={e.image} size={18} />{e.name}
             </button>
           ))}
         </div>
@@ -269,7 +269,7 @@ function LiveRow({ run, e, employees, people }: { run: Run; e: EmployeeView; emp
   const step = tools[tools.length - 1];
   return (
     <button className="act-rail-row" onClick={() => openRun(run.id)}>
-      <Avatar name={e.name} hue={e.hue} size={28} />
+      <Avatar name={e.name} hue={e.hue} image={e.image} size={28} />
       <b className="act-rail-who">{firstName(e.name)}</b>
       <span className="act-rail-meta act-rail-live"><Roll value={shortAge(run.startedAt ?? run.createdAt, now)} /></span>
       <span className="act-rail-what">{clampWords(workLabel(run, employees, people), 84)}</span>
@@ -305,7 +305,7 @@ function ComingUp({ who, employees, people, waitingOnly = false }: { who: string
         {queued.map(({ run, e }) => (
           <div key={run.id} data-key={run.id} className="act-rail-item">
             <button className="act-rail-row" onClick={() => openRun(run.id)}>
-              <Avatar name={e.name} hue={e.hue} size={28} />
+              <Avatar name={e.name} hue={e.hue} image={e.image} size={28} />
               <b className="act-rail-who">{firstName(e.name)}</b>
               <span className="act-rail-meta"><span className="status status-wait">Up next</span></span>
               <span className="act-rail-what">{clampWords(workLabel(run, employees, people), 84)}</span>
@@ -315,7 +315,7 @@ function ComingUp({ who, employees, people, waitingOnly = false }: { who: string
         {next.map((e) => (
           <div key={e.id} className="act-rail-item">
             <button className="act-rail-row" onClick={() => openMember(e.id, "work")}>
-              <Avatar name={e.name} hue={e.hue} size={28} />
+              <Avatar name={e.name} hue={e.hue} image={e.image} size={28} />
               <b className="act-rail-who">{firstName(e.name)}</b>
               <span className="act-rail-meta">{timeOrDay(e.status.next!.at)}</span>
               <span className="act-rail-what">{clampWords(e.status.next!.text, 84)}</span>
@@ -340,15 +340,15 @@ function Waiting({ who, employees, people }: { who: string | null; employees: Em
   const reqs = requests.data ?? [];
   if (!reqs.length && !mine.length) return null;
   const waitedOn = [
-    ...reqs.flatMap((r) => { const p = people.find((x) => x.id === r.personId); return p ? [{ id: p.id, name: firstName(p.name), hue: p.hue, person: true }] : []; }),
-    ...mine.flatMap((r) => { const e = employees.find((x) => x.id === r.employeeId); return e ? [{ id: e.id, name: firstName(e.name), hue: e.hue, person: false }] : []; }),
+    ...reqs.flatMap((r) => { const p = people.find((x) => x.id === r.personId); return p ? [{ id: p.id, name: firstName(p.name), hue: p.hue, image: p.image, person: true }] : []; }),
+    ...mine.flatMap((r) => { const e = employees.find((x) => x.id === r.employeeId); return e ? [{ id: e.id, name: firstName(e.name), hue: e.hue, image: e.image, person: false }] : []; }),
   ].filter((x, i, all) => all.findIndex((y) => y.id === x.id) === i);
   return (
     <section className="act-waiting" aria-label="Waiting on others">
       <button type="button" className="act-fold-head" aria-expanded={open} onClick={toggle}>
         <span className="act-fold-title">Waiting on others</span>
         <span className="act-fold-n num"><Roll value={reqs.length + mine.length} /></span>
-        <span className="act-fold-faces" aria-hidden>{waitedOn.slice(0, 4).map((x) => <Avatar key={x.id} name={x.name} hue={x.hue} size={20} person={x.person} />)}</span>
+        <span className="act-fold-faces" aria-hidden>{waitedOn.slice(0, 4).map((x) => <Avatar key={x.id} name={x.name} hue={x.hue} image={x.image} size={20} person={x.person} />)}</span>
         <span className="act-fold-sum">{listNames(waitedOn.map((x) => x.name))}</span>
         <Icon name="chevronDown" size={14} className="act-fold-chev" />
       </button>
@@ -544,7 +544,7 @@ function QuietRuns({ runs, employee, employees, people }: { runs: Run[]; employe
   return (
     <>
       <button className="runrow act-quietruns" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        {employee ? <Avatar name={employee.name} hue={employee.hue} size={28} className="runrow-lead" /> : <span className="runrow-lead runrow-icon"><Icon name="clock" size={14} /></span>}
+        {employee ? <Avatar name={employee.name} hue={employee.hue} image={employee.image} size={28} className="runrow-lead" /> : <span className="runrow-lead runrow-icon"><Icon name="clock" size={14} /></span>}
         <span className="runrow-title">
           {employee ? <b>{firstName(employee.name)}</b> : null}
           <span className="runrow-label">{workLabel(newest, employees, people)}</span>
@@ -658,7 +658,7 @@ function Numbers({ data, who, employees }: { data: NumbersData; who: string | nu
               <div key={e.id} className="num-group" data-open={open}>
                 <div className="num-row">
                   <button className="num-main" onClick={() => (span === "week" && review ? openChat(e.id, threadFocus(review.id)) : openMember(e.id, "work"))}>
-                    <Avatar name={e.name} hue={e.hue} size={20} />
+                    <Avatar name={e.name} hue={e.hue} image={e.image} size={20} />
                     <b className="num-who">{firstName(e.name)}</b>
                     <span className="num-what"><span key={span} className={`num-what-in ${moved ? "enter-fade" : ""}`}>{span === "today" ? <TodayWhat u={x} /> : <WeekWhat review={review} />}</span></span>
                     <span className="num-runs num"><Roll value={x.runs} /> {x.runs === 1 ? "run" : "runs"}</span>
@@ -844,7 +844,7 @@ function ChangeRow({ r, e, run, employees, people }: { r: SkillRevision; e: Empl
   const now = useNow(60_000);
   return (
     <button className="runrow act-change" onClick={() => openMember(e.id, "skills", `rev~${r.id}`)}>
-      <Avatar name={e.name} hue={e.hue} size={28} className="runrow-lead" />
+      <Avatar name={e.name} hue={e.hue} image={e.image} size={28} className="runrow-lead" />
       <span className="runrow-title">
         <b>{firstName(e.name)}</b>
         <span className="runrow-label act-change-what">{verb} <span className="mono act-change-skill">{r.skill}{r.file !== "SKILL.md" ? `/${r.file}` : ""}</span></span>

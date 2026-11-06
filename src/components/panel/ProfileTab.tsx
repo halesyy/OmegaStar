@@ -10,6 +10,7 @@ import { SkillPicker } from "../SkillPicker";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
 import { ConfirmButton, ErrorNote, Section, Skeleton } from "../ui";
+import { ImageField } from "../ImageField";
 
 function toEmployee(v: EmployeeView): Employee {
   const { presence: _p, live: _a, nextFire: _n, lastRun: _l, ...e } = v;
@@ -59,6 +60,7 @@ export function ProfileTab({ e, onGone }: { e: EmployeeView; onGone: () => void 
     <div className="fileview">
       <div className="tab-scroll">
         <Section title="About" className="tab-form">
+          <ImageField name={d.name} hue={d.hue} image={d.image} onChange={(v) => set("image", v)} />
           <div className="form-2">
             <label className="field"><span className="field-label">Name</span><input className="input" value={d.name} onChange={(ev) => set("name", ev.target.value)} /></label>
             <label className="field"><span className="field-label">Title</span><input className="input" value={d.title} onChange={(ev) => set("title", ev.target.value)} /></label>

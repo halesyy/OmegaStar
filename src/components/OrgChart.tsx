@@ -333,7 +333,7 @@ function StateLine({ s }: { s: Pick<MemberState, "tone" | "word"> }) {
 export function YouCard({ company, compact = false, onOpen }: { company: Company; compact?: boolean; onOpen: () => void }) {
   return (
     <button type="button" className="mcard mcard-you" onClick={onOpen} data-member={YOU_ID} aria-label={`${company.ceoName}, ${company.title}, you. Open your page`}>
-      <span className="mcard-av" data-part="av"><Avatar name={company.ceoName} hue={0} size={compact ? 28 : 32} you /></span>
+      <span className="mcard-av" data-part="av"><Avatar name={company.ceoName} hue={0} image={company.image} size={compact ? 28 : 32} you /></span>
       <span className="mcard-text">
         <span className="mcard-name" data-part="name"><NameParts name={company.ceoName} /></span>
         <span className="mcard-line mcard-role" data-part="role">{company.title}, you</span>
@@ -351,7 +351,7 @@ function EmployeeCard({ e, employees, people, compact, onOpen }: { e: EmployeeVi
   const needs = s.tone === "attn" || s.tone === "fail";
   return (
     <button type="button" className={`mcard ${needs ? "mcard-needs" : ""}`} onClick={onOpen} data-member={e.id} aria-label={`${e.name}, ${e.title}. ${s.word}${s.about ? `: ${s.about}` : glance ? `: ${glance}` : ""}`}>
-      <span className="mcard-av" data-part="av"><Avatar name={e.name} hue={e.hue} size={compact ? 28 : 32} /></span>
+      <span className="mcard-av" data-part="av"><Avatar name={e.name} hue={e.hue} image={e.image} size={compact ? 28 : 32} /></span>
       <span className="mcard-text">
         <span className="mcard-name" data-part="name"><NameParts name={e.name} /></span>
         {compact ? (
@@ -383,7 +383,7 @@ function PersonCard({ p, compact, onOpen }: { p: PersonView; compact: boolean; o
   );
   return (
     <button type="button" className="mcard mcard-person" onClick={onOpen} data-member={p.id} aria-label={`${p.name}, ${p.title}. ${line.waiting ? line.text : "A person"}`}>
-      <span className="mcard-av" data-part="av"><Avatar name={p.name} hue={p.hue} size={compact ? 28 : 32} person /></span>
+      <span className="mcard-av" data-part="av"><Avatar name={p.name} hue={p.hue} image={p.image} size={compact ? 28 : 32} person /></span>
       <span className="mcard-text">
         <span className="mcard-name" data-part="name"><NameParts name={p.name} /></span>
         {compact ? (

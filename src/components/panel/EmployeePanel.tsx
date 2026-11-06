@@ -36,7 +36,7 @@ export function EmployeePanel({ employee: e, tab, focus, short, onClose }: { emp
   return (
     <section className={`mpage ${short ? "mpage-short" : ""}`} aria-label={`${e.name}, ${e.title}`}>
       <PageHead
-        av={<Avatar name={e.name} hue={e.hue} size={short ? 32 : 56} />}
+        av={<Avatar name={e.name} hue={e.hue} image={e.image} size={short ? 32 : 56} />}
         name={e.name} role={fold ? `${e.title} · ${quietLine(e, s)}` : `${e.title} · Reports to ${managerName ?? "you"}`}
         actions={<><Message e={e} /><RunNow e={e} /></>} onClose={onClose}
       />

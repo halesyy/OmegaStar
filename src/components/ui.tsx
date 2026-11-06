@@ -10,16 +10,17 @@ import "./ui.css";
 
 // ---------------------------------------------------------------- Avatar
 
-/** A named avatar in its own colour. People are ringed, a proposed hire is dashed, you are the ink disc. Presence is a
- *  still dot on the avatar (ringed in `--av-ring`, the surface it sits on): only where there is no room for a word. */
-export function Avatar({ name, hue, size = 36, presence, person = false, proposed = false, you = false, className }: {
-  name: string; hue: number; size?: number; presence?: Presence; person?: boolean; proposed?: boolean; you?: boolean; className?: string;
+/** A named avatar in its own colour. People are ringed, a proposed hire is dashed, you are the ink disc. An employee
+ *  with a display image shows it in place of their initials. Presence is a still dot on the avatar (ringed in
+ *  `--av-ring`, the surface it sits on): only where there is no room for a word. */
+export function Avatar({ name, hue, image, size = 36, presence, person = false, proposed = false, you = false, className }: {
+  name: string; hue: number; image?: string | null; size?: number; presence?: Presence; person?: boolean; proposed?: boolean; you?: boolean; className?: string;
 }) {
   const style = { "--h": hue, width: size, height: size, fontSize: Math.max(8, Math.round(size * 0.37)) } as React.CSSProperties;
   const kind = you ? "av-you" : proposed ? "av-proposed" : person ? "av-person" : "";
   return (
     <span className={`av ${kind} ${className ?? ""}`} style={style} aria-hidden>
-      <span className="av-i">{initials(name)}</span>
+      {image ? <img className="av-img" src={image} alt="" draggable={false} /> : <span className="av-i">{initials(name)}</span>}
       {presence && presence !== "idle" ? <span className={`av-dot av-dot-${presence}`} /> : null}
     </span>
   );

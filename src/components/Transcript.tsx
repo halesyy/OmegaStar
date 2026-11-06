@@ -235,7 +235,7 @@ export function DelegatedCard({ childRunId, employeeId, task, employees, child, 
   return (
     <button className="delegated" onClick={() => openRun(childRunId)}>
       <span className="delegated-top">
-        {e ? <Avatar name={e.name} hue={e.hue} size={22} /> : <Icon name={asked ? "ask" : "branch"} size={14} className="muted" />}
+        {e ? <Avatar name={e.name} hue={e.hue} image={e.image} size={22} /> : <Icon name={asked ? "ask" : "branch"} size={14} className="muted" />}
         <span className="delegated-who"><span className="muted">{handoff ? "Handed a task to" : asked ? "Asked" : "Delegated to"}</span> <b>{e ? e.name : asked ? "a colleague" : "a report"}</b></span>
         <span className="grow" />
         {child ? <StatePill tone={runStateTone(child)}>{runStateLabel(child.state)}</StatePill> : null}
@@ -260,7 +260,7 @@ export function RequestedRow({ personId, reqKind, message, people, request }: { 
   const head = REQUESTED_HEAD[reqKind];
   return (
     <div className="requested">
-      {p ? <Avatar name={p.name} hue={p.hue} size={22} person /> : <Icon name={reqKind === "info" ? "bell" : "ask"} size={14} className="requested-icon" />}
+      {p ? <Avatar name={p.name} hue={p.hue} image={p.image} size={22} person /> : <Icon name={reqKind === "info" ? "bell" : "ask"} size={14} className="requested-icon" />}
       <div className="requested-main">
         <span className="requested-head">
           {head.verb} <b>{name}</b>{head.tail}

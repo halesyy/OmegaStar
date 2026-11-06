@@ -597,6 +597,7 @@ mod tests {
             auto_tidy: false,
             workspaces: vec![],
             hue: 0,
+            image: None,
             chat_session: "chat-ada".into(),
             hired_at: chrono::Utc::now(),
         };
@@ -632,6 +633,7 @@ mod tests {
             auto_tidy: false,
             workspaces: vec![],
             hue: 0,
+            image: None,
             chat_session: "chat-ada".into(),
             hired_at: chrono::Utc::now(),
         }

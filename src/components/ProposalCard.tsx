@@ -73,7 +73,7 @@ export function ProposalRecord({ p, proposer, snap, catalog }: {
         <figure className="hire-quote">
           <blockquote>{p.reason.trim()}</blockquote>
           <figcaption>
-            {proposer ? <Avatar name={proposer.name} hue={proposer.hue} size={18} /> : null}
+            {proposer ? <Avatar name={proposer.name} hue={proposer.hue} image={proposer.image} size={18} /> : null}
             <span>{who}{proposer?.title ? `, ${proposer.title}` : ""}</span>
             {p.runId ? (
               <>

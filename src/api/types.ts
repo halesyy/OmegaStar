@@ -4,6 +4,7 @@ export type Company = {
   name: string; ceoName: string;
   title: string;                            // your title, "CEO" unless you set another
   email: string | null;
+  image?: string | null;                    // your display image as a data: URL, shown in place of your initials
   reportsTo: string | null;                 // the PERSON you report to; null = you are the top of the company
 };
 
@@ -19,6 +20,7 @@ export type Employee = {
   browser: boolean;                         // may drive your Chrome (Claude in Chrome); off for new hires unless you turn it on
   autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on unless you turn it off
   workspaces: string[]; hue: number;        // 0-359, avatar colour
+  image?: string | null;                    // display image as a data: URL, shown in place of their initials
   chatSession: string;                      // the session of the one long chat older builds kept; nothing reads it
   hiredAt: string;
 };
@@ -47,6 +49,7 @@ export type Person = {
   channels: Channel[]; notes: string;
   manager: PersonManager;
   hue: number; addedAt: string;
+  image?: string | null;                    // display image as a data: URL, shown in place of their initials
 };
 /** Who a person reports to. Only people can sit above you, so only a person can be `top`. */
 export type PersonManager =
@@ -370,7 +373,7 @@ export type ApiError = { code: string; message: string };
 export type Commands = {
   setup_status: { args: Record<string, never>; ret: SetupStatus };
   complete_setup: { args: { companyName: string; ceoName: string; title: string | null }; ret: Company };
-  update_company: { args: { name: string; ceoName: string; title: string; reportsTo: string | null }; ret: Company };
+  update_company: { args: { name: string; ceoName: string; title: string; reportsTo: string | null; image: string | null }; ret: Company };
   set_background: { args: { enabled: boolean }; ret: SetupStatus };
   org: { args: Record<string, never>; ret: OrgSnapshot };
   skill_catalog: { args: Record<string, never>; ret: SkillInfo[] };

@@ -170,7 +170,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
               {team.map((m) => (
                 <button key={m.e.id} className={`side-item side-member ${open === m.e.id ? "side-item-on" : ""}`} onClick={() => openChat(m.e.id, conversationFor(m.e, items))} data-tip={m.tip} aria-label={m.label} aria-current={open === m.e.id ? "page" : undefined}>
                   <span className="side-member-av">
-                    <Avatar name={m.e.name} hue={m.e.hue} size={20} />
+                    <Avatar name={m.e.name} hue={m.e.hue} image={m.e.image} size={20} />
                     {m.tone ? <span className={`side-dot side-dot-${m.tone}`} /> : null}
                   </span>
                   <span className="side-text">{m.first}</span>
@@ -184,7 +184,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
             <UsageCard />
             {company ? (
               <button className={`side-you ${memberSelected === YOU_ID ? "side-you-on" : ""}`} onClick={openYou} data-tip={collapsed ? company.ceoName : undefined} aria-label={`${company.ceoName}, ${company.title} of ${company.name}. Edit your profile`}>
-                <span className="side-you-av"><span className="av-i">{initials(company.ceoName)}</span></span>
+                <span className="side-you-av">{company.image ? <img className="av-img" src={company.image} alt="" draggable={false} /> : <span className="av-i">{initials(company.ceoName)}</span>}</span>
                 <span className="side-you-text">
                   <span className="side-you-name">{company.ceoName}</span>
                   <span className="side-you-sub">{company.title} · {company.name}</span>

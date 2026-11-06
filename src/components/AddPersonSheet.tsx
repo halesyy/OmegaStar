@@ -9,6 +9,7 @@ import { firstName, hueFromName } from "../lib/format";
 import { PersonManagerSelect } from "./EmployeeFields";
 import { aboveYou } from "../lib/org";
 import { ChannelEditor } from "./ChannelEditor";
+import { ImageField } from "./ImageField";
 import { CHANNEL_ICON, Icon } from "./Icon";
 import { Avatar, ErrorNote, SlideOver } from "./ui";
 import "./Sheet.css";
@@ -32,6 +33,7 @@ export function PersonFields({ draft, set, selfId }: { draft: PersonDraft; set: 
   const { snap } = useOrg();
   return (
     <>
+      <ImageField name={draft.name} hue={draft.hue} image={draft.image} person onChange={(v) => set("image", v)} />
       <div className="form-2">
         <label className="field">
           <span className="field-label">Name</span>
@@ -120,7 +122,7 @@ export function AddPersonSheet({ open, managerId, onClose }: { open: boolean; ma
           <span className="msg-label">Preview</span>
           <div className="preview-card preview-card-person">
             <div className="mcard-head">
-              {draft.name.trim() ? <Avatar name={draft.name} hue={hue} size={40} person /> : <span className="av av-person" style={{ "--h": hue, width: 40, height: 40, flex: "none" } as React.CSSProperties} aria-hidden />}
+              {draft.name.trim() || draft.image ? <Avatar name={draft.name} hue={hue} image={draft.image} size={40} person /> : <span className="av av-person" style={{ "--h": hue, width: 40, height: 40, flex: "none" } as React.CSSProperties} aria-hidden />}
               <div className="stack grow" style={{ minWidth: 0 }}>
                 <span className="card-name">{draft.name.trim() || "Their name"}</span>
                 <span className="card-title">{draft.title.trim() || "Their title"}</span>

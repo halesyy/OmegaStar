@@ -27,7 +27,7 @@ export function WhoLine({ e, run, label, last = true }: { e: EmployeeView; run: 
     : at ? <span className="who-meta num" title={dateLong(at)}>{timeOrDay(at)}</span> : null;
   return (
     <div className="who-line">
-      <Avatar name={e.name} hue={e.hue} size={22} />
+      <Avatar name={e.name} hue={e.hue} image={e.image} size={22} />
       <b>{firstName(e.name)}</b>
       {meta}
     </div>

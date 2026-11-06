@@ -8,12 +8,13 @@ import { aboveYou, reportsToEffect } from "../../lib/org";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
 import { Avatar, ErrorNote, Section, Skeleton } from "../ui";
+import { ImageField } from "../ImageField";
 import { PageHead } from "./EmployeePanel";
 import "./Panel.css";
 import "../Sheet.css";
 
-type YouDraft = Pick<Company, "name" | "ceoName" | "title" | "reportsTo">;
-const draftOf = (c: Company): YouDraft => ({ name: c.name, ceoName: c.ceoName, title: c.title, reportsTo: c.reportsTo });
+type YouDraft = Pick<Company, "name" | "ceoName" | "title" | "reportsTo" | "image">;
+const draftOf = (c: Company): YouDraft => ({ name: c.name, ceoName: c.ceoName, title: c.title, reportsTo: c.reportsTo, image: c.image ?? null });
 
 /** You on the org chart: your name, title, company and who (if anyone) you report to, then the company page. It opens
  *  with focus on your name's heading, not in a field, so reading it never invites typing over your name. */
@@ -23,7 +24,7 @@ export function YouPanel({ short, onClose }: { short: boolean; onClose: () => vo
   const c = snap.company;
   return (
     <section className={`mpage ${short ? "mpage-short" : ""}`} aria-label={`${c.ceoName}, ${c.title}`}>
-      <PageHead av={<Avatar name={c.ceoName} hue={0} size={short ? 32 : 56} you />} name={c.ceoName} role={`${c.title}, you · ${c.name}`} onClose={onClose} />
+      <PageHead av={<Avatar name={c.ceoName} hue={0} image={c.image} size={short ? 32 : 56} you />} name={c.ceoName} role={`${c.title}, you · ${c.name}`} onClose={onClose} />
       <div className="mpage-body">
         <YouProfile company={c} />
       </div>
@@ -48,7 +49,7 @@ function YouProfile({ company }: { company: Company }) {
     setBusy(true);
     setErr(null);
     try {
-      await call("update_company", { name: d.name.trim(), ceoName: d.ceoName.trim(), title: d.title.trim(), reportsTo: d.reportsTo });
+      await call("update_company", { name: d.name.trim(), ceoName: d.ceoName.trim(), title: d.title.trim(), reportsTo: d.reportsTo, image: d.image ?? null });
       refreshOrg();
       toast("Saved", "ok");
     } catch (x) {
@@ -62,6 +63,7 @@ function YouProfile({ company }: { company: Company }) {
     <div className="fileview">
       <div className="tab-scroll">
         <Section title="About you" className="tab-form">
+          <ImageField name={d.ceoName} hue={0} image={d.image} you onChange={(v) => set("image", v)} />
           <div className="form-2">
             <label className="field">
               <span className="field-label">Your name</span>

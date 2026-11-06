@@ -48,6 +48,7 @@ impl Office {
                 title: Company::title_or_default(title.as_deref()),
                 email,
                 reports_to: org.company.reports_to.take(),
+                image: org.company.image.take(),
             };
             Ok(org.company.clone())
         })?;
@@ -56,10 +57,11 @@ impl Office {
     }
 
     /// Your name, title and company name, and who you report to (a person, or nobody).
-    pub fn update_company(&self, name: String, ceo_name: String, title: String, reports_to: Option<String>) -> Result<Company> {
+    pub fn update_company(&self, name: String, ceo_name: String, title: String, reports_to: Option<String>, image: Option<String>) -> Result<Company> {
         if name.trim().is_empty() || ceo_name.trim().is_empty() {
             return Err(AppError::invalid("company name and your name are required"));
         }
+        check_image(image.as_deref())?;
         let c = {
             let db = self.db();
             if db.company()?.is_none() {
@@ -69,6 +71,7 @@ impl Office {
                 org.company.name = name.trim().into();
                 org.company.ceo_name = ceo_name.trim().into();
                 org.company.title = Company::title_or_default(Some(&title));
+                org.company.image = image;
                 org.set_reports_to(reports_to.as_deref().map(str::trim).filter(|r| !r.is_empty()))?;
                 Ok(org.company.clone())
             })?

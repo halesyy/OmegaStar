@@ -71,6 +71,7 @@ mod tests {
             auto_tidy: false,
             workspaces: vec![],
             hue: 0,
+            image: None,
             chat_session: format!("chat-{name}"),
             hired_at: now(),
         }

@@ -922,6 +922,7 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
                     auto_tidy: true,
                     workspaces: vec![],
                     hue,
+                    image: None,
                 },
                 missing_skills: missing,
                 state: ProposalState::Open,
@@ -1639,6 +1640,7 @@ mod tests {
             auto_tidy: false,
             workspaces: vec![],
             hue: 0,
+            image: None,
             chat_session: format!("chat-{name}"),
             hired_at: now(),
         };

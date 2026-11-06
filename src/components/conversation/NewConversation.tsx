@@ -47,7 +47,7 @@ export function NewConversation({ e }: { e: EmployeeView }) {
       <div className="chat-inner">
         <div className="chat-start">
           <div className="chat-start-who">
-            <Avatar name={e.name} hue={e.hue} size={48} />
+            <Avatar name={e.name} hue={e.hue} image={e.image} size={48} />
             <div>
               <div className="chat-start-name">{e.name}</div>
               <div className="chat-start-role">{e.title} · <Now e={e} /></div>

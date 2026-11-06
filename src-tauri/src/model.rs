@@ -22,6 +22,9 @@ pub struct Company {
     pub email: Option<String>,
     /// The person you report to; `None` = you are the top of the company.
     pub reports_to: Option<String>,
+    /// Your display image (see `check_image`).
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 impl Company {
@@ -29,7 +32,7 @@ impl Company {
 
     /// Before onboarding: no name, the default title, nobody above you.
     pub fn unset() -> Company {
-        Company { name: String::new(), ceo_name: String::new(), title: Self::DEFAULT_TITLE.into(), email: None, reports_to: None }
+        Company { name: String::new(), ceo_name: String::new(), title: Self::DEFAULT_TITLE.into(), email: None, reports_to: None, image: None }
     }
 
     pub fn title_or_default(title: Option<&str>) -> String {
@@ -97,6 +100,9 @@ pub struct EmployeeDraft {
     pub auto_tidy: bool,
     pub workspaces: Vec<String>,
     pub hue: u16,
+    /// Their display image (see `check_image`).
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 /// Employees hired before the browser switch existed could already drive Chrome, so they keep it.
@@ -131,10 +137,27 @@ pub struct Employee {
     pub auto_tidy: bool,
     pub workspaces: Vec<String>,
     pub hue: u16,
+    /// Their display image, shown in place of their initials (see `check_image`). None: their initials on their colour.
+    #[serde(default)]
+    pub image: Option<String>,
     /// The session of the one long chat older builds kept. Nothing reads it now, but a hire still gets one of
     /// its own, so an older build reading this employee never shares a session with another.
     pub chat_session: String,
     pub hired_at: Ts,
+}
+
+/// Largest display image, as its data URL. The app makes them a few dozen KB at most.
+const MAX_IMAGE_CHARS: usize = 256 * 1024;
+
+/// A display image, which anyone on the chart (you, an employee, a person) may have in place of their initials: a
+/// small picture as a `data:image/` URL, so the app never fetches it from anywhere.
+pub fn check_image(image: Option<&str>) -> Result<()> {
+    match image {
+        Some(i) if !i.starts_with("data:image/") || i.len() > MAX_IMAGE_CHARS => {
+            Err(AppError::invalid("the display image must be a picture under 256 KB"))
+        }
+        _ => Ok(()),
+    }
 }
 
 impl EmployeeDraft {
@@ -146,7 +169,7 @@ impl EmployeeDraft {
         if self.hue > 359 {
             return Err(AppError::invalid("hue must be 0-359"));
         }
-        Ok(())
+        check_image(self.image.as_deref())
     }
 
     pub fn into_employee(self, id: String, slug: String, chat_session: String, hired_at: Ts) -> Employee {
@@ -167,6 +190,7 @@ impl EmployeeDraft {
             auto_tidy: self.auto_tidy,
             workspaces: self.workspaces,
             hue: self.hue,
+            image: self.image,
             chat_session,
             hired_at,
         }
@@ -190,6 +214,7 @@ impl Employee {
             auto_tidy: self.auto_tidy,
             workspaces: self.workspaces.clone(),
             hue: self.hue,
+            image: self.image.clone(),
         }
     }
 }
@@ -301,6 +326,9 @@ pub struct PersonDraft {
     pub notes: String,
     pub manager: PersonManager,
     pub hue: u16,
+    /// Their display image (see `check_image`).
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -316,6 +344,9 @@ pub struct Person {
     pub notes: String,
     pub manager: PersonManager,
     pub hue: u16,
+    /// Their display image, shown in place of their initials (see `check_image`). None: their initials.
+    #[serde(default)]
+    pub image: Option<String>,
     pub added_at: Ts,
 }
 
@@ -327,7 +358,7 @@ impl PersonDraft {
         if self.hue > 359 {
             return Err(AppError::invalid("hue must be 0-359"));
         }
-        Ok(())
+        check_image(self.image.as_deref())
     }
 
     pub fn into_person(self, id: String, added_at: Ts) -> Person {
@@ -347,6 +378,7 @@ impl PersonDraft {
             notes: self.notes,
             manager: self.manager,
             hue: self.hue,
+            image: self.image,
             added_at,
         }
     }
@@ -364,6 +396,7 @@ impl Person {
             notes: self.notes.clone(),
             manager: self.manager.clone(),
             hue: self.hue,
+            image: self.image.clone(),
         }
     }
 }
@@ -2125,9 +2158,8 @@ mod tests {
         Build { version: "1.2.3".into(), commit: "abc1234567".into(), channel: BuildChannel::Dogfood }
     }
 
-    #[test]
-    fn tidy_on_its_own_is_on_unless_turned_off() {
-        let draft = EmployeeDraft {
+    fn ada_draft() -> EmployeeDraft {
+        EmployeeDraft {
             name: "Ada".into(),
             title: "Analyst".into(),
             description: String::new(),
@@ -2142,7 +2174,21 @@ mod tests {
             auto_tidy: false,
             workspaces: vec![],
             hue: 0,
-        };
+            image: None,
+        }
+    }
+
+    #[test]
+    fn a_display_image_is_only_ever_a_small_embedded_picture() {
+        let with = |image: String| EmployeeDraft { image: Some(image), ..ada_draft() }.validate();
+        assert!(with("data:image/webp;base64,UklGR".into()).is_ok());
+        assert!(with("https://example.com/face.png".into()).is_err(), "never fetched from the network");
+        assert!(with(format!("data:image/png;base64,{}", "A".repeat(300 * 1024))).is_err(), "too large");
+    }
+
+    #[test]
+    fn tidy_on_its_own_is_on_unless_turned_off() {
+        let draft = ada_draft();
         let employee = draft.clone().into_employee("e1".into(), "ada".into(), "chat-ada".into(), Utc::now());
         let mut draft = serde_json::to_value(draft).unwrap();
         let mut employee = serde_json::to_value(employee).unwrap();
@@ -2173,6 +2219,7 @@ mod tests {
             auto_tidy: true,
             workspaces: vec![],
             hue: 0,
+            image: None,
             chat_session: "chat-ada".into(),
             hired_at: Utc::now(),
         })

@@ -14,7 +14,7 @@ export type TextItem = Extract<TranscriptItem, { kind: "text" }>;
  *  (`runId`, `child`); a skill written carries the change it opens (`skill`). */
 export type WorkRow = {
   key: string; icon: IconName; verb: string; object: string; code: boolean; state: StepState;
-  tag?: string; meta?: string; detail?: string; avatar?: { name: string; hue: number }; runId?: string; child?: Run;
+  tag?: string; meta?: string; detail?: string; avatar?: { name: string; hue: number; image?: string | null }; runId?: string; child?: Run;
   skill?: { skill: string; file: string };
 };
 
@@ -118,7 +118,7 @@ export function rowsOf(turn: LiveRun, employees: EmployeeView[], part?: Part): W
         const e = employees.find((x) => x.id === it.employeeId);
         out.push({
           key: keys.delegate(it.childRunId), icon: it.asked ? "ask" : "branch", verb: delegateVerb(it.asked, it.handoff, e ? firstName(e.name) : "a colleague"),
-          object: it.task, code: false, state: childState(child), avatar: e ? { name: e.name, hue: e.hue } : undefined, runId: it.childRunId, child,
+          object: it.task, code: false, state: childState(child), avatar: e ? { name: e.name, hue: e.hue, image: e.image } : undefined, runId: it.childRunId, child,
         });
         break;
       }

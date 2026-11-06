@@ -1370,6 +1370,7 @@ mod tests {
             auto_tidy: false,
             workspaces: vec![format!("/office/employees/{id}")],
             hue: 0,
+            image: None,
             chat_session: format!("chat-{name}"),
             hired_at: Utc::now(),
         }

@@ -27,8 +27,8 @@ pub async fn complete_setup(office: O<'_>, company_name: String, ceo_name: Strin
 }
 
 #[tauri::command]
-pub async fn update_company(office: O<'_>, name: String, ceo_name: String, title: String, reports_to: Option<String>) -> Result<Company> {
-    office.update_company(name, ceo_name, title, reports_to)
+pub async fn update_company(office: O<'_>, name: String, ceo_name: String, title: String, reports_to: Option<String>, image: Option<String>) -> Result<Company> {
+    office.update_company(name, ceo_name, title, reports_to, image)
 }
 
 #[tauri::command]

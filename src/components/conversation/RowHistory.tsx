@@ -91,7 +91,7 @@ function HistoryRow({ x, lead, employees, people }: { x: Thread; lead: boolean; 
     ?? (isLive(r) ? "Working" : failed ? r.error ?? "This run didn't finish" : "No report");
   return (
     <div className={`hist-row ${lead ? "hist-row-lead" : ""}`}>
-      {e ? <Avatar name={e.name} hue={e.hue} size={20} presence={isLive(r) ? "working" : undefined} /> : <span />}
+      {e ? <Avatar name={e.name} hue={e.hue} image={e.image} size={20} presence={isLive(r) ? "working" : undefined} /> : <span />}
       <div className="hist-main">
         <span className="hist-who">
           <b>{e ? firstName(e.name) : "Former employee"}</b>

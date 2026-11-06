@@ -396,8 +396,8 @@ export function previewTransport(): PreviewTransport {
       w.companyPage = w.companyPage || `# ${companyName}\n\n## What we sell\n\n## What we use\n\n## How things work here\n\n## Voice and style\n`;
       return w.company;
     },
-    update_company: ({ name, ceoName, title, reportsTo }) => {
-      w.company = { ...w.company!, name, ceoName, title, reportsTo };
+    update_company: ({ name, ceoName, title, reportsTo, image }) => {
+      w.company = { ...w.company!, name, ceoName, title, reportsTo, image };
       changed();
       return w.company;
     },

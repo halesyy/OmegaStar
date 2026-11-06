@@ -9,6 +9,9 @@
   color: oklch(var(--av-fg-l) var(--av-fg-c) var(--h));
 }
 .av-i { line-height: 1; text-box: trim-both cap alphabetic; }
+.av-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+/* A person keeps their ring with a picture: it sits just inside the ring. */
+.av-person .av-img { width: calc(100% - 5px); height: calc(100% - 5px); }
 .av-person { background: transparent; box-shadow: inset 0 0 0 1.5px oklch(var(--av-fg-l) var(--av-fg-c) var(--h)); }
 .av-proposed { background: transparent; outline: 1.5px dashed oklch(var(--av-fg-l) var(--av-fg-c) var(--h)); outline-offset: -1.5px; }
 .av-you { background: var(--ink); color: var(--canvas); }

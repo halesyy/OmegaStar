@@ -22,9 +22,9 @@ export function AskRow({ run, employees }: { run: Run; employees: EmployeeView[]
   return (
     <button className="ask-row" onClick={() => openRun(run.id)}>
       <span className="ask-pair">
-        {asker ? <Avatar name={asker.name} hue={asker.hue} size={26} /> : <span className="ask-noav" />}
+        {asker ? <Avatar name={asker.name} hue={asker.hue} image={asker.image} size={26} /> : <span className="ask-noav" />}
         <Icon name="arrowRight" size={12} className="ask-arrow" />
-        {to ? <Avatar name={to.name} hue={to.hue} size={26} presence={live ? "working" : undefined} /> : <span className="ask-noav" />}
+        {to ? <Avatar name={to.name} hue={to.hue} image={to.image} size={26} presence={live ? "working" : undefined} /> : <span className="ask-noav" />}
       </span>
       <span className="ask-main">
         <span className="ask-who">
