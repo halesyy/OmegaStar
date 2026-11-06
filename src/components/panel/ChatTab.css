@@ -1,11 +1,7 @@
-/* ------------------------------------------------ the surface: talk on the left, Live work on the right */
-/* Clipped, not a scroll container: a sheet or column sliding in from the right edge never scrolls the page sideways. */
+/* ------------------------------------------------ the surface: the talk, then the composer */
+/* Clipped, not a scroll container: nothing sliding in from an edge ever scrolls the page sideways. */
 .chat { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); overflow: clip; }
-.chat-with-work { grid-template-columns: minmax(0, 1fr) var(--work-w); }
 .chat-talk { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; }
-.chat-work { min-height: 0; display: flex; }
-/* A closing column is laid over the right edge while it slides out, so the talk can already take the room. */
-.chat-work-leaving { position: absolute; top: 0; right: 0; bottom: 0; width: var(--work-w); z-index: 2; }
 .chat-drop {
   position: absolute; inset: 12px; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none;
   border-radius: var(--r-card); background: color-mix(in oklab, var(--canvas) 92%, transparent); color: var(--ink-2); font-weight: 600;
@@ -18,7 +14,7 @@
 .chat-scroll { flex: 1; min-height: 0; overflow: auto; overflow-anchor: none; }
 .chat-land { flex: none; }
 
-/* The talk reads at one comfortable measure, centred in what the column leaves. */
+/* The talk reads at one comfortable measure, centred. */
 .chat-inner { display: flex; flex-direction: column; gap: 22px; width: 100%; max-width: 776px; margin: 0 auto; padding: 24px 28px 20px; }
 .composer-wrap { flex: none; display: flex; flex-direction: column; width: 100%; max-width: 776px; margin: 0 auto; padding: 4px 28px 20px; }
 @container (max-width: 560px) {
@@ -76,22 +72,6 @@
 .msg-came[open] .msg-came-chev { transform: rotate(180deg); }
 .msg-came-body { padding: 4px 14px 14px 34px; }
 
-/* Refs: one line of chips that point from the talk to the work. */
-.refs { display: flex; flex-wrap: wrap; gap: 6px; }
-.ref {
-  display: inline-flex; align-items: center; gap: 7px; height: 28px; max-width: 100%; padding: 0 10px 0 8px; border-radius: var(--r-input);
-  box-shadow: inset 0 0 0 1px var(--line-strong); font-size: 12.5px; font-weight: 550; color: var(--ink-2);
-  transition: background var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease), color var(--d-ui) var(--ease);
-}
-.ref > svg, .ref > .av { flex: none; }
-.ref > svg { color: var(--muted); }
-.ref-label { min-width: 0; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ref:hover:not(:disabled) { background: var(--raised); box-shadow: inset 0 0 0 1px var(--muted); color: var(--ink); }
-.ref:disabled { cursor: default; }
-.ref-live { background: var(--live-soft); color: var(--live-text); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--live) 40%, transparent); }
-.ref-live > svg { color: var(--live); }
-.ref-live:hover:not(:disabled) { background: var(--live-soft); box-shadow: inset 0 0 0 1px var(--live); color: var(--live-text); }
-
 /* A reply that didn't finish: the coral is the mark; the words stay ink. */
 .msg-failed { display: flex; align-items: flex-start; gap: 8px; margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
 .msg-failed > svg { flex: none; margin-top: 3px; color: var(--err); }
@@ -140,7 +120,7 @@
   transition: box-shadow var(--d-ui) var(--ease), background var(--d-ui) var(--ease);
 }
 .composer:focus-within { box-shadow: inset 0 0 0 1px var(--muted); }
-/* The composer, with the Live work strip or the card it answers on its top edge: one surface, one border. */
+/* The composer, with the card it answers on its top edge: one surface, one border. */
 .composer-stack { border-radius: var(--r-card); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); transition: box-shadow var(--d-ui) var(--ease); }
 .composer-stack:focus-within { box-shadow: inset 0 0 0 1px var(--muted); }
 .composer-stack > .composer, .composer-stack > .composer:focus-within { box-shadow: none; background: transparent; }
@@ -151,17 +131,13 @@
 .composer-aim-what b { font-weight: 650; color: var(--ink); }
 .composer-aim .btn { flex: none; }
 .composer-busy { background: var(--raised); }
-.composer-input { display: block; width: 100%; resize: none; border: 0; background: transparent; padding: 13px 14px 4px; outline: none; line-height: 1.5; font-size: var(--t-md); color: var(--ink); }
+/* The field and its one button on a line; the button keeps to the field's last line as it grows. */
+.composer-row { display: flex; align-items: flex-end; min-width: 0; }
+.composer-input { display: block; flex: 1; min-width: 0; resize: none; border: 0; background: transparent; padding: 11px 6px 11px 14px; outline: none; line-height: 1.5; font-size: var(--t-md); color: var(--ink); }
 .composer-input::placeholder { color: var(--muted); }
 .composer-input:focus-visible { box-shadow: none; }
-/* One line whatever the width: when it is narrow the extra actions drop their words and keep their icons (with the words
-   as their name), so Send never wraps. */
-.composer-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 4px 8px 8px; min-width: 0; }
-.composer-bar > .btn { flex: none; }
-@container (max-width: 560px) {
-  .composer-bar .btn-ghost:has(.btn-label) { width: 28px; padding: 0; justify-content: center; }
-  .composer-bar .btn-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-}
+.composer-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 7px; min-width: 0; }
+.composer-bar > .btn, .composer-bar > .confirm { flex: none; }
 .composer-hint { font-size: var(--t-xs); margin-right: 8px; }
 .composer-send { border-radius: var(--r-input); }
 .composer-send.btn-sm { width: 30px; height: 30px; }
@@ -169,6 +145,9 @@
 .chat .composer-send:disabled { opacity: 1; }
 .chat .composer-send-ready { background: var(--accent); color: var(--accent-ink); }
 .chat .composer-send-ready:hover:not(:disabled) { background: var(--accent-hover); }
+/* Stop takes Send's place while they work and the field is empty: the same square, solid, a stop in it. */
+.chat .composer-stop { background: var(--accent); color: var(--accent-ink); }
+.chat .composer-stop:hover { background: var(--accent-hover); }
 
 .composer-files { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 10px 0; }
 .attach {

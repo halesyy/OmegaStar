@@ -1,23 +1,22 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { call } from "../api/client";
 import type { EmployeeView, NewAttachment } from "../api/types";
 import { firstName } from "../lib/format";
 import { refreshOrg, useOrg, useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
-import { openMember, type Route } from "../lib/router";
+import { navigate, type Route } from "../lib/router";
 import { parseThreadFocus, threadFocus } from "../lib/threads";
 import { Icon } from "../components/Icon";
-import { Avatar, ErrorNote, Skeleton } from "../components/ui";
+import { ErrorNote, Skeleton } from "../components/ui";
 import { NewConversation } from "../components/conversation/NewConversation";
-import { ConversationActions, StateWord, useArchive, useLeave, useThreadState } from "../components/conversation/ConversationSwitcher";
+import { ConversationMenu, ConversationPicker, QuietState, useArchive, useLeave, useThreadState } from "../components/conversation/ConversationSwitcher";
 import { sendAndDone, ThreadSkeleton, ThreadView } from "../components/conversation/ThreadView";
 import "./Conversation.css";
 
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
-/** Where a conversation shows: filling the main window, or on the employee's panel over the org chart. */
-export type ConversationVariant = "full" | "panel";
-
-/** The conversation filling the main window: one of an employee's threads, or a new one about to start. */
+/** The conversation filling the main window: one of an employee's threads, or a new one about to start. It is the one
+ *  place you talk to an employee. */
 export function ConversationScreen({ route }: { route: Extract<Route, { page: "chat" }> }) {
   const { snap, error } = useOrg();
   if (!snap) {
@@ -25,12 +24,7 @@ export function ConversationScreen({ route }: { route: Extract<Route, { page: "c
       <div className="convo"><div className="thread-error"><ErrorNote title="Couldn't open this conversation" text={error} onRetry={refreshOrg} /></div></div>
     ) : (
       <div className="convo" aria-busy="true">
-        <header className="convo-head">
-          <div className="convo-id">
-            <Skeleton h={26} w={320} r={4} />
-            <div className="convo-sub"><Skeleton h={20} w={20} r={10} /><Skeleton h={12} w={180} /></div>
-          </div>
-        </header>
+        <header className="convo-head"><Skeleton h={24} w={320} r={4} /></header>
         <ThreadSkeleton />
       </div>
     );
@@ -45,24 +39,17 @@ export function ConversationScreen({ route }: { route: Extract<Route, { page: "c
       </div>
     );
   }
-  return <Conversation e={e} focus={route.focus} variant="full" />;
-}
-
-/** The employee's conversation that `focus` names, the same in either variant: a thread (`thread~<root run id>`),
- *  or for anything else (null, or an old `new-task` link) a new conversation. On a person's panel the conversation
- *  brings no header of its own: the panel's tab row holds `ConversationSwitcher` (its name, its state and its actions). */
-export function Conversation({ e, focus, variant }: { e: EmployeeView; focus: string | null; variant: ConversationVariant }) {
-  const rootId = parseThreadFocus(focus);
-  if (rootId) return <ThreadConversation key={rootId} e={e} rootId={rootId} variant={variant} />;
+  const rootId = parseThreadFocus(route.focus);
+  if (rootId) return <ThreadConversation key={rootId} e={e} rootId={rootId} />;
   return (
-    <ConversationFrame e={e} variant={variant} focus={null} title="New conversation" state={null}>
-      <NewConversation key={e.id} e={e} compact={variant === "panel"} />
+    <ConversationFrame title="New conversation" picker={<ConversationPicker e={e} rootId={null} title="New conversation" />} menu={<ConversationMenu e={e} rootId={null} s={null} />}>
+      <NewConversation key={e.id} e={e} />
     </ConversationFrame>
   );
 }
 
-/** The thread or conversation with `rootId`: its header, its actions, and E to archive it. */
-function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: string; variant: ConversationVariant }) {
+/** The thread or conversation with `rootId`: its header, its menu, and E to archive it. */
+function ThreadConversation({ e, rootId }: { e: EmployeeView; rootId: string }) {
   const thread = useThread(rootId);
   const s = useThreadState(rootId);
   const runs = thread.turns?.map((t) => t.run) ?? s.runs;
@@ -90,46 +77,39 @@ function ThreadConversation({ e, rootId, variant }: { e: EmployeeView; rootId: s
     return () => window.removeEventListener("keydown", onKey);
   }, [ready, carded]);
 
+  const title = s.title || "Conversation";
   return (
-    <ConversationFrame e={e} variant={variant} focus={threadFocus(rootId)} title={s.title} state={<StateWord s={s} sep />} actions={<ConversationActions e={e} rootId={rootId} s={s} />}>
+    <ConversationFrame title={title} picker={<ConversationPicker e={e} rootId={rootId} title={title} />} state={<QuietState s={s} />} menu={<ConversationMenu e={e} rootId={rootId} s={s} />}>
       <ThreadView e={e} rootId={rootId} thread={thread} row={s.row?.thread ?? null} onSendDone={s.archived ? null : sendDone} />
     </ConversationFrame>
   );
 }
 
-/** What a conversation has around it in the full window: one header saying what it is (in Display), who it is with
- *  and where it stands in a word, then what you can do with it and a way to the org chart. On a panel, nothing: the
- *  panel's own head and tab row say who and which. */
-function ConversationFrame({ e, variant, focus, title, state, actions, children }: {
-  e: EmployeeView;
-  variant: ConversationVariant;
-  /** The conversation, as the route names it. */
-  focus: string | null;
-  title: string;
-  state: ReactNode;
-  actions?: ReactNode;
-  children: ReactNode;
-}) {
-  if (variant === "panel") return <div className="convo convo-panel">{children}</div>;
+/** One quiet band over the talk: the conversation's title, which switches to another, a word when it is put away, and
+ *  one menu for the rest. Who it is with is the sidebar's open row and each reply's name. */
+function ConversationFrame({ title, picker, state, menu, children }: { title: string; picker: ReactNode; state?: ReactNode; menu: ReactNode; children: ReactNode }) {
   return (
-    <div className="convo">
+    <div className="convo" aria-label={title}>
       <header className="convo-head">
-        <div className="convo-id">
-          <h1 className="convo-title" title={title}>{title}</h1>
-          <div className="convo-sub">
-            <Avatar name={e.name} hue={e.hue} size={20} />
-            <button className="convo-who" onClick={() => openMember(e.id, "work")} data-tip={`Open ${firstName(e.name)}'s work`}>{e.name}, {e.title}</button>
-            {state}
-          </div>
-        </div>
-        <div className="convo-actions">
-          {actions}
-          <button className="btn btn-ghost btn-icon btn-sm" aria-label="Show on the org chart" data-tip="Show on the org chart" onClick={() => openMember(e.id, "chat", focus)}>
-            <Icon name="org" size={15} />
-          </button>
-        </div>
+        {picker}
+        {state}
+        <span className="grow" />
+        {menu}
       </header>
       {children}
     </div>
   );
+}
+
+/** An old link to a run's own page: it opens the conversation the run is part of, where its work is now. */
+export function RunRedirect({ runId }: { runId: string }) {
+  useEffect(() => {
+    let live = true;
+    call("thread", { runId }).then(
+      (t) => { if (live) navigate({ page: "chat", employeeId: t.root.employeeId, focus: threadFocus(t.root.id) }, { replace: true }); },
+      () => { if (live) navigate({ page: "activity", view: "runs" }, { replace: true }); },
+    );
+    return () => { live = false; };
+  }, [runId]);
+  return <div className="convo" aria-busy="true"><header className="convo-head"><Skeleton h={24} w={320} r={4} /></header><ThreadSkeleton /></div>;
 }

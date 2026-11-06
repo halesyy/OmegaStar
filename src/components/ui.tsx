@@ -92,8 +92,10 @@ export function SlideOver({ open, onClose, width = 760, children, label, modal =
 
 // ---------------------------------------------------------------- Inline confirm
 
-export function ConfirmButton({ label, confirmLabel, question, onConfirm, icon, className = "btn btn-danger", size = "" }: {
+export function ConfirmButton({ label, confirmLabel, question, onConfirm, icon, className = "btn btn-danger", size = "", ariaLabel, tip }: {
   label: string; confirmLabel: string; question?: string; onConfirm: () => void | Promise<void>; icon?: IconName; className?: string; size?: "" | "btn-sm";
+  /** For an icon-only button: its name, and its tooltip. */
+  ariaLabel?: string; tip?: string;
 }) {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -101,7 +103,7 @@ export function ConfirmButton({ label, confirmLabel, question, onConfirm, icon, 
   useEffect(() => { if (asking) yes.current?.focus(); }, [asking]);
   if (!asking) {
     return (
-      <button type="button" className={`${className} ${size}`} onClick={() => setAsking(true)}>
+      <button type="button" className={`${className} ${size}`} aria-label={ariaLabel} data-tip={tip} onClick={() => setAsking(true)}>
         {icon ? <Icon name={icon} size={14} /> : null}
         {label}
       </button>

@@ -7,7 +7,7 @@ import { refreshConversations, useOrg, useProposals, useQuery, useSkillScan } fr
 import { setMark } from "../lib/marks";
 import { useFlip } from "../lib/motion";
 import { clearPending, markPending, usePending } from "../lib/pending";
-import { openInbox, openMember, openRun, useRoute, type InboxView } from "../lib/router";
+import { openChat, openInbox, openRun, useRoute, type InboxView } from "../lib/router";
 import { useScrollFade } from "../lib/scrollFade";
 import { dismissToast, toast } from "../lib/toasts";
 import { archiveAt, archivable, isLive, isOpen, threadFocus, wasArchived, type OpenCard } from "../lib/threads";
@@ -25,7 +25,7 @@ import "./Inbox.css";
 
 /** What the view menu calls each view. Snoozed is Later, as the button that puts things there. */
 const VIEWS: { id: InboxView; label: string }[] = [
-  { id: "inbox", label: "Inbox" },
+  { id: "inbox", label: "Needs you" },
   { id: "snoozed", label: "Later" },
   { id: "parked", label: "Parked" },
   { id: "archive", label: "Archive" },
@@ -501,7 +501,7 @@ export function InboxScreen() {
     let card: ReactNode;
     if (loadError) {
       card = (
-        <EmptyCard title={`Couldn't load ${view === "archive" ? "the Archive" : view === "parked" ? "Parked" : view === "snoozed" ? "Later" : "your Inbox"}`} alert>
+        <EmptyCard title={`Couldn't load ${view === "archive" ? "the Archive" : view === "parked" ? "Parked" : view === "snoozed" ? "Later" : "what needs you"}`} alert>
           <p>{loadError}</p>
           <div className="ibx-empty-acts"><button type="button" className="btn btn-primary" onClick={reload}><Icon name="refresh" size={14} /> Try again</button></div>
         </EmptyCard>
@@ -607,25 +607,21 @@ function focusRow(id: string) {
   document.querySelector<HTMLElement>(`[data-row="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
 }
 
-/** The ⋯ menu's actions for the open item. */
+/** The ⋯ menu's actions for the open item: the conversation it came from. */
 function moreFor(row: Row, ctx: DetailContext): MenuItem[] {
-  const panel = (employeeId: string, focus: string | null): MenuItem | null => {
-    const e = ctx.employees.find((x) => x.id === employeeId);
-    return e ? { label: `Open on ${firstName(e.name)}'s panel`, icon: "org", onSelect: () => openMember(e.id, "chat", focus) } : null;
-  };
+  const talk = (employeeId: string, focus: string): MenuItem | null =>
+    ctx.employees.some((x) => x.id === employeeId) ? { label: "Open the conversation", icon: "chat", onSelect: () => openChat(employeeId, focus) } : null;
   const out: (MenuItem | null)[] = [];
   if (row.kind === "hire") {
-    out.push(panel(row.p.employeeId, null));
     const runId = row.p.runId;
-    if (runId) out.push({ label: "Open the run that asked", icon: "arrowUpRight", onSelect: () => openRun(runId) });
+    if (runId) out.push({ label: "Open the conversation that asked", icon: "chat", onSelect: () => openRun(runId) });
   } else if (row.kind === "decision") {
     const d = row.d;
-    if (d.type !== "failures") out.push(panel(d.run.employeeId, threadFocus(d.thread.root.id)));
-    out.push({ label: "Open the run", icon: "arrowUpRight", onSelect: () => openRun(d.run.id) });
+    out.push(d.type === "failures" ? { label: "Open the conversation", icon: "chat", onSelect: () => openRun(d.run.id) } : talk(d.run.employeeId, threadFocus(d.thread.root.id)));
   } else if (row.kind === "parked") {
-    out.push(panel(row.run.employeeId, threadFocus(row.run.id)));
+    out.push(talk(row.run.employeeId, threadFocus(row.run.id)));
   } else {
-    out.push(panel(row.item.employee.id, threadFocus(row.item.thread.root.id)));
+    out.push(talk(row.item.employee.id, threadFocus(row.item.thread.root.id)));
   }
   return out.filter((x): x is MenuItem => !!x);
 }
@@ -950,7 +946,7 @@ function EmptyView({ view, hired, snoozedNext, laterCount, onView, onHire }: {
   return (
     <EmptyCard title={title}>
       <p>{text}</p>
-      <div className="ibx-empty-acts"><button type="button" className="btn" onClick={() => onView("inbox")}>Back to the Inbox</button></div>
+      <div className="ibx-empty-acts"><button type="button" className="btn" onClick={() => onView("inbox")}>Back to Needs you</button></div>
     </EmptyCard>
   );
 }

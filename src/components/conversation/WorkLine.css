@@ -1,0 +1,45 @@
+/* ------------------------------------------------ a reply's work line, under the name */
+/* The mark sits in the avatar's column and the words start at the name's edge, so the line reads as part of who. */
+.wl { display: flex; flex-direction: column; min-width: 0; margin: -4px 0 -2px; }
+.wl-line {
+  align-self: flex-start; display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 100%; height: 26px; padding: 0 10px 0 0;
+  border-radius: var(--r-inner); font-size: 12.5px; color: var(--muted); text-align: left; transition: color var(--d-ui) var(--ease), background var(--d-ui) var(--ease);
+}
+.wl-line:hover:not(:disabled) { color: var(--ink); }
+.wl-line:disabled { cursor: default; }
+.wl-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; }
+.wl-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--live); }
+.wl-chev { color: var(--faint); transition: transform var(--d-ui) var(--ease), color var(--d-ui) var(--ease); }
+.wl-line[aria-expanded="true"] .wl-chev { transform: rotate(90deg); }
+.wl-line:hover .wl-chev { color: var(--muted); }
+.wl-summary { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+
+/* Working: the words in the live ink, the step in hand rolling in one slot. */
+.wl-live .wl-line { color: var(--live-text); }
+.wl-roll { display: grid; flex: 0 1 auto; min-width: 0; }
+.wl-roll > span { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.wl-verb { flex: none; font-weight: 550; }
+.wl-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.wl-what.mono { font-size: 11.5px; }
+.wl-time { flex: none; color: var(--muted); }
+.wl-time::before { content: "·"; margin-right: 6px; color: var(--faint); }
+
+/* The steps, opened: one line a step, on the words' edge. */
+.wl-rows { display: flex; flex-direction: column; padding: 4px 0 6px 25px; }
+.wl-item + .wl-item { border-top: 1px solid var(--line); }
+.wl-row {
+  width: 100%; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  min-height: 32px; padding: 6px; text-align: left; font-size: 12.5px; border-radius: var(--r-inner); transition: background var(--d-ui) var(--ease);
+}
+.wl-row:has(> .wl-meta) { grid-template-columns: 16px minmax(0, 1fr) auto auto; }
+button.wl-row:hover { background: var(--sunken); }
+.wl-icon { color: var(--muted); }
+/* A row says the whole step: up to two lines, then an ellipsis; a path or command stays on one. */
+.wl-text { min-width: 0; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.wl-text:has(> .mono) { display: block; white-space: nowrap; text-overflow: ellipsis; }
+.wl-step { font-weight: 650; color: var(--ink); margin-right: 6px; }
+.wl-obj { color: var(--muted); }
+.wl-obj.mono { font-size: 11.5px; color: var(--ink-2); }
+.wl-meta { font-size: var(--t-xs); color: var(--muted); white-space: nowrap; }
+.wl-row > .tag { justify-self: end; }
+.wl-detail { margin: 0; padding: 0 6px 10px 32px; font-size: var(--t-sm); line-height: 1.55; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }

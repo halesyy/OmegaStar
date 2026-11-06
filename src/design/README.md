@@ -45,7 +45,7 @@ Employee pages (the `show` tool) get this file too: `src-tauri` embeds it, so `-
 | Empty and loading | `.empty` `.empty-title` `.empty-actions`; `Skeleton` (still blocks at the content's own geometry) |
 | Page frame | `PageHeader` (64px, 24px Display title), `PageColumn` (its header ends where its 820px column does, and the column fades under it as it scrolls), `Section` (its count rolls), `.plist` |
 | Type | `.display` `.h-xl` `.h-lg` `.h-md` `.mono` `.num` `.trunc` `.muted`; `shortAge()` in `src/lib/format.ts` for list ages ("4m", "3h", "2d") |
-| Icons | `Icon` (`src/components/Icon.tsx`), one 1.5 stroke on a 16px box. New: `chevronUp`, `minus`, `lines`. No sparkles: `sparkle` now draws `lines` and stays only until the areas move off it (`RunView`, `Transcript`, `TidyProposal`, `RunRow`, `CardView`); use `teach` for skills grown, `lines` for a summary, `checklist` or `layers` for a tidy. |
+| Icons | `Icon` (`src/components/Icon.tsx`), one 1.5 stroke on a 16px box. New: `chevronUp`, `minus`, `lines`. No sparkles: `sparkle` now draws `lines` and stays only until the areas move off it (`Transcript`, `TidyProposal`, `RunRow`, `CardView`); use `teach` for skills grown, `lines` for a summary, `checklist` or `layers` for a tidy. |
 | Shell rules | `useRail()` and `railNow()` (`src/lib/sidebar.ts`): the rail below 1180px unless expanded there, each size keeping its own choice (onboarding's band uses the same). `macChrome`, `dragRegion` and `data-chrome="mac"` (`src/lib/chrome.ts`): the macOS overlay title bar's drag band. The overlay is set in `src-tauri/tauri.macos.conf.json`, which Tauri merges only into macOS builds; its merge replaces the `windows` array whole, so it repeats every field of the main window: change one, change both. `markPending` and `clearPending` (`src/lib/pending.ts`): an answer inside its Undo window, which the sidebar's Inbox badge leaves out. `openInbox(view, item)` and the `#/inbox/<view>/<item>` route, and `#/activity/numbers` (`src/lib/router.ts`). `setTheme` crossfades the window (a view transition) unless motion is reduced. `Shell`'s `arriving` drops the sidebar's parts into the band at the onboarding hand-off. `SideBrand`, `COLLAPSE_KEY`, `.side-top` and `.side-you*` keep their geometry; the sidebar's top grows by `--chrome-top` on macOS. |
 
 ## Motion
@@ -67,7 +67,7 @@ version (a crossfade over `--d-fade`; nothing travels).
 
 `pulseDot`, `breathe` and `shimmer` are gone, so the loops that used them are already still. Areas: delete the
 leftover references (`OrgChart`, `Transcript`, `ChatTab`, `Panel`, `Conversation`), and switch coral words from
-`color: var(--err)` to `--err-text` (`Activity`, `Inbox`, `RunView`, `Settings`, `Transcript`, `SubAgents`,
+`color: var(--err)` to `--err-text` (`Activity`, `Inbox`, `Settings`, `Transcript`, `SubAgents`,
 `Schedules`, `SkillsTab`). `.copycmd` now lives in `src/components/CopyCommand.css`; the Settings agent deletes its
 copy from `Settings.css`.
 

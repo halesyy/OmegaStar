@@ -62,9 +62,10 @@ The app's own hash routes (`src/lib/router.ts`), with these ids:
 
 - Employees: `juniper` (Chief of Staff), `otto` (Cloud Engineer, reports to Juniper), `rafi` (QA, reports to Otto),
   `mae` (Support Lead), `theo` (Growth Marketer), `ines` (Bookkeeper). People: `harriet`, `kofi`, `lena`. You: `you`.
-- Panels: `#/org/<id>` with `/chat`, `/work`, `/skills` or `/profile`. Skills files and changes:
+- Panels: `#/org/<id>` with `/work`, `/skills` or `/profile`. Skills files and changes:
   `#/org/juniper/skills/file~price-changes~SKILL.md`, `#/org/juniper/skills/rev~rev-weekly`.
-- Conversations: `#/chat/<employee>/thread~<root run>`, or `#/chat/<employee>` for a new one. Runs: `#/run/<run>`.
+- Conversations: `#/chat/<employee>/thread~<root run>`, or `#/chat/<employee>` for a new one. A run's
+  old link, `#/run/<run>`, opens its conversation.
 - Activity: `#/activity` (runs), `#/activity/numbers`, `#/activity/skills`.
 - The Inbox: `#/inbox/<view>/<item>`, view `inbox`, `snoozed`, `parked` or `archive`, item the id the Inbox gives an
   entry (`openInbox` in `src/lib/router.ts`). It opens that item once the Inbox reads the route.

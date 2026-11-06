@@ -4,7 +4,7 @@ import type { EmployeeUsage, EmployeeView, PersonView, RoutineUsage, Run, RunUsa
 import { dayHeading, firstName, MOD, runKindLabel, shortAge, timeOrDay } from "../lib/format";
 import { refreshOrg, useNow, useOrg, useQuery, useRunDetail, type Query } from "../lib/hooks";
 import { curve, ms, reducedMotion } from "../lib/motion";
-import { navigate, openMember, openRun, type ActivityView } from "../lib/router";
+import { navigate, openChat, openMember, openRun, type ActivityView } from "../lib/router";
 import { useScrollFade } from "../lib/scrollFade";
 import { blocked, isLive, threadFocus } from "../lib/threads";
 import { useShell } from "../Shell";
@@ -657,7 +657,7 @@ function Numbers({ data, who, employees }: { data: NumbersData; who: string | nu
             return (
               <div key={e.id} className="num-group" data-open={open}>
                 <div className="num-row">
-                  <button className="num-main" onClick={() => (span === "week" && review ? openMember(e.id, "chat", threadFocus(review.id)) : openMember(e.id, "work"))}>
+                  <button className="num-main" onClick={() => (span === "week" && review ? openChat(e.id, threadFocus(review.id)) : openMember(e.id, "work"))}>
                     <Avatar name={e.name} hue={e.hue} size={20} />
                     <b className="num-who">{firstName(e.name)}</b>
                     <span className="num-what"><span key={span} className={`num-what-in ${moved ? "enter-fade" : ""}`}>{span === "today" ? <TodayWhat u={x} /> : <WeekWhat review={review} />}</span></span>

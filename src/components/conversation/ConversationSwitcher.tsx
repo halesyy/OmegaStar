@@ -1,18 +1,20 @@
-import { useCallback, useRef, useState } from "react";
-import { call } from "../../api/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, Run, Thread } from "../../api/types";
-import { firstName, threadTitle, whenInline } from "../../lib/format";
-import { useNow, useOrg, useQuery } from "../../lib/hooks";
+import { askComposer } from "../../lib/composer";
+import { firstName, threadTitle, whenInline, whenShort } from "../../lib/format";
+import { useOrg, useQuery } from "../../lib/hooks";
 import { setMark } from "../../lib/marks";
-import { openChat, openFullChat, openRun } from "../../lib/router";
-import { threadStatus, type Status } from "../../lib/status";
-import { didNotFinish, doneHeld, isLive, parseThreadFocus, rowThreads, startedByYou, threadFocus } from "../../lib/threads";
+import { openChat, openMember } from "../../lib/router";
+import { snoozePresets, threadStatus, type Status } from "../../lib/status";
+import { toast } from "../../lib/toasts";
+import { didNotFinish, doneHeld, isLive, rowThreads, startedByYou, threadFocus } from "../../lib/threads";
 import { kindIcon, kindNames } from "../RunRow";
-import { Icon } from "../Icon";
-import { Popover, Roll } from "../ui";
-import { DoneButton, markDone, reopen, SnoozeButton } from "./ThreadView";
+import { Icon, type IconName } from "../Icon";
+import { Popover } from "../ui";
+import { newConversationDraft, TEACH_PREFIX } from "./NewConversation";
+import { markDone, reopen, WHERE_ARE_WE } from "./ThreadView";
 import { employeeItems, useStatuses, type Item } from "./useStatuses";
-import { minutes } from "./work";
 
 /** Where a conversation stands, for its header and its actions: its runs, its state, and whether it can be archived. */
 export type ThreadState = {
@@ -74,93 +76,39 @@ export function useArchive(employeeId: string, rootId: string) {
   }, [leave, rootId]);
 }
 
-/** The state of a conversation in one word with its colour: "Working 3 min", "Up next", "Needs you", "Failed", "Snoozed
- *  until tomorrow 9:00 am", "Done". Nothing while it is idle. */
-export function StateWord({ s, sep = false }: { s: ThreadState; sep?: boolean }) {
-  const liveRun = s.runs.find((r) => r.state === "running");
-  const now = useNow(30_000, !!liveRun);
-  const st = s.status?.state;
-  const word = st === "working" || liveRun ? <span className="status status-live">Working{liveRun?.startedAt ? <span className="status-n num"><Roll value={minutes(now - Date.parse(liveRun.startedAt))} /></span> : null}</span>
-    : st === "queued" ? <span className="status status-wait">Up next</span>
-    : st === "needsYou" ? <span className="status status-attn">{s.failed ? "Failed" : "Needs you"}</span>
-    : st === "snoozed" ? <span className="status status-plain">Snoozed until {whenInline(s.status!.snoozedUntil)}</span>
-    : st === "done" || s.archived ? <span className="status status-ok">Done</span>
-    : null;
-  if (!word) return null;
-  return sep ? <><span className="convo-sep" aria-hidden>·</span>{word}</> : word;
-}
-
-/**
- * What you can do with a conversation: Later (or Wake now), Open run for a report, Archive with E (or Reopen once
- * archived). `icons` draws them as small icon buttons with tooltips, for the switcher in a person's panel.
- */
-export function ConversationActions({ e, rootId, s, icons = false }: { e: EmployeeView; rootId: string; s: ThreadState; icons?: boolean }) {
-  const name = firstName(e.name);
-  const leave = useLeave(e.id, rootId);
-  const archive = useArchive(e.id, rootId);
-  if (!s.root) return null;
-  const snooze = (until: Date) => {
-    const go = leave();
-    setMark(rootId, { snoozedUntil: until.toISOString() });
-    go();
-  };
-  const wake = () => setMark(rootId, { snoozedUntil: undefined });
-  // One rule: Archive shows once nothing in the thread needs you (E still files it when nothing holds it).
-  const needs = s.status?.state === "needsYou";
-  if (icons) {
-    return (
-      <>
-        {s.archived ? null : <SnoozeButton snoozedUntil={s.status?.snoozedUntil ?? null} onSnooze={snooze} onWake={wake} icon />}
-        {s.archived ? (
-          <button className="btn btn-ghost btn-icon btn-sm" aria-label="Reopen" data-tip="Reopen" onClick={() => void reopen(rootId)}><Icon name="undo" size={14} /></button>
-        ) : s.carded || !s.ready || needs ? null : (
-          <button className="btn btn-ghost btn-icon btn-sm" aria-label="Archive" data-tip="Archive (E)" onClick={() => void archive()}><Icon name="archive" size={14} /></button>
-        )}
-      </>
-    );
-  }
-  return (
-    <>
-      {s.archived ? null : <SnoozeButton snoozedUntil={s.status?.snoozedUntil ?? null} onSnooze={snooze} onWake={wake} />}
-      {s.task ? null : <button className="btn btn-ghost btn-sm" onClick={() => openRun(s.root!.id)}>Open run <Icon name="arrowUpRight" size={12} /></button>}
-      {s.archived
-        ? <button className="btn btn-ghost btn-sm" onClick={() => void reopen(rootId)}><Icon name="undo" size={13} /> Reopen</button>
-        : s.carded || !s.ready || needs ? null : <DoneButton name={name} disabled={false} onDone={archive} ghost />}
-    </>
-  );
+/** Where a conversation stands when its talk does not say it: put away until later, or archived. Nothing otherwise:
+ *  working, up next and needing you are said once, in the reply itself. */
+export function QuietState({ s }: { s: ThreadState }) {
+  if (s.status?.state === "snoozed") return <span className="convo-state">Later, until {whenInline(s.status.snoozedUntil)}</span>;
+  if (s.archived) return <span className="convo-state">Archived</span>;
+  return null;
 }
 
 /** A dot for where a conversation stands, as the menu lists it. */
-const DOT: Partial<Record<Status["state"], string>> = { needsYou: "dot dot-attn", working: "dot dot-live", queued: "dot dot-wait" };
 const WORD: Partial<Record<Status["state"], string>> = { needsYou: "Needs you", working: "Working", queued: "Up next", snoozed: "Later" };
 
 /**
- * The person panel's conversation switcher, for the right end of its tab row: the open conversation's name and its state,
- * a menu of the employee's open conversations (each with its state) and New conversation, then the open thread's own
- * actions (Later, Archive with E, or Reopen) and Open full window. `focus` is the open conversation as the route names
- * it (`thread~<root run id>`), or null for a new one.
+ * The conversation's title, which opens a menu of the employee's other conversations (each with where it stands) and
+ * New conversation. `rootId` is the open conversation, or null for a new one.
  */
-export function ConversationSwitcher({ e, focus }: { e: EmployeeView; focus: string | null }) {
-  const rootId = parseThreadFocus(focus);
-  const s = useThreadState(rootId);
+export function ConversationPicker({ e, rootId, title }: { e: EmployeeView; rootId: string | null; title: string }) {
   const { items } = useStatuses();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const mine = employeeItems(items ?? [], e.id);
-  const list: { focus: string; title: string; icon: ReturnType<typeof kindIcon>; status: Status | null }[] = mine.map((i) => ({ focus: threadFocus(i.thread.root.id), title: i.title, icon: kindIcon(i.thread.root), status: i.status }));
-  if (rootId && s.root && !list.some((x) => x.focus === focus)) list.unshift({ focus: threadFocus(rootId), title: s.title, icon: s.root.archivedAt ? "archive" : kindIcon(s.root), status: null });
-  const title = rootId ? s.title || "Conversation" : "New conversation";
-  const dot = s.status ? DOT[s.status.state] : undefined;
-  const go = (f: string | null) => { setOpen(false); openChat(e.id, f, true); };
+  const focus = rootId ? threadFocus(rootId) : null;
+  const list: { focus: string; title: string; icon: ReturnType<typeof kindIcon>; status: Status | null }[] = employeeItems(items ?? [], e.id)
+    .map((i) => ({ focus: threadFocus(i.thread.root.id), title: i.title, icon: kindIcon(i.thread.root), status: i.status }));
+  if (focus && !list.some((x) => x.focus === focus)) list.unshift({ focus, title, icon: "chat", status: null });
+  const go = (f: string | null) => { setOpen(false); openChat(e.id, f); };
   return (
-    <div className="convo-switch">
-      <button ref={anchor} type="button" className="convo-pick" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <Icon name="chat" size={14} />
-        <span className="trunc">{title}</span>
-        {dot ? <span className={dot} aria-label={WORD[s.status!.state]} /> : null}
-        <Icon name="chevronDown" size={14} className="convo-pick-chev" />
-      </button>
-      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} width={300}>
+    <>
+      <h1 className="convo-title">
+        <button ref={anchor} type="button" className="convo-pick" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-tip={`Conversations with ${firstName(e.name)}`}>
+          <span className="trunc">{title}</span>
+          <Icon name="chevronDown" size={16} className="convo-pick-chev" />
+        </button>
+      </h1>
+      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} width={320} align="start">
         <div className="menu convo-menu" role="menu" aria-label={`Conversations with ${firstName(e.name)}`}>
           {list.map((x) => {
             const word = x.status ? WORD[x.status.state] : undefined;
@@ -178,10 +126,92 @@ export function ConversationSwitcher({ e, focus }: { e: EmployeeView; focus: str
           </button>
         </div>
       </Popover>
-      {rootId ? <ConversationActions e={e} rootId={rootId} s={s} icons /> : null}
-      <button type="button" className="btn btn-ghost btn-icon btn-sm" aria-label="Open full window" data-tip="Open full window" onClick={() => openFullChat(e.id, focus)}>
-        <Icon name="expand" size={14} />
+    </>
+  );
+}
+
+type Entry = { label: string; icon: IconName; onSelect: () => void; hint?: string; keep?: boolean };
+
+/**
+ * Everything else you can do with a conversation, in one menu: ask where things stand, teach a new task, attach files,
+ * put it away until later (or wake it), archive it with E (or reopen it), and open the employee's own page. A new
+ * conversation (`rootId` null) has only what fits before its first message.
+ */
+export function ConversationMenu({ e, rootId, s }: { e: EmployeeView; rootId: string | null; s: ThreadState | null }) {
+  const name = firstName(e.name);
+  const leave = useLeave(e.id, rootId ?? "");
+  const archive = useArchive(e.id, rootId ?? "");
+  const anchor = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [later, setLater] = useState(false);
+  useEffect(() => {
+    if (open) requestAnimationFrame(() => list.current?.querySelector<HTMLButtonElement>("button")?.focus());
+  }, [open, later]);
+  const close = () => { setOpen(false); setLater(false); };
+  const draft = rootId ? `thread:${rootId}` : newConversationDraft(e.id);
+  const busy = !!s?.runs.some(isLive);
+  const snoozed = s?.status?.state === "snoozed";
+
+  const recap = async () => {
+    if (!rootId) return;
+    try { await call("reply_to_run", { runId: rootId, text: WHERE_ARE_WE, archive: false, attachments: [] }); } catch (err) { toast(errorMessage(err), "err"); }
+  };
+  const snooze = (until: Date) => {
+    if (!rootId) return;
+    const go = leave();
+    setMark(rootId, { snoozedUntil: until.toISOString() });
+    go();
+  };
+
+  const entries: (Entry | "sep")[] = [];
+  if (rootId && s?.root) entries.push({ label: "Where are we?", icon: "checklist", onSelect: () => void recap() });
+  if (!busy) entries.push({ label: "Teach a new task", icon: "teach", onSelect: () => askComposer(draft, { type: "prefill", text: TEACH_PREFIX }) });
+  entries.push({ label: "Attach files", icon: "paperclip", onSelect: () => askComposer(draft, { type: "attach" }) });
+  if (rootId && s?.root) {
+    entries.push("sep");
+    if (s.archived) entries.push({ label: "Reopen", icon: "undo", onSelect: () => void reopen(rootId) });
+    else {
+      entries.push(snoozed
+        ? { label: "Wake now", icon: "clock", onSelect: () => setMark(rootId, { snoozedUntil: undefined }) }
+        : { label: "Later", icon: "clock", keep: true, onSelect: () => setLater(true) });
+      // One rule: Archive shows once nothing in the thread needs you (E still files it when nothing holds it).
+      if (s.ready && !s.carded && s.status?.state !== "needsYou") entries.push({ label: "Archive", icon: "archive", hint: "E", onSelect: () => void archive() });
+    }
+  }
+  entries.push("sep", { label: `Open ${name}'s page`, icon: "org", onSelect: () => openMember(e.id, "work") });
+
+  const presets = later ? snoozePresets(new Date()) : [];
+  return (
+    <>
+      <button ref={anchor} type="button" className="btn btn-ghost btn-icon btn-sm" aria-label="More" data-tip="More" aria-haspopup="menu" aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
+        <Icon name="more" size={16} />
       </button>
-    </div>
+      <Popover anchor={anchor} open={open} onClose={close} width={248}>
+        <div
+          ref={list} className="menu" role="menu" aria-label={later ? "Bring it back" : "Conversation"} data-esc-stop
+          onKeyDown={(ev) => {
+            if (ev.key !== "ArrowDown" && ev.key !== "ArrowUp") return;
+            ev.preventDefault();
+            const btns = [...(list.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+            const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+            btns[(i + (ev.key === "ArrowDown" ? 1 : btns.length - 1)) % btns.length]?.focus();
+          }}
+        >
+          {later ? presets.map((p) => (
+            <button key={p.label} type="button" role="menuitem" className="menu-item" onClick={() => { close(); snooze(p.until); }}>
+              <span className="grow">{p.label}</span>
+              <span className="faint">{whenShort(p.until.toISOString()).replace(p.label === "Tomorrow" ? /^Tomorrow / : /^Today /, "")}</span>
+            </button>
+          )) : entries.map((it, i) => it === "sep" ? (i > 0 ? <div key={`sep-${i}`} className="menu-sep" /> : null) : (
+            <button key={it.label} type="button" role="menuitem" className="menu-item" onClick={() => { if (!it.keep) close(); it.onSelect(); }}>
+              <Icon name={it.icon} size={14} />
+              <span className="grow">{it.label}</span>
+              {it.hint === "E" ? <kbd className="kbd">E</kbd> : it.hint ? <span className="faint">{it.hint}</span> : it.keep ? <Icon name="chevronRight" size={13} className="faint" /> : null}
+            </button>
+          ))}
+        </div>
+      </Popover>
+    </>
   );
 }

@@ -6,7 +6,7 @@ import type { CardDecision, Decision, Group } from "../lib/decisions";
 import { dateLong, firstName, runKindLabel, shortAge, taskLabel, threadTitle, whenInline } from "../lib/format";
 import { useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
-import { openMember } from "../lib/router";
+import { openChat } from "../lib/router";
 import { toolName } from "../lib/rules";
 import { toast } from "../lib/toasts";
 import { activityAt, archivable, didNotFinish, isLive, isOpen, isTeamWeek, latestFinished, rowThreads, STREAK, threadBusy, threadFocus, wasArchived, type OpenCard } from "../lib/threads";
@@ -655,7 +655,7 @@ function FailureList({ failures, employees, people }: { failures: Extract<Decisi
         const at = f.run.endedAt ?? f.run.createdAt;
         return (
           <li key={f.id}>
-            <button type="button" className="d-also-row" disabled={!e} title={e ? `Open on ${firstName(e.name)}'s panel` : undefined} onClick={() => e && openMember(e.id, "chat", threadFocus(f.thread.root.id))}>
+            <button type="button" className="d-also-row" disabled={!e} title={e ? "Open the conversation" : undefined} onClick={() => e && openChat(e.id, threadFocus(f.thread.root.id))}>
               {e ? <Avatar name={e.name} hue={e.hue} size={20} /> : <span className="irow-noav" />}
               <span className="d-also-t"><b>{e ? firstName(e.name) : "Former employee"}</b> <span className="muted">· {topic(f.thread, employees, people)}</span></span>
               <span className="d-also-age num" title={dateLong(at)}>{shortAge(at)}</span>
@@ -718,7 +718,7 @@ function ItemThread({ item, thread, e, onSendDone }: { item: Item; thread: Threa
   useMarkSeen(item.status.state === "done" ? null : item.thread.root.id, lastMoved(live.turns?.map((t) => t.run) ?? []));
   return (
     <div className="d-thread">
-      <ThreadView e={e} rootId={id} thread={live} row={lead ? item.thread : null} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent work="strip" />
+      <ThreadView e={e} rootId={id} thread={live} row={lead ? item.thread : null} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent />
     </div>
   );
 }

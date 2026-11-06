@@ -3,26 +3,29 @@ import type { Run } from "../api/types";
 import { YOU_ID } from "./org";
 import { conversationOf, threadFocus } from "./threads";
 
-/** An employee panel's tabs. People and you have a single page, so no tab. */
-export type PanelTab = "chat" | "work" | "skills" | "profile";
+/** An employee panel's tabs. People and you have a single page, so no tab. You talk to an employee in the
+ *  conversation, not on their page. */
+export type PanelTab = "work" | "skills" | "profile";
 export type ActivityView = "runs" | "numbers" | "skills";
 /** The Inbox's tabs. */
 export type InboxView = "inbox" | "snoozed" | "parked" | "archive";
 const INBOX_VIEWS: InboxView[] = ["inbox", "snoozed", "parked", "archive"];
 
 export type Route =
-  /** The org chart, with a member's panel open. On an employee's Chat tab, `focus` says which conversation is open. */
+  /** The org chart, with a member's panel open. On the Skills tab, `focus` says which file or change is open. */
   | { page: "org"; memberId: string | null; tab: PanelTab | null; focus: string | null }
-  /** A conversation with an employee filling the window. `focus`: `thread~<root run id>`, or null for a new conversation. */
+  /** A conversation with an employee, the one place you talk to them. `focus`: `thread~<root run id>`, or null for a new
+   *  conversation. */
   | { page: "chat"; employeeId: string; focus: string | null }
   /** The Inbox, on a tab, with one item open: `item` is the id the Inbox gives its entries (a Decision's id, or a hire
    *  proposal's). Both optional: `#/inbox` is the Inbox tab with the first item. */
   | { page: "inbox"; view?: InboxView; item?: string | null }
   | { page: "activity"; view: ActivityView }
   | { page: "settings" }
+  /** An old link to a run's own page: it opens the run's conversation. */
   | { page: "run"; runId: string };
 
-const TABS: PanelTab[] = ["chat", "work", "skills", "profile"];
+const TABS: PanelTab[] = ["work", "skills", "profile"];
 
 function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
@@ -33,6 +36,8 @@ function parseHash(hash: string): Route {
     case "run": if (parts[1]) return { page: "run", runId: parts[1] }; break;
     case "chat": if (parts[1]) return { page: "chat", employeeId: parts[1], focus: parts[2] ?? null }; break;
   }
+  // An old link to an employee's Chat tab is their conversation.
+  if (parts[1] && parts[2] === "chat") return { page: "chat", employeeId: parts[1], focus: parts[3] ?? null };
   const tab = TABS.find((t) => t === parts[2]) ?? null;
   return { page: "org", memberId: parts[1] ?? null, tab, focus: parts[3] ?? null };
 }
@@ -73,23 +78,17 @@ export function navigate(r: Route, opts: { replace?: boolean } = {}) {
 
 export const openMember = (memberId: string, tab: PanelTab | null = null, focus: string | null = null, replace = false) =>
   navigate({ page: "org", memberId, tab, focus }, { replace });
-/** A conversation with an employee: with `focus` a thread, without one a new conversation. It opens in the mode
- *  you are in: full window while a conversation fills the window, else on their panel's Chat tab over the org chart. */
-export function openChat(employeeId: string, focus: string | null = null, replace = false) {
-  if (routeOf(location.hash).page === "chat") navigate({ page: "chat", employeeId, focus }, { replace });
-  else openMember(employeeId, "chat", focus, replace);
-}
-/** The conversation filling the window, whatever mode you are in. */
-export const openFullChat = (employeeId: string, focus: string | null = null) => navigate({ page: "chat", employeeId, focus });
+/** A conversation with an employee: with `focus` a thread, without one a new conversation. */
+export const openChat = (employeeId: string, focus: string | null = null, replace = false) =>
+  navigate({ page: "chat", employeeId, focus }, { replace });
+/** A run where its work is: the conversation it is part of (the run route finds it). */
 export const openRun = (runId: string) => navigate({ page: "run", runId });
 /** The Inbox on `view`, with `item` open (its entry's id). `replace` for moving between items without history. */
 export const openInbox = (view: InboxView = "inbox", item: string | null = null, replace = false) =>
   navigate({ page: "inbox", view, item }, { replace });
-/** A run where you can follow it: in its conversation when it is a turn of one, else on its own page. */
+/** A run where you can follow it: its conversation, the thread it is a turn of or the one it starts. */
 export function openWork(run: Run) {
-  const root = conversationOf(run);
-  if (root) openChat(run.employeeId, threadFocus(root));
-  else openRun(run.id);
+  openChat(run.employeeId, threadFocus(conversationOf(run) ?? run.id));
 }
 /** Your own panel on the org chart: name, title, company and who you report to. */
 export const openYou = () => openMember(YOU_ID);

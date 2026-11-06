@@ -13,28 +13,7 @@ import { ErrorNote, Skeleton } from "../components/ui";
 import { YOU_ID } from "../lib/org";
 import { refreshOrg, useOrg } from "../lib/hooks";
 import { navigate, openMember, type PanelTab, type Route } from "../lib/router";
-import { conversationOf, threadFocus } from "../lib/threads";
-import { employeeItems, useStatuses, type Item } from "../components/conversation/useStatuses";
 import "./Org.css";
-
-/**
- * Which conversation opening an employee shows, so their page arrives on what matters, as the sidebar's rows do:
- * when their last run needs you, the thread that holds it; else the first of their live work that is a conversation
- * (the sidebar's own rule); else a thread of theirs that needs you; else null, a new conversation. `items` is null
- * while the office's conversations load.
- */
-function focusFor(e: EmployeeView, items: Item[] | null): string | null {
-  const waiting = items ? employeeItems(items, e.id).filter((i) => i.status.state === "needsYou") : [];
-  const last = e.lastRun;
-  if (e.presence === "attention" && last) {
-    const holds = waiting.find((i) => [i.thread.root, ...i.thread.replies, ...i.thread.related.map((t) => t.root)].some((r) => r.id === last.id));
-    const root = holds?.thread.root.id ?? conversationOf(last) ?? waiting[0]?.thread.root.id;
-    if (root) return threadFocus(root);
-  }
-  const live = e.live.map(conversationOf).find((r) => r !== null);
-  if (live) return threadFocus(live);
-  return waiting[0] ? threadFocus(waiting[0].thread.root.id) : null;
-}
 
 type Member = { kind: "employee"; e: EmployeeView } | { kind: "person"; p: PersonView } | { kind: "you" };
 const memberOf = (snap: OrgSnapshot | null, id: string | null): Member | null => {
@@ -120,22 +99,8 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
 
   const close = useCallback(() => navigate({ page: "org", memberId: null, tab: null, focus: null }), []);
 
-  // Opening someone (a chart card, the outline, a link with no tab) lands on what they are working on or what needs
-  // you. Clicking the person already open keeps their tab and conversation.
-  const { items } = useStatuses();
-  const open = useCallback((id: string) => {
-    const e = snap?.employees.find((x) => x.id === id);
-    const f = e ? focusFor(e, items) : null;
-    openMember(id, f ? "chat" : null, f);
-  }, [snap, items]);
-  const routeEmployee = member?.kind === "employee" ? member.e : null;
-  useLayoutEffect(() => {
-    if (!routeEmployee || route.tab !== null || route.focus !== null) return;
-    // A person needing you waits for the conversations to load rather than land on an empty one first.
-    if (items === null && routeEmployee.presence === "attention") return;
-    const f = focusFor(routeEmployee, items);
-    if (f) openMember(routeEmployee.id, "chat", f, true);
-  }, [routeEmployee, route.tab, route.focus, items]);
+  // Opening someone (a chart card, the outline) opens their page; you talk to them in the conversation.
+  const open = useCallback((id: string) => openMember(id), []);
   // Esc closes the page, unless something on top of it (a sheet, a menu, the palette) takes it first.
   useEffect(() => {
     if (want !== "open") return;

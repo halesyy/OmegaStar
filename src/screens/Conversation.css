@@ -1,42 +1,23 @@
-/* ------------------------------------------------ a conversation, full window or on an employee's panel */
+/* ------------------------------------------------ a conversation, filling the window */
 .convo { height: 100%; min-height: 0; display: flex; flex-direction: column; }
-.convo-panel { flex: 1; height: auto; }
 
-/* The header: the title in Display, then who it is with and where it stands, in a word. */
-.convo-head { flex: none; display: flex; align-items: flex-end; gap: 16px; padding: 22px 16px 16px 28px; border-bottom: 1px solid var(--line); min-width: 0; }
-.convo-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.convo-title {
-  font-size: var(--t-title); line-height: 1.15; font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.035em;
-  color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* One band, like every page header: the title in Display, which opens the other conversations, then one menu. */
+.convo-head {
+  flex: none; display: flex; align-items: center; gap: 12px; min-height: var(--head-h); padding: 10px 16px 10px 18px;
+  border-bottom: 1px solid var(--line); min-width: 0;
 }
-.convo-sub { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; color: var(--muted); }
-.convo-sub > .av { flex: none; }
-.convo-who { min-width: 0; color: var(--muted); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: var(--r-inner); }
-.convo-who:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
-.convo-sep { flex: none; color: var(--faint); }
-.convo-sub .status { flex: none; font-size: 13px; }
-.status-n { font-weight: 500; color: var(--live-text); }
-.convo-actions { flex: none; display: flex; align-items: center; gap: 4px; }
-
-/* A short window: the header on one line, so the talk keeps its room. */
-@media (max-height: 700px) {
-  .convo-head { align-items: center; padding: 12px 16px 12px 24px; }
-  .convo-id { flex-direction: row; align-items: baseline; gap: 14px; }
-  .convo-title { flex: 0 1 auto; font-size: 20px; }
-  .convo-sub { flex: 0 1 auto; }
-}
-
-/* ------------------------------------------------ the switcher, on the right of a person's tab row */
-.convo-switch { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.convo-title { min-width: 0; margin: 0; font-size: 24px; line-height: var(--lh-tight); font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.035em; }
 .convo-pick {
-  display: inline-flex; align-items: center; gap: 8px; min-width: 0; max-width: 280px; height: 28px; padding: 0 8px 0 10px;
-  border-radius: var(--r-input); box-shadow: inset 0 0 0 1px var(--line-strong); font-size: 12.5px; font-weight: 600; color: var(--ink-2);
-  transition: background var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease);
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; padding: 4px 6px 4px 6px; border-radius: var(--r-input);
+  color: var(--ink); font: inherit; letter-spacing: inherit; transition: background var(--d-ui) var(--ease);
 }
-.convo-pick > svg, .convo-pick > .dot { flex: none; }
-.convo-pick > svg:first-child { color: var(--muted); }
-.convo-pick:hover, .convo-pick[aria-expanded="true"] { background: var(--raised); box-shadow: inset 0 0 0 1px var(--muted); color: var(--ink); }
-.convo-pick-chev { color: var(--muted); }
+.convo-pick:hover, .convo-pick[aria-expanded="true"] { background: var(--raised); }
+.convo-pick-chev { flex: none; color: var(--faint); transition: color var(--d-ui) var(--ease); }
+.convo-pick:hover .convo-pick-chev, .convo-pick[aria-expanded="true"] .convo-pick-chev { color: var(--muted); }
+.convo-state { flex: none; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.convo-head > .btn { flex: none; }
+
+/* The menu of their conversations, each with where it stands. */
 .convo-menu .menu-item[aria-checked="true"] { background: var(--sel); color: var(--sel-ink); }
 .convo-menu .menu-item[aria-checked="true"] svg { color: var(--sel-ink); }
 .convo-menu .menu-item[aria-checked="true"] .convo-menu-state { color: var(--sel-muted); }
@@ -45,3 +26,9 @@
 .convo-menu-state.status-live { color: var(--live-text); }
 .convo-menu .menu-item[aria-checked="true"] .status-attn { color: var(--sel-attn); }
 .convo-menu .menu-item[aria-checked="true"] .status-live { color: var(--sel-live); }
+
+/* A short window: a smaller title, so the talk keeps its room. */
+@media (max-height: 700px) {
+  .convo-head { min-height: 52px; padding-top: 6px; padding-bottom: 6px; }
+  .convo-title { font-size: 20px; }
+}

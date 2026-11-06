@@ -9,7 +9,8 @@ import { Avatar } from "../ui";
 import { ChatSurface, type ChatSurfaceHandle } from "../panel/ChatSurface";
 import "../panel/ChatTab.css";
 
-const TEACH_PREFIX = "I want to teach you a new task: ";
+/** What "Teach a new task" puts in the composer, to finish in your own words. */
+export const TEACH_PREFIX = "I want to teach you a new task: ";
 const SUGGESTIONS = [
   "What's your objective, in your own words?",
   "When you're unsure, ask me before acting.",
@@ -30,9 +31,8 @@ function Now({ e }: { e: EmployeeView }) {
 }
 
 /** A conversation before its first message, as meeting a colleague: who they are and what they are doing now, one
- *  sentence on how conversations work, then three ways to start. What you send starts it and opens it. `compact` leaves
- *  out who they are, for a person's panel, whose head already says it. */
-export function NewConversation({ e, compact = false }: { e: EmployeeView; compact?: boolean }) {
+ *  sentence on how conversations work, then three ways to start. What you send starts it and opens it. */
+export function NewConversation({ e }: { e: EmployeeView }) {
   const surface = useRef<ChatSurfaceHandle>(null);
   const name = firstName(e.name);
   const start = async (text: string, attachments: NewAttachment[]) => {
@@ -43,17 +43,16 @@ export function NewConversation({ e, compact = false }: { e: EmployeeView; compa
     <ChatSurface
       ref={surface} e={e} busy={false} draftKey={newConversationDraft(e.id)} scrollKey="" pin={false}
       placeholder={`Message ${name}. Teach them something, or ask.`} onSend={start}
-      actions={<button className="btn btn-ghost btn-sm" data-tip="Teach a new task" onClick={() => surface.current?.prefill(TEACH_PREFIX)}><Icon name="teach" size={14} /> <span className="btn-label">Teach a new task</span></button>}
     >
       <div className="chat-inner">
         <div className="chat-start">
-          {compact ? null : <div className="chat-start-who">
+          <div className="chat-start-who">
             <Avatar name={e.name} hue={e.hue} size={48} />
             <div>
               <div className="chat-start-name">{e.name}</div>
               <div className="chat-start-role">{e.title} · <Now e={e} /></div>
             </div>
-          </div>}
+          </div>
           <p className="chat-start-note">
             Each conversation runs alongside {name}'s other work, and what you explain goes into {name}'s skills, so it holds for every run after.
           </p>

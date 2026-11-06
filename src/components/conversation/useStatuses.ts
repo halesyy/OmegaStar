@@ -6,6 +6,7 @@ import { threadTitle } from "../../lib/format";
 import { refreshConversations, useConversations, useOrg } from "../../lib/hooks";
 import { pruneMarks, seenSince, useMarks, type Marks } from "../../lib/marks";
 import { nextWake, threadStatus, type Status, type StatusContext } from "../../lib/status";
+import { conversationOf, threadFocus } from "../../lib/threads";
 import { kindNames } from "../RunRow";
 
 /** A thread with what the Inbox and the chips show about it. `title` names it as the rest of the app does. */
@@ -22,6 +23,27 @@ export function toItem(thread: Thread, snap: OrgSnapshot, filed: boolean, ctx: S
 /** One employee's open threads, newest first, so each keeps its place as the others move. */
 export const employeeItems = (items: Item[], employeeId: string): Item[] =>
   items.filter((i) => i.employee.id === employeeId).sort((a, b) => b.thread.root.createdAt.localeCompare(a.thread.root.createdAt));
+
+/**
+ * Which conversation opening an employee lands on, so it arrives on what matters: when their last run needs you, the
+ * thread that holds it; else the first of their live work that is a conversation; else a thread of theirs that needs
+ * you; else the newest of their open conversations; else null, a new conversation. `items` is null while the office's
+ * conversations load.
+ */
+export function conversationFor(e: EmployeeView, items: Item[] | null): string | null {
+  const mine = items ? employeeItems(items, e.id) : [];
+  const waiting = mine.filter((i) => i.status.state === "needsYou");
+  const last = e.lastRun;
+  if (e.presence === "attention" && last) {
+    const holds = waiting.find((i) => [i.thread.root, ...i.thread.replies, ...i.thread.related.map((t) => t.root)].some((r) => r.id === last.id));
+    const root = holds?.thread.root.id ?? conversationOf(last) ?? waiting[0]?.thread.root.id;
+    if (root) return threadFocus(root);
+  }
+  const live = e.live.map(conversationOf).find((r) => r !== null);
+  if (live) return threadFocus(live);
+  const first = waiting[0] ?? mine[0];
+  return first ? threadFocus(first.thread.root.id) : null;
+}
 
 /** Now, kept current at the next snooze's end. */
 function useWakeClock(marks: Marks): number {

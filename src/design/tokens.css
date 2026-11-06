@@ -125,7 +125,7 @@
   --side-w: 216px;
   --rail-w: 60px;           /* the sidebar collapsed to a rail */
   --outline-w: 288px;       /* the chart folded into an outline */
-  --work-w: 336px;          /* the Live work column */
+  --work-w: 336px;          /* Activity's live rail */
   --head-h: 64px;           /* every page header band */
   --chrome-top: 0px;        /* room the window's own controls take at the top of the sidebar: macOS only, below */
 

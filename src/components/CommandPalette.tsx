@@ -7,6 +7,7 @@ import { toast } from "../lib/toasts";
 import { setTheme, useResolvedDark } from "../lib/theme";
 import { openHelp } from "../lib/help";
 import { navigate, openChat, openMember, openRun, openYou } from "../lib/router";
+import { conversationFor, useStatuses } from "./conversation/useStatuses";
 import { Icon } from "./Icon";
 import { kindIcon, kindNames } from "./RunRow";
 import { Avatar } from "./ui";
@@ -86,6 +87,7 @@ function highlight(label: string, q: string): ReactNode {
 /** `leaving`: it has been closed and is fading where it is; it unmounts when that ends. */
 export function CommandPalette({ onClose, api, leaving = false }: { onClose: () => void; api: { hire: () => void; addPerson: () => void }; leaving?: boolean }) {
   const { snap } = useOrg();
+  const { items: talks } = useStatuses();
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -112,14 +114,14 @@ export function CommandPalette({ onClose, api, leaving = false }: { onClose: () 
       { id: "theme", group: "Actions", label: dark ? "Switch to light theme" : "Switch to dark theme", icon: <Icon name={dark ? "sun" : "moon"} size={16} />, run: () => setTheme(dark ? "light" : "dark"), keywords: "appearance mode colour color" },
       { id: "help", group: "Actions", label: "Open the Claude Code docs", icon: <Icon name="help" size={16} />, run: () => void openHelp(), keywords: "help documentation manual" },
       { id: "go-org", group: "Go to", label: "Org chart", icon: <Icon name="org" size={16} />, run: () => navigate({ page: "org", memberId: null, tab: null, focus: null }) },
-      { id: "go-inbox", group: "Go to", label: "Inbox", icon: <Icon name="inbox" size={16} />, run: () => navigate({ page: "inbox" }), keywords: "needs you decisions reports snoozed archive" },
+      { id: "go-inbox", group: "Go to", label: "Needs you", icon: <Icon name="inbox" size={16} />, run: () => navigate({ page: "inbox" }), keywords: "inbox decisions reports snoozed archive" },
       { id: "go-activity", group: "Go to", label: "Activity", icon: <Icon name="activity" size={16} />, run: () => navigate({ page: "activity", view: "runs" }), keywords: "runs history waiting requests colleagues numbers" },
       { id: "go-skills", group: "Go to", label: "Skill changes", hint: "Activity", icon: <Icon name="layers" size={16} />, run: () => navigate({ page: "activity", view: "skills" }), keywords: "skills refinements growth learned" },
       { id: "go-settings", group: "Go to", label: "Settings", icon: <Icon name="settings" size={16} />, run: () => navigate({ page: "settings" }), keywords: "preferences theme" },
     );
     for (const e of employees) {
       out.push(
-        { id: `open-${e.id}`, group: "Team", label: e.name, hint: e.title, icon: <Avatar name={e.name} hue={e.hue} size={18} />, run: () => openChat(e.id), keywords: e.title },
+        { id: `open-${e.id}`, group: "Team", label: e.name, hint: e.title, icon: <Avatar name={e.name} hue={e.hue} size={18} />, run: () => openChat(e.id, conversationFor(e, talks)), keywords: e.title },
         {
           id: `run-now-${e.id}`, group: "Run now", label: `Run ${e.name} now`, hint: e.presence === "working" ? "Working, will queue" : undefined, icon: <Icon name="play" size={16} />,
           run: () => call("run_now", { employeeId: e.id, instruction: null }).then(
@@ -164,7 +166,7 @@ export function CommandPalette({ onClose, api, leaving = false }: { onClose: () 
       });
     }
     return out;
-  }, [snap, api, index, found, dark]);
+  }, [snap, api, index, found, dark, talks]);
 
   const results = useMemo(() => {
     const needle = q.trim().toLowerCase();

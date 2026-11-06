@@ -9,11 +9,10 @@ import { UpdateCard } from "./components/UpdateCard";
 import { UsageCard } from "./components/UsageCard";
 import { workLabel } from "./components/RunRow";
 import { Avatar, Roll } from "./components/ui";
-import { usePruneMarks, useStatuses } from "./components/conversation/useStatuses";
+import { conversationFor, usePruneMarks, useStatuses } from "./components/conversation/useStatuses";
 import { decisions } from "./lib/decisions";
 import { firstName, initials, MOD } from "./lib/format";
-import { openMember, openYou, useRoute } from "./lib/router";
-import { conversationOf, threadFocus } from "./lib/threads";
+import { openChat, openYou, useRoute } from "./lib/router";
 import { YOU_ID } from "./lib/org";
 import { useOrg, useProposals } from "./lib/hooks";
 import { dragRegion, macChrome } from "./lib/chrome";
@@ -22,11 +21,10 @@ import { usePending } from "./lib/pending";
 import { useScrollFade } from "./lib/scrollFade";
 import { useRail } from "./lib/sidebar";
 import { OrgScreen } from "./screens/Org";
-import { ConversationScreen } from "./screens/Conversation";
+import { ConversationScreen, RunRedirect } from "./screens/Conversation";
 import { InboxScreen } from "./screens/Inbox";
 import { ActivityScreen } from "./screens/Activity";
 import { SettingsScreen } from "./screens/Settings";
-import { RunView } from "./screens/RunView";
 
 type Sheet =
   | { kind: "hire"; managerId: string | null; template: string | null }
@@ -123,33 +121,31 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
     case "inbox": page = <InboxScreen />; break;
     case "activity": page = <ActivityScreen view={route.view} />; break;
     case "settings": page = <SettingsScreen />; break;
-    case "run": page = <RunView key={route.runId} runId={route.runId} />; break;
+    case "run": page = <RunRedirect key={route.runId} runId={route.runId} />; break;
   }
   const memberSelected = route.page === "org" ? route.memberId : null;
-  // Now: only the employees who are working, waiting to start or need you, each with their state in a word; what they
-  // are on is in the row's tooltip. Everyone else is one click away in the chart and the palette. A click opens the
-  // first of their live work that is a conversation.
+  // Your team: every employee, in the chart's order, each a click from their conversation (the one that matters now:
+  // what needs you, what they are working on, else their newest). Where each stands is one dot on their face, said in
+  // words in the row's name and tooltip; the Inbox (Needs you) gathers what needs you. People are in the org chart.
+  const open = route.page === "chat" ? route.employeeId : null;
   const employees = snap?.employees ?? [];
   const people = snap?.people ?? [];
-  const now = employees.filter((e) => e.presence !== "idle").map((e) => {
+  const team = employees.map((e) => {
     const what = e.live.map((r) => workLabel(r, employees, people));
     const on = (state: string) => what.filter((_, i) => e.live[i].state === state).join(", ");
     const [running, queued] = [on("running"), on("queued")];
     const doing = [running && `working on ${running}`, queued && `up next: ${queued}`].filter(Boolean).join("; ");
     const failed = e.presence === "attention" && (e.lastRun?.state === "failed" || e.lastRun?.state === "lost");
-    const state = e.presence === "working" ? "Working" : e.presence === "queued" ? "Up next" : failed ? "Failed" : "Needs you";
-    const tone = e.presence === "working" ? "live" : e.presence === "queued" ? "wait" : "attn";
+    const state = e.presence === "working" ? "working" : e.presence === "queued" ? "up next" : e.presence === "attention" ? (failed ? "failed" : "needs you") : null;
+    const tone = e.presence === "working" ? "live" : e.presence === "queued" ? "wait" : e.presence === "attention" ? "attn" : null;
     const first = firstName(e.name);
+    const said = doing || state;
     return {
-      id: e.id, name: e.name, first, hue: e.hue, state, tone,
-      label: `${e.name}, ${doing || state.toLowerCase()}`,
-      tip: collapsed ? `${first}: ${doing || state.toLowerCase()}` : doing ? doing.charAt(0).toUpperCase() + doing.slice(1) : undefined,
-      focus: (() => { const root = e.live.map(conversationOf).find((r) => r !== null); return root ? threadFocus(root) : null; })(),
+      e, first, tone,
+      label: said ? `${e.name}, ${said}` : e.name,
+      tip: said ? `${collapsed ? `${first}: ` : ""}${said.charAt(0).toUpperCase() + said.slice(1)}` : collapsed ? first : undefined,
     };
   });
-  const everyone = employees.length + people.length;
-  const rest = everyone - now.length;
-
   return (
     <ShellCtx.Provider value={api}>
       <div className={`shell ${collapsed ? "shell-collapsed" : ""}`}>
@@ -167,23 +163,19 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
             <span className="kbd side-kbd">{MOD} K</span>
           </button>
           <nav ref={navRef} className="side-nav scroll-fade">
+            <NavItem href="#/inbox" icon="inbox" label="Needs you" active={route.page === "inbox"} badge={inboxCount || null} collapsed={collapsed} />
             <NavItem href="#/org" icon="org" label="Org chart" active={route.page === "org"} collapsed={collapsed} />
-            <NavItem href="#/inbox" icon="inbox" label="Inbox" active={route.page === "inbox"} badge={inboxCount || null} collapsed={collapsed} />
-            <NavItem href="#/activity" icon="activity" label="Activity" active={route.page === "activity" || route.page === "run"} collapsed={collapsed} />
-            {everyone ? <div className="side-label">Now</div> : null}
+            {team.length ? <div className="side-label">Team</div> : null}
             <div className="side-team">
-              {now.map((m) => (
-                <button key={m.id} className={`side-item side-member ${memberSelected === m.id ? "side-item-on" : ""}`} onClick={() => openMember(m.id, m.focus ? "chat" : null, m.focus)} data-tip={m.tip} aria-label={m.label}>
+              {team.map((m) => (
+                <button key={m.e.id} className={`side-item side-member ${open === m.e.id ? "side-item-on" : ""}`} onClick={() => openChat(m.e.id, conversationFor(m.e, items))} data-tip={m.tip} aria-label={m.label} aria-current={open === m.e.id ? "page" : undefined}>
                   <span className="side-member-av">
-                    <Avatar name={m.name} hue={m.hue} size={20} />
-                    <span className={`side-dot side-dot-${m.tone}`} />
+                    <Avatar name={m.e.name} hue={m.e.hue} size={20} />
+                    {m.tone ? <span className={`side-dot side-dot-${m.tone}`} /> : null}
                   </span>
                   <span className="side-text">{m.first}</span>
-                  <span className={`side-state side-state-${m.tone}`}>{m.state}</span>
                 </button>
               ))}
-              {everyone && !now.length ? <span className="side-item side-none"><span className="side-text">Nobody is working</span></span> : null}
-              {rest > 0 ? <a href="#/org" className="side-item side-more"><span className="side-text">{now.length ? `${rest} more` : rest} in the org chart</span></a> : null}
             </div>
           </nav>
           <div className="side-bottom">

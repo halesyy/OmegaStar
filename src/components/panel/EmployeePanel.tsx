@@ -4,12 +4,10 @@ import type { EmployeeView } from "../../api/types";
 import { elapsedMs, firstName, relTime } from "../../lib/format";
 import { useNow, useOrg } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
-import { openMember, openRun, openWork, type PanelTab } from "../../lib/router";
-import { Conversation } from "../../screens/Conversation";
-import { ConversationSwitcher } from "../conversation/ConversationSwitcher";
+import { openChat, openMember, openRun, openWork, type PanelTab } from "../../lib/router";
+import { conversationFor, useStatuses } from "../conversation/useStatuses";
 import { Icon } from "../Icon";
 import { employeeState, numberParts, shortTask, type MemberState } from "../OrgChart";
-import { conversationOf, parseThreadFocus } from "../../lib/threads";
 import { Avatar, Popover, Roll, Tabs } from "../ui";
 import { WorkTab } from "./WorkTab";
 import { SkillsTab } from "./SkillsTab";
@@ -17,20 +15,16 @@ import { ProfileTab } from "./ProfileTab";
 import "./Panel.css";
 
 const TABS: { id: PanelTab; label: string }[] = [
-  { id: "chat", label: "Chat" }, { id: "work", label: "Work" }, { id: "skills", label: "Skills" }, { id: "profile", label: "Profile" },
+  { id: "work", label: "Work" }, { id: "skills", label: "Skills" }, { id: "profile", label: "Profile" },
 ];
 
 /**
  * An employee's page beside the outline: who they are, one band saying what they are doing now, the tabs, and the
- * body. The body is a full-height, full-width box with no padding; on Chat the conversation fills it, Live work
- * column included.
- *
- * The tab row's right end is a slot (`.mpage-slot`, `data-slot="conversation-switcher"`): on the Chat tab it holds the
- * conversation switcher (`ConversationSwitcher`): the open conversation, the others, and its actions.
+ * body. You talk to them in their conversation: Message opens it, on what matters now.
  */
 export function EmployeePanel({ employee: e, tab, focus, short, onClose }: { employee: EmployeeView; tab: PanelTab | null; focus: string | null; short: boolean; onClose: () => void }) {
   const { snap } = useOrg();
-  const current = tab ?? "chat";
+  const current = tab ?? "work";
   const managerName = e.managerId
     ? snap?.employees.find((x) => x.id === e.managerId)?.name ?? snap?.people.find((x) => x.id === e.managerId)?.name ?? "None"
     : null;
@@ -44,17 +38,13 @@ export function EmployeePanel({ employee: e, tab, focus, short, onClose }: { emp
       <PageHead
         av={<Avatar name={e.name} hue={e.hue} size={short ? 32 : 56} />}
         name={e.name} role={fold ? `${e.title} · ${quietLine(e, s)}` : `${e.title} · Reports to ${managerName ?? "you"}`}
-        actions={<RunNow e={e} />} onClose={onClose}
+        actions={<><Message e={e} /><RunNow e={e} /></>} onClose={onClose}
       />
-      {fold ? null : <Band e={e} tab={current} focus={focus} />}
+      {fold ? null : <Band e={e} tab={current} />}
       <div className="mpage-tabs">
         <Tabs tabs={TABS} value={current} onChange={(t) => openMember(e.id, t, null, true)} />
-        <div className="mpage-slot" data-slot="conversation-switcher">
-          {current === "chat" ? <ConversationSwitcher e={e} focus={focus} /> : null}
-        </div>
       </div>
       <div key={current} className="mpage-body enter-rise">
-        {current === "chat" ? <Conversation e={e} focus={focus} variant="panel" /> : null}
         {current === "work" ? <WorkTab e={e} /> : null}
         {current === "skills" ? <SkillsTab e={e} focus={focus} /> : null}
         {current === "profile" ? <ProfileTab e={e} onGone={onClose} /> : null}
@@ -95,10 +85,9 @@ function quietLine(e: EmployeeView, s: MemberState, now = Date.now()): string {
 /** One full-width band, one line: on the left what they are doing now (or what is true instead), on the right their
  *  number, and their last report only when it is a few words ("on track"); a longer report is on the Work tab. The task
  *  is its short name, the one the chart card uses, so it never wraps or cuts; what is up next is on the Work tab. Nothing
- *  is said twice: on the Chat tab, when the open conversation is that work, the band gives the state and the time only
- *  (the conversation names itself); on the Work tab, a failure has its own card, so the band gives the state only.
- *  Working is ultramarine, needing you is coral, the rest is quiet. */
-function Band({ e, tab, focus }: { e: EmployeeView; tab: PanelTab; focus: string | null }) {
+ *  is said twice: on the Work tab, a failure has its own card, so the band gives the state only. Working is
+ *  ultramarine, needing you is coral, the rest is quiet. */
+function Band({ e, tab }: { e: EmployeeView; tab: PanelTab }) {
   const { snap } = useOrg();
   const employees = snap?.employees ?? [];
   const people = snap?.people ?? [];
@@ -113,12 +102,10 @@ function Band({ e, tab, focus }: { e: EmployeeView; tab: PanelTab; focus: string
   let left: React.ReactNode;
   if (s.tone === "live" || s.tone === "wait") {
     const run = s.run;
-    const root = run ? conversationOf(run) : null;
-    const here = tab === "chat" && !!root && parseThreadFocus(focus) === root;
     left = (
       <>
         <span className="band-word">{s.word}</span>
-        {here || !s.about ? null : (
+        {!s.about ? null : (
           <>
             <span className="band-sep" aria-hidden>·</span>
             <button className="band-what" onClick={() => run && openWork(run)} data-tip={s.about}>{shortTask(s.about)}</button>
@@ -162,6 +149,16 @@ function Band({ e, tab, focus }: { e: EmployeeView; tab: PanelTab; focus: string
 function lastReportWords(text: string): string | null {
   const first = text.split(/(?<=[.!?])\s/)[0].replace(/[.!?]+$/, "").trim();
   return first.length > 0 && first.length <= 24 ? first.charAt(0).toLowerCase() + first.slice(1) : null;
+}
+
+/** Their conversation, on what matters now: what needs you, what they are working on, else the newest. */
+function Message({ e }: { e: EmployeeView }) {
+  const { items } = useStatuses();
+  return (
+    <button className="btn btn-sm btn-primary" onClick={() => openChat(e.id, conversationFor(e, items))}>
+      <Icon name="chat" size={13} /> Message
+    </button>
+  );
 }
 
 function RunNow({ e }: { e: EmployeeView }) {

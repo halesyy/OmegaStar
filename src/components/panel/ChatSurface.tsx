@@ -1,22 +1,16 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage } from "../../api/client";
 import type { EmployeeView, NewAttachment } from "../../api/types";
-import { firstName } from "../../lib/format";
+import { firstName, MOD } from "../../lib/format";
 import { toast } from "../../lib/toasts";
 import type { LiveRun } from "../../lib/runs";
+import { useComposerAsks } from "../../lib/composer";
 import { getDraft, setDraft } from "../../lib/drafts";
-import { useOrg } from "../../lib/hooks";
-import { curve, ms, reducedMotion } from "../../lib/motion";
+import { ms, reducedMotion } from "../../lib/motion";
 import { Icon } from "../Icon";
 import { ConfirmButton, ErrorNote } from "../ui";
-import { LiveStrip, LiveWork, WorkFocus, WorkSheet } from "../conversation/LiveWork";
-import { workOf } from "../conversation/work";
 import type { AimTarget } from "../conversation/CardView";
 import "./ChatTab.css";
-
-/** Narrower than this, the Live work column folds into a strip on the composer and opens as a sheet (the 980 window, a
- *  narrow panel). */
-const COLUMN_MIN = 960;
 
 const MAX_FILES = 10;
 const MAX_FILE_MB = 20;
@@ -44,30 +38,26 @@ export type ChatSurfaceHandle = {
 /**
  * The surface a conversation with an employee happens on: the scrolling transcript (`children`), a drop
  * zone for files, and the composer. Every conversation shares it; what differs is where a message goes
- * (`onSend`) and what sits in the composer's bar (`actions`). While a turn is in flight the
- * composer stays open: what you send reaches the employee as they work.
+ * (`onSend`). The composer is the field and one button: Send, or Stop while a turn is in flight and the field is
+ * empty. While a turn is in flight the composer stays open: what you send reaches the employee as they work. Files come
+ * in by dropping or pasting them, or from the conversation's menu (`useComposerAsks`).
  */
 export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   e: EmployeeView;
   /** A turn is in flight. */
   busy: boolean;
-  /** The turn in flight, for its sub-agents and the Stop button. */
+  /** The turn in flight, for the Stop button. */
   live?: LiveRun;
   placeholder: string;
   /** Said above the composer once you start typing: "This won't answer the card above." */
   cardNote?: string | null;
-  /** The conversation's runs, for the Live work column beside the talk (or its strip, when narrow). "strip" never shows
-   *  the column, as in the Inbox's one open item. */
-  work?: { turns: LiveRun[]; mode?: "auto" | "strip" } | null;
   draftKey: string;
   /** Changes as content streams, so the view stays pinned to the bottom unless the reader scrolled up. */
   scrollKey: string;
   onSend: (text: string, attachments: NewAttachment[]) => Promise<void>;
-  /** A second way to send, "Send & done" (also Ctrl or ⌘ + Enter): the message goes and the conversation is put away. */
+  /** A second way to send, "Send & done" (Ctrl or ⌘ + Enter): the message goes and the conversation is put away. */
   onSendDone?: (text: string, attachments: NewAttachment[]) => Promise<void>;
   onStop?: () => Promise<void>;
-  /** Extra buttons in the bar, after the paperclip. */
-  actions?: ReactNode;
   /** The composer takes focus when it appears. Off in an Inbox row, so its keys keep working until you click in. */
   autoFocus?: boolean;
   /** The card the composer is aimed at changed (its key, or null). */
@@ -75,7 +65,7 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   /** Open at the end of the conversation and keep to it (a thread); off for a page read from the top (a new one). */
   pin?: boolean;
   children: ReactNode;
-}>(function ChatSurface({ e, busy, live, placeholder, cardNote, work, draftKey, scrollKey, onSend, onSendDone, onStop, actions, autoFocus = true, onAim, pin = true, children }, ref) {
+}>(function ChatSurface({ e, busy, live, placeholder, cardNote, draftKey, scrollKey, onSend, onSendDone, onStop, autoFocus = true, onAim, pin = true, children }, ref) {
   const [text, setText] = useState(() => getDraft(draftKey));
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -113,49 +103,6 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   }, []);
   const name = firstName(e.name);
   const hasContent = !!text.trim() || files.length > 0;
-  const { snap } = useOrg();
-  const employees = snap?.employees;
-  const model = useMemo(() => (work ? workOf(work.turns, employees ?? []) : null), [work, employees]);
-  const hasWork = !!model && (model.cards.length > 0 || model.turn.length > 0 || model.earlier.length > 0);
-  const liveWork = !!model && model.cards.length > 0;
-
-  // Column or strip, from the surface's own width: the same in the full window and in a person's panel.
-  const root = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
-    const el = root.current;
-    if (!el) return;
-    setWidth(el.clientWidth);
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  // One rule for the column: where it fits, it docks beside the talk while anything is live, or when you open it from
-  // a chip, and stays until you close it or leave; with nothing live it is not there, so a finished conversation always
-  // opens with the talk in one place. Where it does not fit, it is the strip on the composer and opens as a sheet.
-  const wide = work?.mode !== "strip" && width >= COLUMN_MIN;
-  const [docked, setDocked] = useState(liveWork);
-  const [closedByYou, setClosedByYou] = useState(false);
-  useEffect(() => { if (liveWork && !closedByYou) setDocked(true); }, [liveWork, closedByYou]);
-  const column = wide && docked && hasWork;
-  const [sheet, setSheet] = useState(false);
-  useEffect(() => { if (wide) setSheet(false); }, [wide]);
-  const [reveal, setReveal] = useState<{ key: string; n: number } | null>(null);
-  const openWork = useCallback(() => {
-    if (wide) { setDocked(true); setClosedByYou(false); } else setSheet(true);
-  }, [wide]);
-  const focusWork = useCallback((key: string) => {
-    setReveal((r) => ({ key, n: (r?.n ?? 0) + 1 }));
-    openWork();
-  }, [openWork]);
-  const closeSheet = useCallback(() => setSheet(false), []);
-  const closeColumn = useCallback(() => {
-    // Hide's tooltip leaves with the column.
-    (document.activeElement as HTMLElement | null)?.blur();
-    setDocked(false);
-    setClosedByYou(true);
-  }, []);
-
   // The composer aimed at a card: what you write answers that card.
   const [aim, setAimState] = useState<AimTarget | null>(null);
   const onAimRef = useRef(onAim);
@@ -166,47 +113,6 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
     if (t) requestAnimationFrame(() => input.current?.focus());
   }, []);
 
-  // The column opening or closing is one resizing layout: it slides in from (or out to) the right edge by its own width
-  // while the talk moves over to make room on the same clock, never jumping. On opening a conversation it is simply
-  // there. A closing column stays mounted, laid over the edge, until it has slid out.
-  const columnEl = useRef<HTMLDivElement>(null);
-  const talkEl = useRef<HTMLDivElement>(null);
-  const hadColumn = useRef<boolean | null>(null);
-  const [leaving, setLeaving] = useState(false);
-  // Known in the same render the column closes, so it stays mounted to slide out.
-  const [prevColumn, setPrevColumn] = useState(column);
-  if (prevColumn !== column) {
-    setPrevColumn(column);
-    setLeaving(!column && hadColumn.current === true);
-  }
-  const talkLeft = useRef<number | null>(null);
-  // Where the talk is laid out, ignoring any move in flight (offsetLeft does not include transforms).
-  const readLeft = () => talkEl.current?.querySelector<HTMLElement>(".chat-inner")?.offsetLeft ?? null;
-  useLayoutEffect(() => {
-    const was = hadColumn.current;
-    if (width) hadColumn.current = column;
-    if (was === null || was === column || !width) return;
-    const reduced = reducedMotion();
-    const dur = reduced ? ms("--d-fade") : ms("--d-panel");
-    const ease = reduced ? "linear" : curve("--ease-move");
-    // The talk: from where it was to where it now sits, as a transform on one clock with the column.
-    const before = talkLeft.current, after = readLeft();
-    if (!reduced && before !== null && after !== null && Math.abs(before - after) > 0.5) {
-      const dx = before - after;
-      for (const el of talkEl.current?.querySelectorAll<HTMLElement>(".chat-inner, .composer-wrap") ?? []) {
-        el.animate([{ transform: `translateX(${dx}px)` }, { transform: "none" }], { duration: dur, easing: ease });
-      }
-    }
-    const col = columnEl.current;
-    if (column) {
-      col?.animate(reduced ? [{ opacity: 0 }, { opacity: 1 }] : [{ transform: "translateX(100%)" }, { transform: "none" }], { duration: dur, easing: ease, fill: "backwards" });
-    } else if (col) {
-      const a = col.animate(reduced ? [{ opacity: 1 }, { opacity: 0 }] : [{ transform: "none" }, { transform: "translateX(100%)" }], { duration: dur, easing: ease, fill: "forwards" });
-      void a.finished.then(() => setLeaving(false), () => setLeaving(false));
-    } else setLeaving(false);
-  }, [column, width]);
-  // Where the talk sits, read after every layout, so the next column change knows where it moves from.
-  useLayoutEffect(() => { talkLeft.current = readLeft(); });
   // A turn takes messages until its result; after that a message waits to be its next turn. A turn the
   // usage limit sent back to the queue starts again at a new init, so only a result after it counts.
   const attempt = live ? live.events.slice(live.events.map((ev) => ev.type).lastIndexOf("init") + 1) : [];
@@ -225,6 +131,16 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   }), [setAim]);
 
   useEffect(() => { setDraft(draftKey, text); }, [draftKey, text]);
+
+  // The conversation's menu: words to start from, or the file picker.
+  useComposerAsks(draftKey, (ask) => {
+    if (ask.type === "attach") { picker.current?.click(); return; }
+    setText(ask.text);
+    requestAnimationFrame(() => {
+      const el = input.current;
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    });
+  });
 
   // Previews are object URLs: release them when they leave the composer.
   const previews = useRef(new Set<string>());
@@ -350,9 +266,8 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   };
 
   return (
-    <div ref={root} className={`chat ${column ? "chat-with-work" : ""}`}>
+    <div className="chat">
     <div
-      ref={talkEl}
       className={`chat-talk ${dragging ? "chat-dragging" : ""}`}
       onDragOver={(ev) => {
         if (!ev.dataTransfer.types.includes("Files") || sending) return;
@@ -375,7 +290,7 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
         }}>
         <div className="chat-scroll-inner">
-          <WorkFocus.Provider value={hasWork ? focusWork : null}>{children}</WorkFocus.Provider>
+          {children}
           <div ref={spacer} className="chat-land" aria-hidden />
         </div>
       </div>
@@ -383,7 +298,6 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
         {sendError ? <ErrorNote text={sendError} /> : null}
         {cardNote && text.trim() && !aim ? <p className="composer-note enter-fade" role="status"><Icon name="alert" size={13} /> {cardNote}</p> : null}
         <div className="composer-stack">
-        {!column && model && liveWork ? <LiveStrip cards={model.cards} open={sheet} onShow={openWork} max={width < 420 ? 1 : width >= 640 ? 3 : 2} /> : null}
         {aim ? (
           <div className="composer-aim enter-fade">
             <Icon name="reply" size={14} />
@@ -407,45 +321,39 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
               ))}
             </div>
           ) : null}
-          <textarea
-            ref={input} className="composer-input" value={text} disabled={sending} rows={1}
-            placeholder={aim ? `Your answer for ${aim.name}` : !busy ? placeholder : steerable ? `Message ${name}. They'll see it as they work.` : `Message ${name}. It goes to them as their next turn.`}
-            onChange={(ev) => setText(ev.target.value)}
-            onPaste={(ev) => {
-              const pasted = [...ev.clipboardData.files];
-              if (pasted.length) { ev.preventDefault(); addFiles(pasted); }
-            }}
-            onKeyDown={(ev) => {
-              if (ev.key === "Escape" && aim) { ev.preventDefault(); ev.stopPropagation(); setAim(null); return; }
-              if (ev.key === "Enter" && !ev.shiftKey && !ev.nativeEvent.isComposing) { ev.preventDefault(); void send(onSendDone && !aim && (ev.metaKey || ev.ctrlKey) ? onSendDone : onSend); }
-            }}
-            aria-label={placeholder}
-          />
-          <div className="composer-bar">
+          <div className="composer-row">
+            <textarea
+              ref={input} className="composer-input" value={text} disabled={sending} rows={1}
+              placeholder={aim ? `Your answer for ${aim.name}` : !busy ? placeholder : steerable ? `Message ${name}. They'll see it as they work.` : `Message ${name}. It goes to them as their next turn.`}
+              onChange={(ev) => setText(ev.target.value)}
+              onPaste={(ev) => {
+                const pasted = [...ev.clipboardData.files];
+                if (pasted.length) { ev.preventDefault(); addFiles(pasted); }
+              }}
+              onKeyDown={(ev) => {
+                if (ev.key === "Escape" && aim) { ev.preventDefault(); ev.stopPropagation(); setAim(null); return; }
+                if (ev.key === "Enter" && !ev.shiftKey && !ev.nativeEvent.isComposing) { ev.preventDefault(); void send(onSendDone && !aim && (ev.metaKey || ev.ctrlKey) ? onSendDone : onSend); }
+              }}
+              aria-label={placeholder}
+            />
             <input ref={picker} type="file" multiple hidden onChange={(ev) => { addFiles([...(ev.target.files ?? [])]); ev.target.value = ""; }} />
-            <button className="btn btn-ghost btn-icon btn-sm" aria-label="Attach files" data-tip="Attach files, or paste a screenshot" onClick={() => picker.current?.click()} disabled={sending || !!aim}><Icon name="paperclip" size={14} /></button>
-            {actions}
-            <span className="grow" />
-            {live && onStop ? (
-              <ConfirmButton label="Stop" icon="stop" className="btn btn-ghost" size="btn-sm" question={`Stop ${name}?`} confirmLabel="Stop it" onConfirm={onStop} />
-            ) : null}
-            {onSendDone && hasContent && !aim ? (
-              <button className="btn btn-sm" data-tip="Send, and bring it back only if the answer needs you (Ctrl+Enter)" disabled={sending} onClick={() => void send(onSendDone)}>
-                Send &amp; done
-              </button>
-            ) : null}
-            <button className={`btn btn-icon btn-sm composer-send ${hasContent ? "composer-send-ready" : ""}`} aria-label={aim ? "Send your answer" : "Send"} data-tip={aim ? "Answers the card (Enter)" : "Send (Enter). Shift+Enter adds a new line."} disabled={sending || !hasContent} onClick={() => void send()}>
-              <Icon name="send" size={15} strokeWidth={1.75} />
-            </button>
+            <div className="composer-bar">
+              {live && onStop && !hasContent && !aim ? (
+                <ConfirmButton label="" ariaLabel={`Stop ${name}`} tip={`Stop ${name}`} icon="stop" className="btn btn-icon composer-send composer-stop" size="btn-sm" question={`Stop ${name}?`} confirmLabel="Stop it" onConfirm={onStop} />
+              ) : (
+                <button
+                  className={`btn btn-icon btn-sm composer-send ${hasContent ? "composer-send-ready" : ""}`} aria-label={aim ? "Send your answer" : "Send"} disabled={sending || !hasContent} onClick={() => void send()}
+                  data-tip={aim ? "Answers the card (Enter)" : onSendDone ? `Send (Enter). ${MOD} Enter sends and puts it away until the answer needs you.` : "Send (Enter). Shift+Enter adds a new line."}
+                >
+                  <Icon name="send" size={15} strokeWidth={1.75} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
         </div>
       </div>
     </div>
-      {(column || leaving) && model ? <div ref={columnEl} className={`chat-work ${column ? "" : "chat-work-leaving"}`}><LiveWork model={model} reveal={reveal} onHide={closeColumn} /></div> : null}
-      {!wide && model && hasWork ? (
-        <WorkSheet open={sheet} onClose={closeSheet}><LiveWork model={model} reveal={reveal} onClose={closeSheet} /></WorkSheet>
-      ) : null}
     </div>
   );
 });

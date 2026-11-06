@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
-import type { EmployeeView, NewAttachment, Run, RunEvent, Thread } from "../../api/types";
+import type { EmployeeView, NewAttachment, Run, Thread } from "../../api/types";
 import { firstName, relTime, whenShort } from "../../lib/format";
 import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
 import { snoozePresets } from "../../lib/status";
@@ -15,14 +15,13 @@ import { Markdown } from "../Markdown";
 import { Visual } from "../Visual";
 import { ErrorNote, Popover, Skeleton } from "../ui";
 import { ChatSurface, type ChatSurfaceHandle } from "../panel/ChatSurface";
-import { Refs, Turn, Waiting, WhoLine } from "../panel/ChatTurn";
-import { chipsOf, partsOf } from "./work";
-import { toItems } from "../Transcript";
+import { Turn, Waiting, WhoLine } from "../panel/ChatTurn";
+import { WorkLine } from "./WorkLine";
+import type { LiveRun } from "../../lib/runs";
 import "../panel/ChatTab.css";
 
-const TEACH_PREFIX = "I want to teach you a new task: ";
 /** What "Where are we?" sends as your message. */
-const WHERE_ARE_WE = "Where are we? In three short lines: what is done, what is next, and what is waiting on whom.";
+export const WHERE_ARE_WE = "Where are we? In three short lines: what is done, what is next, and what is waiting on whom.";
 
 /**
  * A thread on one of the employee's reports, or a conversation you started, read as a conversation: the report
@@ -32,7 +31,7 @@ const WHERE_ARE_WE = "Where are we? In three short lines: what is done, what is 
  * screen, an Inbox row) holds the thread's runs (`thread`), and the rest of an Inbox row (`row`) when it leads one.
  * With `recent` it opens on the latest exchange, and the turns before it wait behind "Show N earlier".
  */
-export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = true, recent = false, work = "auto" }: {
+export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = true, recent = false }: {
   e: EmployeeView;
   rootId: string;
   thread: Conversation;
@@ -44,14 +43,11 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   autoFocus?: boolean;
   /** Show only the latest exchange until you ask for the rest. */
   recent?: boolean;
-  /** "strip": never the Live work column beside the talk, only its strip and sheet (the Inbox's one open item). */
-  work?: "auto" | "strip";
 }) {
   const { snap } = useOrg();
   const { turns, error, reload, appendRun } = thread;
   const surface = useRef<ChatSurfaceHandle>(null);
   const [all, setAll] = useState(false);
-  const [recapping, setRecapping] = useState(false);
   const [aimed, setAimed] = useState<string | null>(null);
   const aimer = useMemo(() => ({ aim: (t: Parameters<ChatSurfaceHandle["aim"]>[0]) => surface.current?.aim(t), aimed }), [aimed]);
   const root = turns?.[0]?.run;
@@ -70,10 +66,6 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const stop = async () => {
     if (!live) return;
     try { await call("cancel_run", { runId: live.run.id }); } catch (err) { toast(errorMessage(err), "err"); }
-  };
-  const recap = async () => {
-    setRecapping(true);
-    try { await send(WHERE_ARE_WE, []); } catch (err) { toast(errorMessage(err), "err"); } finally { setRecapping(false); }
   };
 
   if (error) {
@@ -118,28 +110,19 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const streak = !!row && isStreak(row);
   // A failure in a streak with no report of its own says nothing a turn could: its steps join the streak's error.
   const folded = streak && !root.summary && didNotFinish(root);
-  const rootChips = folded ? partsOf(toItems(turns[0].events)).flatMap((p) => chipsOf(p, { ...turns[0], live: "" }, snap?.employees ?? [])) : [];
 
   return (
     <div className="thread">
       <CardAim.Provider value={aimer}>
       <ChatSurface
-        ref={surface} e={e} busy={!!live} live={live} draftKey={`thread:${rootId}`} scrollKey={liveKey} work={{ turns, mode: work }} onAim={setAimed}
+        ref={surface} e={e} busy={!!live} live={live} draftKey={`thread:${rootId}`} scrollKey={liveKey} onAim={setAimed}
         placeholder={placeholder} cardNote={carded ? "This won't answer the card above." : null} onSend={send} onSendDone={carded ? undefined : onSendDone ?? undefined} onStop={stop} autoFocus={autoFocus}
-        actions={(
-          <>
-            {live ? null : <button className="btn btn-ghost btn-sm" data-tip="Teach a new task" onClick={() => surface.current?.prefill(TEACH_PREFIX)}><Icon name="teach" size={13} /> <span className="btn-label">Teach a new task</span></button>}
-            <button className="btn btn-ghost btn-sm" disabled={recapping} data-tip="Where are we? A recap of what is done, what is next and what waits on whom" onClick={() => void recap()}>
-              <Icon name="checklist" size={13} /> <span className="btn-label">Where are we?</span>
-            </button>
-          </>
-        )}
       >
         <div className="chat-inner">
           {row && row.related.length ? <RowHistory t={row} employees={snap?.employees ?? []} people={snap?.people ?? []} retry={streak && retry && tail.id === root.id ? <RetryButton run={root} name={name} /> : null}
-            refs={folded && rootChips.length ? <Refs chips={rootChips} e={e} runId={root.id} /> : null} /> : null}
+            refs={folded ? <WorkLine turn={turns[0]} e={e} /> : null} /> : null}
           {earlier ? <button className="btn btn-ghost btn-sm thread-earlier" onClick={() => setAll(true)}>Show {earlier} earlier</button> : null}
-          {showReport && !folded ? <ReportTurn root={root} events={turns[0].events} e={e} blocked={tail.id === root.id && !archived} archived={archived} retry={retry && tail.id === root.id && !streak} streak={streak} earlier={visible.length > 0 && !waiting(root)} /> : null}
+          {showReport && !folded ? <ReportTurn turn={turns[0]} e={e} blocked={tail.id === root.id && !archived} archived={archived} retry={retry && tail.id === root.id && !streak} streak={streak} earlier={visible.length > 0 && !waiting(root)} /> : null}
           {visible.map((t, i) => (
             <Turn key={t.run.id} turn={t} e={e} withReport earlier={quiet(t.run, i)} latestMine={i === latestMine} footer={(
               <>
@@ -180,27 +163,25 @@ function Flags({ run }: { run: Run }) {
   );
 }
 
-/** The report that started the thread, as the employee's first message: who and when, one line of chips for the work
- *  behind it, the pages its run showed, the report, then what it asks you, so you read why before you answer. `retry`:
- *  it did not finish and nothing came after it, so it can be tried again. */
-function ReportTurn({ root, events, e, blocked, archived, retry, streak = false, earlier = false }: {
-  root: Run; events: RunEvent[]; e: EmployeeView; blocked: boolean; archived: boolean; retry: boolean;
+/** The report that started the thread, as the employee's first message: who and when, its work line, the pages its run
+ *  showed, the report, then what it asks you, so you read why before you answer. `retry`: it did not finish and nothing
+ *  came after it, so it can be tried again. */
+function ReportTurn({ turn, e, blocked, archived, retry, streak = false, earlier = false }: {
+  turn: LiveRun; e: EmployeeView; blocked: boolean; archived: boolean; retry: boolean;
   /** A failure in a streak: the streak above says the error once, with Retry. */
   streak?: boolean;
   /** Replies follow it: it steps back so the latest exchange leads. */
   earlier?: boolean;
 }) {
-  const { snap } = useOrg();
+  const root = turn.run;
   const failed = didNotFinish(root);
-  const live = { run: root, events, live: "", children: [], tasks: [], transcriptGone: false };
-  const chips = partsOf(toItems(events)).flatMap((p) => chipsOf(p, live, snap?.employees ?? []));
   return (
     <div className={`turn ${earlier ? "turn-earlier" : ""}`}>
       <div className="msg-emp">
         <WhoLine e={e} run={root} label={root.state === "queued" ? "up next" : root.endedAt ? `The report · ${relTime(root.endedAt)}` : isLive(root) ? undefined : "The report"} last={isLive(root)} />
         <div className="msg-body report-body">
-          <Refs chips={chips} e={e} runId={root.id} />
-          {events.map((ev, i) => ev.type === "visual" ? <Visual key={i} runId={root.id} id={ev.id} title={ev.title} from={firstName(e.name)} /> : null)}
+          <WorkLine turn={turn} e={e} />
+          {turn.events.map((ev, i) => ev.type === "visual" ? <Visual key={i} runId={root.id} id={ev.id} title={ev.title} from={firstName(e.name)} /> : null)}
           {root.summary ? <Markdown text={root.summary} />
             : root.state === "queued" ? <><p className="task-ask">{root.prompt}</p><Waiting run={root} e={e} /></>
             : root.state === "running" ? <p className="task-ask">{root.prompt}</p>

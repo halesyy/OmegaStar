@@ -92,23 +92,13 @@
 .side-member .av-person { box-shadow: inset 0 0 0 1.5px var(--side-muted); color: var(--side-ink); }
 /* Each row says its state in a word, right-aligned: white for working, quiet for up next, pale coral (after a still
    coral dot) for needs you or failed. On the rail, where there is no room for the word, a dot on the avatar says it. */
-.side-state { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
-.side-state-live { color: var(--side-ink); }
-.side-state-wait { color: var(--side-muted); }
-.side-state-attn { color: var(--side-attn); }
-.side-state-attn::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--err); box-shadow: 0 0 0 1.5px var(--side); }
-.side-item-on .side-state-wait { color: var(--side-fill-muted); }
-.side-item-on .side-state-attn { color: var(--side-fill-attn); }
-.side-item-on .side-state-attn::before { box-shadow: 0 0 0 1.5px var(--side-fill); }
-.side-dot { display: none; position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 2px var(--side); }
+/* Where each teammate stands: one dot on their face, ringed in the sidebar's ink. */
+.side-dot { position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 2px var(--side); }
 .side-item-on .side-dot, .side-member:hover .side-dot { box-shadow: 0 0 0 2px var(--side-fill); }
 .side-dot-live { background: var(--side-ink); }
 .side-dot-wait { background: var(--side); box-shadow: 0 0 0 2px var(--side), inset 0 0 0 1.5px var(--side-muted); }
+.side-item-on .side-dot-wait, .side-member:hover .side-dot-wait { background: var(--side-fill); box-shadow: 0 0 0 2px var(--side-fill), inset 0 0 0 1.5px var(--side-muted); }
 .side-dot-attn { background: var(--err); }
-.side-none { height: 28px; font-size: var(--t-sm); color: var(--side-muted); font-weight: 500; }
-.side-none:hover { background: none; }
-.side-more { height: 28px; font-size: var(--t-sm); color: var(--side-muted); font-weight: 500; }
-.side-more:hover { color: var(--side-ink); }
 .side-bottom { display: flex; flex-direction: column; gap: 2px; }
 
 .side-you {
@@ -129,9 +119,8 @@
 /* ------------------------------------------------ the rail: the sidebar collapsed to its icons and avatars */
 .shell-collapsed .side { padding-left: 8px; padding-right: 8px; align-items: center; }
 .shell-collapsed .side > *, .shell-collapsed .side-bottom > * { width: 44px; }
-.shell-collapsed .side-word, .shell-collapsed .side-text, .shell-collapsed .side-state, .shell-collapsed .side-kbd,
-.shell-collapsed .side-label, .shell-collapsed .side-you-text, .shell-collapsed .side-none, .shell-collapsed .side-more { display: none; }
-.shell-collapsed .side-dot { display: block; }
+.shell-collapsed .side-word, .shell-collapsed .side-text, .shell-collapsed .side-kbd,
+.shell-collapsed .side-label, .shell-collapsed .side-you-text { display: none; }
 .shell-collapsed .side-top { flex-direction: column; height: auto; gap: 10px; padding: 0; }
 .shell-collapsed .side-brand { height: 30px; }
 .shell-collapsed .side-search { justify-content: center; height: 34px; padding: 0; margin: 10px 0 8px; background: transparent; color: var(--side-ink); }
