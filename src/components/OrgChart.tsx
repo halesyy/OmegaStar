@@ -9,6 +9,8 @@ import "./OrgChart.css";
 
 export type OrgView = "everyone" | "employees" | "people";
 export type OrgChartHandle = { fit: () => void };
+/** How far a chart too wide for its window shrinks to fit before it pans instead. */
+const MIN_ZOOM = 0.65;
 type Org = { company: Company; employees: EmployeeView[]; people: PersonView[] };
 
 // ---------------------------------------------------------------- what a member's card and row say
@@ -175,19 +177,25 @@ export const OrgChart = forwardRef<OrgChartHandle, {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  // The chart as drawn when it fits. When it nearly fits in height, the levels close up and the margins tighten so the
-  // whole chart shows at once; an org wider than its window takes the denser form (short stacks in one column) and
-  // scrolls down, never shrinking its type.
-  const { layout, tight } = useMemo(() => {
+  // The chart as drawn when it fits. A team with no reports of its own stacks under its manager once it is three
+  // strong, or two when that is too wide for the window. Still too wide, it shrinks to fit, down to MIN_ZOOM, then
+  // pans. When it nearly fits in height, the levels close up and the margins tighten so the whole chart shows at once;
+  // taller than that, it scrolls down.
+  const { layout, tight, zoom } = useMemo(() => {
     const W = canvas?.w ?? frame.w, H = canvas?.h ?? frame.h - 170;
     const input = members.map((m) => ({ ...m, h: cardHeight(org, m.id, compact) }));
     const metrics = compact ? COMPACT : WIDE;
-    const plain = layoutOrg(input, metrics);
-    if (plain.width + 80 > W) return { layout: layoutOrg(input, metrics, { nest: true }), tight: false };
-    if (plain.height + 72 <= H) return { layout: plain, tight: false };
+    let stackMin = 3;
+    let plain = layoutOrg(input, metrics, { stackMin });
+    if (plain.width + 80 > W) {
+      stackMin = 2;
+      plain = layoutOrg(input, metrics, { stackMin });
+    }
+    if (plain.width + 80 > W) return { layout: plain, tight: false, zoom: Math.max(MIN_ZOOM, Math.floor(((W - 80) / plain.width) * 100) / 100) };
+    if (plain.height + 72 <= H) return { layout: plain, tight: false, zoom: 1 };
     const close: ChartMetrics = { ...metrics, gapY: Math.round(metrics.gapY * 0.6) };
-    const near = layoutOrg(input, close);
-    return near.height + 32 <= H ? { layout: near, tight: true } : { layout: plain, tight: false };
+    const near = layoutOrg(input, close, { stackMin });
+    return near.height + 32 <= H ? { layout: near, tight: true, zoom: 1 } : { layout: plain, tight: false, zoom: 1 };
   }, [members, org, compact, frame.w, frame.h, canvas]);
   const lit = useMemo(() => liveLines(employees), [employees]);
 
@@ -203,8 +211,8 @@ export const OrgChart = forwardRef<OrgChartHandle, {
   const framed = useRef<{ left: number; top: number } | null>(null);
   const focus = useRef(focusId);
   focus.current = focusId;
-  const shape = useRef({ layout, org });
-  shape.current = { layout, org };
+  const shape = useRef({ layout, org, zoom });
+  shape.current = { layout, org, zoom };
   const reveal = useCallback((smooth: boolean) => {
     const el = scroller.current;
     const canvas = el?.querySelector<HTMLElement>(".orgcanvas");
@@ -212,10 +220,11 @@ export const OrgChart = forwardRef<OrgChartHandle, {
     const behavior = smooth ? "smooth" : "auto";
     const box = el.getBoundingClientRect(), c = canvas.getBoundingClientRect();
     const ox = c.left - box.left + el.scrollLeft, oy = c.top - box.top + el.scrollTop;
-    const { layout: l, org: o } = shape.current;
-    const boxes = [...l.boxes.values()];
+    const { layout: l, org: o, zoom: z } = shape.current;
+    // Where each card is on screen, the chart's zoom applied.
+    const boxes = [...l.boxes.values()].map((b) => ({ ...b, x: b.x * z, y: b.y * z, w: b.w * z, h: b.h * z }));
     const W = el.clientWidth, H = el.clientHeight, maxX = el.scrollWidth - W, maxY = el.scrollHeight - H;
-    const node = focus.current ? l.boxes.get(focus.current) : undefined;
+    const node = focus.current ? boxes.find((b) => b.id === focus.current) : undefined;
     const go = (left: number, top: number) => {
       const l = Math.round(Math.max(0, Math.min(maxX, left))), t = Math.round(Math.max(0, Math.min(maxY, top)));
       framed.current = { left: l, top: t };
@@ -248,7 +257,7 @@ export const OrgChart = forwardRef<OrgChartHandle, {
     go(left, 0);
   }, []);
   useImperativeHandle(ref, () => ({ fit: () => { focus.current = null; reveal(true); } }), [reveal]);
-  useLayoutEffect(() => { reveal(false); }, [reveal, layout, frame.w, frame.h]);
+  useLayoutEffect(() => { reveal(false); }, [reveal, layout, zoom, frame.w, frame.h]);
 
   // The edges that hide part of the chart fade, so a card the window cuts reads as "more this way", never as sliced;
   // and the page hears whether you have moved away from the opening framing.
@@ -280,9 +289,9 @@ export const OrgChart = forwardRef<OrgChartHandle, {
   };
 
   return (
-    <div className="orgscroll" ref={scroller} data-fold="canvas" data-tight={tight || undefined}>
+    <div className="orgscroll" ref={scroller} data-fold="canvas" data-tight={tight || undefined} data-zoomed={zoom < 1 || undefined}>
       <div className="orgcanvas-wrap">
-        <div className="orgcanvas" style={{ width: layout.width, height: layout.height }}>
+        <div className="orgcanvas" style={{ width: layout.width, height: layout.height, zoom: zoom < 1 ? zoom : undefined }}>
           <svg className="org-edges" width={layout.width} height={layout.height} aria-hidden>
             {layout.edges.filter((e) => !lit.has(e.id)).map((e) => <path key={e.id} d={e.d} style={{ d: `path("${e.d}")` } as React.CSSProperties} />)}
             {/* A line carrying work is drawn last, over the shared trunk, in the colour of working. */}

@@ -86,8 +86,9 @@ export function startFold(root: HTMLElement, target: FoldTarget, selectedId: str
       else travellers.push({ row, card, a, b, id });
     }
     // When the outline lands scrolled away from what the chart showed, only a row or two would travel, alone across an
-    // emptied canvas. Then the chart fades as a whole and the outline arrives as one group instead.
-    if (travellers.length < 3 || travellers.length < inView * 0.4) {
+    // emptied canvas. Then the chart fades as a whole and the outline arrives as one group instead. So it does when the
+    // chart is shrunk to fit: the travelling copies are drawn at full size, so they would jump as they set off.
+    if (canvas?.hasAttribute("data-zoomed") || travellers.length < 3 || travellers.length < inView * 0.4) {
       add(chart, fadeOut(0.35), lin);
       add(outline, fadeIn(0.35), lin);
       const pageBox = rel(page, host);

@@ -1,5 +1,5 @@
-/* The chart: cards on a quiet dot grid, joined by 1px orthogonal lines with rounded elbows. It never zooms; an org
-   larger than the window pans. */
+/* The chart: cards on a quiet dot grid, joined by 1px orthogonal lines with rounded elbows. An org wider than the
+   window shrinks a little to fit (OrgChart sets zoom), and past that pans. */
 /* The edges hiding part of a larger chart fade (OrgChart sets --fl --fr --ft --fb to 32px or 0). */
 .orgscroll {
   position: absolute; inset: 0; overflow: auto; --fl: 0px; --fr: 0px; --ft: 0px; --fb: 0px;

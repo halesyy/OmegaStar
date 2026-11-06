@@ -1,9 +1,9 @@
 // Tidy tree layout for the org chart. Pure: members in, boxes and connector paths out.
 //
-// One stacking rule at every size: a manager's reports who have no reports of their own stack in one column beside
-// their siblings (or straight under the manager when they are all there is), so the chart is a compact block that fits
-// without zooming. A lone report with no reports of their own sits straight below. Lines are 1px, orthogonal, with
-// rounded elbows.
+// A plain hierarchy at every size: a manager's reports sit side by side in one row under them, the manager centred
+// over it, each report's own reports under them in turn. The one exception keeps a wide team narrow: a manager whose
+// reports have none of their own stacks them in one column straight under them, once there are `stackMin` of them.
+// Lines are 1px, orthogonal, with rounded elbows.
 import { YOU_ID } from "./org";
 
 /** The geometry of one size of chart: card width, the gaps, and the spine gutter beside a stacked column. */
@@ -48,11 +48,9 @@ function rounded(pts: Pt[], r = 6): string {
   return `${d} L${last[0]} ${last[1]}`;
 }
 
-/** `nest`: the denser form for an org wider than its window. A report who is a short stack (no reports, or only
- *  reports of their own who have none) goes in the stacked column beside the deeper ones, nested a step in, instead of
- *  side by side; a manager whose reports are all short stacks becomes one column. A big org then grows downward, which
- *  scrolls the way lists do, rather than sideways. */
-export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { nest = false }: { nest?: boolean } = {}): Layout {
+/** `stackMin`: how many reports, none with reports of their own, a manager has before they stack in a column under
+ *  them rather than sit in a row. */
+export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { stackMin = 3 }: { stackMin?: number } = {}): Layout {
   const heights = new Map(nodes.map((n) => [n.id, n.h]));
   const ids = new Set([YOU_ID, ...nodes.map((n) => n.id)]);
   const parent = new Map<string, string | null>([[YOU_ID, null]]);
@@ -78,51 +76,17 @@ export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { nest = false }:
   }
   const build = (id: string): Node => ({ id, h: heights.get(id) ?? 60, children: (byParent.get(id) ?? []).map(build) });
 
-  // A column: `n` at (x0, y0), its reports stacked under it on a spine, each report's own reports a step further in.
-  // Returns the column's bottom.
-  const stack = (n: Node, depth: number, x0: number, y0: number, boxes: Box[], edges: Sub["edges"]): number => {
-    boxes.push({ id: n.id, x: x0, y: y0, w: m.w, h: n.h, depth });
-    if (!n.children.length) return y0 + n.h;
-    const spine = x0 + m.indent - m.gutter;
-    let y = y0 + n.h + m.stackGap + 4;
-    for (const c of n.children) {
-      const mid = y + Math.min(c.h / 2, 24);
-      edges.push({ id: `${n.id}>${c.id}`, from: n.id, to: c.id, pts: [[spine, y0 + n.h], [spine, mid], [x0 + m.indent, mid]] });
-      y = stack(c, depth + 1, x0 + m.indent, y, boxes, edges) + m.stackGap;
-    }
-    return y - m.stackGap;
-  };
-  const short = (c: Node) => c.children.every((g) => !g.children.length);
-
   const lay = (n: Node, depth: number): Sub => {
     const self: Box = { id: n.id, x: 0, y: 0, w: m.w, h: n.h, depth };
     if (!n.children.length) return { width: m.w, height: n.h, attach: m.w / 2, boxes: [self], edges: [] };
-    if (nest && (n.children.length >= 2 || n.children.some((c) => c.children.length)) && n.children.every(short)) {
-      const boxes: Box[] = [], edges: Sub["edges"] = [];
-      const bottom = stack(n, depth, 0, 0, boxes, edges);
-      const width = Math.max(...boxes.map((b) => b.x + b.w));
-      return { width, height: bottom, attach: m.w / 2, boxes, edges };
-    }
 
-    const leaves = n.children.filter((c) => !c.children.length);
-    const column = nest ? n.children.filter(short) : leaves.length >= 2 ? leaves : [];
-    const row = n.children.filter((c) => !column.includes(c));
-    const top = n.h + m.gapY;
-    // The cards whose tops line up (the row, and the head of the stacked column) share one height, so their bottoms
-    // and connectors line up too.
-    if (row.length) {
-      const level = [...row, ...column.slice(0, 1)];
-      const h = Math.max(...level.map((c) => c.h));
-      for (const c of level) c.h = h;
-    }
-
-    // Only reports with none of their own: they stack straight under the manager, hung from a spine.
-    if (!row.length) {
+    // Enough reports with none of their own: they stack straight under the manager, hung from a spine.
+    if (n.children.length >= stackMin && n.children.every((c) => !c.children.length)) {
       const spine = m.indent - m.gutter;
       const boxes = [self];
       const edges: Sub["edges"] = [];
       let y = n.h + m.stackGap + 4;
-      for (const c of column) {
+      for (const c of n.children) {
         boxes.push({ id: c.id, x: m.indent, y, w: m.w, h: c.h, depth: depth + 1 });
         const mid = y + Math.min(c.h / 2, 24);
         edges.push({ id: `${n.id}>${c.id}`, from: n.id, to: c.id, pts: [[spine, n.h], [spine, mid], [m.indent, mid]] });
@@ -131,23 +95,21 @@ export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { nest = false }:
       return { width: m.indent + m.w, height: y - m.stackGap, attach: m.w / 2, boxes, edges };
     }
 
-    // A row of the reports with reports (and any lone leaf), then the stacked column of the rest.
-    const items: { sub: Sub; attach: number; left: number }[] = [];
+    // Otherwise one row of reports, each with their own team under them, the manager centred over the row. The row's
+    // cards share one height, so their bottoms and the lines below them line up.
+    const h = Math.max(...n.children.map((c) => c.h));
+    for (const c of n.children) c.h = h;
+    const top = n.h + m.gapY;
+    const items: { id: string; sub: Sub; left: number }[] = [];
     let x = 0;
-    for (const c of row) {
+    for (const c of n.children) {
       const s = lay(c, depth + 1);
-      items.push({ sub: s, attach: x + s.attach, left: x });
+      items.push({ id: c.id, sub: s, left: x });
       x += s.width + m.gapX;
     }
-    let colLeft = -1;
-    if (column.length) {
-      colLeft = x;
-      x += m.gutter + Math.max(...column.map((c) => (c.children.length ? m.indent : 0) + m.w)) + m.gapX;
-    }
     const rowRight = x - m.gapX;
-    const first = items[0].attach;
-    const last = column.length ? colLeft : items[items.length - 1].attach;
-    const centre = (first + last) / 2;
+    const first = items[0], last = items[items.length - 1];
+    const centre = (first.left + first.sub.attach + last.left + last.sub.attach) / 2;
     const selfLeft = centre - m.w / 2;
     const minX = Math.min(0, selfLeft);
     const dx = -minX;
@@ -162,18 +124,8 @@ export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { nest = false }:
       const s = shift(it.sub, it.left + dx, top);
       boxes.push(...s.boxes);
       edges.push(...s.edges);
-      edges.push({ id: `${n.id}>${row[items.indexOf(it)].id}`, from: n.id, to: row[items.indexOf(it)].id, pts: [[px, n.h], [px, bus], [s.attach, bus], [s.attach, top]] });
+      edges.push({ id: `${n.id}>${it.id}`, from: n.id, to: it.id, pts: [[px, n.h], [px, bus], [s.attach, bus], [s.attach, top]] });
       height = Math.max(height, top + s.height);
-    }
-    if (column.length) {
-      const spine = colLeft + dx;
-      let y = top;
-      for (const c of column) {
-        const mid = y + Math.min(c.h / 2, 24);
-        edges.push({ id: `${n.id}>${c.id}`, from: n.id, to: c.id, pts: [[px, n.h], [px, bus], [spine, bus], [spine, mid], [spine + m.gutter, mid]] });
-        y = stack(c, depth + 1, spine + m.gutter, y, boxes, edges) + m.stackGap;
-      }
-      height = Math.max(height, y - m.stackGap);
     }
     return { width, height, attach: px, boxes, edges };
   };
