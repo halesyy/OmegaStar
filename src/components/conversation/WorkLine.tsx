@@ -7,7 +7,7 @@ import { openMember, openRun } from "../../lib/router";
 import { Icon } from "../Icon";
 import { StepMark } from "../Transcript";
 import { Avatar, Roll } from "../ui";
-import { SponsorWords, useSponsor } from "./Sponsor";
+import { SponsorWords, usePauseLine } from "./Sponsor";
 import { minutes, nowOf, rowsOf, summaryOf, type Part, type WorkRow } from "./work";
 import "./WorkLine.css";
 
@@ -26,7 +26,7 @@ export function WorkLine({ turn, e, part, last = true }: { turn: LiveRun; e: Emp
   const [open, setOpen] = useState(false);
   const now = useNow(30_000, running);
   const n = running ? nowOf(rows, turn) : null;
-  const ad = useSponsor(turn, e, part?.said ?? turn.run.prompt, n?.gap ? n.key : null);
+  const said = usePauseLine(turn, e, part?.said ?? turn.run.prompt, n?.pause ?? null);
   if (!running && !rows.length) return null;
   const started = turn.run.startedAt ? Date.parse(turn.run.startedAt) : null;
   const ended = turn.run.endedAt ? Date.parse(turn.run.endedAt) : null;
@@ -40,10 +40,10 @@ export function WorkLine({ turn, e, part, last = true }: { turn: LiveRun; e: Emp
       >
         <span className="wl-mark" aria-hidden>{running ? <span className="wl-dot" /> : <Icon name="chevronRight" size={14} className="wl-chev" />}</span>
         {n ? (
-          <RollLine k={ad ? "ad" : n.key}>
-            {ad ? <SponsorWords words={ad} /> : <>
-              <span className="wl-verb">{n.verb}</span>
-              {n.object ? <span className={`wl-what ${n.code ? "mono" : ""}`}>{n.object}</span> : null}
+          <RollLine k={said?.key ?? n.key}>
+            {said?.ad ? <SponsorWords words={said.words} /> : <>
+              <span className="wl-verb">{said?.words ?? n.verb}</span>
+              {!said && n.object ? <span className={`wl-what ${n.code ? "mono" : ""}`}>{n.object}</span> : null}
             </>}
           </RollLine>
         ) : <span className="wl-summary">{summary}</span>}

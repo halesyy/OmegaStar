@@ -5,15 +5,18 @@ import type { LiveRun } from "../../lib/runs";
 import { Icon } from "../Icon";
 import { openWeb } from "./CardLink";
 import vibeTyper from "./vibe-typer.svg";
-import { seedOf } from "./work";
+import { pauseWord, seedOf } from "./work";
 
-// Vibe Typer, voice typing from the same maker, said once a reply in the work line, in a pause between steps that has
-// gone on a while: never in place of real work, and never twice in one reply.
+// The work line in a pause between steps: it moves on every so long, through the thinking words and, every third move,
+// a line about Vibe Typer (voice typing from the same maker). An ad stays long enough to read, even when work starts
+// again meanwhile.
 
 /** `ref` tells the site's analytics (AnalyticsTracker on vibetyper.com) the visit came from Omega Star. */
 const SITE = new URL("https://vibetyper.com/?ref=omegastar");
-/** How long a pause lasts before the ad takes its place. */
-const AFTER_MS = 2500;
+/** How long a thinking word stays before the line moves on. */
+const WORD_MS = 4000;
+/** How long an ad stays, whatever the reply does meanwhile. */
+const AD_MS = 5000;
 /** A prompt this long or longer, that you wrote, is one the prompt lines can talk about: about a dozen words. */
 const LONG_PROMPT = 60;
 
@@ -35,25 +38,43 @@ const ANYWHERE = [
   "Talk into any app, this one included, with",
 ];
 
-/** The pause each run showed the ad in, so every line showing the run agrees, and it never shows again. */
-const shownIn = new Map<string, string>();
+type Move = { pause: number; t: number };
 
-/** The ad's words for a run, or null: only in a pause (`gap`, the line's key for it) that has lasted, once a run. The
- *  prompt lines need a long prompt you wrote (`prompt`, what you said to start this stretch). */
-export function useSponsor(turn: LiveRun, e: EmployeeView, prompt: string, gap: string | null): string | null {
+/** What the line says in place of nowOf's: a later word in a long pause, or an ad (`ad`) while one is on show; null
+ *  for nowOf's own (a step, or a pause's first word). `pause` is nowOf's, null when not in one. The prompt lines need
+ *  a long prompt you wrote (`prompt`, what you said to start this stretch). */
+export function usePauseLine(turn: LiveRun, e: EmployeeView, prompt: string, pause: number | null): { key: string; words: string; ad: boolean } | null {
   const id = turn.run.id;
-  const [, wake] = useState(0);
+  const [at, setAt] = useState<{ pause: number | null; t: number }>({ pause, t: 0 });
+  const [held, setHeld] = useState<Move | null>(null);
+  if (at.pause !== pause) setAt({ pause, t: 0 });
+  const t = at.pause === pause ? at.t : 0;
+
+  // Move on every so long; every third move is an ad, which holds the line
   useEffect(() => {
-    if (!gap || shownIn.has(id)) return;
-    const t = window.setTimeout(() => {
-      if (!shownIn.has(id)) shownIn.set(id, gap);
-      wake((n) => n + 1);
-    }, AFTER_MS);
-    return () => window.clearTimeout(t);
-  }, [id, gap]);
-  if (!gap || shownIn.get(id) !== gap) return null;
-  const lines = !turn.run.omegaWrote && prompt.trim().length >= LONG_PROMPT ? [...ABOUT_THE_PROMPT, ...ANYWHERE] : ANYWHERE;
-  return lines[seedOf(id) % lines.length].replace("{name}", firstName(e.name));
+    if (pause === null || held) return;
+    const timer = window.setTimeout(() => {
+      setAt({ pause, t: t + 1 });
+      if ((t + 1) % 3 === 1) setHeld({ pause, t: t + 1 });
+    }, WORD_MS);
+    return () => window.clearTimeout(timer);
+  }, [pause, t, held]);
+  // Let the ad go, and move past it if the pause is still on
+  useEffect(() => {
+    if (!held) return;
+    const timer = window.setTimeout(() => {
+      setHeld(null);
+      setAt((a) => (a.pause === held.pause && a.t === held.t ? { ...a, t: a.t + 1 } : a));
+    }, AD_MS);
+    return () => window.clearTimeout(timer);
+  }, [held]);
+
+  if (held) {
+    const lines = !turn.run.omegaWrote && prompt.trim().length >= LONG_PROMPT ? [...ABOUT_THE_PROMPT, ...ANYWHERE] : ANYWHERE;
+    const words = lines[(seedOf(id) + held.pause + held.t) % lines.length].replace("{name}", firstName(e.name));
+    return { key: `ad:${held.pause}:${held.t}`, words, ad: true };
+  }
+  return pause === null || t === 0 ? null : { key: `pause:${pause}:${t}`, words: pauseWord(id, pause + t), ad: false };
 }
 
 /** The ad in the line: its words in the muted ink, as it is not work, then Vibe Typer, which opens the site. The line is

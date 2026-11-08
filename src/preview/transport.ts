@@ -212,8 +212,9 @@ export function previewTransport(): PreviewTransport {
     window.setTimeout(() => append(r.id, [{ type: "heard", id }]), 6000);
   }
 
-  /** A run you started: it waits a moment, starts, reads its notes, thinks for a few seconds, and answers. The pause
-   *  is long enough for the work line's ad (Sponsor.tsx). */
+  /** A run you started: it waits a moment, starts, reads its notes, thinks a while, checks a second file, and answers.
+   *  The pause is long enough for the work line to reach its ad (Sponsor.tsx), and the second file arrives while the
+   *  ad is on show. */
   function respond(r: Run, text = cannedAnswer(r.prompt)) {
     w.runs.unshift(r);
     w.events[r.id] = [];
@@ -224,7 +225,9 @@ export function previewTransport(): PreviewTransport {
       emitRun(r);
       append(r.id, [init(9), { type: "toolCall", id: "r1", tool: "Read", brief: "notes/fernbrook.md" }]);
       window.setTimeout(() => append(r.id, [{ type: "toolResult", id: "r1", ok: true, brief: "36 lines" }]), 1200);
-      window.setTimeout(() => { if (r.state === "running") stream(r, text, 90); }, 7200);
+      window.setTimeout(() => append(r.id, [{ type: "toolCall", id: "r2", tool: "Read", brief: "notes/team.md" }]), 7200);
+      window.setTimeout(() => append(r.id, [{ type: "toolResult", id: "r2", ok: true, brief: "18 lines" }]), 8400);
+      window.setTimeout(() => { if (r.state === "running") stream(r, text, 90); }, 12_000);
     }, 700);
     return r;
   }

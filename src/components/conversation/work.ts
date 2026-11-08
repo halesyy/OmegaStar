@@ -142,26 +142,49 @@ const working = (r: WorkRow) => r.state === "pending" || r.state === "wait";
 /** A number from a run's id, the same every time, so its words don't change as it renders. */
 export const seedOf = (id: string) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0);
 
-const STARTING = ["Getting started", "Getting the gist"];
-/** What the line says between steps: one a gap, a different one the next. None of them claims progress. */
+/** What the line says before the first step and between steps: Claude Code's own spinner words (2.1.318). */
 const THINKING = [
-  "Thinking it through", "Figuring this out", "Working on it", "Working it out", "Weighing it up", "Putting it together",
-  "Piecing it together", "Joining the dots", "Mulling it over", "Sizing it up", "Sorting it out", "Making a plan",
+  "Accomplishing", "Actioning", "Actualizing", "Architecting", "Baking", "Beaming", "Beboppin'", "Befuddling",
+  "Billowing", "Blanching", "Bloviating", "Boogieing", "Boondoggling", "Booping", "Bootstrapping", "Brewing",
+  "Bunning", "Burrowing", "Calculating", "Caramelizing", "Cascading", "Catapulting", "Cerebrating", "Channeling",
+  "Choreographing", "Churning", "Clauding", "Coalescing", "Cogitating", "Combobulating", "Composing", "Computing",
+  "Concocting", "Considering", "Contemplating", "Cooking", "Crafting", "Creating", "Crunching", "Crystallizing",
+  "Cultivating", "Deciphering", "Deliberating", "Determining", "Dilly-dallying", "Discombobulating", "Doing",
+  "Doodling", "Drizzling", "Ebbing", "Effecting", "Elucidating", "Embellishing", "Enchanting", "Envisioning",
+  "Fermenting", "Fiddle-faddling", "Finagling", "Flambéing", "Flibbertigibbeting", "Flowing", "Flummoxing",
+  "Fluttering", "Forging", "Forming", "Frolicking", "Frosting", "Gallivanting", "Galloping", "Garnishing",
+  "Generating", "Gesticulating", "Germinating", "Gitifying", "Grooving", "Gusting", "Harmonizing", "Hashing",
+  "Hatching", "Herding", "Honking", "Hullaballooing", "Hyperspacing", "Ideating", "Imagining", "Improvising",
+  "Incubating", "Inferring", "Infusing", "Ionizing", "Jitterbugging", "Julienning", "Kerfuffling", "Kneading",
+  "Leavening", "Levitating", "Lollygagging", "Manifesting", "Marinating", "Meandering", "Metamorphosing", "Misting",
+  "Moonwalking", "Moseying", "Mulling", "Mustering", "Nebulizing", "Nesting", "Newspapering", "Noodling",
+  "Nucleating", "Onioning", "Orbiting", "Orchestrating", "Osmosing", "Perambulating", "Percolating", "Perusing",
+  "Philosophizing", "Photosynthesizing", "Polishing", "Pollinating", "Pondering", "Pontificating", "Pouncing",
+  "Precipitating", "Prestidigitating", "Processing", "Proofing", "Propagating", "Puttering", "Puzzling",
+  "Quantumizing", "Razzle-dazzling", "Razzmatazzing", "Recombobulating", "Reticulating", "Roosting", "Ruminating",
+  "Sautéing", "Scampering", "Schlepping", "Scurrying", "Seasoning", "Shenaniganing", "Shimmying", "Simmering",
+  "Skedaddling", "Sketching", "Slithering", "Smooshing", "Sock-hopping", "Spelunking", "Spinning", "Sprouting",
+  "Stewing", "Sublimating", "Swirling", "Swooping", "Symbioting", "Synthesizing", "Tempering", "Thinking",
+  "Thundering", "Tinkering", "Tomfoolering", "Topsy-turvying", "Transfiguring", "Transmogrifying", "Transmuting",
+  "Twisting", "Undulating", "Unfurling", "Unraveling", "Vibing", "Waddling", "Wandering", "Warping",
+  "Whatchamacalliting", "Whirlpooling", "Whirring", "Whisking", "Wibbling", "Working", "Wrangling", "Zesting",
+  "Zigzagging",
 ];
+/** A run's `i`th word for a pause: the line moves through them as its pauses come and go on. */
+export const pauseWord = (runId: string, i: number) => THINKING[(seedOf(runId) + i) % THINKING.length];
 
 /** What a reply is doing now, for its line while it runs: a colleague it waits on, else the newest work still going (a
  *  sub-agent, the step in hand), else writing its answer, else thinking. `key` changes with each, so the line rolls.
- *  `gap`: a pause between steps, with nothing real to say. */
-export function nowOf(rows: WorkRow[], turn: LiveRun): { key: string; verb: string; object: string; code: boolean; gap?: boolean } {
+ *  `pause`: between steps, with nothing real to say; the pause's number in the reply. */
+export function nowOf(rows: WorkRow[], turn: LiveRun): { key: string; verb: string; object: string; code: boolean; pause?: number } {
   const newest = [...rows].reverse();
   const r = newest.find((x) => working(x) && x.key.startsWith("d:")) ?? newest.find(working);
   if (r?.key.startsWith("d:")) return { key: r.key, verb: `Waiting on ${r.avatar ? firstName(r.avatar.name) : "a colleague"}`, object: firstLine(r.object), code: false };
   if (r) return { key: r.key, verb: r.verb, object: r.object, code: r.code };
   if (turn.live.trim()) return { key: "writing", verb: "Writing", object: "", code: false };
-  const seed = seedOf(turn.run.id);
-  if (!rows.length) return { key: "starting", verb: STARTING[seed % STARTING.length], object: "", code: false };
-  // Rows only grow when a step starts, so their count names the gap
-  return { key: `thinking:${rows.length}`, verb: THINKING[(seed + rows.length) % THINKING.length], object: "", code: false, gap: true };
+  if (!rows.length) return { key: "starting", verb: pauseWord(turn.run.id, 0), object: "", code: false };
+  // Rows only grow when a step starts, so their count names the pause
+  return { key: `pause:${rows.length}`, verb: pauseWord(turn.run.id, rows.length), object: "", code: false, pause: rows.length };
 }
 
 const and = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
