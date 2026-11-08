@@ -21,6 +21,17 @@
 .wl-verb { flex: none; font-weight: 550; }
 .wl-what { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 .wl-what.mono { font-size: 11.5px; }
+/* Vibe Typer, in a pause: its words in the muted ink, as they are not work, and its name a link to the site. */
+.wl-roll > span:has(> .wl-vt) { align-items: center; }
+.wl-ad { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.wl-vt { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 20px; color: var(--ink); cursor: pointer; }
+.wl-vt img { display: block; }
+.wl-vt-name {
+  font-weight: 600; text-decoration: underline 1px transparent; text-underline-offset: 3px;
+  transition: text-decoration-color var(--d-ui) var(--ease);
+}
+.wl-vt:hover .wl-vt-name, .wl-vt:focus-visible .wl-vt-name { text-decoration-color: currentColor; }
+.wl-vt-arrow { color: var(--muted); margin-left: -1px; }
 .wl-time { flex: none; color: var(--muted); }
 .wl-time::before { content: "·"; margin-right: 6px; color: var(--faint); }
 

@@ -139,15 +139,29 @@ export function rowsOf(turn: LiveRun, employees: EmployeeView[], part?: Part): W
 
 const working = (r: WorkRow) => r.state === "pending" || r.state === "wait";
 
+/** A number from a run's id, the same every time, so its words don't change as it renders. */
+export const seedOf = (id: string) => [...id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0);
+
+const STARTING = ["Getting started", "Getting the gist"];
+/** What the line says between steps: one a gap, a different one the next. None of them claims progress. */
+const THINKING = [
+  "Thinking it through", "Figuring this out", "Working on it", "Working it out", "Weighing it up", "Putting it together",
+  "Piecing it together", "Joining the dots", "Mulling it over", "Sizing it up", "Sorting it out", "Making a plan",
+];
+
 /** What a reply is doing now, for its line while it runs: a colleague it waits on, else the newest work still going (a
- *  sub-agent, the step in hand), else writing its answer, else thinking. `key` changes with each, so the line rolls. */
-export function nowOf(rows: WorkRow[], turn: LiveRun): { key: string; verb: string; object: string; code: boolean } {
+ *  sub-agent, the step in hand), else writing its answer, else thinking. `key` changes with each, so the line rolls.
+ *  `gap`: a pause between steps, with nothing real to say. */
+export function nowOf(rows: WorkRow[], turn: LiveRun): { key: string; verb: string; object: string; code: boolean; gap?: boolean } {
   const newest = [...rows].reverse();
   const r = newest.find((x) => working(x) && x.key.startsWith("d:")) ?? newest.find(working);
   if (r?.key.startsWith("d:")) return { key: r.key, verb: `Waiting on ${r.avatar ? firstName(r.avatar.name) : "a colleague"}`, object: firstLine(r.object), code: false };
   if (r) return { key: r.key, verb: r.verb, object: r.object, code: r.code };
   if (turn.live.trim()) return { key: "writing", verb: "Writing", object: "", code: false };
-  return { key: rows.length ? "thinking" : "starting", verb: rows.length ? "Thinking" : "Starting", object: "", code: false };
+  const seed = seedOf(turn.run.id);
+  if (!rows.length) return { key: "starting", verb: STARTING[seed % STARTING.length], object: "", code: false };
+  // Rows only grow when a step starts, so their count names the gap
+  return { key: `thinking:${rows.length}`, verb: THINKING[(seed + rows.length) % THINKING.length], object: "", code: false, gap: true };
 }
 
 const and = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
