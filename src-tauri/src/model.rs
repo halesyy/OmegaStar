@@ -198,6 +198,10 @@ impl EmployeeDraft {
 }
 
 impl Employee {
+    pub fn reports_to(&self, manager_id: &str) -> bool {
+        self.manager_id.as_deref() == Some(manager_id)
+    }
+
     pub fn draft(&self) -> EmployeeDraft {
         EmployeeDraft {
             name: self.name.clone(),

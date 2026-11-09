@@ -665,6 +665,10 @@ fn find_member<'a, T>(items: &'a [T], key: &str, f: impl Fn(&T) -> (&String, Opt
     })
 }
 
+fn find_employee<'a>(items: &'a [Employee], key: &str) -> Option<&'a Employee> {
+    find_member(items, key, |e| (&e.id, Some(&e.slug), &e.name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

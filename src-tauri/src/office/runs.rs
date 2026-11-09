@@ -392,7 +392,7 @@ impl Office {
         let boss = company.reports_to.as_ref().and_then(|b| people.iter().find(|p| &p.id == b)).map(|p| (p.name.clone(), p.title.clone()));
         let reports = employees
             .iter()
-            .filter(|x| x.manager_id.as_deref() == Some(&e.id))
+            .filter(|x| x.reports_to(&e.id))
             .map(|x| claude::Report { name: x.name.clone(), slug: x.slug.clone(), title: x.title.clone(), objective: x.objective.clone() })
             .collect();
         let colleagues = employees
@@ -1473,7 +1473,7 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
 
     let mut team = vec![];
     let mut team_since = window_start;
-    let reports: Vec<&Employee> = employees.iter().filter(|x| x.manager_id.as_deref() == Some(e.id.as_str())).collect();
+    let reports: Vec<&Employee> = employees.iter().filter(|x| x.reports_to(&e.id)).collect();
     if !reports.is_empty() {
         // From the last run that was not a quiet routine, so a frequent routine does not swallow the lines.
         team_since = since

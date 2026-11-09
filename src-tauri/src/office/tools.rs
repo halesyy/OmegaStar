@@ -57,7 +57,7 @@ impl Office {
         let reports: Vec<Value> = db
             .employees()?
             .iter()
-            .filter(|e| e.manager_id.as_deref() == Some(&caller.id))
+            .filter(|e| e.reports_to(&caller.id))
             .map(|e| {
                 let v = Self::presence(&db, e, now, false)?;
                 Ok(json!({
@@ -80,8 +80,8 @@ impl Office {
         let at = now();
         let (report, run, ahead, conversation) = {
             let db = self.db();
-            let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.manager_id.as_deref() == Some(&caller.id)).collect();
-            let report = find_member(&reports, to, |e| (&e.id, Some(&e.slug), &e.name))
+            let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.reports_to(&caller.id)).collect();
+            let report = find_employee(&reports, to)
                 .ok_or_else(|| AppError::invalid(format!("'{to}' is not one of your direct reports. Call team() for the list.")))?
                 .clone();
             let (up, chain) = chain_up(&db, caller_run)?;
@@ -874,11 +874,11 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
         let (proposal, lane, ceo) = {
             let db = self.db();
             let to = s("reportsTo");
-            let manager_id = if to.is_empty() || find_member(std::slice::from_ref(caller), &to, |e| (&e.id, Some(&e.slug), &e.name)).is_some() {
+            let manager_id = if to.is_empty() || find_employee(std::slice::from_ref(caller), &to).is_some() {
                 caller.id.clone()
             } else {
-                let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.manager_id.as_deref() == Some(&caller.id)).collect();
-                find_member(&reports, &to, |e| (&e.id, Some(&e.slug), &e.name)).map(|e| e.id.clone()).ok_or_else(|| {
+                let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.reports_to(&caller.id)).collect();
+                find_employee(&reports, &to).map(|e| e.id.clone()).ok_or_else(|| {
                     AppError::invalid(format!("'{to}' is neither you nor one of your direct reports. Leave reportsTo out and the hire reports to you."))
                 })?
             };
@@ -1178,7 +1178,7 @@ fn untouched(r: &Run) -> bool {
 fn colleague_in(others: &[Employee], to: &str) -> Result<Employee> {
     let key = to.trim().to_lowercase();
     let by_first: Vec<&Employee> = others.iter().filter(|e| e.name.split_whitespace().next().map(str::to_lowercase) == Some(key.clone())).collect();
-    find_member(others, to, |e| (&e.id, Some(&e.slug), &e.name))
+    find_employee(others, to)
         .or(if by_first.len() == 1 { Some(by_first[0]) } else { None })
         .cloned()
         .ok_or_else(|| AppError::invalid(format!("'{to}' is not a colleague. Call colleagues() for the list.")))
