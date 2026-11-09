@@ -11,7 +11,7 @@ import { aboveYou } from "../lib/org";
 import { ChannelEditor } from "./ChannelEditor";
 import { ImageField } from "./ImageField";
 import { CHANNEL_ICON, Icon } from "./Icon";
-import { Avatar, ErrorNote, SlideOver } from "./ui";
+import { Avatar, ErrorNote, SheetHead, SlideOver } from "./ui";
 import "./Sheet.css";
 import "./AddPersonSheet.css";
 
@@ -106,13 +106,7 @@ export function AddPersonSheet({ open, onClose }: { open: boolean; onClose: () =
 
   return (
     <SlideOver open={open} onClose={onClose} width={760} label="Add a person">
-      <header className="sheet-head">
-        <div className="stack">
-          <h2 className="h-lg">Add a person</h2>
-          <p className="muted">Someone on your real team. Your employees see who they are, what they're good at, and how to ask them for help.</p>
-        </div>
-        <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
-      </header>
+      <SheetHead title="Add a person" lede="Someone on your real team. Your employees see who they are, what they're good at, and how to ask them for help." onClose={onClose} />
       <div className="sheet-body person-sheet">
         <form className="sheet-form" onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
           <PersonFields draft={draft} set={set} selfId={null} />
