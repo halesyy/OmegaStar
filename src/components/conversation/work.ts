@@ -22,7 +22,9 @@ export type WorkRow = {
 export type Part = { said: string | null; items: TranscriptItem[]; opener: TextItem | null; notes: TextItem[]; answer: TextItem[] };
 
 export const isRunning = (r: Run) => r.state === "running" || r.state === "queued";
-const isWork = (it: TranscriptItem) => it.kind === "tools" || it.kind === "skill" || it.kind === "delegated" || it.kind === "requested" || it.kind === "proposed" || it.kind === "visual";
+// Not a skill change: Omega Star records those after the run ends, so one would always fall after the answer and fold it
+// into the work line. Its row still shows (rowsOf).
+const isWork = (it: TranscriptItem) => it.kind === "tools" || it.kind === "delegated" || it.kind === "requested" || it.kind === "proposed" || it.kind === "visual";
 
 /** A reply split where a message you sent while it worked landed (one still waiting to go in splits nothing). In each part the talk keeps the first words (when they
  *  came before any work) and the answer (the words after the last of it); the notes between are rows of its work. */
