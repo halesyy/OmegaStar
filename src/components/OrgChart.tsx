@@ -1,115 +1,16 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Company, EmployeeView, PersonView, Run } from "../api/types";
-import { whenInline } from "../lib/format";
-import { YOU_ID, up } from "../lib/org";
+import type { Company, EmployeeView, PersonView } from "../api/types";
+import { employeeState, liveLines, numberParts, personLine, type MemberState } from "../lib/memberState";
+import { YOU_ID, visibleMembers, type OrgView } from "../lib/org";
 import { COMPACT, WIDE, layoutOrg, type ChartMetrics } from "../lib/orgLayout";
-import { workLabel } from "./RunRow";
+import { shortTask } from "../lib/workTitle";
 import { Avatar } from "./ui";
 import "./OrgChart.css";
 
-export type OrgView = "everyone" | "employees" | "people";
 export type OrgChartHandle = { fit: () => void };
 /** How far a chart too wide for its window shrinks to fit before it pans instead. */
 const MIN_ZOOM = 0.65;
 type Org = { company: Company; employees: EmployeeView[]; people: PersonView[] };
-
-// ---------------------------------------------------------------- what a member's card and row say
-
-/** The first sentence of what was asked, whole: without "Please" and its closing full stop, never cut. */
-function firstSentence(text: string): string {
-  const line = text.split("\n").map((l) => l.trim().replace(/^[#>\-* ]+/, "").replace(/[*_`]/g, "")).find((l) => l) ?? "";
-  const s = line.replace(/^(please|can you|could you|would you)[, ]+/i, "");
-  const ends = [". ", "? ", "! "].map((e) => s.indexOf(e)).filter((i) => i >= 0);
-  const out = (ends.length ? s.slice(0, Math.min(...ends)) : s).replace(/[?.!,:;]+$/, "").trim();
-  return out.charAt(0).toUpperCase() + out.slice(1);
-}
-
-/** What a piece of work is called where a person's state is shown: the conversation's name without "Re:", the task a
- *  manager handed over without "Delegated by", in its own first sentence. */
-export function workTitle(run: Run, employees: EmployeeView[], people: PersonView[]): string {
-  if (run.title) return run.title;
-  switch (run.kind.type) {
-    case "reply": case "task": return run.kind.label;
-    case "delegated": return firstSentence(run.prompt) || workLabel(run, employees, people);
-    case "manual": {
-      const w = workLabel(run, employees, people);
-      return w === "Manual run" ? w : firstSentence(run.prompt) || w;
-    }
-    default: return workLabel(run, employees, people);
-  }
-}
-
-/** A task short enough for a card: whole, or cut at its last clause break before `max` ("Check which price IDs change on
- *  1 March"), else at a word with an ellipsis. */
-export function shortTask(text: string, max = 52): string {
-  if (text.length <= max) return text;
-  const head = text.slice(0, max);
-  const breaks = [", ", "; ", " and ", " then ", " so ", " but "].map((b) => head.lastIndexOf(b)).filter((i) => i >= 16);
-  if (breaks.length) return text.slice(0, Math.max(...breaks));
-  return `${head.slice(0, head.lastIndexOf(" "))}…`;
-}
-
-export type StateTone = "live" | "wait" | "attn" | "fail" | "plain";
-/** An employee's state in a word (or a short phrase when they are idle), and what it is about. */
-export type MemberState = { tone: StateTone; word: string; about: string | null; run: Run | null };
-
-export function employeeState(e: EmployeeView, employees: EmployeeView[], people: PersonView[]): MemberState {
-  const running = e.live.find((r) => r.state === "running") ?? null;
-  const queued = e.live.find((r) => r.state === "queued") ?? null;
-  if (running) return { tone: "live", word: "Working", about: workTitle(running, employees, people), run: running };
-  if (queued) return { tone: "wait", word: "Up next", about: workTitle(queued, employees, people), run: queued };
-  if (e.presence === "attention" && e.lastRun) {
-    const word = e.lastRun.denials.length ? "Needs your OK" : e.lastRun.state === "lost" ? "Interrupted" : "Last run failed";
-    return { tone: e.lastRun.denials.length ? "attn" : "fail", word, about: null, run: e.lastRun };
-  }
-  if (e.nextFire) return { tone: "plain", word: `Next run ${whenInline(e.nextFire)}`, about: null, run: null };
-  return { tone: "plain", word: "Works when asked", about: null, run: null };
-}
-
-/** An employee's number ("metric value (change)") split into what it is and how it moved, so a card can show the value
- *  alone and the band can say the change in words: "Open loops 4, down 3". */
-export function numberParts(n: string | null): { metric: string; value: string; change: string | null } | null {
-  if (!n?.trim()) return null;
-  const m = /^(.*?)\s*\(\s*([+\-−]?)\s*([^)]*?)\s*\)\s*$/.exec(n.trim());
-  const base = (m ? m[1] : n).trim();
-  const cut = base.lastIndexOf(" ");
-  const [metric, value] = cut > 0 ? [base.slice(0, cut), base.slice(cut + 1)] : ["", base];
-  let change: string | null = null;
-  if (m && m[3] && !/^0+([.,]0+)?%?$/.test(m[3])) change = `${m[2] === "-" || m[2] === "−" ? "down" : "up"} ${m[3]}`;
-  return { metric, value, change };
-}
-
-/** The reporting lines that are carrying work right now: a manager's hand-off or question to their own report, while it
- *  runs. Keyed as the layout keys its edges: "<manager>><report>". */
-export function liveLines(employees: EmployeeView[]): Set<string> {
-  const lit = new Set<string>();
-  for (const e of employees) {
-    if (!e.managerId) continue;
-    for (const r of e.live) {
-      if (r.state !== "running") continue;
-      if (r.kind.type === "delegated" || (r.kind.type === "asked" && r.kind.askedBy === e.managerId)) lit.add(`${e.managerId}>${e.id}`);
-    }
-  }
-  return lit;
-}
-
-/** Nearest node above `id` that is visible under the current view (you always are), so filtering never orphans a subtree. */
-function visibleParent(org: Org, id: string, visible: Set<string>): string | null {
-  const seen = new Set<string>();
-  let cur = up(org, id);
-  while (cur !== null && cur !== YOU_ID && !visible.has(cur) && !seen.has(cur)) {
-    seen.add(cur);
-    cur = up(org, cur);
-  }
-  return cur !== null && (cur === YOU_ID || visible.has(cur)) ? cur : null;
-}
-
-/** Everyone the view shows, you first, each with the visible member they hang from. */
-export function visibleMembers(org: Org, view: OrgView): { id: string; parentId: string | null }[] {
-  const shown = [...(view === "people" ? [] : org.employees), ...(view === "employees" ? [] : org.people)];
-  const visible = new Set(shown.map((m) => m.id));
-  return [YOU_ID, ...visible].map((id) => ({ id, parentId: visibleParent(org, id, visible) }));
-}
 
 // ---------------------------------------------------------------- card heights
 
@@ -366,11 +267,6 @@ function EmployeeCard({ e, employees, people, compact, onOpen }: { e: EmployeeVi
       </span>
     </button>
   );
-}
-
-/** A real person: ringed, and "Person" where an employee has a state, unless an employee is waiting on them. */
-export function personLine(p: PersonView): { waiting: boolean; text: string } {
-  return p.openRequests > 0 ? { waiting: true, text: `${p.openRequests} waiting on them` } : { waiting: false, text: "Person" };
 }
 
 function PersonCard({ p, compact, onOpen }: { p: PersonView; compact: boolean; onOpen: () => void }) {

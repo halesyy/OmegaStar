@@ -3,11 +3,11 @@ import { call } from "../../api/client";
 import type { EmployeeView, Run, ScheduleDraft } from "../../api/types";
 import { dayHeading, firstName } from "../../lib/format";
 import { refreshOrg, useOrg, useQuery } from "../../lib/hooks";
+import { workTitle } from "../../lib/workTitle";
 import { RunRow } from "../RunRow";
 import { ErrorNote, Section, Skeleton } from "../ui";
 import { blankSchedule, ScheduleEditor, Schedules } from "./Schedules";
 import { Icon } from "../Icon";
-import { workTitle } from "../OrgChart";
 import { openChat, openRun } from "../../lib/router";
 
 export function groupByDay(runs: Run[]): { day: string; runs: Run[] }[] {

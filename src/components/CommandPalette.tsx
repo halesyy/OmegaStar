@@ -7,9 +7,10 @@ import { toast } from "../lib/toasts";
 import { setTheme, useResolvedDark } from "../lib/theme";
 import { openHelp } from "../lib/help";
 import { navigate, openChat, openMember, openRun, openYou } from "../lib/router";
+import { kindNames } from "../lib/workTitle";
 import { conversationFor, useStatuses } from "./conversation/useStatuses";
 import { Icon } from "./Icon";
-import { kindIcon, kindNames } from "./RunRow";
+import { kindIcon } from "./RunRow";
 import { Avatar } from "./ui";
 import "./CommandPalette.css";
 

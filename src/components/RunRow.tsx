@@ -1,54 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { EmployeeView, PersonView, Run } from "../api/types";
-import { duration, elapsedMs, firstName, heldLabel, runKindLabel, runStateLabel, runStateTone, shortAge, whenShort } from "../lib/format";
+import { duration, elapsedMs, firstName, heldLabel, runStateLabel, runStateTone, shortAge, whenShort } from "../lib/format";
 import { useNow, useUsage } from "../lib/hooks";
 import { rollAnimations } from "../lib/motion";
 import { openRun } from "../lib/router";
+import { kindNames, workLabel } from "../lib/workTitle";
 import { Icon, type IconName } from "./Icon";
 import { Avatar, StatePill } from "./ui";
 import "./RunRow.css";
-
-export function kindNames(run: Run, employees: EmployeeView[], people: PersonView[]): { manager?: string; person?: string; asker?: string } {
-  if (run.kind.type === "asked" || run.kind.type === "answered") {
-    const other = run.kind.type === "asked" ? run.kind.askedBy : run.kind.from;
-    const a = employees.find((x) => x.id === other);
-    return { asker: a ? firstName(a.name) : undefined };
-  }
-  if (run.kind.type === "delegated") {
-    const e = employees.find((x) => x.id === run.employeeId);
-    const m = e?.managerId ? employees.find((x) => x.id === e.managerId) : undefined;
-    return { manager: m ? firstName(m.name) : undefined };
-  }
-  if (run.kind.type === "followUp" || run.kind.type === "replyCheck" || run.kind.type === "nudge" || run.kind.type === "unanswered") {
-    const personId = run.kind.personId;
-    const p = people.find((x) => x.id === personId);
-    return { person: p ? firstName(p.name) : undefined };
-  }
-  return {};
-}
-
-/** The prompt of a run started with no instruction. Mirrors Rust `DEFAULT_PROMPT`. */
-const DEFAULT_PROMPT = "Work toward your objective. Start from your role skill, pick the most valuable next step, do it, and report.";
-
-/** A prompt's first line. */
-const firstPromptLine = (prompt: string) => prompt.split("\n").find((l) => l.trim())?.trim() ?? "";
-
-/** A title from an instruction: its first sentence, without the full stop a title doesn't carry ("Check the booking
- *  widget on staging", not "Check the booking widget on staging. Screenshots of anything off."). */
-function titleOf(line: string): string {
-  const first = line.match(/^.+?[.!?](?=\s+[A-Z(])/)?.[0] ?? line;
-  return first.replace(/\.$/, "").trim();
-}
-
-/** What a run is about, in a few words: a manual run you gave an instruction is its first sentence, and work a manager
- *  handed down is its task, never who handed it over (that is the row's second line). */
-export function workLabel(run: Run, employees: EmployeeView[], people: PersonView[]): string {
-  if ((run.kind.type === "manual" && run.prompt !== DEFAULT_PROMPT) || run.kind.type === "delegated") {
-    const line = firstPromptLine(run.prompt);
-    if (line) return titleOf(line);
-  }
-  return runKindLabel(run.kind, kindNames(run, employees, people));
-}
 
 /** Who handed a delegated run over, as its second line says it: "From Juniper". */
 function handedBy(run: Run, employees: EmployeeView[], people: PersonView[]): string | null {

@@ -4,8 +4,8 @@ import { dateLong, firstName, relTime, runKindLabel, whenInline } from "../../li
 import { openRun } from "../../lib/router";
 import { toolName } from "../../lib/rules";
 import { blocked, didNotFinish, isChoreRow, isLive, isStreak, isTeamWeek, openCards, rowThreads } from "../../lib/threads";
+import { kindNames } from "../../lib/workTitle";
 import { RunCards } from "./CardView";
-import { kindNames } from "../RunRow";
 import { Icon } from "../Icon";
 import { Avatar } from "../ui";
 import "./Chat.css";
