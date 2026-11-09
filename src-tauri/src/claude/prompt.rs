@@ -937,7 +937,7 @@ still uses an old name.",
 /// changes that could lose something you taught them are proposed, and made in a second, approved run.
 fn tidy_frame(s: &Snapshot, reason: TidyReason, plan: Option<&str>) -> String {
     let ceo = &s.company.ceo_name;
-    let none = TidyBrief { findings: vec![], taught: vec![] };
+    let none = TidyBrief::default();
     let brief = s.tidy.as_ref().unwrap_or(&none);
     let mut b = String::new();
 

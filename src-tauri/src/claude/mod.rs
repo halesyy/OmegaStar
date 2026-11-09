@@ -276,6 +276,7 @@ pub struct Watched {
 
 /// What a Tidy run works from: what the health check found, and what the person taught the employee
 /// since the last tidy.
+#[derive(Default)]
 pub struct TidyBrief {
     pub findings: Vec<HealthFinding>,
     /// (when, what they said) in conversations and in Inbox replies.
