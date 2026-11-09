@@ -304,10 +304,10 @@ impl Office {
         let full = too_full(free_bytes(&self.0.data_dir));
         if self.0.disk_full.swap(full, Ordering::SeqCst) != full {
             if full {
-                log!("paused work: less than 2 GB is free on the office's disk");
-                self.sink().notify("Omega Star paused work: your disk is nearly full", "Work starts again by itself once more than 2 GB is free.");
+                log!("paused work: less than {MIN_FREE_GB} GB is free on the office's disk");
+                self.sink().notify("Omega Star paused work: your disk is nearly full", &format!("Work starts again by itself once more than {MIN_FREE_GB} GB is free."));
             } else {
-                log!("resumed work: more than 2 GB is free on the office's disk again");
+                log!("resumed work: more than {MIN_FREE_GB} GB is free on the office's disk again");
             }
         }
         full

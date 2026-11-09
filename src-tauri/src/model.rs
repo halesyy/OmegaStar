@@ -747,6 +747,23 @@ pub struct Schedule {
     pub next_fire: Option<Ts>,
 }
 
+impl Schedule {
+    pub fn draft(&self) -> ScheduleDraft {
+        ScheduleDraft {
+            id: Some(self.id.clone()),
+            employee_id: self.employee_id.clone(),
+            label: self.label.clone(),
+            cron: self.cron.clone(),
+            instruction: self.instruction.clone(),
+            enabled: self.enabled,
+            quiet: self.quiet,
+            model: self.model.clone(),
+            effort: self.effort,
+            active_hours: self.active_hours,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CronPreview {
     Ok { description: String, next: Vec<Ts> },

@@ -492,21 +492,7 @@ impl Office {
     pub fn schedule_tool(&self, caller: &Employee, args: &Value) -> Result<Value> {
         let id = args.get("id").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
         let mut d = match id {
-            Some(id) => {
-                let s = self.own_schedule(caller, id)?;
-                ScheduleDraft {
-                    id: Some(s.id),
-                    employee_id: s.employee_id,
-                    label: s.label,
-                    cron: s.cron,
-                    instruction: s.instruction,
-                    enabled: s.enabled,
-                    quiet: s.quiet,
-                    model: s.model,
-                    effort: s.effort,
-                    active_hours: s.active_hours,
-                }
-            }
+            Some(id) => self.own_schedule(caller, id)?.draft(),
             None => ScheduleDraft {
                 id: None,
                 employee_id: caller.id.clone(),

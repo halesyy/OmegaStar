@@ -617,7 +617,8 @@ fn long_path(p: &Path) -> PathBuf {
 }
 
 /// Below this much free space on the office's disk no run starts.
-const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MIN_FREE_GB: u64 = 2;
+const MIN_FREE_BYTES: u64 = MIN_FREE_GB * 1024 * 1024 * 1024;
 
 /// Too little space to start runs. Unknown free space never stops them. Pure.
 fn too_full(free: Option<u64>) -> bool {
