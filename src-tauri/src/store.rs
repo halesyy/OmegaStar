@@ -80,6 +80,10 @@ fn from_row<T: DeserializeOwned>(row: &Row, idx: usize) -> rusqlite::Result<T> {
     })
 }
 
+fn record(r: &Row) -> rusqlite::Result<RunRecord> {
+    Ok(RunRecord { run: from_row(r, 0)?, session: r.get(1)? })
+}
+
 /// The rows this build can read. A row it cannot (written by a newer build, or damaged) is left out
 /// and logged once per process, so one bad row never hides every other one.
 fn readable<T>(table: &str, rows: impl Iterator<Item = rusqlite::Result<T>>) -> Result<Vec<T>> {
@@ -479,17 +483,19 @@ impl Store {
     }
 
     pub fn run(&self, id: &str) -> Result<Option<RunRecord>> {
-        Ok(self
-            .conn
-            .query_row("SELECT data, session FROM runs WHERE id = ?", [id], |r| {
-                Ok(RunRecord { run: from_row(r, 0)?, session: r.get(1)? })
-            })
-            .optional()?)
+        Ok(self.conn.query_row("SELECT data, session FROM runs WHERE id = ?", [id], record).optional()?)
     }
 
     fn runs_where(&self, clause: &str, p: &[&dyn rusqlite::ToSql]) -> Result<Vec<Run>> {
         let mut st = self.conn.prepare(&format!("SELECT data FROM runs {clause}"))?;
         let v = readable("runs", st.query_map(p, |r| from_row(r, 0))?)?;
+        Ok(v)
+    }
+
+    /// `runs_where` with each run's session.
+    fn records_where(&self, clause: &str, p: &[&dyn rusqlite::ToSql]) -> Result<Vec<RunRecord>> {
+        let mut st = self.conn.prepare(&format!("SELECT data, session FROM runs {clause}"))?;
+        let v = readable("runs", st.query_map(p, record)?)?;
         Ok(v)
     }
 
@@ -499,9 +505,7 @@ impl Store {
 
     /// The same runs with their sessions.
     pub fn records_in_state(&self, state: RunState) -> Result<Vec<RunRecord>> {
-        let mut st = self.conn.prepare("SELECT data, session FROM runs WHERE state = ? ORDER BY created_at, rowid")?;
-        let v = readable("runs", st.query_map([state.as_str()], |r| Ok(RunRecord { run: from_row(r, 0)?, session: r.get(1)? }))?)?;
-        Ok(v)
+        self.records_where("WHERE state = ? ORDER BY created_at, rowid", &[&state.as_str()])
     }
 
     pub fn recent_runs(&self, employee_id: Option<&str>, limit: u32) -> Result<Vec<Run>> {
@@ -529,12 +533,11 @@ impl Store {
 
     /// An employee's finished runs created since `since`, both lanes, with their sessions, newest first.
     pub fn finished_since(&self, employee_id: &str, since: Ts) -> Result<Vec<RunRecord>> {
-        let mut st = self.conn.prepare(
-            "SELECT data, session FROM runs WHERE employee_id = ?1 AND created_at >= ?2 AND state NOT IN ('queued', 'running')
+        self.records_where(
+            "WHERE employee_id = ?1 AND created_at >= ?2 AND state NOT IN ('queued', 'running')
              ORDER BY created_at DESC, rowid DESC",
-        )?;
-        let v = readable("runs", st.query_map(params![employee_id, ms(since)], |r| Ok(RunRecord { run: from_row(r, 0)?, session: r.get(1)? }))?)?;
-        Ok(v)
+            &[&employee_id, &ms(since)],
+        )
     }
 
     /// When the last turn of a conversation ended: its newest finished run other than `except`.
