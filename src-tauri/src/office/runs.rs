@@ -372,7 +372,7 @@ impl Office {
         // Locating claude can start a login shell, so it happens before the store is locked.
         let settings = self.db().settings()?;
         let claude_path = claude::locate(settings.as_ref().and_then(|s| s.claude_path.as_deref()))
-            .ok_or_else(|| AppError::invalid("Claude Code was not found. Install it, or set its path in Settings."))?;
+            .ok_or_else(|| AppError::invalid(format!("{NOT_FOUND}. Install it, or set its path in Settings.")))?;
         let db = self.db();
         let e = db.employee(&run.employee_id)?.ok_or_else(|| AppError::not_found("This employee has left the company."))?;
         let company = db
@@ -804,7 +804,7 @@ impl Office {
         if lock(&self.0.active).get(&run.id).is_some_and(|a| a.cancelled) {
             return Err(AppError::conflict("cancelled before it started"));
         }
-        let mut child = claude::spawn(&inv).map_err(|e| AppError::internal(format!("could not start Claude Code: {e}")))?;
+        let mut child = claude::spawn(&inv).map_err(|e| AppError::internal(format!("{NOT_STARTED}: {e}")))?;
         let pid = child.id();
         if let Some(pid) = pid {
             crate::power::stay_awake_while(pid);
@@ -1324,6 +1324,11 @@ pub(super) fn log_failed(run: &Run, slug: &str, limit: Option<Limit>) {
     log!("run {} {} ({slug}, {kind}): {}", run.id, run.state.as_str(), error_class(run, limit));
 }
 
+const NOT_FOUND: &str = "Claude Code was not found";
+const NOT_STARTED: &str = "could not start Claude Code";
+const TURN_LIMIT: &str = "Stopped: the run reached its turn limit";
+const NO_RESULT: &str = "Claude Code exited without a result";
+
 /// What broke a failed or lost run, in a few words. Pure.
 fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
     let error = run.error.as_deref().unwrap_or("");
@@ -1335,11 +1340,11 @@ fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
         "rate limit"
     } else if error.contains("No space left on device") {
         "disk full"
-    } else if error.starts_with("could not start Claude Code") || error.starts_with("Claude Code was not found") {
+    } else if error.starts_with(NOT_STARTED) || error.starts_with(NOT_FOUND) {
         "could not start"
-    } else if error.starts_with("Stopped: the run reached its turn limit") {
+    } else if error.starts_with(TURN_LIMIT) {
         "turn limit"
-    } else if error.starts_with("Claude Code exited without a result") {
+    } else if error.starts_with(NO_RESULT) {
         "no result"
     } else {
         "error"
@@ -1542,7 +1547,7 @@ fn final_state(cancelled: bool, ended: &Result<Ended>) -> (RunState, Option<Stri
         Some(o) => state_of(o, stderr_tail(&e.stderr)),
         None => (
             RunState::Failed,
-            Some(stderr_tail(&e.stderr).unwrap_or_else(|| format!("Claude Code exited without a result (exit code {:?}).", e.exit))),
+            Some(stderr_tail(&e.stderr).unwrap_or_else(|| format!("{NO_RESULT} (exit code {:?}).", e.exit))),
         ),
     }
 }
@@ -1553,7 +1558,7 @@ pub(super) fn state_of(o: &Outcome, stderr_tail: Option<String>) -> (RunState, O
         return (RunState::Succeeded, None);
     }
     let msg = match o.subtype.as_str() {
-        "error_max_turns" => "Stopped: the run reached its turn limit.".to_string(),
+        "error_max_turns" => format!("{TURN_LIMIT}."),
         _ if !o.text.trim().is_empty() => o.text.trim().to_string(),
         _ => stderr_tail.unwrap_or_else(|| format!("Claude Code reported {}", o.subtype)),
     };
