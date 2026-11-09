@@ -84,6 +84,7 @@ pub fn render_settings(grant: &SkillGrant, catalog: &[SkillInfo], own: &HashSet<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claude::fixtures::*;
 
     #[test]
     fn settings_set_the_auto_compact_window() {
@@ -96,5 +97,27 @@ mod tests {
         let s = render_settings(&SkillGrant::default(), &[], &HashSet::new(), &[]);
         assert_eq!(s["autoMode"]["environment"], json!(["$defaults", AUTO_MODE_ENVIRONMENT]));
         assert_eq!(s["autoMode"]["allow"], json!(["$defaults", AUTO_MODE_ALLOW]));
+    }
+
+    #[test]
+    fn the_policy_quotes_what_the_first_messages_say() {
+        let phrases: Vec<&str> = AUTO_MODE_ENVIRONMENT.split('"').skip(1).step_by(2).collect();
+        assert_eq!(phrases.len(), 6, "a new quoted phrase needs a first message that says it: {phrases:?}");
+        let mut card = Card::new("Pay the invoice?", None, None, CardAsk::Choices { choices: vec!["Pay".into()], recommended: 0 });
+        crate::cards::answer(&mut card, &CardReply::Choice { index: 0 }, "Pat", chrono::Utc::now()).unwrap();
+        let mut s = snap();
+        s.manager = Some(("Mo".into(), String::new()));
+        s.counterpart = Some(("Mo".into(), String::new()));
+        s.opening = Some(Opening { answers: vec![card], ..now_opening(None) });
+        let delegated = first_message(&s, &run(RunKind::Delegated { parent_run_id: "r0".into() }));
+        let asked = first_message(&s, &run(RunKind::Asked { parent_run_id: "r0".into(), asked_by: "e0".into(), task: true }));
+        for phrase in phrases {
+            let phrase = phrase.replace("<name>", "Mo");
+            let says_in_order = |text: &str| {
+                let mut rest = text;
+                phrase.split("...").all(|part| rest.find(part).map(|i| rest = &rest[i + part.len()..]).is_some())
+            };
+            assert!(says_in_order(&delegated) || says_in_order(&asked), "{phrase}\n\n{delegated}\n\n{asked}");
+        }
     }
 }
