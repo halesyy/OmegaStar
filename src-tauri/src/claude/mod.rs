@@ -571,10 +571,7 @@ fn parse_usage_text(text: &str) -> UsageSample {
 
 /// The `/usage` report from a probe's stream-json stdout; `None` when there was no result line.
 fn parse_usage_output(stdout: &str) -> Option<UsageSample> {
-    let result = stdout
-        .lines()
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .rfind(|v| v["type"] == "result")?;
+    let result = stream::json_lines(stdout).rfind(|v| v["type"] == "result")?;
     Some(parse_usage_text(result["result"].as_str().unwrap_or("")))
 }
 
