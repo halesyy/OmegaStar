@@ -63,6 +63,12 @@ CREATE INDEX IF NOT EXISTS news_by_employee ON news(employee_id, read_at, create
 CREATE TABLE IF NOT EXISTS skill_use(employee_id TEXT NOT NULL, skill TEXT NOT NULL, used_at INTEGER NOT NULL, PRIMARY KEY(employee_id, skill));
 "#;
 
+/// The file the office database lives in, inside the data folder.
+pub const DB_FILE: &str = "office.db";
+
+/// The meta key of the last backup's outcome, which the backup's own hash leaves out.
+pub const BACKUP_STATUS: &str = "backup_status";
+
 /// The states of a run not finished yet (`RunState::is_finished`), as an SQL list.
 macro_rules! active {
     () => {
@@ -279,10 +285,10 @@ impl Store {
         self.set_meta("settings", s)
     }
     pub fn backup_status(&self) -> Result<Option<BackupStatus>> {
-        self.meta("backup_status")
+        self.meta(BACKUP_STATUS)
     }
     pub fn set_backup_status(&self, s: &BackupStatus) -> Result<()> {
-        self.set_meta("backup_status", s)
+        self.set_meta(BACKUP_STATUS, s)
     }
     /// When the usage limit that holds the office resets; `None` when nothing holds it.
     pub fn held_until(&self) -> Result<Option<Ts>> {

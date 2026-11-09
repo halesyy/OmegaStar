@@ -222,7 +222,7 @@ impl Office {
         if let Err(e) = fs::write(&marker, json!({ "pid": std::process::id(), "startedAt": now(), "build": build }).to_string()) {
             log!("could not write {RUNNING_MARKER}: {e}");
         }
-        let store = Store::open(&data_dir.join("office.db"))?;
+        let store = Store::open(&data_dir.join(crate::store::DB_FILE))?;
         let held_until = store.held_until().ok().flatten().filter(|t| *t > now());
         let (rate_limits, rate_hold) = store.rate_limits().unwrap_or_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
