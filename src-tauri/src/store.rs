@@ -2320,4 +2320,29 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn runs_about_a_request_are_found_by_kind() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada", None);
+        db.save_employee(&ada).unwrap();
+        let nudge = run(&ada, RunKind::Nudge { request_id: "q1".into(), person_id: "p1".into() }, RunState::Queued);
+        let check = run(&ada, RunKind::ReplyCheck { request_id: "q1".into(), person_id: "p1".into() }, RunState::Succeeded);
+        let unanswered = run(&ada, RunKind::Unanswered { request_id: "q2".into(), person_id: "p1".into() }, RunState::Running);
+        for r in [&nudge, &check, &unanswered] {
+            assert!(db.insert_run(r, &r.id).unwrap());
+        }
+
+        assert_eq!(db.active_run_for("q1", "nudge").unwrap().map(|r| r.id), Some(nudge.id));
+        assert!(db.has_run_for("q1", "nudge").unwrap());
+        assert!(db.active_run_for("q1", "replyCheck").unwrap().is_none(), "a finished check is not active");
+        assert!(db.has_run_for("q1", "replyCheck").unwrap(), "but it was made");
+        assert!(!db.has_run_for("q1", "unanswered").unwrap());
+        assert_eq!(db.active_run_for("q2", "unanswered").unwrap().map(|r| r.id), Some(unanswered.id));
+        assert!(!db.has_run_for("q2", "nudge").unwrap(), "another request's kind");
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

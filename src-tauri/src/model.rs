@@ -2380,4 +2380,29 @@ mod tests {
         assert_eq!(keyless.env(), env(&[("ANTHROPIC_BASE_URL", "http://127.0.0.1:8317")]));
         assert!(ProxySettings::default().env().is_empty());
     }
+
+    #[test]
+    fn the_uis_state_args_deserialize() {
+        let request = |v: Value| serde_json::from_value::<Option<RequestState>>(v).unwrap();
+        assert_eq!(request(json!(null)), None);
+        for (s, want) in [("open", RequestState::Open), ("answered", RequestState::Answered), ("done", RequestState::Done), ("cancelled", RequestState::Cancelled)] {
+            assert_eq!(request(json!(s)), Some(want));
+            assert_eq!(serde_json::from_value::<RequestState>(json!(s)).unwrap(), want);
+        }
+    }
+
+    #[test]
+    fn state_strings_match_serde() {
+        fn check<T: Serialize + Copy>(all: &[T], as_str: fn(T) -> &'static str) {
+            for &v in all {
+                assert_eq!(serde_json::to_value(v).unwrap(), json!(as_str(v)));
+            }
+        }
+        check(&[Effort::Low, Effort::Medium, Effort::High, Effort::Xhigh, Effort::Max], Effort::as_str);
+        check(&[RequestState::Open, RequestState::Answered, RequestState::Done, RequestState::Cancelled], RequestState::as_str);
+        check(&[ProposalState::Open, ProposalState::Approved, ProposalState::Declined, ProposalState::Withdrawn], ProposalState::as_str);
+        check(&[Lane::Work, Lane::Chat], Lane::as_str);
+        check(&[RunState::Queued, RunState::Running, RunState::Succeeded, RunState::Failed, RunState::Cancelled, RunState::Lost], RunState::as_str);
+        check(&[CheckState::Open, CheckState::Done, CheckState::Dropped], CheckState::as_str);
+    }
 }
