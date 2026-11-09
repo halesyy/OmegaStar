@@ -646,6 +646,7 @@ pub fn promote(skills_dir: &Path, skill: &str, config_dir: &Path, catalog: &[Ski
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ErrorCode;
 
     fn temp_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!("omegastar-own-{}", uuid::Uuid::new_v4()));
@@ -699,6 +700,28 @@ mod tests {
             assert!(recorded_path(employee, skill, file).is_err(), "{skill}/{file}");
         }
         assert!(guarded(COMPANY) && guarded(OWN) && !guarded(NOTES) && !guarded("ada"));
+    }
+
+    #[test]
+    fn resolve_refuses_paths_that_leave_the_skill() {
+        let root = temp_dir();
+        let (skills, imports, archive, from) = (root.join("skills"), root.join("imports"), root.join("archive"), root.join("catalog-pdf"));
+        fs::create_dir_all(&from).unwrap();
+        fs::write(from.join("SKILL.md"), "---\nname: pdf\n---\n").unwrap();
+        for name in ["..", ".", "", "a/b", "a\\b", "C:x", "/abs"] {
+            assert_eq!(resolve(&skills, name, "SKILL.md").unwrap_err().code, ErrorCode::Invalid, "skill {name:?}");
+            assert_eq!(stage_import(&imports, &from, name).unwrap_err().code, ErrorCode::Invalid, "import {name:?}");
+            assert_eq!(retire_skill(&skills, &imports, "ada", name, &archive).unwrap_err().code, ErrorCode::Invalid, "retire {name:?}");
+            assert_eq!(recorded_path(&root, NOTES, name).unwrap_err().code, ErrorCode::Invalid, "notes {name:?}");
+        }
+        for file in ["..", "../x", "a/../../x", "a\\..\\x", "", ".", "/etc/hosts", "C:x", "a//b"] {
+            assert_eq!(resolve(&skills, "ada-pdf", file).unwrap_err().code, ErrorCode::Invalid, "file {file:?}");
+        }
+        assert_eq!(resolve(&skills, "ada-pdf", "scripts\\run.sh").unwrap(), skills.join("ada-pdf").join("scripts").join("run.sh"));
+        stage_import(&imports, &from, "pdf").unwrap();
+        assert!(imports.join("pdf").join("SKILL.md").is_file());
+        assert!(!archive.exists(), "nothing was retired");
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
