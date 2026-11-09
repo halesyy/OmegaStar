@@ -248,7 +248,7 @@ impl Office {
                 if r.not_before.is_some_and(|t| t > at) {
                     continue;
                 }
-                if gate(&r, held, account_ok, busy.contains(&r.employee_id), awake) == Gate::Skip {
+                if holds(&r, held, account_ok, busy.contains(&r.employee_id), awake) {
                     continue;
                 }
                 let lane = takes_a_lane(&r.kind);
@@ -1247,13 +1247,6 @@ fn routine_of(kind: &RunKind) -> Option<String> {
     }
 }
 
-/// Whether a queued run may start now, by what holds it back.
-#[derive(Debug, PartialEq)]
-enum Gate {
-    Claim,
-    Skip,
-}
-
 /// Off until omega.log shows its "dark wake" lines only during real dark wakes (`pmset -g log`), never
 /// while the display merely sleeps in a full wake: a wrong reading would hold every routine overnight.
 const GATE_DARK_WAKE: bool = false;
@@ -1263,13 +1256,9 @@ const GATE_DARK_WAKE: bool = false;
 /// employee's runs (`busy`), so it never tidies a skill a conversation, an answer or another lane is still using
 /// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
 /// you: nobody may be watching when it lands. Pure.
-fn gate(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> Gate {
+fn holds(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> bool {
     let background = !skills::ceo_present(run);
-    if held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake) {
-        Gate::Skip
-    } else {
-        Gate::Claim
-    }
+    held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake)
 }
 
 /// The limit that stopped the run, unless you did. A limit with a known reset time is the usage limit, however
@@ -2141,23 +2130,23 @@ mod tests {
         let scheduled = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
         let tidy = RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
         let talk = task("Draft it");
-        let gate = |kind: &RunKind, held, account_ok, busy, awake| gate(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, busy, awake);
-        assert_eq!(gate(&talk, true, true, false, true), Gate::Skip);
-        assert_eq!(gate(&talk, false, false, false, true), Gate::Claim);
-        assert_eq!(gate(&scheduled, false, false, false, true), Gate::Skip);
-        assert_eq!(gate(&scheduled, false, true, false, false), Gate::Skip);
-        assert_eq!(gate(&scheduled, false, true, false, true), Gate::Claim);
-        assert_eq!(gate(&talk, false, true, false, false), Gate::Claim);
-        assert_eq!(gate(&tidy, false, true, true, true), Gate::Skip);
-        assert_eq!(gate(&tidy, false, true, false, true), Gate::Claim);
+        let holds = |kind: &RunKind, held, account_ok, busy, awake| holds(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, busy, awake);
+        assert!(holds(&talk, true, true, false, true));
+        assert!(!holds(&talk, false, false, false, true));
+        assert!(holds(&scheduled, false, false, false, true));
+        assert!(holds(&scheduled, false, true, false, false));
+        assert!(!holds(&scheduled, false, true, false, true));
+        assert!(!holds(&talk, false, true, false, false));
+        assert!(holds(&tidy, false, true, true, true));
+        assert!(!holds(&tidy, false, true, false, true));
         let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: false, thread: Some("t1".into()) };
-        assert_eq!(gate(&came, false, false, false, true), Gate::Skip);
-        assert_eq!(gate(&came, false, true, false, false), Gate::Skip);
-        assert_eq!(gate(&came, false, true, false, true), Gate::Claim);
+        assert!(holds(&came, false, false, false, true));
+        assert!(holds(&came, false, true, false, false));
+        assert!(!holds(&came, false, true, false, true));
         // A due check back in a conversation is a turn of it, but nobody is watching: it waits for the account.
         let check = Run { check: Some("c1".into()), ..Run::new("e1", RunKind::Reply { to_run_id: "t1".into(), label: "Draft it".into(), task: true, card: false }, "Check.".into(), now()) };
-        assert_eq!(super::gate(&check, false, false, false, true), Gate::Skip);
-        assert_eq!(super::gate(&check, false, true, false, true), Gate::Claim);
+        assert!(super::holds(&check, false, false, false, true));
+        assert!(!super::holds(&check, false, true, false, true));
     }
 
     #[test]
