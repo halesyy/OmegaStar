@@ -292,22 +292,7 @@ impl Office {
             }
             active.insert(
                 r.id.clone(),
-                Active {
-                    token,
-                    employee_id: r.employee_id.clone(),
-                    beside,
-                    pid: None,
-                    cancelled: false,
-                    needs_you: vec![],
-                    cards: r.cards.clone(),
-                    score: r.score.clone(),
-                    proposed: None,
-                    verdict: false,
-                    title: None,
-                    transcript: None,
-                    input: None,
-                    waiting: vec![],
-                },
+                Active { token, employee_id: r.employee_id.clone(), beside, cards: r.cards.clone(), score: r.score.clone(), ..Default::default() },
             );
         }
         Ok(claimed)
@@ -517,8 +502,7 @@ impl Office {
         if self.0.closing.load(Ordering::SeqCst) {
             return;
         }
-        let (cancelled, needs_you, cards, score, proposed, verdict, title) =
-            lock(&self.0.active).remove(&run.id).map(|a| (a.cancelled, a.needs_you, a.cards, a.score, a.proposed, a.verdict, a.title)).unwrap_or_default();
+        let Active { cancelled, needs_you, cards, score, proposed, verdict, title, .. } = lock(&self.0.active).remove(&run.id).unwrap_or_default();
         if let Some(stored) = self.db().run(&run.id).ok().flatten() {
             keep_yours(&mut run, &stored.run);
         }

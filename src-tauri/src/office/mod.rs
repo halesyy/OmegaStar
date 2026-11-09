@@ -100,6 +100,7 @@ fn data_folder(channel: BuildChannel) -> &'static str {
 
 /// A run claimed to start: registered as soon as it is marked running, so it can be cancelled
 /// before its process exists.
+#[derive(Default)]
 struct Active {
     token: String,
     employee_id: String,

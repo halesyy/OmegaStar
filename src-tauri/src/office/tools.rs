@@ -2629,7 +2629,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
 
         // A report still being written names its own thread, and its end keeps the name.
         let report = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Running, 5, None);
-        let live = Active { token: "t".into(), employee_id: ada.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec![], cards: vec![], score: None, proposed: None, verdict: false, title: None, transcript: None, input: None, waiting: vec![] };
+        let live = Active { token: "t".into(), employee_id: ada.id.clone(), ..Default::default() };
         lock(&office.0.active).insert(report.id.clone(), live);
         office.name_thread_tool(&report.id, "Weekly numbers").unwrap();
         assert_eq!(saved(&o.db, &report.id).title.as_deref(), Some("Weekly numbers"));
