@@ -790,4 +790,19 @@ mod tests {
         let scrubbed = scrubbed_vars(names.iter().map(OsStr::new));
         assert_eq!(scrubbed, ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK"]);
     }
+
+    #[test]
+    fn the_usage_probe_reads_its_last_result() {
+        let stdout = [
+            r#"{"type":"system","subtype":"init"}"#,
+            r#"{"type":"result","result":"Current session: 90% used"}"#,
+            r#"{"type":"result","result":"Current session: 34% used · resets 2:59pm (Europe/London)\nCurrent week (all models): 12.5% used"}"#,
+            r#"{"type":"result","res"#,
+        ]
+        .join("\n");
+        let usage = parse_usage_output(&stdout).unwrap();
+        assert_eq!(usage.five_hour.map(|w| (w.percent, w.resets_text)), Some((34.0, Some("2:59pm (Europe/London)".into()))));
+        assert_eq!(usage.seven_day.map(|w| w.percent), Some(12.5));
+        assert_eq!(parse_usage_output(r#"{"type":"system","subtype":"init"}"#), None);
+    }
 }
