@@ -1,26 +1,24 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { ApiError, CommandName, Commands, EventName, Events } from "./types";
 
-/** A transport: the Office over Tauri IPC. */
-type Transport = {
+/** A transport: the Office over Tauri IPC, or the browser preview's invented office. */
+export type Transport = {
   invoke<K extends CommandName>(name: K, args: Commands[K]["args"]): Promise<Commands[K]["ret"]>;
   listen<E extends EventName>(name: E, handler: (payload: Events[E]) => void): Promise<() => void>;
 };
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-async function tauriTransport(): Promise<Transport> {
-  const core = await import("@tauri-apps/api/core");
-  const event = await import("@tauri-apps/api/event");
-  return {
-    invoke: (name, args) => core.invoke(name, args),
-    listen: async (name, handler) => event.listen(name, (e) => handler(e.payload as Events[typeof name])),
-  };
-}
+const tauriTransport: Transport = {
+  invoke,
+  listen: (name, handler) => listen(name, (e) => handler(e.payload as Events[typeof name])),
+};
 
 let transport: Promise<Transport> | null = null;
 function getTransport(): Promise<Transport> {
   if (!transport) {
-    transport = inTauri ? tauriTransport()
+    transport = inTauri ? Promise.resolve(tauriTransport)
       // `npm run dev` in a plain browser: the invented office in src/preview. Vite drops this from builds.
       : import.meta.env.DEV ? import("../preview/transport").then((m) => m.previewTransport())
       : Promise.reject(new OfficeError({ code: "unavailable", message: "Omega Star runs in its desktop app." }));
