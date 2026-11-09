@@ -6,7 +6,7 @@ import { decisions, inboxLists, type Decision } from "../lib/decisions";
 import { dayHeading, firstName, typing, whenInline } from "../lib/format";
 import { refreshConversations, useOrg, useProposals, useQuery, useSkillScan } from "../lib/hooks";
 import { setMark } from "../lib/marks";
-import { reducedMotion, useFlip } from "../lib/motion";
+import { ms, reducedMotion, useFlip } from "../lib/motion";
 import { clearPending, markPending, usePending } from "../lib/pending";
 import { openChat, openInbox, openRun, useRoute, type InboxView } from "../lib/router";
 import { useScrollFade } from "../lib/scrollFade";
@@ -778,8 +778,7 @@ function useLeaving(rows: Row[]): { row: Row; leaving: boolean }[] {
       window.clearTimeout(t);
       timers.current.delete(id);
     }
-    const css = getComputedStyle(document.documentElement);
-    const wait = (reducedMotion() ? parseFloat(css.getPropertyValue("--d-fade")) : parseFloat(css.getPropertyValue("--d-settle"))) + 40;
+    const wait = (reducedMotion() ? ms("--d-fade") : ms("--d-settle")) + 40;
     for (const id of gone.current.keys()) {
       if (timers.current.has(id)) continue;
       timers.current.set(id, window.setTimeout(() => {
