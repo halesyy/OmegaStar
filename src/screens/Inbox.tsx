@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, errorMessage } from "../api/client";
 import type { Card, CardReply, HireProposal, Run, Thread } from "../api/types";
+import { answerCard, answering, undoAnswer, undoLatest, UNDO_MS } from "../lib/cardAnswers";
 import { decisions, inboxLists, type Decision } from "../lib/decisions";
 import { dayHeading, firstName, typing, whenInline } from "../lib/format";
 import { refreshConversations, useOrg, useProposals, useQuery, useSkillScan } from "../lib/hooks";
@@ -15,7 +16,6 @@ import { useShell } from "../Shell";
 import { TEMPLATES } from "../components/HireSheet";
 import { Icon } from "../components/Icon";
 import { MenuButton, Popover, Roll, type MenuItem } from "../components/ui";
-import { answerCard, answering, undoAnswer, undoLatest, UNDO_MS } from "../components/conversation/CardView";
 import { LaterMenu } from "../components/conversation/LaterMenu";
 import { markDone, reopen, sendAndDone, SnoozeButton } from "../components/conversation/ThreadView";
 import { toItem, useStatuses, type Item } from "../components/conversation/useStatuses";
