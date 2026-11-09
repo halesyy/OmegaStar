@@ -157,10 +157,11 @@ has to start that work, hand it back with what they need to start it instead of 
         self.sink().request_updated(&self.present(r.clone()));
     }
 
-    /// The session a run about a request continues: the asking run's own when it was a work run whose
-    /// session started; otherwise `fresh`. An ask from a turn of an older build's chat starts fresh, with your
-    /// message there to quote; a turn Omega Star wrote, such as a colleague's report coming back, is not yours.
-    fn origin_session(db: &Store, origin_run_id: Option<&str>, fresh: &str) -> Result<(String, Option<String>)> {
+    /// The session a run about a request or a hire proposal continues: the asking run's own when it was a
+    /// work run whose session started; otherwise `fresh`. An ask from a turn of an older build's chat starts
+    /// fresh, with your message there to quote; a turn Omega Star wrote, such as a colleague's report coming
+    /// back, is not yours.
+    pub(super) fn origin_session(db: &Store, origin_run_id: Option<&str>, fresh: &str) -> Result<(String, Option<String>)> {
         let Some(rec) = origin_run_id.map(|id| db.run(id)).transpose()?.flatten() else {
             return Ok((fresh.to_string(), None));
         };

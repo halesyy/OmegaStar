@@ -385,11 +385,7 @@ something changes. Adjust your plan for the gap, and say in a line or two how yo
                 ),
             };
             let run = Run::new(&p.employee_id, RunKind::HireDecided { proposal_id: p.id.clone(), approved: hired.is_some() }, prompt, now());
-            let from = p.run_id.as_deref().map(|id| db.run(id)).transpose()?.flatten();
-            let session = match from {
-                Some(rec) if rec.run.kind.lane() == Lane::Work && db.session_started(&rec.session)? => rec.session,
-                _ => run.id.clone(),
-            };
+            let (session, _) = Self::origin_session(&db, p.run_id.as_deref(), &run.id)?;
             (run, session)
         };
         self.enqueue(run, session)?;
