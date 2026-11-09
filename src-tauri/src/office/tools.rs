@@ -1206,7 +1206,7 @@ fn own_work(kind: &RunKind) -> bool {
 /// it brings in place of their queued run (`Run::noted_in`); and their cards a newer card replaced. A tidy takes in
 /// none of it.
 pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut claude::Opening) -> Result<()> {
-    if matches!(run.kind, RunKind::Tidy { .. }) {
+    if !catches_up(&run.kind) {
         return Ok(());
     }
     let name = |id: &str| employees.iter().find(|e| e.id == id).map(|e| e.name.clone()).unwrap_or_else(|| "A former colleague".into());
@@ -1231,7 +1231,7 @@ pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut cl
         let last = db
             .work_runs(&run.employee_id, 50)?
             .into_iter()
-            .filter(|r| r.id != run.id && !matches!(r.kind, RunKind::Tidy { .. } | RunKind::ReplyCheck { .. } | RunKind::Nudge { .. } | RunKind::Organize { .. }))
+            .filter(|r| r.id != run.id && catches_up(&r.kind))
             .filter_map(|r| r.started_at)
             .max();
         if let Some(since) = last {
@@ -1239,6 +1239,11 @@ pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut cl
         }
         Ok(())
     })
+}
+
+/// A run of this kind hears what came in since the last such run.
+fn catches_up(kind: &RunKind) -> bool {
+    runs::takes_opening(kind) && !matches!(kind, RunKind::Tidy { .. })
 }
 
 /// The answers and reports `ended` lets through: its finished Asked and Delegated children, and itself

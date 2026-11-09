@@ -1443,11 +1443,16 @@ fn allowed_rules(e: &Employee, once: &[String]) -> Vec<String> {
     rules
 }
 
-/// What a run's opening note is made from, read under the store lock: `waiting_on` and `notes` are
-/// left for the caller. `None` for reply checks, nudges and Organize runs. A resumed conversation, and a
+/// A run of this kind starts with an opening note.
+pub(super) fn takes_opening(kind: &RunKind) -> bool {
+    !matches!(kind, RunKind::ReplyCheck { .. } | RunKind::Nudge { .. } | RunKind::Organize { .. })
+}
+
+/// What a run's opening note is made from, read under the store lock: `waiting_on`, `notes`, and what
+/// `tools::catch_up` adds are left for the caller. `None` unless `takes_opening`. A resumed conversation, and a
 /// quiet routine, get only what is new since their last turn.
 fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session: &str, resume: bool, now: Ts) -> Result<Option<claude::Opening>> {
-    if matches!(run.kind, RunKind::ReplyCheck { .. } | RunKind::Nudge { .. } | RunKind::Organize { .. }) {
+    if !takes_opening(&run.kind) {
         return Ok(None);
     }
     let (day, week) = (chrono::Duration::days(1), chrono::Duration::days(7));
