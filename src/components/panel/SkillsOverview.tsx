@@ -5,6 +5,7 @@ import { firstName, recordedName, relTime, runKindLabel, skillsChanged } from ".
 import { refreshOrg, useCatalog } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import { openChat, openMember, openRun } from "../../lib/router";
+import { isLive } from "../../lib/threads";
 import { lineStats } from "../Diff";
 import { Icon } from "../Icon";
 import { Upkeep } from "../SkillHealth";
@@ -51,7 +52,7 @@ export function SkillsOverview({ e, skills, history, runs, staged, health, runBy
   const leaves = skills.filter((s) => !s.role && !s.managed);
   const tree = nest(leaves);
   const organizeRuns = runs.filter(isOrganize);
-  const organizing = organizeRuns.find((r) => r.state === "queued" || r.state === "running");
+  const organizing = organizeRuns.find(isLive);
   const unsettled = organizeRuns.find((r) => r.state === "succeeded" && !r.kind.settled);
   const managed = skills.filter((s) => s.managed);
   const refinements = useMemo(() => {

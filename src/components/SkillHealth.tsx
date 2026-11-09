@@ -5,6 +5,7 @@ import { capitalize, firstName, relTime } from "../lib/format";
 import { useQuery } from "../lib/hooks";
 import { toast } from "../lib/toasts";
 import { openMember, openRun } from "../lib/router";
+import { isLive } from "../lib/threads";
 import { Icon } from "./Icon";
 import { ConfirmButton, Section } from "./ui";
 import "./SkillHealth.css";
@@ -88,8 +89,8 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
   const [busy, setBusy] = useState(false);
   const open = (checks.data ?? []).filter((c) => c.state === "open");
   const overdue = open.filter((c) => dueLabel(c).late).length;
-  const active = (runs.data ?? []).find((r) => r.state === "queued" || r.state === "running");
-  const last = (runs.data ?? []).find((r) => r.state !== "queued" && r.state !== "running");
+  const active = (runs.data ?? []).find(isLive);
+  const last = (runs.data ?? []).find((r) => !isLive(r));
   const waiting = last && last.proposed && !last.approvedAt && !last.archivedAt ? last : undefined;
   // Overdue checks are listed with their dates, so they are not repeated in the findings.
   const findings = health.findings.filter((f) => f.kind !== "overdueCheck");
