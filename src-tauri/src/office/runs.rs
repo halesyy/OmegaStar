@@ -4,7 +4,7 @@ use super::*;
 use crate::cards;
 
 const EVENT_BATCH: Duration = Duration::from_millis(100);
-/// Told to a run whose Chrome dropped, with `{ceo}` filled in by `chrome_note`.
+/// Told to a run whose Chrome dropped, with `{ceo}` filled in.
 const CHROME_NOTE: &str = "Omega Star: Chrome is not connected, so {ceo} has been asked to reconnect it. Do not ask {ceo} about it yourself. Carry on with what does not need Chrome. If the rest needs Chrome, finish with what you have and say what is left; you will be picked up again once it is back.";
 
 impl Office {
@@ -375,7 +375,7 @@ impl Office {
             log!("run {}: could not read the company for the Chrome note: {err}", run.id);
             "the person you work for".into()
         });
-        self.tell(&run.id, &chrome_note(&ceo));
+        self.tell(&run.id, &CHROME_NOTE.replace("{ceo}", &ceo));
     }
 
     /// Appends a synthetic event to a live run's transcript and forwards it to the UI.
@@ -463,8 +463,6 @@ impl Office {
                     (r, n)
                 })
                 .collect();
-        }
-        if let Some(o) = opening.as_mut() {
             tools::catch_up(&db, &employees, run, o)?;
         }
         let chain = match (&run.kind, run.upstream()) {
@@ -1170,7 +1168,7 @@ pub(super) fn moved_skills(transcript: &str) -> HashSet<String> {
 }
 
 /// The skills a run used, its subagents included: invoked with the Skill tool, or a `SKILL.md` read in a skills folder.
-pub(super) fn skills_used(transcript: &str) -> HashSet<String> {
+fn skills_used(transcript: &str) -> HashSet<String> {
     let mut used = HashSet::new();
     let lines = transcript.lines().filter(|l| l.contains("\"tool_use\"")).filter_map(|l| serde_json::from_str::<Value>(l).ok());
     for v in lines.filter(|v| v["type"] == "assistant") {
@@ -1245,7 +1243,7 @@ fn keep_yours(run: &mut Run, stored: &Run) {
 
 /// A colleague's answer coming back, and a colleague's question (not a task): short runs that never wait behind
 /// their employee's other background work, though they still keep to the cap and to their session. Pure.
-pub(super) fn fast_lane(kind: &RunKind) -> bool {
+fn fast_lane(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Answered { .. } | RunKind::Asked { task: false, .. })
 }
 
@@ -1275,15 +1273,15 @@ enum Gate {
     Skip,
 }
 
-/// The office-wide holds on a queued run, in order: the usage limit holds every run (a conversation would
-/// fail the same way); work you are not in waits for the right account; a tidy waits while anything else of its
-/// employee's runs (`busy`), so it never tidies a skill a conversation, an answer or the other lane is still using
-/// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
-/// you: nobody may be watching when it lands. Pure.
 /// Off until omega.log shows its "dark wake" lines only during real dark wakes (`pmset -g log`), never
 /// while the display merely sleeps in a full wake: a wrong reading would hold every routine overnight.
 const GATE_DARK_WAKE: bool = false;
 
+/// The office-wide holds on a queued run, in order: the usage limit holds every run (a conversation would
+/// fail the same way); work you are not in waits for the right account; a tidy waits while anything else of its
+/// employee's runs (`busy`), so it never tidies a skill a conversation, an answer or another lane is still using
+/// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
+/// you: nobody may be watching when it lands. Pure.
 fn gate(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> Gate {
     let background = !skills::ceo_present(run);
     if held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake) {
@@ -1446,11 +1444,8 @@ fn attachment_names<'a>(raw: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     out
 }
 
-fn chrome_note(ceo: &str) -> String {
-    CHROME_NOTE.replace("{ceo}", ceo)
-}
-
-/// What an employee at work on `run` hears of your words: a conversation with you needs nobody named. Pure.
+/// Your words an earlier attempt of `run` never took, as the employee hears them again: a conversation with you
+/// needs nobody named. Pure.
 fn steer_words(run: &Run, ceo: &str, text: &str) -> String {
     if run.kind.is_conversation() { text.to_string() } else { format!("{ceo} is watching this run and says: {text}") }
 }
@@ -1950,7 +1945,7 @@ mod tests {
         queue(&office, &ada, routine("s1", 0), None, RunState::Running);
         let again = queue(&office, &ada, routine("s1", 1), None, RunState::Queued);
         let other = queue(&office, &ada, routine("s2", 2), None, RunState::Queued);
-        // Bo has only a colleague's answer going, beside which a tidy would once have started.
+        // Bo has only a colleague's answer going, which takes none of Bo's lanes.
         let answer = RunKind::Answered { asked_run_id: "a1".into(), from: ada.id.clone(), task: false, chat: false, thread: None };
         queue(&office, &bo, answer, None, RunState::Running);
         let tidying = queue(&office, &bo, tidy(), None, RunState::Queued);
@@ -2188,7 +2183,6 @@ mod tests {
         let tidy = RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
         let talk = task("Draft it");
         let gate = |kind: &RunKind, held, account_ok, busy, awake| gate(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, busy, awake);
-        // gate(run, held, account_ok, busy, awake)
         assert_eq!(gate(&talk, true, true, false, true), Gate::Skip);
         assert_eq!(gate(&talk, false, false, false, true), Gate::Claim);
         assert_eq!(gate(&scheduled, false, false, false, true), Gate::Skip);

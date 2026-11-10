@@ -344,7 +344,7 @@ impl Office {
             due_at,
         )?;
         let channel = req.channel_id.as_ref().and_then(|c| person.channels.iter().find(|x| &x.id == c));
-        let relay = self.db().company()?.map(|c| c.ceo_name).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "the person you work for".into());
+        let relay = ceo_of(&self.db())?;
         let then = "then call `sent` with the request id, the tool you sent it with and exactly what that tool returned";
         let hint = match channel {
             Some(c) => format!(
@@ -699,7 +699,7 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
     /// Puts `card` on a run: a live run carries it until it ends, a finished one shows it in the Inbox again. A
     /// card about the same thing as one the run already has replaces it. Returns whether nobody else is waiting
     /// on the same thing, so this is the first time you are asked. No desktop notification.
-    pub(super) fn raise_card(&self, run_id: &str, card: Card) -> Result<bool> {
+    fn raise_card(&self, run_id: &str, card: Card) -> Result<bool> {
         let topic = card.topic();
         let same = |c: &Card| c.waiting() && topic.is_some() && c.topic() == topic;
         let waiting = match &topic {
@@ -815,7 +815,7 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
             }
         }
         if closed == 0 {
-            let open: Vec<String> = self.db().open_cards(&caller.id)?.iter().flat_map(|r| r.cards.iter().filter(|c| c.pending()).filter_map(|c| c.key.clone()).collect::<Vec<_>>()).collect();
+            let open: Vec<String> = self.db().open_cards(&caller.id)?.iter().flat_map(|r| r.cards.iter().filter(|c| c.pending()).filter_map(|c| c.key.clone())).collect();
             let open: Vec<&str> = open.iter().map(|k| cards::key_label(k)).collect();
             let list = if open.is_empty() { "none".to_string() } else { open.join(", ") };
             return Err(AppError::invalid(format!("You have no open card about '{key}'. Your open cards: {list}.")));
@@ -1472,7 +1472,7 @@ fn answer_text(ceo: &str, from: &str, handed: &Run, parent: &Run, quote: bool, r
     prompt + &format!("\n\n{yours}:\n\n{}\n\n{theirs}:\n\n{}", handed.prompt, claude::clip(report, 20000))
 }
 
-/// Where a hand-off began, read from the store under its lock; `source_text` turns it into one line
+/// Where a hand-off began, read from the store under its lock; `source_text` turns it into a note
 /// from the transcripts once the lock is released.
 pub(super) struct SourceChain {
     ceo: String,
@@ -1521,7 +1521,7 @@ pub(super) fn source_chain(db: &Store, ceo: &str, from: &str) -> Result<SourceCh
     Ok(chain)
 }
 
-/// One line on where a hand-off began, quoting your own words where there are some, with what you
+/// A note on where a hand-off began, quoting your own words where there are some, with what you
 /// wrote into its runs on the way. Reads the runs' transcripts under `runs_dir`.
 pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
     let ceo = &chain.ceo;
@@ -1571,7 +1571,7 @@ pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
     text
 }
 
-/// The avatar hue the hire sheet derives from a name (`hueFromName` in EmployeeFields.tsx).
+/// The avatar hue the hire sheet derives from a name (`hueFromName` in lib/format.ts).
 fn hue_from_name(name: &str) -> u16 {
     let n = name.trim().to_lowercase();
     if n.is_empty() {

@@ -142,25 +142,21 @@ impl Office {
                     continue;
                 }
                 let Ok(cron) = schedule::parse(&s.cron) else { continue };
-                match schedule::due_slot(&cron, last, now, &Local) {
-                    Due::Nothing => {}
-                    Due::Fire(slot) => {
-                        db.set_last_slot(&s.id, slot)?;
-                        // Kept to business hours: a slot outside them is skipped, never caught up later.
-                        if s.active_hours && !watch::in_hours(slot, &settings.watch.hours, &Local) {
-                            continue;
-                        }
-                        if db.schedule_has_queued_run(&s.id)? {
-                            continue;
-                        }
-                        let Some(e) = db.employee(&s.employee_id)? else { continue };
-                        let prompt = slot_prompt(&db, &s, &e, slot)?;
-                        let kind = RunKind::Scheduled { schedule_id: s.id.clone(), slot, label: s.label.clone(), quiet: s.quiet, model: s.model.clone(), effort: s.effort, review: s.review };
-                        let run = Run::new(&s.employee_id, kind, prompt, now);
-                        if db.insert_run(&run, &run.id)? {
-                            created.push(run);
-                        }
-                    }
+                let Some(slot) = schedule::due_slot(&cron, last, now, &Local) else { continue };
+                db.set_last_slot(&s.id, slot)?;
+                // Kept to business hours: a slot outside them is skipped, never caught up later.
+                if s.active_hours && !watch::in_hours(slot, &settings.watch.hours, &Local) {
+                    continue;
+                }
+                if db.schedule_has_queued_run(&s.id)? {
+                    continue;
+                }
+                let Some(e) = db.employee(&s.employee_id)? else { continue };
+                let prompt = slot_prompt(&db, &s, &e, slot)?;
+                let kind = RunKind::Scheduled { schedule_id: s.id.clone(), slot, label: s.label.clone(), quiet: s.quiet, model: s.model.clone(), effort: s.effort, review: s.review };
+                let run = Run::new(&s.employee_id, kind, prompt, now);
+                if db.insert_run(&run, &run.id)? {
+                    created.push(run);
                 }
             }
             // A check set in a conversation you are in, and not archived, comes back into it as its next turn.
@@ -386,7 +382,7 @@ fn same_check(a: &str, b: &str) -> bool {
 /// The next slot `s` runs at after `after`. One kept to business hours skips the slots outside them,
 /// looking up to a year or 20,000 slots ahead (two weeks of a routine that runs every minute). Pure.
 pub(super) fn next_slot<Tz: chrono::TimeZone>(s: &Schedule, hours: &BusinessHours, after: Ts, tz: &Tz) -> Option<Ts> {
-    let mut slots = schedule::parse(&s.cron).ok()?.iter_after(after.with_timezone(tz)).map(|t| t.with_timezone(&Utc));
+    let mut slots = schedule::slots_after(&schedule::parse(&s.cron).ok()?, after, tz);
     if !s.active_hours {
         return slots.next();
     }
@@ -397,7 +393,7 @@ pub(super) fn next_slot<Tz: chrono::TimeZone>(s: &Schedule, hours: &BusinessHour
 /// Whether `cron` runs more often than hourly: two of its next dozen slots are under an hour apart. Pure.
 fn more_than_hourly<Tz: chrono::TimeZone>(cron: &str, after: Ts, tz: &Tz) -> bool {
     let Ok(cron) = schedule::parse(cron) else { return false };
-    let next: Vec<Ts> = cron.iter_after(after.with_timezone(tz)).take(12).map(|t| t.with_timezone(&Utc)).collect();
+    let next: Vec<Ts> = schedule::slots_after(&cron, after, tz).take(12).collect();
     next.windows(2).any(|w| w[1] - w[0] < chrono::Duration::hours(1))
 }
 

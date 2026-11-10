@@ -13,7 +13,7 @@ use std::path::Path;
 pub const CHROME: &str = "chrome";
 const SIGN_IN: &str = "sign-in:";
 /// A card's question, as the Inbox item's title.
-pub const QUESTION_CHARS: usize = 80;
+const QUESTION_CHARS: usize = 80;
 /// The one line under the question.
 pub const WHY_CHARS: usize = 140;
 const KEY_CHARS: usize = 60;
@@ -48,7 +48,7 @@ const LINE_CHARS: usize = 300;
 pub const ADD_LINE: &str = "Add to the company page?";
 
 /// The chore of signing in to `site`.
-pub fn sign_in(site: &str) -> String {
+fn sign_in(site: &str) -> String {
     format!("{SIGN_IN}{site}")
 }
 
@@ -143,7 +143,7 @@ Put the reason in why, at most {WHY_CHARS}."
     if file.is_some() && chore {
         return Err(AppError::invalid("file goes with any card but a chore: the draft or page it is about."));
     }
-    if file.is_some_and(|f| !shows_file(f)) {
+    if file.is_some_and(|f| !of_kind(f, FILE_KINDS)) {
         return Err(AppError::invalid("file must be a markdown or text file (.md or .txt), so it shows on the card."));
     }
     let images: Vec<String> = list("images").map(|a| a.iter().filter_map(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect()).unwrap_or_default();
@@ -158,11 +158,6 @@ Put the reason in why, at most {WHY_CHARS}."
     card.link = text("link").map(web_link).transpose()?;
     card.images = images;
     Ok(card)
-}
-
-/// Whether a card shows the file at `path`, by its name.
-fn shows_file(path: &str) -> bool {
-    of_kind(path, FILE_KINDS)
 }
 
 /// Whether `path`'s extension is one of `kinds`, whatever its case.

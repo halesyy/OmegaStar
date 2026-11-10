@@ -114,10 +114,6 @@ pub struct RequestFilter {
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
         let conn = Connection::open(path)?;
-        Self::init(conn)
-    }
-
-    fn init(conn: Connection) -> Result<Store> {
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -1341,7 +1337,6 @@ mod tests {
     use super::*;
     use crate::threads;
     use chrono::Utc;
-    use std::collections::BTreeSet;
     use std::path::PathBuf;
 
     fn temp_dir() -> PathBuf {

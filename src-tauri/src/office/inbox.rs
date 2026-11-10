@@ -18,12 +18,12 @@ pub(super) enum ReplyBy {
 }
 
 impl Office {
-    /// Colleague asks still in flight, for Activity's "Between colleagues" list.
+    /// Colleague asks still in flight, for Activity's "Waiting on others".
     pub fn open_asks(&self) -> Result<Vec<Run>> {
         self.db().open_asks()
     }
 
-    /// Weekly reviews from the last eight days, for Activity's "This week's numbers".
+    /// Weekly reviews from the last eight days, for Activity's Numbers.
     pub fn week_reviews(&self) -> Result<Vec<Run>> {
         self.db().review_runs(now() - chrono::Duration::days(8))
     }
@@ -154,18 +154,15 @@ impl Office {
     }
 
     /// A reply that lands on an archived thread brings it back to the Inbox only when it needs you:
-    /// "Send & archive" meant you did not want the answer back, unless the answer raises something.
+    /// "Send & done" meant you did not want the answer back, unless the answer raises something.
     pub(super) fn surface_thread(&self, reply: &Run) -> Result<()> {
-        if reply.reply_to().is_none() {
-            return Ok(());
-        }
+        let Some(root_id) = reply.reply_to() else { return Ok(()) };
         let flagged = !reply.needs_you.is_empty() || !reply.denials.is_empty() || matches!(reply.state, RunState::Failed | RunState::Lost);
         if !flagged {
             return Ok(());
         }
         let root = {
             let db = self.db();
-            let Some(root_id) = reply.reply_to() else { return Ok(()) };
             let Some(mut root) = db.run(root_id)?.map(|r| r.run) else { return Ok(()) };
             if root.archived_at.is_none() {
                 return Ok(());
@@ -179,9 +176,9 @@ impl Office {
     }
 
     /// Archives a report with its thread and the rest of its Inbox row (they leave the Inbox and the
-    /// employee's chips), or moves them all back. Archiving leaves alone any other conversation you are in
-    /// in the row (`threads::talking`), cards and all, and any other thread in it that broke or still asks you
-    /// something. `run_id` may be any run in the row. Returns the ids of the runs it moved, for Undo.
+    /// employee's open conversations), or moves them all back. Archiving leaves alone any other conversation
+    /// you are in in the row (`threads::talking`), cards and all, and any other thread in it that broke or
+    /// still asks you something. `run_id` may be any run in the row. Returns the ids of the runs it moved, for Undo.
     pub fn set_archived(&self, run_id: &str, archived: bool) -> Result<Vec<String>> {
         Ok(self.archive_row(run_id, archived, false)?.into_iter().map(|r| r.id).collect())
     }
@@ -226,7 +223,7 @@ impl Office {
                 return Err(AppError::conflict("it is still working, so it cannot be archived yet"));
             }
             let own = archived && !(spare_own && yours(&t));
-            // Done ends only this conversation: another one you are in goes on in its own chip, so neither it
+            // Done ends only this conversation: another one you are in goes on by itself, so neither it
             // nor a card in it is Done's to settle. `t` holds every turn, answers that came back into it too.
             let row: Vec<Thread> = Self::row_of(&db, &t.root)?.into_iter().filter(|m| !archived || (m.root.id != t.root.id && !threads::talking(m))).collect();
             if archived && ((own && threads::open_card(&t).is_some()) || threads::card_open(&row)) {
@@ -434,7 +431,7 @@ impl Office {
     }
 
     /// Opens again, with no model run, every card you said Later to whose day has come: it waits on you as before, its
-    /// message back in what needs you and its row back in the Inbox (or its conversation in your chips), and
+    /// message back in what needs you and its row back in the Inbox (or its conversation open again), and
     /// `Card::times_back` counts it. Your answer then reaches the employee as any answer does. Returns how many came back.
     pub fn bring_back_cards(&self, at: Ts) -> Result<usize> {
         let (back, changed) = {
@@ -570,8 +567,7 @@ Approval covers only what is listed, so if something else is blocked, stop and s
         );
         // Decided, so it leaves the Inbox: the retry comes back only if it needs you again. A conversation you are
         // in goes on instead, and news you have not seen keeps the thread where you will see it.
-        let reply = self.reply_with(run_id, &text, !stays, rules, vec![], ReplyBy::App)?;
-        Ok(reply)
+        self.reply_with(run_id, &text, !stays, rules, vec![], ReplyBy::App)
     }
 
     /// A thread's newest turn as stored, and whether the next turn resumes its session: yes while that turn is
@@ -1132,7 +1128,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omegastar-retry-handoff-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let ada = tester();
-        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
         let mut plan = Run::new(&ada.id, RunKind::Manual, "Plan the week.".into(), now());
         plan.state = RunState::Succeeded;
         plan.ended_at = Some(now());
@@ -1321,7 +1317,7 @@ mod tests {
         let office = held_office(&dir, &e, &[&message, &answer]).await;
         assert_eq!(office.answer_card(&answer.id, 0, CardReply::Choice { index: 1 }).unwrap().len(), 1);
         assert!(office.db().run(&message.id).unwrap().unwrap().run.archived_at.is_none(), "the answer goes on in the conversation");
-        assert!(office.conversations().unwrap().threads.iter().any(|t| t.root.id == message.id), "and it keeps its chip");
+        assert!(office.conversations().unwrap().threads.iter().any(|t| t.root.id == message.id), "and it stays open");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1352,8 +1348,8 @@ mod tests {
     async fn an_older_chat_answer_comes_back_into_the_chat_message_that_asked() {
         let dir = std::env::temp_dir().join(format!("omegastar-old-chat-answer-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
-        let ana = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "ana".into(), name: "Ana".into(), chat_session: "chat-ana".into(), ..tester() };
-        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let ana = Employee { slug: "ana".into(), name: "Ana".into(), chat_session: "chat-ana".into(), ..tester() };
+        let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
         let cy = Employee { manager_id: Some(ana.id.clone()), ..tester() };
         let mut message = Run::new(&cy.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
         message.state = RunState::Succeeded;
@@ -1387,7 +1383,7 @@ mod tests {
         talk_about(&db, &week[0]);
         let ids = |t: &Thread| -> HashSet<String> { std::iter::once(t).chain(&t.related).map(|x| x.root.id.clone()).collect() };
         let archived: Vec<HashSet<String>> = Office::rows(&db, View::Archive).unwrap().iter().map(ids).collect();
-        assert_eq!(archived, vec![HashSet::from([week[1].id.clone(), week[2].id.clone()])], "the conversation shows in its chip, the rest of the week here");
+        assert_eq!(archived, vec![HashSet::from([week[1].id.clone(), week[2].id.clone()])], "the conversation stays open, the rest of the week is here");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1472,7 +1468,7 @@ mod tests {
             "newest first by when each was done or last moved; what needs you, a conversation still going and an open task stay out"
         );
         assert_eq!(archive[2].replies.iter().map(|r| r.id.clone()).collect::<Vec<_>>(), vec![turn.id.clone()], "a finished conversation keeps its turns");
-        assert!(!roots(&archive).contains(&talking.id) && !roots(&archive).contains(&going.id), "the chips show those");
+        assert!(!roots(&archive).contains(&talking.id) && !roots(&archive).contains(&going.id), "those are open conversations");
         let inbox = Office::rows(&db, View::Inbox).unwrap();
         assert_eq!(roots(&inbox), vec![carded.id.clone(), broken.id.clone()], "the usage limit is never yours to fix");
         drop(db);
@@ -1593,7 +1589,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omegastar-same-ask-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let ada = tester();
-        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
         let ask = |e: &Employee, message: &str, key: &str| {
             let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), now());
             r.state = RunState::Succeeded;
@@ -1981,7 +1977,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omegastar-shared-key-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let ada = tester();
-        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
         let ask = |e: &Employee, choices: &[&str]| {
             let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), now());
             r.state = RunState::Succeeded;
@@ -2130,27 +2126,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("omegastar-inbox-{}", uuid::Uuid::new_v4()));
         let path = dir.join("office.db");
         fs::create_dir_all(&dir).unwrap();
-        let ada = Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: now(),
-        };
+        let ada = Employee { slug: "ada".into(), name: "Ada".into(), chat_session: "chat-ada".into(), ..tester() };
         let mut report = Run::new(&ada.id, RunKind::Manual, "go".into(), now());
         report.state = RunState::Succeeded;
         report.ended_at = Some(now());

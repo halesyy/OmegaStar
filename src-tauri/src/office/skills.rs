@@ -310,7 +310,7 @@ impl Office {
     }
 
     /// Raises a flag on a live run without a desktop notification.
-    pub(super) fn flag(&self, run_id: &str, message: String) {
+    fn flag(&self, run_id: &str, message: String) {
         if let Some(a) = lock(&self.0.active).get_mut(run_id) {
             a.needs_you.push(message);
         }
@@ -566,7 +566,7 @@ fn mentions(text: &str, name: &str) -> bool {
 }
 
 /// The flag on a tidy that proposes changes: the Inbox shows it as the approval it waits on.
-pub const PROPOSES: &str = "Proposes bigger changes that need your OK.";
+const PROPOSES: &str = "Proposes bigger changes that need your OK.";
 
 /// The CEO is in this conversation: one they started, a reply, or a turn of an older build's chat. Not
 /// is_conversation(): an answer that came back into a conversation starts from a colleague's report.

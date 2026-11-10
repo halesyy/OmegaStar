@@ -325,7 +325,7 @@ has to start that work, hand it back with what they need to start it instead of 
     }
 
     async fn read_group(&self, employee_id: &str, server: &str, chats: &[String]) -> Vec<std::result::Result<Vec<ChatMessage>, ReadError>> {
-        let every = |e: ReadError| chats.iter().map(|_| Err(e.clone())).collect();
+        let every = |e: ReadError| vec![Err(e); chats.len()];
         match reader::load_server(&self.employee_dir(employee_id), employee_id, server) {
             Ok(Some(spec)) => reader::read_teams(&spec, chats).await,
             Ok(None) => every(ReadError::Unsupported(format!("{server} is not one of this employee's local MCP servers"))),
@@ -443,9 +443,7 @@ has to start that work, hand it back with what they need to start it instead of 
                     Err(ReadError::Failed(m)) => {
                         let Some(w) = watch_of(&mut r) else { continue };
                         w.last_checked_at = Some(at);
-                        if fail_check(w, m.clone()) {
-                            notices.push((format!("Omega Star cannot check {person}'s replies"), m));
-                        }
+                        notices.extend(fail_check(w, &person, m));
                     }
                 }
                 db.save_request(&r)?;
@@ -489,10 +487,7 @@ has to start that work, hand it back with what they need to start it instead of 
                     Ok((verdict, note)) => (watch::apply_verdict(&mut r, &through, Heard { at: through.at, from: j.person.clone(), text: words, verdict, note }, &response), true),
                     Err(e) => {
                         let Some(w) = watch_of(&mut r) else { continue };
-                        let e = format!("The reply could not be judged: {}", e.message);
-                        if fail_check(w, e.clone()) {
-                            notice = Some((format!("Omega Star cannot check {}'s replies", j.person), e));
-                        }
+                        notice = fail_check(w, &j.person, format!("The reply could not be judged: {}", e.message));
                         (Applied::Kept, false)
                     }
                 };
@@ -666,7 +661,7 @@ has to start that work, hand it back with what they need to start it instead of 
             }
             let person = Self::person_name(&db, &r.person_id)?;
             let Some(w) = watch_of(&mut r) else { return Ok(()) };
-            let notice = fail_check(w, error.clone()).then(|| (format!("Omega Star cannot check {person}'s replies"), error));
+            let notice = fail_check(w, &person, error);
             db.save_request(&r)?;
             (r, notice)
         };
@@ -688,11 +683,11 @@ fn still_watching(r: &HumanRequest, anchor: &str) -> bool {
     watch::Facts::of(r).is_some() && matches!(&r.delivery, Some(Delivery { locator: Locator::TeamsChat { message_id, .. }, .. }) if message_id == anchor)
 }
 
-/// Counts a failed check. True for the failure that should tell you, once.
-fn fail_check(w: &mut Watch, error: String) -> bool {
+/// Counts a failed check of `person`'s replies. The notification for the failure that should tell you, once.
+fn fail_check(w: &mut Watch, person: &str, error: String) -> Option<(String, String)> {
     w.failures += 1;
-    w.last_error = Some(error);
-    w.failures == FAILURES_TO_NOTIFY
+    w.last_error = Some(error.clone());
+    (w.failures == FAILURES_TO_NOTIFY).then(|| (format!("Omega Star cannot check {person}'s replies"), error))
 }
 
 /// A moment on your local clock: "Tue 6 Oct 1:15 pm".

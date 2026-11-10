@@ -71,12 +71,12 @@ pub fn quiet(r: &Run) -> bool {
 }
 
 /// The run raised a card or a flag, or was blocked on a tool (a tidy trying a command it may not run is not).
-pub fn flagged(r: &Run) -> bool {
+fn flagged(r: &Run) -> bool {
     !r.needs_you.is_empty() || blocked(r)
 }
 
 /// The run was blocked on a tool you could allow (a tidy trying a command it may not run is not).
-pub fn blocked(r: &Run) -> bool {
+fn blocked(r: &Run) -> bool {
     !r.denials.is_empty() && !matches!(r.kind, RunKind::Tidy { .. })
 }
 
@@ -120,7 +120,7 @@ pub fn broken(t: &Thread) -> bool {
 /// Whether a finished run reaches your Inbox. `quiet_chain`: it is part of a hand-off a quiet report
 /// started, so like that report it speaks up only when it flags something or breaks. `top`: its
 /// employee reports to you; an agent below another agent reports to that manager unless it flags you.
-/// A run you wrote into while it worked or waited (`Run::steered`) always does: you were watching it.
+/// A run you wrote into (`Run::steered`) always does.
 /// A conversation you started never does, nor an answer that came back into one: you follow it as a
 /// conversation of its own.
 pub fn reaches_you(r: &Run, quiet_chain: bool, top: bool) -> bool {
@@ -165,7 +165,7 @@ fn continues_from<'a>(r: &'a Run, conversation: &HashMap<String, Run>) -> Option
 /// The first run of the row `r` belongs to: a report, or an ask a report made. Follows
 /// `continues_from` through `conversation` (every conversation run by id); a link to a run that is not
 /// in it is the report the conversation started from.
-pub fn anchor<'a>(r: &'a Run, conversation: &'a HashMap<String, Run>) -> &'a str {
+fn anchor<'a>(r: &'a Run, conversation: &'a HashMap<String, Run>) -> &'a str {
     let mut cur = r;
     for _ in 0..64 {
         match continues_from(cur, conversation) {
@@ -301,7 +301,7 @@ fn is_open(m: &(Thread, bool)) -> bool {
 /// The row needs you: an open thread in it asks you something, broke where breakage needs you, or is a run you
 /// wrote into (`Run::steered`), whose report waits for you like a reply until you mark it done. A schedule's
 /// failures need you once `STREAK` of them are in a row; anything else that breaks, at once.
-pub fn needs_you(row: &Row) -> bool {
+fn needs_you(row: &Row) -> bool {
     let open = || row.members.iter().filter(|m| is_open(m)).map(|(t, _)| t);
     if open().any(|t| asks_you(t) || t.root.steered) {
         return true;
@@ -313,7 +313,7 @@ pub fn needs_you(row: &Row) -> bool {
 
 /// A conversation still going on: a thread with later turns that you have not archived. The employee's
 /// chips show it until you mark it done. A reply typed into a report while it worked is no later turn.
-pub fn going_on(t: &Thread) -> bool {
+fn going_on(t: &Thread) -> bool {
     t.root.archived_at.is_none() && !t.replies.is_empty()
 }
 
@@ -360,7 +360,7 @@ pub fn present(mut row: Row, view: View) -> Option<Thread> {
 }
 
 /// When a row was archived: the latest of its threads.
-pub fn row_archived_at(t: &Thread) -> Option<Ts> {
+fn row_archived_at(t: &Thread) -> Option<Ts> {
     std::iter::once(t).chain(&t.related).filter_map(|x| x.root.archived_at).max()
 }
 
@@ -589,7 +589,7 @@ mod tests {
             r.ended_at = Some(at);
             assert!(!reaches_you(&r, false, false), "{:?}", r.kind);
             r.steered = true;
-            assert!(reaches_you(&r, false, false) && reaches_you(&r, true, false), "{:?}: you were watching it", r.kind);
+            assert!(reaches_you(&r, false, false) && reaches_you(&r, true, false), "{:?}: you wrote into it", r.kind);
             let row = |r: &Run| Row { members: vec![(Thread::new(r.clone(), vec![]), reaches_you(r, false, false))] };
             assert!(needs_you(&row(&r)) && present(row(&r), View::Inbox).is_some(), "it waits for you like a reply");
             assert!(present(row(&r), View::Archive).is_none(), "nothing is in both");

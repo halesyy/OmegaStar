@@ -26,12 +26,12 @@ pub fn claude_json_path() -> PathBuf {
 
 /// What a scan could not read. A missing optional file or folder is not a failure; the skills
 /// folder itself missing is, because then the catalog is empty for a reason the user can act on.
-#[derive(Debug, Default, PartialEq)]
-pub struct ScanReport {
+#[derive(Default)]
+struct ScanReport {
     /// Skill folders (or their SKILL.md) that exist but could not be read.
-    pub unreadable: usize,
+    unreadable: usize,
     /// The first I/O error, with its path.
-    pub error: Option<String>,
+    error: Option<String>,
 }
 
 impl ScanReport {

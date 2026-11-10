@@ -138,10 +138,19 @@ const OPENS: &[&str] = &[
 
 /// Whether a report path opens in its app, so a click never runs a program
 /// (an .app bundle is a folder, a .command or .sh is a file).
-pub(crate) fn opens_directly(path: &Path, is_dir: bool) -> bool {
+fn opens_directly(path: &Path, is_dir: bool) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => OPENS.contains(&ext.to_ascii_lowercase().as_str()),
         None => is_dir,
+    }
+}
+
+/// Opens a full path in its app, or shows it in its folder when it could run a program (`opens_directly`).
+pub(crate) fn open_or_reveal(app: &AppHandle, path: &Path) -> std::result::Result<(), tauri_plugin_opener::Error> {
+    if opens_directly(path, path.is_dir()) {
+        app.opener().open_path(path.to_string_lossy(), None::<&str>)
+    } else {
+        app.opener().reveal_item_in_dir(path)
     }
 }
 
@@ -188,12 +197,7 @@ pub async fn open_report_path(app: AppHandle, path: String) -> Result<()> {
         std::io::ErrorKind::NotFound => AppError::not_found(format!("Nothing is at {path} any more")),
         _ => AppError::internal(format!("Could not open {path}: {e}")),
     })?;
-    let done = if opens_directly(&full, full.is_dir()) {
-        app.opener().open_path(full.to_string_lossy(), None::<&str>)
-    } else {
-        app.opener().reveal_item_in_dir(&full)
-    };
-    done.map_err(|e| AppError::internal(format!("Could not open {path}: {e}")))
+    open_or_reveal(&app, &full).map_err(|e| AppError::internal(format!("Could not open {path}: {e}")))
 }
 
 #[tauri::command]

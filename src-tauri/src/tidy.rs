@@ -16,7 +16,7 @@ const HOLD_SEVEN_DAY_PERCENT: f64 = 85.0;
 pub const TAUGHT_LIMIT: usize = 40;
 
 /// What identifies a finding from one check to the next.
-pub fn key(f: &HealthFinding) -> String {
+fn key(f: &HealthFinding) -> String {
     format!("{:?}|{}|{}", f.kind, f.skill.as_deref().unwrap_or(""), f.file.as_deref().unwrap_or(""))
 }
 
@@ -215,9 +215,9 @@ struct Family {
 }
 
 impl Family {
-    /// `skills_only` leaves notes out: a rule moved into a notes file is out of reach of the skills.
-    fn new(after: &Snapshot, skills_only: bool) -> Family {
-        let lines = after.iter().filter(|((skill, _), _)| !skills_only || skill != own_skills::NOTES);
+    /// Leaves notes out: a rule moved into a notes file is out of reach of the skills.
+    fn new(after: &Snapshot) -> Family {
+        let lines = after.iter().filter(|((skill, _), _)| skill != own_skills::NOTES);
         Family { lines: lines.flat_map(|(_, t)| t.lines().map(tokens)).filter(|t| t.len() >= 3).collect() }
     }
 
@@ -250,7 +250,7 @@ fn clauses(line: &str) -> Vec<BTreeSet<String>> {
 
 /// Taught lines of `before` that no longer appear in `after`, anywhere in the family.
 pub fn dropped(before: &Snapshot, after: &Snapshot) -> Vec<Taught> {
-    let family = Family::new(after, true);
+    let family = Family::new(after);
     let mut out = vec![];
     for ((skill, file), text) in before {
         if after.get(&(skill.clone(), file.clone())) == Some(text) || !file.ends_with(".md") || skill == own_skills::NOTES {

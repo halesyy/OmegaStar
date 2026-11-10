@@ -24,7 +24,7 @@ use crate::org::Org;
 use crate::own_skills;
 use crate::proxy;
 use crate::reader::{self, ReadError};
-use crate::schedule::{self, Due};
+use crate::schedule;
 use crate::store::{RequestFilter, RunRecord, Store};
 use crate::threads;
 use crate::tidy;
@@ -183,7 +183,7 @@ fn now() -> Ts {
 /// chat message as one: the message itself, or for a colleague's answer that came back into its chat, the message
 /// whose ask it answers, through any answer turns there that asked on. None for anything else, or when the trail
 /// is gone.
-pub(super) fn conversation_of(db: &Store, run: &Run) -> Result<Option<String>> {
+fn conversation_of(db: &Store, run: &Run) -> Result<Option<String>> {
     let mut at = run.clone();
     // Each step goes to an earlier run, so this only guards against a damaged trail.
     for _ in 0..64 {
@@ -654,7 +654,7 @@ fn find_member<'a, T>(items: &'a [T], key: &str, f: impl Fn(&T) -> (&String, Opt
     let k = key.trim().to_lowercase();
     items.iter().find(|x| {
         let (id, slug, name) = f(x);
-        id.to_lowercase() == k || slug.map(|s| s.to_lowercase() == k).unwrap_or(false) || name.to_lowercase() == k
+        id.to_lowercase() == k || slug.is_some_and(|s| s.to_lowercase() == k) || name.to_lowercase() == k
     })
 }
 

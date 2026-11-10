@@ -952,10 +952,9 @@ still uses an old name.",
 /// changes that could lose something you taught them are proposed, and made in a second, approved run.
 fn tidy_frame(s: &Snapshot, reason: TidyReason) -> String {
     let ceo = &s.company.ceo_name;
-    let brief = s.tidy.as_ref();
-    let mut b = String::new();
     let none = TidyBrief { findings: vec![], taught: vec![], plan: None };
-    let brief = brief.unwrap_or(&none);
+    let brief = s.tidy.as_ref().unwrap_or(&none);
+    let mut b = String::new();
 
     b += "## What Omega Star measured\n\n";
     if brief.findings.is_empty() {

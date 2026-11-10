@@ -1,6 +1,3 @@
-// The office tools' schemas (`mcp::tools`) are one `json!` literal, deeper than the default limit.
-#![recursion_limit = "256"]
-
 mod backup;
 mod cards;
 mod catalog;
@@ -112,17 +109,11 @@ impl EventSink for TauriSink {
         }
     }
     fn open(&self, target: &str) -> std::result::Result<(), String> {
-        let opener = self.app.opener();
         let done = if target.starts_with("https://") {
-            opener.open_url(target, None::<&str>)
+            self.app.opener().open_url(target, None::<&str>)
         } else {
-            // As a click on a path in a report opens it: one that could run a program is shown in its folder instead.
-            let path = std::path::Path::new(target);
-            if commands::opens_directly(path, path.is_dir()) {
-                opener.open_path(target, None::<&str>)
-            } else {
-                opener.reveal_item_in_dir(path)
-            }
+            // As a click on a path in a report opens it.
+            commands::open_or_reveal(&self.app, std::path::Path::new(target))
         };
         done.map_err(|e| e.to_string())
     }

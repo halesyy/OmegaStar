@@ -104,15 +104,13 @@ fn scrubbed_vars<'a>(names: impl Iterator<Item = &'a OsStr>) -> Vec<OsString> {
 
 async fn capture(program: &Path, env: &[(String, String)], args: &[&str]) -> Option<String> {
     let fut = command(program).args(args).envs(env.iter().cloned()).stdin(Stdio::null()).output();
-    let out = tokio::time::timeout(std::time::Duration::from_secs(20), fut).await.ok()?.ok()?;
+    let out = tokio::time::timeout(Duration::from_secs(20), fut).await.ok()?.ok()?;
     // `auth status` exits non-zero when logged out but still prints JSON.
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 pub async fn version(program: &Path) -> Option<String> {
-    let s = capture(program, &[], &["--version"]).await?;
-    let v = s.split_whitespace().next()?.to_string();
-    (!v.is_empty()).then_some(v)
+    capture(program, &[], &["--version"]).await?.split_whitespace().next().map(String::from)
 }
 
 fn parse_auth(stdout: &str) -> Option<Account> {
@@ -332,7 +330,7 @@ pub fn channel_name(c: &Channel) -> String {
 }
 
 pub fn channel_line(c: &Channel) -> String {
-    format!("{} {}: use for {} (channel id `{}`)", channel_kind(c.kind), c.address.trim(), one_line(&c.when_to_use), c.id)
+    format!("{}: use for {} (channel id `{}`)", channel_name(c), one_line(&c.when_to_use), c.id)
 }
 
 fn path_arg(p: &Path) -> String {
@@ -345,7 +343,7 @@ pub fn attachments_dir(employee_dir: &Path, run_id: &str) -> PathBuf {
 }
 
 /// The prompt, followed by the absolute path of each attached file.
-pub(super) fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
+fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
     if names.is_empty() {
         return prompt.to_string();
     }

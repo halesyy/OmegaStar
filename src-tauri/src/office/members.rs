@@ -215,22 +215,17 @@ impl Office {
         Ok(())
     }
 
-    pub fn allow_rule(&self, employee_id: &str, rule: &str) -> Result<Employee> {
-        let rule = rule.trim();
-        if rule.is_empty() {
-            return Err(AppError::invalid("rule is empty"));
-        }
-        let e = {
+    pub(super) fn allow_rule(&self, employee_id: &str, rule: &str) -> Result<()> {
+        {
             let db = self.db();
             let mut e = db.employee(employee_id)?.ok_or_else(|| AppError::not_found("employee not found"))?;
             if !e.allow_rules.iter().any(|r| r == rule) {
                 e.allow_rules.push(rule.to_string());
                 db.save_employee(&e)?;
             }
-            e
-        };
+        }
         self.sink().org_changed();
-        Ok(e)
+        Ok(())
     }
 
     // ------------------------------------------------------------------ people

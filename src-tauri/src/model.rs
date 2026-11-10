@@ -1132,11 +1132,6 @@ impl Card {
         self.pending() || self.put_off()
     }
 
-    /// News you have not seen yet.
-    pub fn unseen_news(&self) -> bool {
-        self.answer.is_none() && self.ask == CardAsk::News
-    }
-
     /// What the card is about: its key, or for a chore asked before keys `chore:<subject>`.
     pub fn topic(&self) -> Option<String> {
         match (&self.key, &self.ask) {
@@ -1330,8 +1325,8 @@ pub struct Run {
     /// When you last replied to this report from the Inbox.
     #[serde(default)]
     pub replied_at: Option<Ts>,
-    /// You wrote into it while it worked or waited to start, so its report waits for you in the Inbox like a reply,
-    /// whatever kind of run it is.
+    /// You wrote into it while it worked, so its report waits for you in the Inbox like a reply, whatever kind of run
+    /// it is.
     #[serde(default)]
     pub steered: bool,
     /// For a reply: your question about one of the thread's cards (`CardReply::Ask`). Your own words, but it leaves the
@@ -1346,7 +1341,7 @@ pub struct Run {
     /// the check's id. A check's own run names it in its kind instead (`RunKind::check_id`).
     #[serde(default)]
     pub check: Option<String>,
-    /// Permission rules you granted for this run only ("Allow once & retry"). They go into the run's
+    /// Permission rules you granted for this run only ("Allow once"). They go into the run's
     /// settings and are never saved to the employee.
     #[serde(default)]
     pub allow_once: Vec<String>,
@@ -1470,7 +1465,7 @@ impl Run {
 
     /// It has news you have not seen, which keeps its row in the Inbox.
     pub fn has_news(&self) -> bool {
-        self.cards.iter().any(Card::unseen_news)
+        self.cards.iter().any(|c| c.answer.is_none() && c.ask == CardAsk::News)
     }
 
     /// What needs you that is not a card: flags Omega Star raised, and `notify` messages from before cards.
@@ -1528,8 +1523,8 @@ impl Run {
 }
 
 /// A report and the replies you exchanged on it: the root run and every later turn chained to it
-/// (`Run::reply_to`), oldest first. One chip on the employee's panel. In the Inbox and the Archive a thread is a row's
-/// lead, with the row's other threads in `related`.
+/// (`Run::reply_to`), oldest first. In the Inbox and the Archive a thread is a row's lead, with the row's other threads
+/// in `related`.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Thread {
@@ -1546,7 +1541,7 @@ impl Thread {
     }
 }
 
-/// Every conversation across the office, for the Inbox and each employee's chips, in one read.
+/// Every conversation across the office, for the Inbox and the sidebar, in one read.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Conversations {

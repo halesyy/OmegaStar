@@ -116,7 +116,8 @@ mod tests {
         let sub_report = run(&db, &bo, RunKind::Manual, RunState::Succeeded, 40, None);
         let sub_reply = Run::new(&bo.id, RunKind::Reply { to_run_id: sub_report.id.clone(), label: "Manual run".into(), task: false, card: false }, "and?".into(), now());
         db.insert_run(&sub_reply, &sub_report.id).unwrap();
-        // A reply typed into a report while it worked is no later turn: once it needs nothing, it is in the Archive.
+        // A reply an older build let you type into a report while it worked is no later turn: once it needs nothing,
+        // it is in the Archive.
         let mut steered = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 45, None);
         steered.replied_at = Some(now());
         db.save_run(&steered).unwrap();

@@ -6,6 +6,7 @@
 //! reads these findings decides.
 
 use crate::catalog;
+use crate::claude::{clip, one_line};
 use crate::model::*;
 use crate::own_skills::{self, CRAFT_NAME};
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
@@ -35,14 +36,9 @@ const PAGE_CHARS: usize = 6_000;
 /// Files larger than this are binaries or data, not notes.
 const TEXT_MAX_BYTES: u64 = 256 * 1024;
 
-/// A skill as the check reads it: its name, its SKILL.md text, and every text file of the skill as
+/// A skill as the check reads it: its name, its SKILL.md text, and its other markdown files as
 /// (relative path, text).
 type SkillText = (String, String, Vec<(String, String)>);
-
-/// Skills and notes as the check sees them.
-struct Family {
-    skills: Vec<SkillText>,
-}
 
 fn is_markdown(rel: &str) -> bool {
     rel.rsplit('.').next().map(|e| e.eq_ignore_ascii_case("md")).unwrap_or(false)
@@ -53,7 +49,7 @@ fn read_text(path: &Path) -> Option<String> {
     small.then(|| fs::read_to_string(path).ok()).flatten()
 }
 
-fn load(skills_dir: &Path) -> Family {
+fn load(skills_dir: &Path) -> Vec<SkillText> {
     let mut out = vec![];
     for (name, dir) in own_skills::skill_dirs(skills_dir).into_iter().filter(|(n, _)| n != CRAFT_NAME) {
         let Some(main) = fs::read_to_string(dir.join("SKILL.md")).ok() else { continue };
@@ -64,7 +60,7 @@ fn load(skills_dir: &Path) -> Family {
             .collect();
         out.push((name, main, files));
     }
-    Family { skills: out }
+    out
 }
 
 /// The notes an employee keeps outside their skills: markdown directly in `workspace/`.
@@ -174,7 +170,7 @@ fn excerpt(line: &str, at: usize) -> String {
     let chars: Vec<char> = line.chars().collect();
     let start = at.saturating_sub(40);
     let end = (at + 60).min(chars.len());
-    let body = chars[start.min(end)..end].iter().collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+    let body = one_line(&chars[start.min(end)..end].iter().collect::<String>());
     format!("{}{body}{}", if start > 0 { "..." } else { "" }, if end < chars.len() { "..." } else { "" })
 }
 
@@ -205,11 +201,6 @@ fn repeats(text: &str) -> usize {
 
 fn k(n: usize) -> String {
     if n >= 1000 { format!("{:.1}k", n as f64 / 1000.0) } else { n.to_string() }
-}
-
-fn clip(s: &str, n: usize) -> String {
-    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if s.chars().count() <= n { s } else { format!("{}...", s.chars().take(n).collect::<String>().trim_end()) }
 }
 
 fn is_name_char(c: char) -> bool {
@@ -247,7 +238,7 @@ fn is_junk(rel: &str) -> bool {
 /// Office adds them to what `check` found.
 pub fn overdue_checks(open: &[Check], now: Ts) -> Vec<HealthFinding> {
     open.iter()
-        .filter(|c| c.state == CheckState::Open && c.due_at <= now)
+        .filter(|c| c.due_at <= now)
         .map(|c| {
             let days = (now - c.due_at).num_days();
             let late = match days {
@@ -259,7 +250,7 @@ pub fn overdue_checks(open: &[Check], now: Ts) -> Vec<HealthFinding> {
                 kind: HealthKind::OverdueCheck,
                 skill: None,
                 file: None,
-                detail: format!("\"{}\" is {late}. How to check: {}", clip(&c.what, 140), clip(&c.how, 160)),
+                detail: format!("\"{}\" is {late}. How to check: {}", clip(&one_line(&c.what), 140), clip(&one_line(&c.how), 160)),
             }
         })
         .collect()
@@ -284,17 +275,17 @@ pub fn page(text: &str) -> Vec<HealthFinding> {
 
 /// `used` holds when runs last used each skill, as counted since `counted_since`.
 pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, String, Ts)], used: &[(String, Ts)], counted_since: Ts, now: Ts) -> SkillHealth {
-    let fam = load(skills_dir);
+    let skills = load(skills_dir);
     let notes = load_notes(notes_dir);
     let mut f: Vec<HealthFinding> = vec![];
     let mut add = |kind: HealthKind, skill: Option<&str>, file: Option<&str>, detail: String| {
         f.push(HealthFinding { kind, skill: skill.map(String::from), file: file.map(String::from), detail });
     };
-    let names: BTreeSet<&str> = fam.skills.iter().map(|(n, _, _)| n.as_str()).collect();
+    let names: BTreeSet<&str> = skills.iter().map(|(n, _, _)| n.as_str()).collect();
     let prefix = format!("{slug}-");
 
     let mut description_chars = 0;
-    for (name, main, files) in &fam.skills {
+    for (name, main, files) in &skills {
         let role = name == slug;
         let fm = catalog::frontmatter(main);
         let size = main.chars().count();
@@ -330,7 +321,7 @@ pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, 
         }
         let junk: Vec<String> = own_skills::skill_files(&skills_dir.join(name)).into_iter().map(|(rel, _)| rel).filter(|r| is_junk(r)).collect();
         if !junk.is_empty() {
-            add(HealthKind::Junk, Some(name), None, format!("{} generated or leftover files, safe to delete: {}.", junk.len(), clip(&junk.iter().take(3).cloned().collect::<Vec<_>>().join(", "), 120)));
+            add(HealthKind::Junk, Some(name), None, format!("{} generated or leftover files, safe to delete: {}.", junk.len(), clip(&one_line(&junk.iter().take(3).cloned().collect::<Vec<_>>().join(", ")), 120)));
         }
 
         for (rel, text) in std::iter::once(("SKILL.md", main)).chain(files.iter().map(|(r, t)| (r.as_str(), t))) {
@@ -368,8 +359,7 @@ pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, 
 
     // Reachability: every skill should be found by following names from the role skill.
     if names.contains(slug) {
-        let mentioned: BTreeMap<&str, Vec<&str>> = fam
-            .skills
+        let mentioned: BTreeMap<&str, Vec<&str>> = skills
             .iter()
             .map(|(n, main, files)| {
                 let hits = names.iter().copied().filter(|o| *o != n.as_str() && (mentions(main, o) || files.iter().any(|(_, t)| mentions(t, o)))).collect();
@@ -400,7 +390,7 @@ pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, 
         }
     }
 
-    let total = fam.skills.len();
+    let total = skills.len();
     if description_chars > DESCRIPTIONS_TOTAL_CHARS {
         add(
             HealthKind::DescriptionsHeavy,
@@ -419,7 +409,6 @@ pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, 
         add(HealthKind::Churn, Some(skill), Some(file), format!("{file} was edited {n} times in the last day. Repeated rewrites usually mean the rule is not settled."));
     }
 
-    f.sort_by(|a, b| (a.kind, &a.skill, &a.file).cmp(&(b.kind, &b.skill, &b.file)));
     SkillHealth { skills: total as u32, description_chars: description_chars as u32, findings: f }
 }
 
