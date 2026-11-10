@@ -244,7 +244,7 @@ export async function markDone(...rootIds: string[]): Promise<boolean> {
 
 /** Tries a run that did not finish again: it carries on from where it stopped, or a hand-off runs again for whoever
  *  handed it over. It stays disabled once it went, while the retry takes over. */
-export function RetryButton({ run, name, disabled = false }: { run: Run; name: string; disabled?: boolean }) {
+function RetryButton({ run, name, disabled = false }: { run: Run; name: string; disabled?: boolean }) {
   const [busy, setBusy] = useState(false);
   const retry = async () => {
     setBusy(true);
@@ -279,29 +279,6 @@ export async function reopen(rootId: string) {
 export async function sendAndDone(rootId: string, name: string, text: string, attachments: NewAttachment[]) {
   await call("reply_to_run", { runId: rootId, text, archive: true, attachments });
   toast(`Sent to ${name}. It comes back only if the answer needs you.`, "ok");
-}
-
-/** Archive files the thread away: it leaves the Inbox and the employee's chips, and comes back if the employee raises
- *  something new. */
-export function DoneButton({ name, label = "Archive", disabled, onDone, ghost = false }: {
-  /** Quiet, like Later beside it (the conversation's header). */
-  ghost?: boolean;
-  /** The employee's first name. */
-  name: string;
-  label?: string;
-  /** The thread is still working, so it cannot be archived yet. */
-  disabled: boolean;
-  onDone: () => Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <button
-      className={`btn btn-sm ${ghost ? "btn-ghost" : ""}`} disabled={disabled || busy} title={disabled ? `${name} is still working on it` : "Move it to the Archive (E)"}
-      onClick={async () => { setBusy(true); try { await onDone(); } finally { setBusy(false); } }}
-    >
-      <Icon name="archive" size={13} /> {label} <kbd className="kbd">E</kbd>
-    </button>
-  );
 }
 
 /** Later puts the thread away until a time, then brings it back to the Inbox as unread. While it is away

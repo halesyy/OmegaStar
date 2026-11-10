@@ -7,8 +7,8 @@ import type { LiveRun, TaskView } from "../../lib/runs";
 import type { IconName } from "../Icon";
 import { saidElsewhere, skillWords, stepWords, toItems, type ToolItem, type TranscriptItem } from "../Transcript";
 
-export type StepState = "pending" | "ok" | "err" | "stopped" | "wait" | null;
-export type TextItem = Extract<TranscriptItem, { kind: "text" }>;
+type StepState = "pending" | "ok" | "err" | "stopped" | "wait" | null;
+type TextItem = Extract<TranscriptItem, { kind: "text" }>;
 
 /** A step: the verb, what it acted on, and how it ended. `detail` opens under it. A colleague asked carries their run
  *  (`runId`, `child`); a skill written carries the change it opens (`skill`). */
@@ -21,7 +21,7 @@ export type WorkRow = {
 /** One stretch of a reply: what you said to start it (after the first), its items, and how the talk reads them. */
 export type Part = { said: string | null; items: TranscriptItem[]; opener: TextItem | null; notes: TextItem[]; answer: TextItem[] };
 
-export const isRunning = (r: Run) => r.state === "running" || r.state === "queued";
+const isRunning = (r: Run) => r.state === "running" || r.state === "queued";
 // Not a skill change: Omega Star records those after the run ends, so one would always fall after the answer and fold it
 // into the work line. Its row still shows (rowsOf).
 const isWork = (it: TranscriptItem) => it.kind === "tools" || it.kind === "delegated" || it.kind === "requested" || it.kind === "proposed" || it.kind === "visual";
@@ -50,7 +50,7 @@ export function partsOf(events: TranscriptItem[]): Part[] {
 }
 
 /** A row's key, stable as the reply streams. */
-export const keys = {
+const keys = {
   tool: (runId: string, id: string) => `t:${runId}:${id}`,
   agent: (runId: string, id: string) => `a:${runId}:${id}`,
   delegate: (childRunId: string) => `d:${childRunId}`,
@@ -68,7 +68,7 @@ export function minutes(ms: number): string {
 }
 
 /** How long something took: "under a minute", "3 min", "1 h 5 min". */
-export const took = (ms: number): string => (ms < 60_000 ? "under a minute" : minutes(ms));
+const took = (ms: number): string => (ms < 60_000 ? "under a minute" : minutes(ms));
 
 const firstLine = (text: string) => text.trim().split(/\r?\n/).find((l) => l.trim())?.replace(/[*_`#>]/g, "").trim() ?? "";
 

@@ -35,14 +35,6 @@ export const isTask = (t: Thread): boolean => startedByYou(t.root);
 /** The employee is answering (a conversation's first message or a later turn is queued or running). */
 export const threadBusy = (t: Thread): boolean => isLive(t.root) || t.replies.some(isLive);
 
-/** Who spoke last: the employee once their newest reply finished, you while it is still on its way. A
- *  conversation's first message counts as a reply; a report does not. */
-export function lastFrom(t: Thread): "you" | "them" | null {
-  const l = lastReply(t) ?? (isTask(t) ? t.root : undefined);
-  if (!l) return null;
-  return l.endedAt ? "them" : "you";
-}
-
 /** An Inbox row's threads, oldest first: the one it leads with and the others filed with it. */
 export const rowThreads = (t: Thread): Thread[] =>
   [t, ...t.related].sort((a, b) => a.root.createdAt.localeCompare(b.root.createdAt));
@@ -85,7 +77,7 @@ export const openCards = (t: Thread): OpenCard[] =>
 
 /** A conversation you are in: one going on (not archived, with replies) that you started or typed into. Turns Omega
  *  Star wrote from a tap alone do not make one. Mirrors Rust `threads::talking`. */
-export const talking = (t: Thread): boolean =>
+const talking = (t: Thread): boolean =>
   !t.root.archivedAt && t.replies.length > 0 && (isTask(t) || t.replies.some((r) => !r.omegaWrote && !r.aboutCard));
 
 /** A card waiting on you holds up Archive on `thread`, a thread of the Inbox row `row`: a card in the thread itself, or

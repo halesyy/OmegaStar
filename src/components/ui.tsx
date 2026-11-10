@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { Presence, Run } from "../api/types";
-import { initials, skillsChanged } from "../lib/format";
+import type { Presence } from "../api/types";
+import { initials } from "../lib/format";
 import { ms, rollAnimations } from "../lib/motion";
 import { useScrollFade } from "../lib/scrollFade";
 import { dismissToast, useToasts, type Toast } from "../lib/toasts";
@@ -481,12 +481,6 @@ export function ErrorNote({ text, title, onRetry }: { text: string; title?: stri
  *  `r={h / 2}` for an avatar. */
 export function Skeleton({ h = 14, w = "100%", r = 3 }: { h?: number; w?: number | string; r?: number }) {
   return <span className="skeleton" style={{ height: h, width: w, borderRadius: r }} />;
-}
-
-/** The chip under a report naming the skills the run changed, so the report itself need not say so. */
-export function SkillsGrew({ run }: { run: Pick<Run, "skillChanges"> }) {
-  const g = skillsChanged(run.skillChanges);
-  return <span className="report-grew" title={g.title}><Icon name="teach" size={12} /> {g.label}</span>;
 }
 
 /** A state in a pill: a still dot, then the word. `wait` is work waiting to start ("Up next"): a hollow ring and a quiet

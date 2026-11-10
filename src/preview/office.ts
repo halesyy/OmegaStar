@@ -14,7 +14,7 @@ const DAY = 86_400_000;
 export const NOW = Date.now();
 export const iso = (ms: number) => new Date(ms).toISOString();
 /** `minutes` before the page loaded. */
-export const ago = (minutes: number) => iso(NOW - minutes * MIN);
+const ago = (minutes: number) => iso(NOW - minutes * MIN);
 /** `minutes` after the page loaded. */
 export const ahead = (minutes: number) => iso(NOW + minutes * MIN);
 /** A local clock time `days` from today (negative: before today). */
@@ -117,7 +117,7 @@ const CATALOG: SkillInfo[] = [
   { id: "plugin:chart-kit", name: "chart-kit", description: "Small, clean charts for reports.", source: "plugin", skills: ["bar-chart", "line-chart"] },
 ];
 
-export function emptyUsage(): UsageLimits {
+function emptyUsage(): UsageLimits {
   return {
     fiveHour: { percent: 4, resetsAt: ahead(287), resetsText: null },
     sevenDay: { percent: 9, resetsAt: nextDow(2, 10), resetsText: null },
