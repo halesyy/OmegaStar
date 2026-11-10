@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { call, errorMessage } from "../../api/client";
-import type { Company } from "../../api/types";
+import type { Company, OrgSnapshot } from "../../api/types";
 import { firstName } from "../../lib/format";
 import { refreshOrg, useDraft, useOrg, useQuery } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
@@ -26,22 +26,21 @@ export function YouPanel({ short, onClose }: { short: boolean; onClose: () => vo
     <section className={`mpage ${short ? "mpage-short" : ""}`} aria-label={`${c.ceoName}, ${c.title}`}>
       <PageHead av={<Avatar name={c.ceoName} hue={0} image={c.image} size={short ? 32 : 56} you />} name={c.ceoName} role={`${c.title}, you · ${c.name}`} onClose={onClose} />
       <div className="mpage-body">
-        <YouProfile company={c} />
+        <YouProfile snap={snap} />
       </div>
     </section>
   );
 }
 
-function YouProfile({ company }: { company: Company }) {
-  const { snap } = useOrg();
-  const base = useMemo(() => draftOf(company), [company]);
+function YouProfile({ snap }: { snap: OrgSnapshot }) {
+  const base = useMemo(() => draftOf(snap.company), [snap.company]);
   const { draft: d, set, dirty, reset } = useDraft(base);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const people = snap?.people ?? [];
-  const above = snap ? aboveYou(snap) : new Set<string>();
-  const effect = snap ? reportsToEffect(snap, d.reportsTo) : { error: null, agentsToYou: [] };
+  const people = snap.people;
+  const above = aboveYou(snap);
+  const effect = reportsToEffect(snap, d.reportsTo);
   const chosen = people.find((p) => p.id === d.reportsTo);
   const movesUp = chosen && !above.has(chosen.id) ? chosen : null;
 

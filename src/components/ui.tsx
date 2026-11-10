@@ -93,8 +93,8 @@ export function SlideOver({ open, onClose, width = 760, children, label, modal =
 
 // ---------------------------------------------------------------- Inline confirm
 
-export function ConfirmButton({ label, confirmLabel, question, onConfirm, icon, className = "btn btn-danger", size = "", ariaLabel, tip }: {
-  label: string; confirmLabel: string; question?: string; onConfirm: () => void | Promise<void>; icon?: IconName; className?: string; size?: "" | "btn-sm";
+export function ConfirmButton({ label, confirmLabel, question, onConfirm, icon, className, size = "", ariaLabel, tip }: {
+  label: string; confirmLabel: string; question: string; onConfirm: () => void | Promise<void>; icon?: IconName; className: string; size?: "" | "btn-sm";
   /** For an icon-only button: its name, and its tooltip. */
   ariaLabel?: string; tip?: string;
 }) {
@@ -112,7 +112,7 @@ export function ConfirmButton({ label, confirmLabel, question, onConfirm, icon, 
   }
   return (
     <span className="confirm" data-esc-stop onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setAsking(false); } }}>
-      {question ? <span className="confirm-q">{question}</span> : null}
+      <span className="confirm-q">{question}</span>
       <button type="button" className={`btn btn-ghost ${size}`} onClick={() => setAsking(false)} disabled={busy}>Keep</button>
       <button
         ref={yes} type="button" className={`btn btn-danger-solid ${size}`} disabled={busy}
@@ -382,12 +382,12 @@ export function PageHeader({ title, children }: { title: string; children?: Reac
 }
 
 /** The one content column every page but the Org chart uses: a header that stays put over a column that scrolls. */
-export function PageColumn({ title, actions, children, className }: { title: string; actions?: ReactNode; children: ReactNode; className?: string }) {
+export function PageColumn({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
   // Content scrolling under the header fades at that edge (and at the foot while more is below), never sliced.
   const scroll = useScrollFade<HTMLDivElement>();
   return (
     <div className={`pagecol ${className ?? ""}`}>
-      <PageHeader title={title}>{actions}</PageHeader>
+      <PageHeader title={title} />
       <div ref={scroll} className="pagecol-scroll scroll-fade">
         <div className="pagecol-inner">{children}</div>
       </div>
@@ -413,18 +413,17 @@ export function Section({ title, count, action, children, id, className }: {
 export type MenuItem = { label: string; icon?: IconName; onSelect: () => void; disabled?: boolean; danger?: boolean };
 
 /** A "More" button whose menu holds the actions that do not need to be on screen all the time. */
-export function MenuButton({ items, label = "More actions", size = "btn-sm" }: { items: MenuItem[]; label?: string; size?: "" | "btn-sm" }) {
+export function MenuButton({ items, label }: { items: MenuItem[]; label: string }) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (open) requestAnimationFrame(() => list.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus());
   }, [open]);
-  const shown = items.filter(Boolean);
-  if (!shown.length) return null;
+  if (!items.length) return null;
   return (
     <>
-      <button ref={anchor} type="button" className={`btn btn-ghost btn-icon ${size}`} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <button ref={anchor} type="button" className="btn btn-ghost btn-icon btn-sm" aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <Icon name="more" size={14} />
       </button>
       <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} width={236}>
@@ -438,7 +437,7 @@ export function MenuButton({ items, label = "More actions", size = "btn-sm" }: {
             btns[(i + (e.key === "ArrowDown" ? 1 : btns.length - 1)) % btns.length]?.focus();
           }}
         >
-          {shown.map((it) => (
+          {items.map((it) => (
             <button key={it.label} type="button" role="menuitem" className={`menu-item ${it.danger ? "menu-item-danger" : ""}`} disabled={it.disabled}
               onClick={() => { setOpen(false); it.onSelect(); }}>
               {it.icon ? <Icon name={it.icon} size={13} /> : null}{it.label}
@@ -484,8 +483,8 @@ export function Skeleton({ h = 14, w = "100%", r = 3 }: { h?: number; w?: number
 }
 
 /** A state in a pill: a still dot, then the word. `wait` is work waiting to start ("Up next"): a hollow ring and a quiet
- *  word, never ultramarine. (`pulse` is kept for callers; a live dot holds still.) */
-export function StatePill({ tone, children }: { tone: "accent" | "wait" | "ok" | "warn" | "err" | "neutral"; children: ReactNode; pulse?: boolean }) {
+ *  word, never ultramarine. */
+export function StatePill({ tone, children }: { tone: "accent" | "wait" | "ok" | "warn" | "err" | "neutral"; children: ReactNode }) {
   return (
     <span className={`pill ${tone === "neutral" ? "" : tone === "accent" ? "pill-live" : `pill-${tone}`} state-pill`}>
       <span className="state-dot" />

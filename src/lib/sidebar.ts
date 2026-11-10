@@ -27,7 +27,7 @@ function subscribe(cb: () => void) {
 }
 
 /** The rail or the full sidebar, and a toggle that saves the choice for the size you are at. */
-export function useRail(): { rail: boolean; narrow: boolean; toggle: () => void } {
+export function useRail(): { rail: boolean; toggle: () => void } {
   const narrow = useSyncExternalStore(subscribe, narrowNow);
   const rail = useSyncExternalStore(subscribe, () => railNow(narrow));
   const toggle = useCallback(() => {
@@ -35,5 +35,5 @@ export function useRail(): { rail: boolean; narrow: boolean; toggle: () => void 
     else storageSet(COLLAPSE_KEY, railNow(false) ? "0" : "1");
     listeners.forEach((l) => l());
   }, []);
-  return { rail, narrow, toggle };
+  return { rail, toggle };
 }

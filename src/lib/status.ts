@@ -1,5 +1,5 @@
-// Where each conversation stands, worked out in one place. The Inbox, its badge, the panel's chips and the
-// conversation header all read what `threadStatus` returns and decide nothing themselves. Pure.
+// Where each conversation stands, worked out in one place. The Inbox, its badge and the conversation header all
+// read what `threadStatus` returns and decide nothing themselves. Pure.
 import type { Thread } from "../api/types";
 import type { Mark, Marks } from "./marks";
 import { toolName } from "./rules";

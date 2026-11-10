@@ -18,9 +18,8 @@ const P = {
   play: <path d="M5 3.6v8.8a.6.6 0 0 0 .9.52l7.1-4.4a.6.6 0 0 0 0-1.04L5.9 3.08a.6.6 0 0 0-.9.52Z" />,
   stop: <rect x="4" y="4" width="8" height="8" rx="1.5" />,
   clock: <><circle cx="8" cy="8" r="6.25" /><path d="M8 4.75V8l2.25 1.5" /></>,
-  // No sparkles: a plain summary glyph. `sparkle` is kept only until the areas move to `lines`, `teach` or `checklist`.
+  // No sparkles: a plain summary glyph.
   lines: <path d="M3 4.5h10M3 8h10M3 11.5h6" />,
-  sparkle: <path d="M3 4.5h10M3 8h10M3 11.5h6" />,
   layers: <><path d="m8 1.75 6.25 3.25L8 8.25 1.75 5Z" /><path d="m1.75 8 6.25 3.25L14.25 8M1.75 11 8 14.25 14.25 11" /></>,
   file: <><path d="M9.25 1.75H4.5A1.25 1.25 0 0 0 3.25 3v10a1.25 1.25 0 0 0 1.25 1.25h7A1.25 1.25 0 0 0 12.75 13V5.25Z" /><path d="M9.25 1.75v3.5h3.5" /></>,
   lock: <><rect x="3.25" y="7.25" width="9.5" height="7" rx="1.5" /><path d="M5.25 7.25V5a2.75 2.75 0 0 1 5.5 0v2.25" /></>,
@@ -74,13 +73,12 @@ const P = {
 
 export type IconName = keyof typeof P;
 
-export function Icon({ name, size = 16, className, strokeWidth = 1.5, title }: { name: IconName; size?: number; className?: string; strokeWidth?: number; title?: string }) {
+export function Icon({ name, size = 16, className, strokeWidth = 1.5 }: { name: IconName; size?: number; className?: string; strokeWidth?: number }) {
   return (
     <svg
       width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={strokeWidth}
-      strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden={title ? undefined : true} role={title ? "img" : undefined}
+      strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden
     >
-      {title ? <title>{title}</title> : null}
       {P[name]}
     </svg>
   );
@@ -91,13 +89,12 @@ export const CHANNEL_ICON: Record<ChannelKind, IconName> = {
   github: "pr", linear: "issue", phone: "phone", other: "link",
 };
 
-/** The Omega Star mark: an omega cradling a four-point star. Tile and glyph follow the theme's primary colours. */
-export function LogoMark({ size = 28, tile = true }: { size?: number; tile?: boolean }) {
+/** The Omega Star mark: an omega cradling a four-point star, in the current text colour. */
+export function LogoMark({ size }: { size: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-label="Omega Star" role="img" className="logomark">
-      {tile ? <rect width="32" height="32" rx="9" fill="var(--accent)" /> : null}
-      <path d="M8.5 24.5h4v-2.6A7.6 7.6 0 1 1 19.5 21.9v2.6h4" stroke={tile ? "var(--accent-ink)" : "currentColor"} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      <path d="M16 9.6c.4 2.55 1.3 3.45 3.85 3.85-2.55.4-3.45 1.3-3.85 3.85-.4-2.55-1.3-3.45-3.85-3.85 2.55-.4 3.45-1.3 3.85-3.85Z" fill={tile ? "var(--accent-ink)" : "currentColor"} />
+      <path d="M8.5 24.5h4v-2.6A7.6 7.6 0 1 1 19.5 21.9v2.6h4" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+      <path d="M16 9.6c.4 2.55 1.3 3.45 3.85 3.85-2.55.4-3.45 1.3-3.85 3.85-.4-2.55-1.3-3.45-3.85-3.85 2.55-.4 3.45-1.3 3.85-3.85Z" fill="currentColor" />
     </svg>
   );
 }

@@ -146,12 +146,12 @@ function cardHeight(org: Org, id: string, compact: boolean): number {
   return p && p.openRequests > 0 ? LINE_H[3] : LINE_H[2];
 }
 
-/** How much each member matters when choosing what a panning chart opens on: needing you, then working, then up next. */
+/** How much each member matters when choosing what a panning chart opens on: needing you or working, then up next. */
 function weightOf(org: Org, id: string): number {
   const e = org.employees.find((x) => x.id === id);
   if (!e) return 0;
   const t = employeeState(e, org.employees, org.people).tone;
-  return t === "attn" || t === "fail" ? 3 : t === "live" ? 3 : t === "wait" ? 1 : 0;
+  return t === "attn" || t === "fail" || t === "live" ? 3 : t === "wait" ? 1 : 0;
 }
 
 // ---------------------------------------------------------------- the chart
@@ -332,7 +332,7 @@ function StateLine({ s }: { s: Pick<MemberState, "tone" | "word"> }) {
 
 export function YouCard({ company, compact = false, onOpen }: { company: Company; compact?: boolean; onOpen: () => void }) {
   return (
-    <button type="button" className="mcard mcard-you" onClick={onOpen} data-member={YOU_ID} aria-label={`${company.ceoName}, ${company.title}, you. Open your page`}>
+    <button type="button" className="mcard" onClick={onOpen} data-member={YOU_ID} aria-label={`${company.ceoName}, ${company.title}, you. Open your page`}>
       <span className="mcard-av" data-part="av"><Avatar name={company.ceoName} hue={0} image={company.image} size={compact ? 28 : 32} you /></span>
       <span className="mcard-text">
         <span className="mcard-name" data-part="name"><NameParts name={company.ceoName} /></span>
@@ -382,7 +382,7 @@ function PersonCard({ p, compact, onOpen }: { p: PersonView; compact: boolean; o
     </span>
   );
   return (
-    <button type="button" className="mcard mcard-person" onClick={onOpen} data-member={p.id} aria-label={`${p.name}, ${p.title}. ${line.waiting ? line.text : "A person"}`}>
+    <button type="button" className="mcard" onClick={onOpen} data-member={p.id} aria-label={`${p.name}, ${p.title}. ${line.waiting ? line.text : "A person"}`}>
       <span className="mcard-av" data-part="av"><Avatar name={p.name} hue={p.hue} image={p.image} size={compact ? 28 : 32} person /></span>
       <span className="mcard-text">
         <span className="mcard-name" data-part="name"><NameParts name={p.name} /></span>

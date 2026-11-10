@@ -26,7 +26,6 @@ export function Schedules({ e, onEdit }: { e: EmployeeView; onEdit: (d: Schedule
     q.set((q.data ?? []).map((x) => (x.id === s.id ? { ...x, enabled } : x)));
     try {
       const { nextFire: _n, ...draft } = s;
-      void _n;
       await call("save_schedule", { draft: { ...draft, enabled } });
       refreshOrg();
     } catch (err) {
@@ -183,12 +182,12 @@ export function ScheduleEditor({ e, initial, onDone }: { e: EmployeeView; initia
           </label>
           <div className="field">
             <span className="field-label">Reports</span>
-            <div className="misfire" role="radiogroup" aria-label="Reports">
-              <button type="button" role="radio" aria-checked={!d.quiet} className="misfire-opt" onClick={() => set("quiet", false)}>
-                <span className="misfire-radio" /><span className="stack"><b>Every run</b><span>Each report reaches you, in your Inbox when it needs you and in the Archive when it does not.</span></span>
+            <div className="sched-reports" role="radiogroup" aria-label="Reports">
+              <button type="button" role="radio" aria-checked={!d.quiet} className="sched-reports-opt" onClick={() => set("quiet", false)}>
+                <span className="sched-reports-radio" /><span className="stack"><b>Every run</b><span>Each report reaches you, in your Inbox when it needs you and in the Archive when it does not.</span></span>
               </button>
-              <button type="button" role="radio" aria-checked={d.quiet} className="misfire-opt" onClick={() => set("quiet", true)}>
-                <span className="misfire-radio" /><span className="stack"><b>Only when something needs you</b><span>Routine runs stay in Activity. Anything {firstName(e.name)} flags, and any failed run, reaches you with a desktop notification.</span></span>
+              <button type="button" role="radio" aria-checked={d.quiet} className="sched-reports-opt" onClick={() => set("quiet", true)}>
+                <span className="sched-reports-radio" /><span className="stack"><b>Only when something needs you</b><span>Routine runs stay in Activity. Anything {firstName(e.name)} flags, and any failed run, reaches you with a desktop notification.</span></span>
               </button>
             </div>
           </div>

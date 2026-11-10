@@ -6,6 +6,7 @@ import { useNow, useOrg, useProposals, useQuery, useUsage } from "../../lib/hook
 import { toast } from "../../lib/toasts";
 import type { LiveRun } from "../../lib/runs";
 import { navigate, openRun } from "../../lib/router";
+import { didNotFinish, isLive } from "../../lib/threads";
 import { kindNames } from "../RunRow";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
@@ -38,11 +39,11 @@ export function WhoLine({ e, run, label, last = true }: { e: EmployeeView; run: 
  * One exchange in a conversation: what you sent (with any files), then the employee's reply as it streams in. A message
  * you sent while it worked splits the reply where it landed. Each part reads as a colleague talking: one line under
  * their name for the work behind it (WorkLine), their first words, any page they showed, then the answer.
- * `withReport` shows a finished run's report when its transcript did not already say it. `footer` sits at the end of the
+ * A finished run's report shows when its transcript did not already say it. `footer` sits at the end of the
  * reply, on its text edge: the cards it asks, a blocked action, Retry.
  */
-export function Turn({ turn, e, withReport = false, footer, earlier = false, latestMine = false }: {
-  turn: LiveRun; e: EmployeeView; withReport?: boolean; footer?: ReactNode;
+export function Turn({ turn, e, footer, earlier = false, latestMine = false }: {
+  turn: LiveRun; e: EmployeeView; footer?: ReactNode;
   /** A turn before the latest: its words step back to the secondary ink, so the latest exchange leads. */
   earlier?: boolean;
   /** This turn holds your latest message, the one solid block; your earlier messages are a quiet step. */
@@ -53,11 +54,11 @@ export function Turn({ turn, e, withReport = false, footer, earlier = false, lat
   const items = useMemo(() => toItems(turn.events), [turn.events]);
   const parts = useMemo(() => partsOf(items), [items]);
   const waiting = items.flatMap((it) => (it.kind === "user" && it.waiting ? [it] : []));
-  const running = turn.run.state === "running" || turn.run.state === "queued";
+  const running = isLive(turn.run);
   const queued = turn.run.state === "queued";
-  const failed = turn.run.state === "failed" || turn.run.state === "lost" || turn.run.state === "cancelled";
+  const failed = didNotFinish(turn.run);
   const report = turn.run.summary?.trim();
-  const showReport = withReport && !running && !!report && !items.some((i) => i.kind === "text" && i.text.trim() === report);
+  const showReport = !running && !!report && !items.some((i) => i.kind === "text" && i.text.trim() === report);
   // A colleague's report or answer that came back, or a check that came due: Omega Star wrote the prompt, so it is not
   // shown as yours.
   const came = turn.run.kind.type === "answered" ? turn.run.kind : null;
@@ -119,7 +120,7 @@ export function Turn({ turn, e, withReport = false, footer, earlier = false, lat
                       {turn.live.trim() ? <Markdown text={turn.live.replace(/\s+$/, "")} className="md-live" /> : null}
                       {showReport ? <Markdown text={report} /> : null}
                       {queued ? <Waiting run={turn.run} e={e} /> : null}
-                      {failed && !running ? <p className="msg-failed"><Icon name="alert" size={14} /><span>{turn.run.error ?? "This reply didn't finish."}</span></p> : null}
+                      {failed ? <p className="msg-failed"><Icon name="alert" size={14} /><span>{turn.run.error ?? "This reply didn't finish."}</span></p> : null}
                       {footer}
                     </>
                   ) : null}
@@ -141,14 +142,14 @@ export function Turn({ turn, e, withReport = false, footer, earlier = false, lat
 }
 
 /** A run that has not started: what it waits for (the usage limit, the runs ahead of it, a free slot), and what is ahead
- *  of it in its employee's line, each opening its run. The same words as the run page. */
+ *  of it in its employee's line, each opening its run. */
 export function Waiting({ run, e }: { run: Run; e: EmployeeView }) {
   const { usage } = useUsage();
   const { snap } = useOrg();
   const now = useNow(60_000);
   const lanes = useQuery(() => call("settings"), []).data?.maxConcurrentRuns ?? 1; // also each employee's limit
   const name = firstName(e.name);
-  const others = (e.live ?? []).filter((r) => r.id !== run.id);
+  const others = e.live.filter((r) => r.id !== run.id);
   const working = others.filter((r) => r.state === "running");
   const ahead = others.filter((r) => r.state === "queued" && r.createdAt < run.createdAt);
   const held = usage?.heldUntil && Date.parse(usage.heldUntil) > now ? usage.heldUntil : null;

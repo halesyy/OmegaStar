@@ -19,7 +19,7 @@ export type CardDecision<T> = Extract<Decision<T>, { type: "card" }>;
 type BrokenDecision<T> = Extract<Decision<T>, { type: "broken" }>;
 
 /** One employee's choice cards about the same thing (`about`, from keys `ask:<about>:...`), oldest first. */
-export type Group<T> = { type: "group"; id: string; employeeId: string; about: string; decisions: CardDecision<T>[] };
+export type Group<T> = { type: "group"; about: string; decisions: CardDecision<T>[] };
 
 /** How far apart runs may break on the same error and still be one entry. */
 const FAILURES_WITHIN_MS = 2 * 3_600_000;
@@ -166,7 +166,7 @@ export function inboxLists<T>(ds: Decision<T>[]): { decisions: (Decision<T> | Gr
     const g = groups.get(k);
     if (g) g.decisions.push(d);
     else {
-      const ng: Group<T> = { type: "group", id: `group:${k}`, employeeId: d.run.employeeId, about: about(d)!, decisions: [d] };
+      const ng: Group<T> = { type: "group", about: about(d)!, decisions: [d] };
       groups.set(k, ng);
       out.push(ng);
     }

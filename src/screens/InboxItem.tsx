@@ -126,13 +126,13 @@ function ask(d: Decision<Item>, who: string, employees: EmployeeView[], people: 
     case "blocked":
       return {
         title: r.denials.length === 1 ? `Allow ${who} to use ${toolName(r.denials[0].tool)}?` : `Allow ${r.denials.length} actions ${who} was blocked on?`,
-        why: r.denials.length === 1 ? r.denials[0]?.brief ?? null : null,
+        why: r.denials.length === 1 ? r.denials[0].brief : null,
       };
     case "broken": {
       const name = ownName(d.thread.root, employees, people);
       return {
         title: d.times >= STREAK ? `${name ?? "A routine"} failed ${d.times} times in a row` : name ? `${name} didn't finish` : "Didn't finish",
-        why: r.error ? lines(r.error)[0] ?? null : null,
+        why: lines(r.error)[0] ?? null,
       };
     }
     case "failures": return { title: `${Count(d.failures.length)} runs didn't finish`, why: lines(r.error)[0] ?? null };
@@ -426,7 +426,7 @@ function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; gro
       foot = <><RetryAllMain d={d} />{archive(false, "Archive all")}</>;
       break;
     case "answered":
-      body = <ItemThread item={d.item} thread={d.thread} e={e} onSendDone={act.sendDone} />;
+      body = <ItemThread item={d.item} e={e} onSendDone={act.sendDone} />;
       foot = archive(true);
       break;
   }
@@ -699,26 +699,25 @@ function ArchivedBody({ row, ctx, actions }: { row: Extract<Row, { kind: "archiv
   return (
     <>
       {team
-        ? <From e={null} verb={<><b>{view.title}</b></>} about={null} at={activityAt(t)} />
+        ? <From e={null} verb={<b>{view.title}</b>} about={null} at={activityAt(t)} />
         : <From e={e} verb="reported" about={null} at={activityAt(t)} />}
       {/* Named by what it was about; the report under it says what it said, once. */}
       <Title text={team ? "Your team's week" : topic(t, ctx.employees, ctx.people)} />
-      <ItemThread item={row.item} thread={t} e={e} onSendDone={null} />
+      <ItemThread item={row.item} e={e} onSendDone={null} />
       {wasArchived(t) ? actions(<Main label="Reopen" icon="undo" title="Bring it back to the Inbox (E)" onClick={() => ctx.reopen(t.root.id)} />) : null}
     </>
   );
 }
 
-/** An open entry's thread, live: the same conversation the employee's panel shows, seen once it is in front of you.
- *  The row's other runs head it when the thread leads the row. */
-function ItemThread({ item, thread, e, onSendDone }: { item: Item; thread: Thread; e: EmployeeView; onSendDone: ItemActions["sendDone"] | null }) {
-  const id = thread.root.id;
-  const lead = id === item.thread.root.id;
+/** An open entry's thread, live: the same conversation the conversation screen shows, seen once it is in front of you.
+ *  The row's other runs head it. */
+function ItemThread({ item, e, onSendDone }: { item: Item; e: EmployeeView; onSendDone: ItemActions["sendDone"] | null }) {
+  const id = item.thread.root.id;
   const live = useThread(id);
-  useMarkSeen(item.status.state === "done" ? null : item.thread.root.id, lastMoved(live.turns?.map((t) => t.run) ?? []));
+  useMarkSeen(item.status.state === "done" ? null : id, lastMoved(live.turns?.map((t) => t.run) ?? []));
   return (
     <div className="d-thread">
-      <ThreadView e={e} rootId={id} thread={live} row={lead ? item.thread : null} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent />
+      <ThreadView e={e} rootId={id} thread={live} row={item.thread} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent />
     </div>
   );
 }

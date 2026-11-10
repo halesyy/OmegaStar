@@ -36,9 +36,8 @@ type ShellApi = {
   hire: (managerId?: string | null, template?: string | null, from?: HTMLElement | null) => void;
   reviewProposal: (p: HireProposal, from?: HTMLElement | null) => void;
   addPerson: (managerId?: string | null, from?: HTMLElement | null) => void;
-  palette: () => void;
 };
-const ShellCtx = createContext<ShellApi>({ hire: () => {}, reviewProposal: () => {}, addPerson: () => {}, palette: () => {} });
+const ShellCtx = createContext<ShellApi>({ hire: () => {}, reviewProposal: () => {}, addPerson: () => {} });
 export const useShell = () => useContext(ShellCtx);
 
 /** The palette's leaving fade (--d-ui), with a frame to spare. */
@@ -50,7 +49,7 @@ const ARRIVE_MS = 1200;
 /** `arriving`: onboarding has just handed over, so the canvas comes in as one body swap and the sidebar's parts drop
  *  into the band in reading order (your row, already there in onboarding's band, stays put). */
 export function Shell({ arriving = false }: { arriving?: boolean }) {
-  // Only for the hand-off itself: a row that arrives later (someone starts working) is not part of it.
+  // Only for the hand-off itself: a row that arrives later (a new hire) is not part of it.
   const [arrive, setArrive] = useState(arriving);
   useEffect(() => {
     if (!arrive) return;
@@ -83,7 +82,6 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
       hire: (managerId = null, template = null, from = null) => open({ kind: "hire", managerId, template }, from),
       reviewProposal: (proposal, from = null) => open({ kind: "proposal", proposal }, from),
       addPerson: (managerId = null, from = null) => open({ kind: "person", managerId }, from),
-      palette: () => setPalette(true),
     };
   }, []);
 
@@ -210,7 +208,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
   );
 }
 
-/** Whether the usage card should fold to its nearer limit, so the state rows above fit whole: true while the list would
+/** Whether the usage card should fold to its nearer limit, so the team rows above fit whole: true while the list would
  *  overflow without the fold. Measured against the room the fold gives (one usage row), so it never flips back and
  *  forth. */
 function useTight(nav: React.RefObject<HTMLElement | null>): boolean {
@@ -246,7 +244,7 @@ async function dockBadge(count: number) {
 export function SideBrand() {
   return (
     <a href="#/org" className="side-brand" aria-label="Omega Star">
-      <LogoMark size={20} tile={false} />
+      <LogoMark size={20} />
       <span className="side-word">Omega Star</span>
     </a>
   );

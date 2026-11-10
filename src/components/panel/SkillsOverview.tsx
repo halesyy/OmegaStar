@@ -49,7 +49,7 @@ export function SkillsOverview({ e, skills, history, runs, staged, health, runBy
   const [originalsOf, setOriginalsOf] = useState<OrganizeRun | null>(null);
   const role = skills.find((s) => s.role);
   const leaves = skills.filter((s) => !s.role && !s.managed);
-  const tree = useMemo(() => nest(leaves), [leaves]);
+  const tree = nest(leaves);
   const organizeRuns = runs.filter(isOrganize);
   const organizing = organizeRuns.find((r) => r.state === "queued" || r.state === "running");
   const unsettled = organizeRuns.find((r) => r.state === "succeeded" && !r.kind.settled);
@@ -107,18 +107,14 @@ export function SkillsOverview({ e, skills, history, runs, staged, health, runBy
       <Section title={`What ${name} knows`} action={<button className="section-note linkish" onClick={() => openImport([])}><Icon name="plus" size={11} /> Import skills</button>}>
         <div className="tree">
           {role ? <SkillNode s={role} kind="role" count={refinements.get(role.name) ?? 0} onOpenFile={onOpenFile} /> : null}
-          {leaves.length > 0 ? (
-            <div className="tree-children">
-              <Branch nodes={tree} refinements={refinements} onOpenFile={onOpenFile} />
-            </div>
-          ) : (
-            <div className="tree-children">
+          <div className="tree-children">
+            {leaves.length > 0 ? <Branch nodes={tree} refinements={refinements} onOpenFile={onOpenFile} /> : (
               <div className="tree-empty">
                 Nothing yet. Teach {name} a task in a conversation and it becomes a skill here.
                 <button className="btn btn-sm" onClick={() => openChat(e.id)}><Icon name="teach" size={12} /> Teach a task</button>
               </div>
-            </div>
-          )}
+            )}
+          </div>
           {managed.map((s) => (
             <button key={s.name} className="tree-managed" onClick={() => onOpenFile(s.name, "SKILL.md")} title="Omega Star rewrites this before every run">
               <Icon name="lock" size={12} />
@@ -184,7 +180,7 @@ function TimelineGroup({ revs, run, name }: { revs: SkillRevision[]; run: Run | 
   const skillCount = new Set(revs.map((r) => r.skill).filter((n) => recordedName(n) === n)).size;
   const added = revs.filter((r) => r.change === "added").length;
   const title = run?.kind.type === "organize" ? runKindLabel(run.kind) : skillsChanged(revs).label;
-  const who = run ? (run.kind.type === "chat" ? "Learned in a conversation" : runKindLabel(run.kind)) : "During a run";
+  const who = changeSource(run);
   const revert = async () => {
     if (!revs[0].runId) return;
     try {
@@ -239,10 +235,14 @@ function SkillNode({ s, kind, count, onOpenFile }: { s: OwnSkill; kind: "role" |
   );
 }
 
+/** The run a change to a skill came from, as the history says it. */
+export const changeSource = (run: Run | undefined): string =>
+  run ? (run.kind.type === "chat" ? "Learned in a conversation" : runKindLabel(run.kind)) : "During a run";
+
 export function TimelineItem({ r, run, onOpen }: { r: SkillRevision; run: Run | undefined; onOpen: () => void }) {
   const stats = useMemo(() => lineStats(r.before, r.after), [r.before, r.after]);
   const verb = r.change === "added" ? "Created" : r.change === "removed" ? "Removed" : "Changed";
-  const who = r.runId ? (run ? (run.kind.type === "chat" ? "Learned in a conversation" : runKindLabel(run.kind)) : "During a run") : r.change === "added" ? "Set up" : "Edited by you";
+  const who = r.runId ? changeSource(run) : r.change === "added" ? "Set up" : "Edited by you";
   return (
     <li className={`tl ${r.runId ? "tl-run" : "tl-ceo"}`}>
       <span className="tl-dot" />

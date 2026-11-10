@@ -1,4 +1,4 @@
-import type { HireProposal, HumanRequest, PersonView, RequestKind, RunEvent, SkillChangeKind } from "../api/types";
+import type { HireProposal, PersonView, RequestKind, RunEvent, SkillChangeKind } from "../api/types";
 import { firstName } from "../lib/format";
 import { navigate } from "../lib/router";
 import { Icon, type IconName } from "./Icon";
@@ -14,9 +14,7 @@ export type TranscriptItem =
   | { kind: "requested"; key: string; requestId: string; personId: string; reqKind: RequestKind; message: string }
   | { kind: "proposed"; key: string; proposalId: string; name: string; title: string }
   | { kind: "visual"; key: string; id: string; title: string }
-  | { kind: "init"; key: string; model: string; skills: string[] }
-  | { kind: "result"; key: string; ok: boolean; text: string; turns: number; durationMs: number }
-  | { kind: "stderr"; key: string; text: string };
+  | { kind: "result"; key: string; ok: boolean; text: string };
 export type ToolItem = { id: string; tool: string; brief: string; result: { ok: boolean; brief: string } | null };
 
 /** Fold raw events into display items: pair tool calls with results, group consecutive tools. A message you sent while
@@ -33,7 +31,7 @@ export function toItems(events: RunEvent[]): TranscriptItem[] {
       case "text": out.push({ kind: "text", key, text: ev.text }); break;
       case "user": if (!ev.id) out.push({ kind: "user", key, text: ev.text }); break;
       case "heard": { const text = sent.get(ev.id); if (text !== undefined) out.push({ kind: "user", key, text }); break; }
-      case "textDelta": break;
+      case "textDelta": case "init": case "stderr": break;
       case "toolCall": {
         const t: ToolItem = { id: ev.id, tool: ev.tool, brief: ev.brief, result: null };
         toolIndex.set(ev.id, t);
@@ -53,10 +51,8 @@ export function toItems(events: RunEvent[]): TranscriptItem[] {
       case "requested": out.push({ kind: "requested", key, requestId: ev.requestId, personId: ev.personId, reqKind: ev.kind, message: ev.message }); break;
       case "proposedHire": out.push({ kind: "proposed", key, proposalId: ev.proposalId, name: ev.name, title: ev.title }); break;
       case "visual": out.push({ kind: "visual", key, id: ev.id, title: ev.title }); break;
-      case "init": out.push({ kind: "init", key, model: ev.model, skills: ev.skills }); break;
-      case "result": out.push({ kind: "result", key, ok: ev.ok, text: ev.text, turns: ev.turns, durationMs: ev.durationMs }); break;
-      case "stderr": out.push({ kind: "stderr", key, text: ev.text }); break;
-      // Sub-agents are shown by SubAgents from the tasks foldEvent keeps, not as transcript items.
+      case "result": out.push({ kind: "result", key, ok: ev.ok, text: ev.text }); break;
+      // Sub-agents are the tasks applyEvents (lib/runs) keeps, not transcript items.
       case "taskStarted": case "taskProgress": case "taskEnded": break;
       default: { const never: never = ev; void never; }
     }
@@ -83,7 +79,6 @@ const STEPS: Record<string, StepMeta> = {
   mcp__omega__my_proposals: { done: "Checked proposals", now: "Checking proposals", icon: "userPlus" },
   mcp__omega__withdraw_proposal: { done: "Withdrew a proposal", now: "Withdrawing a proposal", icon: "userPlus" },
   mcp__omega__show: { done: "Showed", now: "Showing", icon: "image" },
-  Agent: { done: "Sub-agent", now: "Sub-agent", icon: "layers" },
   Skill: { done: "Used skill", now: "Using skill", icon: "teach" },
   Read: { done: "Read", now: "Reading", icon: "file", code: true },
   Edit: { done: "Edited", now: "Editing", icon: "edit", code: true },
@@ -132,11 +127,11 @@ export function stepWords(tool: string, brief: string, running = false): { verb:
 export const saidElsewhere = (tool: string) =>
   tool === "mcp__omega__delegate" || tool === "mcp__omega__ask_colleague" || tool === "mcp__omega__show" || tool === "mcp__omega__request" || tool === "mcp__omega__propose_hire";
 
-type RowStatus = "pending" | "ok" | "err" | "stopped" | null;
+export type StepState = "pending" | "ok" | "err" | "stopped" | "wait" | null;
 
 /** A step's state at the end of its row: a tick, a cross, a still ultramarine dot while it runs, a hollow ring when it
  *  ended with its run. */
-export function StepMark({ status }: { status: RowStatus | "wait" }) {
+export function StepMark({ status }: { status: StepState }) {
   return (
     <span className="tool-status" aria-label={status === "pending" ? "Working" : status === "ok" ? "Done" : status === "err" ? "Failed" : status === "wait" ? "Up next" : status === "stopped" ? "Ended with the run" : undefined}>
       {status === "pending" ? <span className="tool-pending" />
@@ -148,8 +143,8 @@ export function StepMark({ status }: { status: RowStatus | "wait" }) {
   );
 }
 
-const SKILL_VERB: Record<SkillChangeKind, string> = { added: "Wrote", removed: "Trimmed", modified: "Refined" };
-/** What a skill change says: "Wrote", "Refined" or "Trimmed", then the skill (and its file, when not SKILL.md). */
+const SKILL_VERB: Record<SkillChangeKind, string> = { added: "Wrote a skill", removed: "Trimmed", modified: "Refined" };
+/** What a skill change says: "Wrote a skill", "Refined" or "Trimmed", then the skill (and its file, when not SKILL.md). */
 export const skillWords = (skill: string, file: string, change: SkillChangeKind) => ({ verb: SKILL_VERB[change] ?? "Refined", object: `${skill}${file !== "SKILL.md" ? `/${file}` : ""}` });
 
 const REQUESTED_HEAD: Record<RequestKind, { verb: string; tail: string }> = {
@@ -158,30 +153,19 @@ const REQUESTED_HEAD: Record<RequestKind, { verb: string; tail: string }> = {
   info: { verb: "Told", tail: "" },
 };
 
-export function RequestedRow({ personId, reqKind, message, people, request }: { personId: string; reqKind: RequestKind; message: string; people: PersonView[]; request?: HumanRequest }) {
+export function RequestedRow({ personId, reqKind, message, people }: { personId: string; reqKind: RequestKind; message: string; people: PersonView[] }) {
   const p = people.find((x) => x.id === personId);
-  const name = p ? firstName(p.name) : "someone";
-  const channel = p && request?.channelId ? p.channels.find((c) => c.id === request.channelId) : undefined;
-  const state = request?.state;
   const head = REQUESTED_HEAD[reqKind];
   return (
     <div className="requested">
       {p ? <Avatar name={p.name} hue={p.hue} image={p.image} size={22} person /> : <Icon name={reqKind === "info" ? "bell" : "ask"} size={14} className="requested-icon" />}
       <div className="requested-main">
         <span className="requested-head">
-          {head.verb} <b>{name}</b>{head.tail}
-          {channel ? <span className="muted"> · via {channel.address}</span> : null}
+          {head.verb} <b>{p ? firstName(p.name) : "someone"}</b>{head.tail}
         </span>
         <span className="requested-msg">{message}</span>
-        {request?.response ? <span className="requested-reply"><b>{name}:</b> {request.response}</span> : null}
       </div>
-      {reqKind === "info" ? (
-        <span className="pill pill-outline">FYI</span>
-      ) : state ? (
-        <span className={`pill ${state === "open" ? "pill-wait" : state === "cancelled" ? "" : "pill-ok"}`}>
-          {state === "open" ? "Waiting" : state === "answered" ? "Answered" : state === "done" ? "Done" : "Cancelled"}
-        </span>
-      ) : null}
+      {reqKind === "info" ? <span className="pill pill-outline">FYI</span> : null}
     </div>
   );
 }

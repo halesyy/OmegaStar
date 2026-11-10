@@ -223,7 +223,7 @@ export type Run = {
   archivedAt: string | null;   // archived reports leave the Inbox for the Archive
   title: string | null;        // a thread's first run: the name the employee gave the thread with name_thread
   repliedAt: string | null;    // when you last replied to this report
-  steered: boolean;            // you wrote into it while it worked or waited to start, so its report waits for you in the Inbox
+  steered: boolean;            // you wrote into it while it worked, so its report waits for you in the Inbox
   aboutCard?: boolean;         // a question you asked from a card: it does not make the thread a conversation you are in
   deliveredAt: string | null;  // asked and delegated runs: when the answer or report reached whoever handed it over
   check: string | null;        // a due check that came back into the conversation it was set in: the check's id
@@ -286,7 +286,7 @@ export type RunEvent =
   | { type: "proposedHire"; proposalId: string; name: string; title: string }
   | { type: "skillChanged"; skill: string; file: string; change: SkillChangeKind }
   | { type: "visual"; id: string; title: string }   // a page the employee showed (show), served on omega-visual
-  // A sub-agent's lifecycle. These never reach a transcript list: they update a task by taskId (see foldEvent).
+  // A sub-agent's lifecycle. These never reach a transcript list: they update a task by taskId (see foldTask).
   | { type: "taskStarted"; taskId: string; toolUseId: string; name: string }
   | { type: "taskProgress"; taskId: string; activity: string; lastTool: string | null; toolUses: number; tokens: number; durationMs: number }
   | { type: "taskEnded"; taskId: string; outcome: TaskOutcome; toolUses: number; tokens: number; durationMs: number }
@@ -414,8 +414,6 @@ export type Commands = {
   retry_run: { args: { runId: string }; ret: Run };
   /** Your reply in a report's thread (`runId`: any run in it). `archive` means "don't bring the answer back unless it needs me". */
   reply_to_run: { args: { runId: string; text: string; archive: boolean; attachments?: NewAttachment[] }; ret: Run };
-  /** Your words to a run you are watching: into it while it works, into its instructions while it waits to start for
-   *  the first time, else your reply in its thread. Its report then waits for you in the Inbox. */
   /** Allow what a finished run was blocked on and send it back to retry. `rules` must come from its denials
    *  (a denial's suggestedRule, or `mcp__<server>__*` for an MCP tool). `always` saves them to the employee;
    *  otherwise they apply to the retry only. Archives the blocked report. Returns the retry run. */

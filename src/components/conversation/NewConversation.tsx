@@ -41,7 +41,7 @@ export function NewConversation({ e }: { e: EmployeeView }) {
   };
   return (
     <ChatSurface
-      ref={surface} e={e} busy={false} draftKey={newConversationDraft(e.id)} scrollKey="" pin={false}
+      ref={surface} e={e} draftKey={newConversationDraft(e.id)} scrollKey="" pin={false}
       placeholder={`Message ${name}. Teach them something, or ask.`} onSend={start}
     >
       <div className="chat-inner">

@@ -8,9 +8,7 @@ export const YOU_ID = "you";
 
 type EmployeeLike = Pick<Employee, "id" | "name" | "managerId">;
 type PersonLike = Pick<Person, "id" | "name" | "manager">;
-type OrgShape<E extends EmployeeLike = EmployeeLike, P extends PersonLike = PersonLike> = {
-  company: Pick<Company, "reportsTo">; employees: E[]; people: P[];
-};
+type OrgShape = { company: Pick<Company, "reportsTo">; employees: EmployeeLike[]; people: PersonLike[] };
 
 /** A person's manager as a node id: YOU_ID, a member id, or null for the top of the company. */
 function personParent(m: PersonManager): string | null {

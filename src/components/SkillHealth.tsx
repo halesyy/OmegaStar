@@ -144,7 +144,7 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
                     <span className="chk-what">{c.what}</span>
                     <span className="hf-detail"><span className={due.late ? "upkeep-late" : ""}>{due.text[0].toUpperCase() + due.text.slice(1)}</span> · {c.how}</span>
                   </div>
-                  <ConfirmButton label="Drop" className="btn btn-ghost btn-sm" size="btn-sm" question="Stop tracking it?" confirmLabel="Drop it" onConfirm={() => drop(c.id)} />
+                  <ConfirmButton label="Drop" className="btn btn-ghost" size="btn-sm" question="Stop tracking it?" confirmLabel="Drop it" onConfirm={() => drop(c.id)} />
                 </li>
               );
             })}

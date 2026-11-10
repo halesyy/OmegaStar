@@ -398,8 +398,8 @@ export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: 
       creating.current = false;
     }
   };
-  const submit = (e?: FormEvent) => {
-    e?.preventDefault();
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
     if (!ready || busy) return;
     const miss = { company: !company.trim(), ceo: !ceo.trim() };
     if (miss.company || miss.ceo) {

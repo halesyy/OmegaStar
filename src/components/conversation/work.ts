@@ -4,24 +4,23 @@
 import type { EmployeeView, Run } from "../../api/types";
 import { firstName } from "../../lib/format";
 import type { LiveRun, TaskView } from "../../lib/runs";
+import { isLive } from "../../lib/threads";
 import type { IconName } from "../Icon";
-import { saidElsewhere, skillWords, stepWords, toItems, type ToolItem, type TranscriptItem } from "../Transcript";
+import { saidElsewhere, skillWords, stepWords, toItems, type StepState, type ToolItem, type TranscriptItem } from "../Transcript";
 
-type StepState = "pending" | "ok" | "err" | "stopped" | "wait" | null;
 type TextItem = Extract<TranscriptItem, { kind: "text" }>;
 
-/** A step: the verb, what it acted on, and how it ended. `detail` opens under it. A colleague asked carries their run
- *  (`runId`, `child`); a skill written carries the change it opens (`skill`). */
+/** A step: the verb, what it acted on, and how it ended. `detail` opens under it. `runId` is the run it belongs to, or
+ *  for a colleague asked, their run (with `child`); a skill written carries the change it opens (`skill`). */
 export type WorkRow = {
-  key: string; icon: IconName; verb: string; object: string; code: boolean; state: StepState;
-  tag?: string; meta?: string; detail?: string; avatar?: { name: string; hue: number; image?: string | null }; runId?: string; child?: Run;
+  key: string; icon: IconName; verb: string; object: string; code: boolean; state: StepState; runId: string;
+  tag?: string; meta?: string; detail?: string; avatar?: { name: string; hue: number; image?: string | null }; child?: Run;
   skill?: { skill: string; file: string };
 };
 
 /** One stretch of a reply: what you said to start it (after the first), its items, and how the talk reads them. */
 export type Part = { said: string | null; items: TranscriptItem[]; opener: TextItem | null; notes: TextItem[]; answer: TextItem[] };
 
-const isRunning = (r: Run) => r.state === "running" || r.state === "queued";
 // Not a skill change: Omega Star records those after the run ends, so one would always fall after the answer and fold it
 // into the work line. Its row still shows (rowsOf).
 const isWork = (it: TranscriptItem) => it.kind === "tools" || it.kind === "delegated" || it.kind === "requested" || it.kind === "proposed" || it.kind === "visual";
@@ -32,7 +31,7 @@ export function partsOf(events: TranscriptItem[]): Part[] {
   const raw: { said: string | null; items: TranscriptItem[] }[] = [{ said: null, items: [] }];
   for (const it of events) {
     if (it.kind === "user") { if (!it.waiting) raw.push({ said: it.text, items: [] }); }
-    else if (it.kind !== "init" && it.kind !== "stderr") raw[raw.length - 1].items.push(it);
+    else raw[raw.length - 1].items.push(it);
   }
   return raw.map(({ said, items }) => {
     const texts = items.filter((it): it is TextItem => it.kind === "text");
@@ -87,7 +86,7 @@ const skillsOf = (items: TranscriptItem[]) => new Set(items.flatMap((it) => (it.
  *  working. Sub-agents whose call was not recorded (an old transcript) are rows of the whole reply. */
 export function rowsOf(turn: LiveRun, employees: EmployeeView[], part?: Part): WorkRow[] {
   const id = turn.run.id;
-  const running = isRunning(turn.run);
+  const running = isLive(turn.run);
   const all = toItems(turn.events);
   const notes = new Set(partsOf(all).flatMap((p) => p.notes.map((n) => n.key)));
   const skills = skillsOf(all);
@@ -129,7 +128,7 @@ export function rowsOf(turn: LiveRun, employees: EmployeeView[], part?: Part): W
         break;
       case "skill": {
         const w = skillWords(it.skill, it.file, it.change);
-        out.push({ key: keys.skill(id, it.skill, it.file), icon: "teach", verb: it.change === "added" ? "Wrote a skill" : w.verb, object: w.object, code: false, state: it.change === "added" ? null : "ok", tag: it.change === "added" ? "New" : undefined, runId: id, skill: { skill: it.skill, file: it.file } });
+        out.push({ key: keys.skill(id, it.skill, it.file), icon: "teach", verb: w.verb, object: w.object, code: false, state: it.change === "added" ? null : "ok", tag: it.change === "added" ? "New" : undefined, runId: id, skill: { skill: it.skill, file: it.file } });
         break;
       }
       default: break;

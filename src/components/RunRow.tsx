@@ -41,7 +41,7 @@ function titleOf(line: string): string {
 }
 
 /** What a run is about, in a few words: a manual run you gave an instruction is its first sentence, and work a manager
- *  handed down is its task, never who handed it over (that is the row's second line and the page's byline). */
+ *  handed down is its task, never who handed it over (that is the row's second line). */
 export function workLabel(run: Run, employees: EmployeeView[], people: PersonView[]): string {
   if ((run.kind.type === "manual" && run.prompt !== DEFAULT_PROMPT) || run.kind.type === "delegated") {
     const line = firstPromptLine(run.prompt);
@@ -88,7 +88,6 @@ function detailOf(run: Run, label: string): string {
     if (line) return line;
   }
   if ((run.state === "failed" || run.state === "lost") && run.error) return firstLine(run.error);
-  // What it was asked, less what its title already says.
   const text = run.prompt.split("\n").map((l) => l.trim()).filter(Boolean).join(" ");
   return text.startsWith(label) ? text.slice(label.length).replace(/^[.!?]?\s*/, "") : text;
 }
@@ -154,7 +153,8 @@ const HOUR_MS = 3_600_000;
 
 /**
  * One run as a list row, on the one grid every run list shares: who (or the kind of run), what it was about over what came
- * of it, its state as a word in a fixed track (empty for a plain success), and its age in a fixed track. Opens the run.
+ * of it, its state as a word in a fixed track (empty for a plain success), and its age in a fixed track. Opens its
+ * conversation.
  */
 export function RunRow({ run, employee, employees, people, showEmployee = false }: {
   run: Run; employee?: EmployeeView; employees: EmployeeView[]; people: PersonView[]; showEmployee?: boolean;

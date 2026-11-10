@@ -1,5 +1,5 @@
-// The open conversations with where each stands, shared by the Inbox, its badge, the panel's chips and the
-// conversation header: one read of the office, your marks, and a clock that ticks when a snooze ends.
+// The open conversations with where each stands, shared by the Inbox, its badge and the conversation header: one
+// read of the office, your marks, and a clock that ticks when a snooze ends.
 import { useEffect, useMemo, useState } from "react";
 import type { EmployeeView, OrgSnapshot, Thread } from "../../api/types";
 import { threadTitle } from "../../lib/format";
@@ -9,7 +9,8 @@ import { nextWake, threadStatus, type Status, type StatusContext } from "../../l
 import { conversationOf, threadFocus } from "../../lib/threads";
 import { kindNames } from "../RunRow";
 
-/** A thread with what the Inbox and the chips show about it. `title` names it as the rest of the app does. */
+/** A thread with what the Inbox and the conversation header show about it. `title` names it as the rest of the app
+ *  does. */
 export type Item = { thread: Thread; employee: EmployeeView; title: string; status: Status };
 
 /** A thread as an item, or null when its employee no longer works here. `filed`: it leads an Inbox row. */

@@ -4,20 +4,17 @@ import "./ActivityParts.css";
 
 /**
  * Something couldn't load: the parts sheet's error card, at its width, in the same place on every page of the area
- * (the top of the content, on the title's left edge). What happened, what happens next, and one way to act. A missing
- * thing is the same card without the alert, since nothing went wrong.
+ * (the top of the content, on the title's left edge). What happened, what happens next, and one way to act.
  */
-export function ErrorCard({ title, text, action, onRetry, alert = true }: {
-  title: string; text: ReactNode; action?: ReactNode; onRetry?: () => void; alert?: boolean;
-}) {
+export function ErrorCard({ title, text, onRetry }: { title: string; text: ReactNode; onRetry: () => void }) {
   return (
-    <div className="act-error" role={alert ? "alert" : "status"}>
-      {alert ? <Icon name="alert" size={15} className="act-error-icon" /> : null}
+    <div className="act-error" role="alert">
+      <Icon name="alert" size={15} className="act-error-icon" />
       <div className="act-error-body">
         <div className="act-error-title">{title}</div>
         <div className="act-error-text">{text}</div>
       </div>
-      {action ?? (onRetry ? <button className="btn btn-sm" onClick={onRetry}><Icon name="refresh" size={12} /> Try again</button> : null)}
+      <button className="btn btn-sm" onClick={onRetry}><Icon name="refresh" size={12} /> Try again</button>
     </div>
   );
 }
