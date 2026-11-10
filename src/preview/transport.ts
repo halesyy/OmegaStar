@@ -13,8 +13,8 @@ import { setTheme } from "../lib/theme";
 import { activityAt, archiveAt, isLive, isOpen, startedByYou } from "../lib/threads";
 import { toast } from "../lib/toasts";
 import {
-  ahead, cannedAnswer, CRAFT, emptyOffice, firstRunOffice, fullOffice, HOME, inboxMoreOffice, init, iso, largeOffice, liveMoreOffice, mk, NOW,
-  onDay, own, quietOffice, review, type World,
+  ahead, cannedAnswer, CRAFT, emptyCompanyPage, emptyOffice, firstRunOffice, fullOffice, HOME, inboxMoreOffice, init, iso, largeOffice, liveMoreOffice, mk, NOW,
+  onDay, own, quietOffice, review, tool, type World,
 } from "./office";
 import { imageUrl, installTauriShim } from "./pages";
 
@@ -27,7 +27,7 @@ const STATES = [
 ] as const;
 type State = (typeof STATES)[number];
 
-export type PreviewTransport = {
+type PreviewTransport = {
   invoke<K extends CommandName>(name: K, args: Commands[K]["args"]): Promise<Commands[K]["ret"]>;
   listen<E extends EventName>(name: E, handler: (payload: Events[E]) => void): Promise<() => void>;
 };
@@ -53,11 +53,9 @@ const DEFAULT_PROMPT = "Work toward your objective. Start from your role skill, 
 function worldFor(state: State): World {
   switch (state) {
     case "empty": return emptyOffice();
-    case "first-run": return firstRunOffice();
-    case "first-run-no-claude": return firstRunOffice(false, false);
+    case "first-run": case "first-run-opening": case "first-run-error": return firstRunOffice();
+    case "first-run-no-claude": case "first-run-recheck": return firstRunOffice(false, false);
     case "first-run-signed-out": return firstRunOffice(true, false);
-    case "first-run-recheck": return firstRunOffice(false, false);
-    case "first-run-opening": case "first-run-error": return firstRunOffice();
     case "quiet": return quietOffice();
     case "large-org": return largeOffice();
     case "inbox-more": return inboxMoreOffice();
@@ -263,7 +261,7 @@ export function previewTransport(): PreviewTransport {
     }, 6000);
 
     window.setTimeout(() => append(billing.id, [{ type: "toolResult", id: "b3", ok: true, brief: "2 to change, 0 to destroy" }]), 2500);
-    window.setTimeout(() => append(billing.id, [{ type: "toolCall", id: "b4", tool: "Read", brief: "web/src/pages/pricing.tsx" }, { type: "toolResult", id: "b4", ok: true, brief: "140 lines" }]), 6000);
+    window.setTimeout(() => append(billing.id, tool("b4", "Read", "web/src/pages/pricing.tsx", "140 lines")), 6000);
     window.setTimeout(() => finish(billing, "Two places hard-code $29: the pricing page and the upgrade screen. Both now read the price from billing. The new price ID is ready in the infrastructure config; it goes live with one change on 1 March, and annual plans keep their old price ID until renewal."), billingMs);
   }
   // Live work streams in every busy state; in live-more, Otto's delegated check finishes a few seconds in.
@@ -272,8 +270,7 @@ export function previewTransport(): PreviewTransport {
 
   /** live-arrives: three seconds in, Juniper asks Mae to update the help centre, and Mae starts on it. */
   function arriveLive() {
-    const plan = byId("plan-2");
-    if (!plan) return;
+    const plan = need("plan-2");
     const task = "Update the three help-centre articles that quote $29 so they say $34 from 1 March.";
     window.setTimeout(() => {
       const help = mk("help-1", "mae", { type: "delegated", parentRunId: plan.id }, task, { state: "running", end: iso(Date.now()) });
@@ -281,8 +278,7 @@ export function previewTransport(): PreviewTransport {
       w.runs.unshift(help);
       w.events[help.id] = [init(9), { type: "text", text: "Three articles quote the Studio price. Starting with choose-a-plan." }];
       emitRun(help);
-      append(plan.id, [...[{ type: "toolCall" as const, id: "q9", tool: "mcp__omega__delegate", brief: "Mae: update the help-centre articles that quote $29" }, { type: "toolResult" as const, id: "q9", ok: true, brief: "Delegated to Mae" }],
-        { type: "delegated", childRunId: help.id, employeeId: "mae", task }]);
+      append(plan.id, [...tool("q9", "mcp__omega__delegate", "Mae: update the help-centre articles that quote $29", "Delegated to Mae"), { type: "delegated", childRunId: help.id, employeeId: "mae", task }]);
       window.setTimeout(() => append(help.id, [{ type: "toolCall", id: "h1", tool: "Read", brief: "help-centre/billing/choose-a-plan.md" }]), 1500);
     }, 3000);
   }
@@ -290,15 +286,15 @@ export function previewTransport(): PreviewTransport {
   /** live-ends: everything live finishes in turn: the sub-agent at 2.5 s, Otto's billing check at 4 s, Juniper's
    *  reply at 6.5 s, and the runs waiting to start get going and finish by 8 s, so nothing is live after that. */
   function endLive() {
-    const plan = byId("plan-2");
-    const billing = byId("billing-1");
-    window.setTimeout(() => { if (plan) append(plan.id, [{ type: "taskEnded", taskId: "task-help", outcome: "done", toolUses: 14, tokens: 31_200, durationMs: 88_000 }]); }, 2500);
-    window.setTimeout(() => { if (billing) finish(billing, "Two places hard-code $29: the pricing page and the upgrade screen. Both now read the price from billing."); }, 4000);
+    const plan = need("plan-2");
+    const billing = need("billing-1");
+    window.setTimeout(() => append(plan.id, [{ type: "taskEnded", taskId: "task-help", outcome: "done", toolUses: 14, tokens: 31_200, durationMs: 88_000 }]), 2500);
+    window.setTimeout(() => finish(billing, "Two places hard-code $29: the pricing page and the upgrade screen. Both now read the price from billing."), 4000);
     window.setTimeout(() => {
-      if (!plan || plan.state !== "running") return;
-      const rest = planDraft ? planDraft.words.slice(planDraft.start).join("") : "";
-      if (rest) append(plan.id, [{ type: "textDelta", text: rest }]);
-      finish(plan, planDraft ? planDraft.words.join("") : "Done.");
+      if (plan.state !== "running") return;
+      const { words, start } = planDraft!;
+      append(plan.id, [{ type: "textDelta", text: words.slice(start).join("") }]);
+      finish(plan, words.join(""));
     }, 6500);
     window.setTimeout(() => {
       for (const r of w.runs.filter((x) => x.state === "queued")) {
@@ -345,8 +341,7 @@ export function previewTransport(): PreviewTransport {
     const c = r.cards[card];
     if (!c) throw notFound("That card is gone.");
     const root = need(rootOf(r));
-    const reply = (prompt: string, aboutCard: boolean) => respond(newRun(r.employeeId, { type: "reply", toRunId: root.id, label: root.title ?? "Report", task: startedByYou(root), card: true }, prompt, { aboutCard, omegaWrote: !aboutCard }));
-    if (answer.type === "ask") return [reply(answer.text, true)];
+    if (answer.type === "ask") return [respond(newRun(r.employeeId, { type: "reply", toRunId: root.id, label: root.title ?? "Report", task: startedByYou(root), card: true }, answer.text, { aboutCard: true }))];
     if (answer.type === "later") {
       Object.assign(c, { backAt: answer.until, parked: c.timesBack > 0 });
       w.inbox = w.inbox.filter((id) => id !== root.id);
@@ -398,7 +393,7 @@ export function previewTransport(): PreviewTransport {
       if (state === "first-run-error") throw CREATE_ERROR;
       w.company = { name: companyName, ceoName, title: title ?? "CEO", email: null, reportsTo: null };
       w.setup.company = w.company;
-      w.companyPage = w.companyPage || `# ${companyName}\n\n## What we sell\n\n## What we use\n\n## How things work here\n\n## Voice and style\n`;
+      w.companyPage = w.companyPage || emptyCompanyPage(companyName);
       return w.company;
     },
     update_company: ({ name, ceoName, title, reportsTo, image }) => {
@@ -721,7 +716,7 @@ export function previewTransport(): PreviewTransport {
       if (state === "thread-error" && name === "thread") throw THREAD_ERROR;
       if (state === "slow-saves" && SAVES.includes(name)) await wait(1500);
       if (state === "failed-saves" && SAVES.includes(name)) { await wait(600); throw SAVE_ERROR; }
-      await new Promise((r) => setTimeout(r, 0));
+      await wait(0);
       const run = h[name] as (a: typeof args) => Commands[typeof name]["ret"] | Promise<Commands[typeof name]["ret"]>;
       return structuredClone(await run(args));
     },
