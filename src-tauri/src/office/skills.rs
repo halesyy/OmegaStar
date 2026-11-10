@@ -299,14 +299,16 @@ impl Office {
 
     /// What a Tidy run works from; none for any other run.
     pub(super) fn tidy_brief(&self, run: &Run, e: &Employee) -> Result<Option<claude::TidyBrief>> {
-        let RunKind::Tidy { plan, .. } = &run.kind else { return Ok(None) };
+        if !matches!(run.kind, RunKind::Tidy { .. }) {
+            return Ok(None);
+        }
         // An overdue check is work of its own, not something for the tidy to do.
         let findings = self.skill_health(&e.id)?.findings.into_iter().filter(|f| f.kind != HealthKind::OverdueCheck).collect();
         let db = self.db();
         // What you taught since the last tidy that got as far as confirming it.
         let since = db.tidy_runs(&e.id)?.into_iter().find(|r| r.id != run.id && r.state == RunState::Succeeded).map(|r| r.created_at);
         let taught = db.taught_since(&e.id, since, tidy::TAUGHT_LIMIT)?;
-        Ok(Some(claude::TidyBrief { findings, taught, plan: plan.clone() }))
+        Ok(Some(claude::TidyBrief { findings, taught }))
     }
 
     /// Raises a flag on a live run without a desktop notification.

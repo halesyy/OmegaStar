@@ -232,20 +232,18 @@ pub struct Opening {
 /// The request a reply check, nudge or give-up is about.
 pub struct Watched {
     pub request: HumanRequest,
-    pub person: String,
     /// The channel it went out on, as the handbook names it ("Teams jordan@example.com").
     pub channel: Option<String>,
     /// How many business days the watch waited before giving up.
     pub days: u32,
 }
 
-/// What a Tidy run works from: what the health check found, what the person taught the employee
-/// since the last tidy, and for an approved tidy the plan they approved.
+/// What a Tidy run works from: what the health check found, and what the person taught the employee
+/// since the last tidy.
 pub struct TidyBrief {
     pub findings: Vec<HealthFinding>,
     /// (when, what they said) in conversations and in Inbox replies.
     pub taught: Vec<(Ts, String)>,
-    pub plan: Option<String>,
 }
 
 pub struct Invocation {
@@ -294,7 +292,7 @@ pub fn clip(s: &str, n: usize) -> String {
 
 /// The start and the end of a long text, so a report's closing lines survive: one line, and when it is
 /// longer than `2n + 5` characters, its first and last `n` around " ... ".
-pub(crate) fn ends(s: &str, n: usize) -> String {
+fn ends(s: &str, n: usize) -> String {
     let s = one_line(s);
     let chars: Vec<char> = s.chars().collect();
     if chars.len() <= 2 * n + 5 {
@@ -376,11 +374,11 @@ fn model_args(kind: &RunKind, e: &Employee) -> Vec<String> {
 
 /// The first message of a run that goes again after the usage limit or a rate limit stopped it: the
 /// conversation it resumes already holds the message it was answering.
-pub const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
+const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
 
 /// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
 /// went with it, so it is told to raise again any it still needs.
-pub const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
+const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
 
 pub fn prepare(s: &Snapshot, run: &Run) -> Invocation {
     let e = &s.employee;

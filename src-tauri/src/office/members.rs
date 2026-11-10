@@ -80,7 +80,6 @@ impl Office {
             presence,
             live,
             working,
-            waiting,
             next_fire,
             last_run: recent.first().cloned(),
             last_worked_at,
@@ -126,7 +125,7 @@ impl Office {
             own_skills::scaffold_role_skill(&skills_dir, &e, &granted)?;
             own_skills::install_craft(&skills_dir)?;
             Self::save_org(&db, &before, &after)?;
-            self.seed_review(&db, &e, &ceo_of(&db)?, db.employees()?.len().saturating_sub(1))?;
+            Self::seed_review(&db, &e, &ceo_of(&db)?, db.employees()?.len().saturating_sub(1))?;
             e
         };
         if !picked.is_empty() {
@@ -288,9 +287,8 @@ impl Office {
 
     // ------------------------------------------------------------------ hire proposals
 
-    pub fn proposals(&self, state: Option<String>) -> Result<Vec<HireProposal>> {
-        let state = state.as_deref().map(ProposalState::parse).transpose()?;
-        self.db().proposals(None, state)
+    pub fn proposals(&self) -> Result<Vec<HireProposal>> {
+        self.db().proposals(None, None)
     }
 
     /// Takes an open proposal out of the queue, so a second approve or decline is refused.
@@ -505,11 +503,13 @@ mod tests {
         let v = Office::presence(&db, &ada, now(), false).unwrap();
         let ids: Vec<&str> = v.live.iter().map(|r| r.id.as_str()).collect();
         assert_eq!(ids, [&running_old.id, &running_new.id, &queued_old.id, &queued_new.id]);
-        assert_eq!((v.presence, v.working, v.waiting), (Presence::Working, 2, 2));
+        assert_eq!((v.presence, v.working), (Presence::Working, 2));
 
         let idle = Office::presence(&db, &bo, now(), false).unwrap();
         assert!(idle.live.is_empty());
         assert_eq!(idle.presence, Presence::Idle);
+        run(&db, &bo, RunKind::Manual, RunState::Queued, 1);
+        assert_eq!(Office::presence(&db, &bo, now(), false).unwrap().presence, Presence::Queued);
         let _ = fs::remove_dir_all(&dir);
     }
 

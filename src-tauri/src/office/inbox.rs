@@ -614,10 +614,7 @@ Approval covers only what is listed, so if something else is blocked, stop and s
                 return Ok(latest);
             }
             let (rec, resumes) = Self::next_turn(&db, &t)?;
-            // An older build's chat message that an answer came back into is a conversation you started too.
-            let chat = matches!(root.kind, RunKind::Chat);
-            let label = if chat { threads::task_label(&root.prompt, &root.attachments) } else { threads::report_label(&root.kind) };
-            let task = chat || matches!(root.kind, RunKind::Task { .. });
+            let (label, task) = threads::reply_label(&root);
             let (prompt, session) = if resumes {
                 (text.to_string(), rec.session)
             } else {
@@ -685,7 +682,7 @@ fn see_news(r: &mut Run, seen: bool, at: Ts) -> bool {
 }
 
 /// A conversation you are in: one you started (an older build's chat message an answer came back into too), a
-/// report you typed into (`threads::talking`), or a run you wrote into as it worked or waited (`Run::steered`).
+/// report you typed into (`threads::talking`), or a run you wrote into as it worked (`Run::steered`).
 pub(super) fn yours(t: &Thread) -> bool {
     matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || threads::talking(t) || t.root.steered
 }

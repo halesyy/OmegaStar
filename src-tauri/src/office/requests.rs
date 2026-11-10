@@ -16,20 +16,16 @@ impl Office {
         Ok(v)
     }
 
-    /// Records an ask of a person, made by an employee (from a run, via MCP). An FYI needs no reply,
-    /// so it is done as soon as it is recorded. The arguments are the request tool's, one to one.
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_request(
-        &self,
-        employee_id: &str,
-        run_id: Option<&str>,
-        person: &str,
-        kind: RequestKind,
-        message: &str,
-        channel_id: Option<&str>,
-        due_at: Option<Ts>,
-    ) -> Result<(HumanRequest, Person)> {
-        if message.trim().is_empty() {
+    /// Records an ask of a person that an employee's run made with the request tool (`args`). An FYI needs no
+    /// reply, so it is done as soon as it is recorded.
+    pub fn create_request(&self, caller_run: &str, caller: &Employee, args: &Value) -> Result<(HumanRequest, Person)> {
+        let s = |k: &str| args.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty());
+        let kind: RequestKind = serde_json::from_value(json!(s("kind").unwrap_or("question")))
+            .map_err(|_| AppError::invalid("kind must be question, task or info"))?;
+        let due_at = s("dueAt").map(tools::parse_due).transpose()?;
+        let person = s("person").ok_or_else(|| AppError::invalid("person is required"))?;
+        let message = s("message").unwrap_or("");
+        if message.is_empty() {
             return Err(AppError::invalid("message is empty"));
         }
         let (req, p) = {
@@ -38,7 +34,7 @@ impl Office {
             let p = find_member(&people, person, |p| (&p.id, None, &p.name))
                 .ok_or_else(|| AppError::not_found(format!("no person '{person}'. Call people() for the list.")))?
                 .clone();
-            let channel_id = channel_id.filter(|c| !c.trim().is_empty());
+            let channel_id = s("channelId");
             if let Some(c) = channel_id {
                 if !p.channels.iter().any(|x| x.id == c) {
                     return Err(AppError::invalid(format!("{} has no channel '{c}'", p.name)));
@@ -49,10 +45,10 @@ impl Office {
             let req = HumanRequest {
                 id: uuid::Uuid::new_v4().to_string(),
                 person_id: p.id.clone(),
-                employee_id: employee_id.to_string(),
-                run_id: run_id.map(String::from),
+                employee_id: caller.id.clone(),
+                run_id: Some(caller_run.to_string()),
                 kind,
-                message: message.trim().to_string(),
+                message: message.to_string(),
                 due_at,
                 channel_id: channel_id.map(String::from),
                 state: if info { RequestState::Done } else { RequestState::Open },
@@ -64,12 +60,7 @@ impl Office {
             db.save_request(&req)?;
             (req, p)
         };
-        if let Some(run_id) = run_id {
-            self.append_event(
-                run_id,
-                RunEvent::Requested { request_id: req.id.clone(), person_id: p.id.clone(), kind, message: req.message.clone() },
-            );
-        }
+        self.append_event(caller_run, RunEvent::Requested { request_id: req.id.clone(), person_id: p.id.clone(), kind, message: req.message.clone() });
         self.announce(&req);
         self.sink().org_changed();
         Ok((req, p))
@@ -79,8 +70,7 @@ impl Office {
     /// enqueues exactly one follow-up run for the requester, however many times this is called, unless
     /// the requester recorded it (`recorded_by`): that run already holds the reply and carries on itself.
     /// The follow-up resumes the run that made the request when it can (`origin_session`).
-    pub fn resolve_request(&self, request_id: &str, state: &str, response: Option<String>, recorded_by: Option<&str>) -> Result<HumanRequest> {
-        let target = RequestState::parse(state)?;
+    pub fn resolve_request(&self, request_id: &str, target: RequestState, response: Option<String>, recorded_by: Option<&str>) -> Result<HumanRequest> {
         if target == RequestState::Open {
             return Err(AppError::invalid("a request cannot be reopened"));
         }
@@ -195,8 +185,8 @@ has to start that work, hand it back with what they need to start it instead of 
     /// What a run about a request starts from: who it went to, when, and the ask.
     fn ask_brief(r: &HumanRequest, person: &str) -> String {
         let sent = r.delivery.as_ref().map_or(r.created_at, |d| d.sent_at);
-        let due = r.due_at.map(|d| format!(", needed by {}", local_time(d))).unwrap_or_default();
-        format!("Your {} to {person} (request `{}`), sent {}{due}:\n\n{}", r.kind.as_str(), r.id, local_time(sent), r.message)
+        let due = r.due_at.map(|d| format!(", needed by {}", claude::local_time(d))).unwrap_or_default();
+        format!("Your {} to {person} (request `{}`), sent {}{due}:\n\n{}", r.kind.as_str(), r.id, claude::local_time(sent), r.message)
     }
 
     /// Queues a reply check or a nudge about a request, in a fresh session.
@@ -475,7 +465,7 @@ has to start that work, hand it back with what they need to start it instead of 
             let Some(newest) = j.replies.last() else { continue };
             let through = Seen { id: newest.id.clone(), at: newest.at };
             let words = j.replies.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n");
-            let response = watch::replies(&j.messages, d, None).iter().map(|m| format!("{}: {}", local_time(m.at), m.text)).collect::<Vec<_>>().join("\n");
+            let response = watch::replies(&j.messages, d, None).iter().map(|m| format!("{}: {}", claude::local_time(m.at), m.text)).collect::<Vec<_>>().join("\n");
             let (applied, judged, r, notice) = {
                 let db = self.db();
                 let Some(mut r) = db.request(&j.id)? else { continue };
@@ -510,7 +500,7 @@ has to start that work, hand it back with what they need to start it instead of 
             }
         }
         for (id, state, response) in resolves {
-            if let Err(e) = self.resolve_request(&id, state.as_str(), Some(response), None) {
+            if let Err(e) = self.resolve_request(&id, state, Some(response), None) {
                 log!("recording the reply to request {id} failed: {e}");
             }
         }
@@ -630,7 +620,7 @@ has to start that work, hand it back with what they need to start it instead of 
         if undelivered.is_empty() {
             return Ok(());
         }
-        let transcript = fs::read_to_string(self.run_dir(run_id).join("transcript.jsonl")).unwrap_or_default();
+        let transcript = fs::read_to_string(self.run_dir(run_id).join(TRANSCRIPT)).unwrap_or_default();
         let found = watch::capture(&transcript, &undelivered, &claimed);
         let mut changed = vec![];
         {
@@ -688,11 +678,6 @@ fn fail_check(w: &mut Watch, person: &str, error: String) -> Option<(String, Str
     w.failures += 1;
     w.last_error = Some(error.clone());
     (w.failures == FAILURES_TO_NOTIFY).then(|| (format!("Omega Star cannot check {person}'s replies"), error))
-}
-
-/// A moment on your local clock: "Tue 6 Oct 1:15 pm".
-fn local_time(t: Ts) -> String {
-    t.with_timezone(&Local).format("%a %-d %b %-I:%M %P").to_string()
 }
 
 #[cfg(test)]

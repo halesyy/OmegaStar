@@ -681,7 +681,7 @@ export function fullOffice(): World {
   }
   w.files["juniper/@own/what-you-own.md"] = "# What Juniper owns\n\n- The Monday report, and its format\n- Every plan that touches more than one person\n- Following up on anything Maren asks for in a conversation\n\nJuniper decides alone: when to chase, who to ask, how to word a reminder.\nJuniper asks first: anything sent to every studio, anything about money.";
   w.health = {
-    juniper: { skills: 5, descriptionChars: 1180, findings: [
+    juniper: { findings: [
       { kind: "looseNotes", skill: null, file: "notes/scratch.md", detail: "3 notes sit outside any skill." },
       { kind: "unused", skill: "old-launch-checklist", file: null, detail: "old-launch-checklist hasn't been used in 60 days." },
     ] },

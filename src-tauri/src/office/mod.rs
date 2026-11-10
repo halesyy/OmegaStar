@@ -73,6 +73,8 @@ pub(crate) const RUNNING_MARKER: &str = "omega.running";
 /// In a run's folder while it works: its employee's skills as they were when it started, so a run the
 /// app lost can still have its edits recorded.
 const BEFORE_SNAPSHOT: &str = "before.json";
+/// In a run's folder: its transcript, one JSON event per line.
+const TRANSCRIPT: &str = "transcript.jsonl";
 /// Times a run Omega Star stopped mid-turn goes back to the queue before it is lost, so one that keeps
 /// crashing the app cannot loop.
 const RESTART_RETRIES: u32 = 3;
@@ -461,7 +463,7 @@ impl Office {
         for mut r in db.runs_in_state(RunState::Running)? {
             let run_dir = self.run_dir(&r.id);
             let home = self.employee_dir(&r.employee_id);
-            let path = run_dir.join("transcript.jsonl");
+            let path = run_dir.join(TRANSCRIPT);
             let transcript = fs::read_to_string(&path).unwrap_or_default();
             let employee = db.employee(&r.employee_id)?;
             let supervised = employee.as_ref().is_some_and(|e| e.clearance == Clearance::Supervised);

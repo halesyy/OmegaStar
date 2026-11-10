@@ -133,7 +133,7 @@ fn tool_brief(input: &Value, home: &Path) -> String {
     clip(&one_line(&s), 160)
 }
 
-pub fn suggested_rule(tool: &str, input: &Value) -> String {
+fn suggested_rule(tool: &str, input: &Value) -> String {
     match (tool, input.get("command").and_then(|c| c.as_str()).and_then(|c| c.split_whitespace().next())) {
         ("Bash", Some(word)) => format!("Bash({word}:*)"),
         _ => tool.to_string(),
@@ -608,7 +608,7 @@ pub fn stopped_helpers(stderr: &str) -> Option<String> {
 }
 
 /// What a Chrome tool returns when the browser extension is not connected (not marked as an error).
-pub const CHROME_DOWN: &str = "Browser extension is not connected";
+const CHROME_DOWN: &str = "Browser extension is not connected";
 
 /// Chrome counts as down once its calls keep finding the extension not connected: this many in a row, or for this
 /// many seconds, with none working since. The first call of a run often loses a race and the next one works.

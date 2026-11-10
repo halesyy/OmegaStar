@@ -1,7 +1,6 @@
 //! The run queue: enqueueing, claiming, gathering a snapshot, executing and cancelling runs.
 
 use super::*;
-use crate::cards;
 
 const EVENT_BATCH: Duration = Duration::from_millis(100);
 /// Told to a run whose Chrome dropped, with `{ceo}` filled in.
@@ -112,13 +111,10 @@ impl Office {
 
     pub fn run_detail(&self, run_id: &str) -> Result<RunDetail> {
         let run = self.run(run_id)?;
-        let dir = self.run_dir(run_id);
-        let transcript = fs::read_to_string(dir.join("transcript.jsonl")).unwrap_or_default();
+        let transcript = fs::read_to_string(self.run_dir(run_id).join(TRANSCRIPT)).unwrap_or_default();
         let children = self.db().children(run_id)?;
         let events = claude::replay(&transcript, &self.employee_dir(&run.employee_id));
-        // Every run that started has a transcript until the transcript sweep deletes it.
-        let transcript_gone = run.state.is_finished() && run.started_at.is_some() && !dir.join("transcript.jsonl").exists();
-        Ok(RunDetail { events, run, children, transcript_gone })
+        Ok(RunDetail { events, run, children })
     }
 
     pub fn cancel_run(&self, run_id: &str) -> Result<()> {
@@ -368,7 +364,7 @@ impl Office {
             return;
         }
         let why = format!("{} is waiting. Open Chrome, check the Claude extension is on and signed in, then press Done.", e.name);
-        if let Err(err) = self.raise_chore(&run.id, cards::CHROME, "Reconnect Claude in Chrome", &why) {
+        if let Err(err) = self.raise_chrome_chore(&run.id, &why) {
             log!("run {}: asking you to reconnect Chrome failed: {err}", run.id);
         }
         let ceo = ceo_of(&self.db()).unwrap_or_else(|err| {
@@ -446,7 +442,7 @@ impl Office {
                     let channels = people.iter().find(|p| &p.id == person_id).map(|p| p.channels.as_slice()).unwrap_or_default();
                     let channel = request.channel_id.as_ref().and_then(|c| channels.iter().find(|x| &x.id == c)).map(claude::channel_name);
                     let days = settings.as_ref().map_or(WatchSettings::default(), |s| s.watch.clone()).give_up_after_days;
-                    claude::Watched { person: person_name(person_id), channel, days, request }
+                    claude::Watched { channel, days, request }
                 })
             }
             _ => None,
@@ -677,7 +673,7 @@ impl Office {
         let since = run.started_at.unwrap_or(run.created_at);
         reset_for_requeue(&mut run, &own_changes(&e.changes).collect::<Vec<_>>(), limit);
         // The next attempt's lines follow this one's, which ended in the limit.
-        run.attempt_from = fs::metadata(self.run_dir(&run.id).join("transcript.jsonl")).map_or(0, |m| m.len());
+        run.attempt_from = fs::metadata(self.run_dir(&run.id).join(TRANSCRIPT)).map_or(0, |m| m.len());
         let saved = {
             let db = self.db();
             db.tx(|| {
@@ -777,7 +773,7 @@ impl Office {
         let transcript = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(run_dir.join("transcript.jsonl"))?;
+            .open(run_dir.join(TRANSCRIPT))?;
         // A run requeued after the usage limit appends to the same transcript; this attempt's lines start here.
         let attempt_start = transcript.metadata().map(|m| m.len()).unwrap_or(0);
         let transcript = Arc::new(Mutex::new(transcript));
@@ -845,7 +841,7 @@ impl Office {
         });
         let _ = input.send(claude::user_line(&inv.stdin));
         // Your messages an earlier attempt never took, as Omega Star stopped before its next step, go in again now.
-        let unheard = if attempt_start > 0 { claude::unheard(&fs::read_to_string(run_dir.join("transcript.jsonl")).unwrap_or_default()) } else { vec![] };
+        let unheard = if attempt_start > 0 { claude::unheard(&fs::read_to_string(run_dir.join(TRANSCRIPT)).unwrap_or_default()) } else { vec![] };
         for (id, text) in &unheard {
             let _ = input.send(claude::steer_line(&steer_words(run, &snap.company.ceo_name, text), id));
         }
@@ -943,7 +939,7 @@ impl Office {
         // reports no cost of its own.
         let before_cost = match spent.first() {
             _ if !snap.resume => Some(0.0),
-            Some(s) if s.own.is_none() => self.session_total_before(run, &snap.session, &run_dir.join("transcript.jsonl"), attempt_start),
+            Some(s) if s.own.is_none() => self.session_total_before(run, &snap.session, &run_dir.join(TRANSCRIPT), attempt_start),
             _ => None,
         };
         let cost = claude::run_cost(&spent, before_cost);
@@ -988,7 +984,7 @@ impl Office {
             if was == is {
                 continue;
             }
-            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
+            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
             let wrote = skills::wrote_file(text, &path, &snap.employee_dir);
             if !skills::ceo_present(run) {
                 let who = (skill == own_skills::OWN).then_some(snap.employee.id.as_str());
@@ -1028,7 +1024,7 @@ impl Office {
             .into_iter()
             .map(|c| {
                 let wrote = !alone && {
-                    let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
+                    let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
                     moved.get_or_insert_with(|| moved_skills(text)).contains(&c.change.skill)
                         || own_skills::recorded_path(&snap.employee_dir, &c.change.skill, &c.change.file).is_ok_and(|path| skills::wrote_file(text, &path, &snap.employee_dir))
                 };
@@ -1043,7 +1039,7 @@ impl Office {
         );
         // Which of its skills it used, so a skill no run uses shows up (`health`). Looking after them is not using them.
         if !matches!(run.kind, RunKind::Tidy { .. } | RunKind::Organize { .. }) {
-            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
+            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
             let own = own_skills::own_skill_names(&skills_dir);
             let used: HashSet<String> = skills_used(text).into_iter().filter(|s| own.contains(s)).collect();
             if let Err(e) = self.db().record_skill_use(&run.employee_id, &used, now()) {
@@ -1081,7 +1077,7 @@ impl Office {
             return Some(total);
         }
         let turns = self.db().turns_of_session(session, &run.id).ok()?;
-        turns.iter().find_map(|r| claude::last_total(&fs::read_to_string(self.run_dir(&r.id).join("transcript.jsonl")).ok()?))
+        turns.iter().find_map(|r| claude::last_total(&fs::read_to_string(self.run_dir(&r.id).join(TRANSCRIPT)).ok()?))
     }
 
     /// Takes the image data out of finished runs' transcripts, which older builds saved whole: one file at a time,
@@ -1094,7 +1090,7 @@ impl Office {
             if !self.db().run(&id).ok().flatten().is_some_and(|r| r.run.state.is_finished()) {
                 continue;
             }
-            match compact_transcript(&dir.path().join("transcript.jsonl")) {
+            match compact_transcript(&dir.path().join(TRANSCRIPT)) {
                 Ok(n) => saved += n,
                 Err(e) => log!("run {id}: could not take the images out of its transcript: {e}"),
             }

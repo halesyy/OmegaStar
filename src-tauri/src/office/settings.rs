@@ -277,14 +277,14 @@ impl Office {
         let runs_dir = self.0.data_dir.join("runs");
         let ids: Vec<String> = fs::read_dir(&runs_dir)?
             .flatten()
-            .filter(|e| e.path().join("transcript.jsonl").is_file())
+            .filter(|e| e.path().join(TRANSCRIPT).is_file())
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
         let runs = self.db().runs_by_id(&ids)?;
         let mut deleted = 0;
         for id in expired(&runs, at - chrono::Duration::days(days.into())) {
             let dir = runs_dir.join(id);
-            match fs::remove_file(dir.join("transcript.jsonl")) {
+            match fs::remove_file(dir.join(TRANSCRIPT)) {
                 Ok(()) => deleted += 1,
                 Err(e) => log!("could not delete the transcript of run {id}: {e}"),
             }
@@ -715,9 +715,8 @@ mod tests {
         assert!(dir.join("runs/not-a-run").exists(), "a folder no run owns is left alone");
 
         let gone = office.run_detail(&old.id).unwrap();
-        assert!(gone.transcript_gone && gone.events.is_empty());
+        assert!(gone.events.is_empty());
         assert_eq!(gone.run.summary.as_deref(), Some("All done."), "the row and its report stay");
-        assert!(!office.run_detail(&recent.id).unwrap().transcript_gone);
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

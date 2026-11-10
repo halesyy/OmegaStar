@@ -159,7 +159,7 @@ export function previewTransport(): PreviewTransport {
     const attention = !!lastRun && (lastRun.state === "failed" || lastRun.state === "lost" || lastRun.denials.length > 0);
     const fires = w.schedules.filter((s) => s.employeeId === e.id && s.enabled && s.nextFire).map((s) => s.nextFire!).sort();
     return {
-      ...e, live, lastRun, working: live.filter((r) => r.state === "running").length, waiting: live.filter((r) => r.state === "queued").length,
+      ...e, live, lastRun, working: live.filter((r) => r.state === "running").length,
       presence: live.some((r) => r.state === "running") ? "working" : live.length ? "queued" : attention ? "attention" : "idle",
       nextFire: fires[0] ?? null, lastWorkedAt: ended[0]?.endedAt ?? null, status: w.status[e.id] ?? { number: null, lastReport: null, next: null },
     };
@@ -411,7 +411,7 @@ export function previewTransport(): PreviewTransport {
       return snapshot();
     },
     skill_catalog: () => w.catalog,
-    skill_sources: () => ({ configDir: `${HOME}/.claude`, skillsDir: `${HOME}/.claude/skills`, found: w.catalog.length, unreadable: 0, error: null }),
+    skill_sources: () => ({ skillsDir: `${HOME}/.claude/skills`, found: w.catalog.length, unreadable: 0, error: null }),
     hire: ({ draft }) => hire(draft),
     update_employee: ({ employee }) => {
       w.employees = w.employees.map((e) => (e.id === employee.id ? employee : e));
@@ -483,7 +483,7 @@ export function previewTransport(): PreviewTransport {
     },
     run_detail: ({ runId }) => {
       const run = need(runId);
-      return { run, events: w.events[runId] ?? [], children: w.runs.filter((r) => (r.kind.type === "delegated" || r.kind.type === "asked") && r.kind.parentRunId === runId), transcriptGone: false };
+      return { run, events: w.events[runId] ?? [], children: w.runs.filter((r) => (r.kind.type === "delegated" || r.kind.type === "asked") && r.kind.parentRunId === runId) };
     },
     archived: () => {
       const roots = new Set([...w.archive, ...w.open.filter((id) => byId(id)?.archivedAt)]);
@@ -524,14 +524,14 @@ export function previewTransport(): PreviewTransport {
       // A turn still working takes your words at its next step, as the app's does.
       const replies = threadOf(root.id, false).replies;
       const latest = replies[replies.length - 1] ?? root;
-      if (latest.state === "running" && !attachments?.length) {
+      if (latest.state === "running" && !attachments.length) {
         steer(latest, text);
         return latest;
       }
       root.repliedAt = iso(Date.now());
       if (archive) root.archivedAt = iso(Date.now());
       if (!w.open.includes(root.id)) w.open.unshift(root.id);
-      return respond(newRun(root.employeeId, { type: "reply", toRunId: root.id, label: root.title ?? "Report", task: startedByYou(root), card: false }, text, { attachments: (attachments ?? []).map((a) => a.name) }));
+      return respond(newRun(root.employeeId, { type: "reply", toRunId: root.id, label: root.title ?? "Report", task: startedByYou(root), card: false }, text, { attachments: attachments.map((a) => a.name) }));
     },
     approve_blocked: ({ runId, rules, always }) => {
       const r = need(runId);
@@ -556,7 +556,7 @@ export function previewTransport(): PreviewTransport {
     open_asks: () => w.runs.filter((r) => r.kind.type === "asked" && (isLive(r) || (r.state === "succeeded" && !r.deliveredAt))).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     week_reviews: () => w.runs.filter((r) => r.kind.type === "scheduled" && r.kind.review && Date.parse(r.createdAt) > Date.now() - 8 * DAY).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     employee_skills: ({ employeeId }) => w.skills[employeeId] ?? [],
-    skill_health: ({ employeeId }) => w.health[employeeId] ?? { skills: (w.skills[employeeId] ?? []).filter((s) => !s.managed).length, descriptionChars: 640, findings: [] },
+    skill_health: ({ employeeId }) => w.health[employeeId] ?? { findings: [] },
     checks: ({ employeeId }) => w.checks.filter((c) => c.employeeId === employeeId),
     drop_check: ({ checkId }) => {
       const c = w.checks.find((x) => x.id === checkId);
@@ -657,7 +657,7 @@ export function previewTransport(): PreviewTransport {
       emit("request:updated", r);
       return r;
     },
-    proposals: ({ state: s }) => w.proposals.filter((p) => !s || p.state === s),
+    proposals: () => w.proposals,
     approve_proposal: ({ proposalId, draft, note }) => {
       const p = w.proposals.find((x) => x.id === proposalId);
       if (!p) throw notFound("That proposal is gone.");

@@ -236,9 +236,8 @@ pub struct EmployeeView {
     pub presence: Presence,
     /// What they are working on: every queued or running run of theirs, running first, oldest first within each.
     pub live: Vec<Run>,
-    /// How many runs they have going at once, and how many more wait to start.
+    /// How many runs they have going at once.
     pub working: u32,
-    pub waiting: u32,
     pub next_fire: Option<Ts>,
     /// Their latest work-lane run. `Presence::Attention` is decided from it, so it stays work-only.
     pub last_run: Option<Run>,
@@ -611,10 +610,6 @@ pub enum ProposalState {
 }
 
 impl ProposalState {
-    pub fn parse(s: &str) -> Result<Self> {
-        serde_json::from_value(serde_json::Value::String(s.to_string()))
-            .map_err(|_| AppError::invalid(format!("unknown proposal state '{s}'")))
-    }
     pub fn as_str(self) -> &'static str {
         match self {
             ProposalState::Open => "open",
@@ -680,7 +675,6 @@ pub struct SkillInfo {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillSources {
-    pub config_dir: String,
     pub skills_dir: String,
     /// Catalog entries.
     pub found: usize,
@@ -1631,10 +1625,6 @@ pub struct HealthFinding {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillHealth {
-    /// Skills in the family, not counting the managed `omega-skill-craft`.
-    pub skills: u32,
-    /// Characters of every description together: the part loaded on every turn.
-    pub description_chars: u32,
     pub findings: Vec<HealthFinding>,
 }
 
@@ -1773,8 +1763,6 @@ pub struct RunDetail {
     pub run: Run,
     pub events: Vec<RunEvent>,
     pub children: Vec<Run>,
-    /// The run's folder was deleted after `AppSettings::transcript_days`: no events, its report is on the run.
-    pub transcript_gone: bool,
 }
 
 /// What runs did and used since a time, for Activity's digest of today and its usage this week. Usage is what

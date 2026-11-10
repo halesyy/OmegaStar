@@ -315,25 +315,18 @@ pub fn restore(skills_dir: &Path, slug: &str, lost: &[Taught]) -> std::io::Resul
 }
 
 /// Removes files a skill's own scripts regenerate (`__pycache__`), so they stop counting as clutter.
-/// Returns how many files went.
-pub fn clean_generated(skills_dir: &Path) -> usize {
-    fn walk(dir: &Path) -> usize {
-        let mut n = 0;
-        for e in fs::read_dir(dir).into_iter().flatten().flatten() {
-            let p = e.path();
-            if !p.is_dir() {
-                continue;
-            }
-            if e.file_name() == "__pycache__" {
-                n += own_skills::skill_files(&p).len();
-                let _ = fs::remove_dir_all(&p);
-            } else {
-                n += walk(&p);
-            }
+pub fn clean_generated(dir: &Path) {
+    for e in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if !p.is_dir() {
+            continue;
         }
-        n
+        if e.file_name() == "__pycache__" {
+            let _ = fs::remove_dir_all(&p);
+        } else {
+            clean_generated(&p);
+        }
     }
-    walk(skills_dir)
 }
 
 #[cfg(test)]

@@ -88,7 +88,6 @@ fn active_bucket(claude_json: &Path) -> Option<String> {
 pub fn sources(config: &Path) -> SkillSources {
     let (catalog, r) = scan_with_report(config, &claude_json_path());
     SkillSources {
-        config_dir: config.to_string_lossy().into_owned(),
         skills_dir: config.join("skills").to_string_lossy().into_owned(),
         found: catalog.len(),
         unreadable: r.unreadable,

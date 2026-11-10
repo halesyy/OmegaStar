@@ -2,7 +2,7 @@
 //! diffs (the raw material of `skill_revisions`), guarded file access, and promotion to the catalog.
 
 use crate::catalog;
-use crate::claude::{clip, one_line};
+use crate::claude::{granted_line, one_line};
 use crate::model::*;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -80,14 +80,7 @@ fn role_skill_text(e: &Employee, granted: &[SkillInfo]) -> String {
     let granted_list = if granted.is_empty() {
         "None granted yet.".to_string()
     } else {
-        granted
-            .iter()
-            .map(|s| match &s.skills {
-                Some(list) => format!("- Plugin `{}` ({}): {}", s.name, list.join(", "), clip(&one_line(&s.description), 200)),
-                None => format!("- `{}`: {}", s.name, clip(&one_line(&s.description), 200)),
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        granted.iter().map(granted_line).collect::<Vec<_>>().join("\n")
     };
     format!(
         "---\nname: {slug}\ndescription: {desc}\n---\n\n# {name}, {title}\n\n## Objective\n\n{objective}\n\n{about}\n\n\

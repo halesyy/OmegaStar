@@ -1,8 +1,9 @@
 //! Threads: a report and the replies you exchanged on it. A thread is a root run plus every later turn
 //! whose `Run::reply_to` is that root. These are pure functions over runs; the Office loads the runs and
-//! the Inbox, the Archive and each employee's chips show the same threads. A conversation you started is a
-//! thread too (a task under the hood): its root is your first message rather than a report, an answer a
-//! colleague brings back into it is one of its turns, and it is never filed into an Inbox row.
+//! the Inbox, the Archive, the sidebar and the conversation screen show the same threads. A conversation
+//! you started is a thread too (a task under the hood): its root is your first message rather than a
+//! report, an answer a colleague brings back into it is one of its turns, and it is never filed into an
+//! Inbox row.
 //!
 //! Rows group threads that belong together, so you see one row per piece of work rather than one per run:
 //! a report with everything it set off in conversation, or an ask a report made with everything that came
@@ -311,8 +312,8 @@ fn needs_you(row: &Row) -> bool {
     open().any(|t| broken(t) && (!scheduled(t) || failures >= STREAK))
 }
 
-/// A conversation still going on: a thread with later turns that you have not archived. The employee's
-/// chips show it until you mark it done. A reply typed into a report while it worked is no later turn.
+/// A conversation still going on: a thread with later turns that you have not archived. The sidebar and the
+/// conversation screen show it until you mark it done. A reply typed into a report while it worked is no later turn.
 fn going_on(t: &Thread) -> bool {
     t.root.archived_at.is_none() && !t.replies.is_empty()
 }
@@ -376,6 +377,14 @@ pub fn report_label(kind: &RunKind) -> String {
         RunKind::Manual => "Manual run".into(),
         k => crate::claude::kind_label(k),
     }
+}
+
+/// A reply's label on the thread rooted at `root`, and whether that thread is a task: a conversation you started
+/// (an older build's chat message an answer came back into too) is named as a task is, a report by its label.
+pub fn reply_label(root: &Run) -> (String, bool) {
+    let chat = matches!(root.kind, RunKind::Chat);
+    let label = if chat { task_label(&root.prompt, &root.attachments) } else { report_label(&root.kind) };
+    (label, chat || matches!(root.kind, RunKind::Task { .. }))
 }
 
 /// The first line of a report with markdown marks stripped, so an excerpt reads as plain text.

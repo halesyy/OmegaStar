@@ -330,19 +330,7 @@ impl Office {
     }
 
     pub fn request_tool(&self, caller_run: &str, caller: &Employee, args: &Value) -> Result<Value> {
-        let s = |k: &str| args.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty());
-        let kind: RequestKind = serde_json::from_value(json!(s("kind").unwrap_or("question")))
-            .map_err(|_| AppError::invalid("kind must be question, task or info"))?;
-        let due_at = s("dueAt").map(parse_due).transpose()?;
-        let (req, person) = self.create_request(
-            &caller.id,
-            Some(caller_run),
-            s("person").ok_or_else(|| AppError::invalid("person is required"))?,
-            kind,
-            s("message").unwrap_or(""),
-            s("channelId"),
-            due_at,
-        )?;
+        let (req, person) = self.create_request(caller_run, caller, args)?;
         let channel = req.channel_id.as_ref().and_then(|c| person.channels.iter().find(|x| &x.id == c));
         let relay = ceo_of(&self.db())?;
         let then = "then call `sent` with the request id, the tool you sent it with and exactly what that tool returned";
@@ -469,7 +457,7 @@ impl Office {
             self.announce(&r);
         }
         if let Applied::Resolve { state, response } = applied {
-            self.resolve_request(&id, state.as_str(), Some(response), None)?;
+            self.resolve_request(&id, state, Some(response), None)?;
         }
         Ok(json!({ "recorded": verdict, "note": next }))
     }
@@ -482,7 +470,7 @@ impl Office {
         }
         let text = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("");
         let response = args.get("response").and_then(|v| v.as_str()).map(String::from);
-        let r = self.resolve_request(text("id"), text("state"), response, Some(&caller.id))?;
+        let r = self.resolve_request(text("id"), RequestState::parse(text("state"))?, response, Some(&caller.id))?;
         Ok(json!({ "request": self.present(r) }))
     }
 
@@ -744,21 +732,20 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
         Ok(first)
     }
 
-    /// Asks you for a chore on a run (`chrome` or `sign-in:<site>`) with `why` under it. Only the first run to
-    /// ask for it sends a desktop notification; the rest wait on the same Done. Returns whether this was the
-    /// first ask.
-    pub(super) fn raise_chore(&self, run_id: &str, subject: &str, message: &str, why: &str) -> Result<bool> {
-        let subject = cards::chore_subject(subject)?;
+    /// Asks you on a run to reconnect Claude in Chrome, with `why` under it. Only the first run to ask for it
+    /// sends a desktop notification; the rest wait on the same Done.
+    pub(super) fn raise_chrome_chore(&self, run_id: &str, why: &str) -> Result<()> {
+        const MESSAGE: &str = "Reconnect Claude in Chrome";
         let name = {
             let db = self.db();
             let run = db.run(run_id)?.map(|r| r.run);
             run.and_then(|r| db.employee(&r.employee_id).ok().flatten()).map(|e| e.name).unwrap_or_default()
         };
-        let first = self.raise_card(run_id, Card::new(message, Some(why.to_string()), None, CardAsk::Chore { subject, url: None }))?;
-        if first {
-            self.sink().notify(&format!("{name} needs you"), message);
+        let chore = CardAsk::Chore { subject: cards::CHROME.into(), url: None };
+        if self.raise_card(run_id, Card::new(MESSAGE, Some(why.to_string()), None, chore))? {
+            self.sink().notify(&format!("{name} needs you"), MESSAGE);
         }
-        Ok(first)
+        Ok(())
     }
 
     /// Closes the caller's cards about `key` still waiting on you (`Card::waiting`), ones put off with Later too: it was
@@ -1525,7 +1512,7 @@ pub(super) fn source_chain(db: &Store, ceo: &str, from: &str) -> Result<SourceCh
 /// wrote into its runs on the way. Reads the runs' transcripts under `runs_dir`.
 pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
     let ceo = &chain.ceo;
-    let steered = |id: &str| claude::steered(&fs::read_to_string(runs_dir.join(id).join("transcript.jsonl")).unwrap_or_default());
+    let steered = |id: &str| claude::steered(&fs::read_to_string(runs_dir.join(id).join(TRANSCRIPT)).unwrap_or_default());
     let quote = |s: &str| format!("> \"{}\"", claude::clip(&claude::one_line(s), 600));
     let missing = format!("Where this began is no longer on record, so treat it as {}'s own request.", chain.sender);
     let mut text = match &chain.origin {
@@ -1580,7 +1567,7 @@ fn hue_from_name(name: &str) -> u16 {
     n.encode_utf16().fold(0u32, |h, c| (h * 31 + c as u32) % 360) as u16
 }
 
-fn parse_due(s: &str) -> Result<Ts> {
+pub(super) fn parse_due(s: &str) -> Result<Ts> {
     if let Ok(t) = chrono::DateTime::parse_from_rfc3339(s) {
         return Ok(t.with_timezone(&Utc));
     }

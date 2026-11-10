@@ -31,7 +31,6 @@ export type EmployeeView = Employee & {
   presence: Presence;
   live: Run[];                        // what they are working on: queued and running runs, running first, oldest first within each
   working: number;                    // runs they have going at once
-  waiting: number;                    // runs of theirs waiting to start
   nextFire: string | null;
   lastRun: Run | null;                // their latest work-lane run; "attention" is decided from it
   lastWorkedAt: string | null;        // when they last finished anything, in either lane
@@ -121,7 +120,7 @@ export type SkillInfo = {
 };
 /** Where the catalog is read from, and what the last scan could not read. */
 export type SkillSources = {
-  configDir: string; skillsDir: string;
+  skillsDir: string;
   found: number;              // catalog entries
   unreadable: number;         // skill folders that exist but could not be read
   error: string | null;       // the first I/O error, with its path
@@ -258,7 +257,7 @@ export type HealthKind =
   | "overdueCheck" | "dangling" | "unreachable" | "looseNotes" | "churn" | "repeatedEntries"
   | "tooLong" | "unused" | "datedLines" | "descriptionsHeavy" | "description" | "junk" | "nameMismatch";
 export type HealthFinding = { kind: HealthKind; skill: string | null; file: string | null; detail: string };
-export type SkillHealth = { skills: number; descriptionChars: number; findings: HealthFinding[] };
+export type SkillHealth = { findings: HealthFinding[] };
 /** The page every employee reads at the start of every run. */
 export type CompanyPage = { text: string; findings: HealthFinding[] };
 /** Something an employee said they would look at again; open ones come back when they are due. */
@@ -293,8 +292,7 @@ export type RunEvent =
   | { type: "result"; ok: boolean; text: string; turns: number; durationMs: number }
   | { type: "stderr"; text: string };
 export type TaskOutcome = "done" | "failed" | "stopped";
-/** transcriptGone: the run's folder was deleted after Settings' transcript retention, so there are no events. */
-export type RunDetail = { run: Run; events: RunEvent[]; children: Run[]; transcriptGone: boolean };
+export type RunDetail = { run: Run; events: RunEvent[]; children: Run[] };
 
 /** What runs did and used since a time. Usage (costUsd) is what runs cost at API list price, as Claude Code reckons it. */
 export type RunUsage = { employees: EmployeeUsage[]; routines: RoutineUsage[] };
@@ -413,7 +411,7 @@ export type Commands = {
    *  else carries on in its thread. Returns the new run. */
   retry_run: { args: { runId: string }; ret: Run };
   /** Your reply in a report's thread (`runId`: any run in it). `archive` means "don't bring the answer back unless it needs me". */
-  reply_to_run: { args: { runId: string; text: string; archive: boolean; attachments?: NewAttachment[] }; ret: Run };
+  reply_to_run: { args: { runId: string; text: string; archive: boolean; attachments: NewAttachment[] }; ret: Run };
   /** Allow what a finished run was blocked on and send it back to retry. `rules` must come from its denials
    *  (a denial's suggestedRule, or `mcp__<server>__*` for an MCP tool). `always` saves them to the employee;
    *  otherwise they apply to the retry only. Archives the blocked report. Returns the retry run. */
@@ -457,7 +455,7 @@ export type Commands = {
   requests: { args: { personId: string | null; employeeId: string | null; state: string | null }; ret: HumanRequest[] };
   resolve_request: { args: { requestId: string; state: Exclude<RequestState, "open">; response: string | null }; ret: HumanRequest };
   watch_request: { args: { requestId: string; action: WatchAction }; ret: HumanRequest };
-  proposals: { args: { state: ProposalState | null }; ret: HireProposal[] };
+  proposals: { args: Record<string, never>; ret: HireProposal[] };
   approve_proposal: { args: { proposalId: string; draft: EmployeeDraft; imports: string[]; note: string | null }; ret: Employee };
   decline_proposal: { args: { proposalId: string; note: string | null }; ret: HireProposal };
   settings: { args: Record<string, never>; ret: AppSettings };

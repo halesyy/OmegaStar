@@ -148,7 +148,7 @@ let proposalsWired = false;
 function wireProposals() {
   if (proposalsWired) return;
   proposalsWired = true;
-  call("proposals", { state: null }).then(proposals.set, () => {});
+  call("proposals").then(proposals.set, () => {});
   subscribe("proposal:updated", (p) => {
     const cur = proposals.get() ?? [];
     proposals.set(cur.some((x) => x.id === p.id) ? cur.map((x) => (x.id === p.id ? p : x)) : [p, ...cur]);

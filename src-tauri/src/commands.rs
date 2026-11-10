@@ -58,8 +58,8 @@ pub async fn skill_sources(office: O<'_>) -> Result<SkillSources> {
 }
 
 #[tauri::command]
-pub async fn hire(office: O<'_>, draft: EmployeeDraft, imports: Option<Vec<String>>) -> Result<Employee> {
-    office.hire(draft, imports.unwrap_or_default())
+pub async fn hire(office: O<'_>, draft: EmployeeDraft, imports: Vec<String>) -> Result<Employee> {
+    office.hire(draft, imports)
 }
 
 #[tauri::command]
@@ -251,8 +251,8 @@ pub async fn retry_run(office: O<'_>, run_id: String) -> Result<Run> {
 }
 
 #[tauri::command]
-pub async fn reply_to_run(office: O<'_>, run_id: String, text: String, archive: bool, attachments: Option<Vec<NewAttachment>>) -> Result<Run> {
-    office.reply_to_run(&run_id, &text, archive, attachments.unwrap_or_default())
+pub async fn reply_to_run(office: O<'_>, run_id: String, text: String, archive: bool, attachments: Vec<NewAttachment>) -> Result<Run> {
+    office.reply_to_run(&run_id, &text, archive, attachments)
 }
 
 #[tauri::command]
@@ -412,7 +412,7 @@ pub async fn requests(office: O<'_>, person_id: Option<String>, employee_id: Opt
 
 #[tauri::command]
 pub async fn resolve_request(office: O<'_>, request_id: String, state: String, response: Option<String>) -> Result<HumanRequest> {
-    office.resolve_request(&request_id, &state, response, None)
+    office.resolve_request(&request_id, RequestState::parse(&state)?, response, None)
 }
 
 #[tauri::command]
@@ -421,8 +421,8 @@ pub async fn watch_request(office: O<'_>, request_id: String, action: WatchActio
 }
 
 #[tauri::command]
-pub async fn proposals(office: O<'_>, state: Option<String>) -> Result<Vec<HireProposal>> {
-    office.proposals(state)
+pub async fn proposals(office: O<'_>) -> Result<Vec<HireProposal>> {
+    office.proposals()
 }
 
 #[tauri::command]
@@ -430,10 +430,10 @@ pub async fn approve_proposal(
     office: O<'_>,
     proposal_id: String,
     draft: EmployeeDraft,
-    imports: Option<Vec<String>>,
+    imports: Vec<String>,
     note: Option<String>,
 ) -> Result<Employee> {
-    office.approve_proposal(&proposal_id, draft, imports.unwrap_or_default(), note)
+    office.approve_proposal(&proposal_id, draft, imports, note)
 }
 
 #[tauri::command]

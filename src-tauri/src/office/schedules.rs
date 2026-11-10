@@ -91,7 +91,7 @@ impl Office {
         let ceo = ceo_of(&db)?;
         db.tx(|| {
             for (nth, e) in db.employees()?.iter().enumerate() {
-                self.seed_review(&db, e, &ceo, nth)?;
+                Self::seed_review(&db, e, &ceo, nth)?;
             }
             db.set_reviews_seeded()
         })
@@ -100,7 +100,7 @@ impl Office {
     /// Adds `e`'s weekly review on Monday: 7 am for the first employee, then ten minutes later for each one
     /// after (`nth`), up to 7:50, so the team does not all start at once. It counts from now, so it never
     /// fires for a slot already past.
-    pub(super) fn seed_review(&self, db: &Store, e: &Employee, ceo: &str, nth: usize) -> Result<()> {
+    pub(super) fn seed_review(db: &Store, e: &Employee, ceo: &str, nth: usize) -> Result<()> {
         let s = Schedule {
             id: uuid::Uuid::new_v4().to_string(),
             employee_id: e.id.clone(),
@@ -362,9 +362,7 @@ fn due_check_runs(mut checks: Vec<Check>, busy: &HashSet<String>, departed: &Has
 /// A due check's run as the next turn of `t`, the conversation it was set in: a reply Omega Star writes there with
 /// the same instruction, so what it finds shows where the work began. Named as a reply you type there is. Pure.
 fn into_turn(run: Run, t: &Thread) -> Run {
-    let chat = matches!(t.root.kind, RunKind::Chat);
-    let label = if chat { threads::task_label(&t.root.prompt, &t.root.attachments) } else { threads::report_label(&t.root.kind) };
-    let task = chat || matches!(t.root.kind, RunKind::Task { .. });
+    let (label, task) = threads::reply_label(&t.root);
     let check = run.kind.check_id().map(String::from);
     Run { kind: RunKind::Reply { to_run_id: t.root.id.clone(), label, task, card: false }, omega_wrote: true, check, ..run }
 }

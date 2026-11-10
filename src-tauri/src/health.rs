@@ -409,7 +409,7 @@ pub fn check(skills_dir: &Path, notes_dir: &Path, slug: &str, edits: &[(String, 
         add(HealthKind::Churn, Some(skill), Some(file), format!("{file} was edited {n} times in the last day. Repeated rewrites usually mean the rule is not settled."));
     }
 
-    SkillHealth { skills: total as u32, description_chars: description_chars as u32, findings: f }
+    SkillHealth { findings: f }
 }
 
 #[cfg(test)]
