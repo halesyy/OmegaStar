@@ -694,7 +694,7 @@ fn run_lines<'a>(runs: impl Iterator<Item = &'a Run>, lead: &str, parents: &Hash
 
 /// Lines newest first, at most `max`, then how many were left out.
 fn newest_first(mut lines: Vec<(Ts, String)>, max: usize) -> Vec<String> {
-    lines.sort_by(|a, b| b.0.cmp(&a.0));
+    lines.sort_by_key(|line| std::cmp::Reverse(line.0));
     let left = lines.len().saturating_sub(max);
     let mut v: Vec<String> = lines.into_iter().take(max).map(|(_, l)| l).collect();
     if left > 0 {
@@ -739,7 +739,7 @@ fn opening_note(s: &Snapshot, run: &Run) -> Option<String> {
     let o = s.opening.as_ref()?;
     let ceo = &s.company.ceo_name;
     let since = o.since.is_some();
-    let new = |t: Ts| o.since.map_or(true, |since| t > since);
+    let new = |t: Ts| o.since.is_none_or(|since| t > since);
     let mut sections: Vec<(String, Vec<String>)> = vec![];
 
     // In your words, so a session that has not heard them works within them: Claude Code's checks look for

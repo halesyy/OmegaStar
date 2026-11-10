@@ -1569,7 +1569,7 @@ mod tests {
     fn chrome_wait(e: &Employee, state: RunState) -> Run {
         let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), now());
         r.state = state;
-        r.ended_at = Some(now()).filter(|_| state.is_finished());
+        r.ended_at = state.is_finished().then(now);
         r.needs_you = vec!["Open Chrome.".into()];
         r.cards = vec![Card::new("Open Chrome.", None, None, CardAsk::Chore { subject: cards::CHROME.into(), url: None })];
         r

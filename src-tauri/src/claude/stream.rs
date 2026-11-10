@@ -780,7 +780,7 @@ mod tests {
     }
 
     fn last_outcome(transcript: &str) -> Outcome {
-        parsed(transcript).into_iter().filter_map(|p| p.outcome).last().expect("a result")
+        parsed(transcript).into_iter().filter_map(|p| p.outcome).next_back().expect("a result")
     }
 
     fn signals(transcript: &str) -> RunSignals {
@@ -853,7 +853,7 @@ mod tests {
 
     #[test]
     fn the_synthetic_line_keeps_the_context() {
-        let last = parsed(LIMIT).into_iter().filter_map(|p| p.context).last();
+        let last = parsed(LIMIT).into_iter().filter_map(|p| p.context).next_back();
         assert_eq!(last, Some(20_505));
     }
 

@@ -751,7 +751,7 @@ mod tests {
         fs::write(&target, "export SECRET=1\n").unwrap();
         let own = employee.join(OWN_FILE);
         std::os::unix::fs::symlink(&target, &own).unwrap();
-        assert!(guarded_snapshot(&employee).get(&(OWN.to_string(), OWN_FILE.to_string())).is_none(), "the target is not read");
+        assert!(!guarded_snapshot(&employee).contains_key(&(OWN.to_string(), OWN_FILE.to_string())), "the target is not read");
         write_recorded(&own, OWN, Some("The weekly signups.\n")).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "export SECRET=1\n", "the target is untouched");
         assert!(!is_link(&own));

@@ -1269,7 +1269,7 @@ pub(super) fn due_answers(db: &Store, ended: &Run) -> Result<Vec<(Run, String)>>
     let mut due = vec![];
     // Your answer on the card of a colleague's ask or delegated work let them carry on: what came of it goes
     // to whoever handed it over, who already had their first report. Not when you stopped the reply.
-    if let Some(RunKind::Reply { card: true, to_run_id, .. }) = Some(&ended.kind).filter(|_| ended.state != RunState::Cancelled) {
+    if let Some(RunKind::Reply { card: true, to_run_id, .. }) = (ended.state != RunState::Cancelled).then_some(&ended.kind) {
         if let Some(root) = db.run(to_run_id)?.map(|r| r.run).filter(|r| r.state.is_finished()) {
             let parent = match root.parent_run_id() {
                 Some(p) => db.run(p)?.filter(|p| p.run.state.is_finished()),
@@ -1655,7 +1655,7 @@ mod tests {
         r.state = state;
         if state.is_finished() {
             r.ended_at = Some(at);
-            r.summary = Some(format!("{} did it.", e.name)).filter(|_| state == RunState::Succeeded);
+            r.summary = (state == RunState::Succeeded).then(|| format!("{} did it.", e.name));
         }
         let session = session.map(String::from).unwrap_or_else(|| r.id.clone());
         assert!(db.insert_run(&r, &session).unwrap());

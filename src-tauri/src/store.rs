@@ -1475,7 +1475,7 @@ mod tests {
         let both = ids(&[queued.clone(), done.clone()]);
         assert_eq!(ids(&db.recent_runs(None, 100).unwrap()), both);
         let records: Vec<Run> = db.records_in_state(RunState::Queued).unwrap().into_iter().map(|r| r.run).collect();
-        assert_eq!(ids(&records), ids(&[queued.clone()]));
+        assert_eq!(ids(&records), ids(std::slice::from_ref(&queued)));
         assert_eq!(ids(&db.runs_in_state(RunState::Queued).unwrap()), ids(&[queued]));
         assert_eq!(ids(&db.runs_in_state(RunState::Succeeded).unwrap()), ids(&[done.clone()]));
         let ada_only = std::slice::from_ref(&ada.id);
@@ -2064,7 +2064,7 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
             }
         }
 
-        let got = ids(&db.finished_root_runs(&[ada.id.clone()], &[ada.id.clone(), bo.id.clone()]).unwrap());
+        let got = ids(&db.finished_root_runs(std::slice::from_ref(&ada.id), &[ada.id.clone(), bo.id.clone()]).unwrap());
         let want: BTreeSet<String> =
             all.iter().filter(|r| threads::reaches_you(r, false, r.employee_id == ada.id) && threads::could_need_you(r)).map(|r| r.id.clone()).collect();
         let differ: Vec<String> = all

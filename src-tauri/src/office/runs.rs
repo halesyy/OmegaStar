@@ -1049,7 +1049,7 @@ impl Office {
             }
             let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
             let wrote = skills::wrote_file(text, &path, &snap.employee_dir);
-            if !skills::ceo_present(&run) {
+            if !skills::ceo_present(run) {
                 let who = (skill == own_skills::OWN).then_some(snap.employee.id.as_str());
                 let since = run.started_at.unwrap_or(run.created_at);
                 let seen = {
@@ -1556,7 +1556,7 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
     };
     let mut work: Vec<Run> =
         finished_after(&e.id, window_start)?.into_iter().filter(|r| r.run.id != run.id && r.session != session).map(|r| r.run).collect();
-    work.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
+    work.sort_by_key(|r| std::cmp::Reverse(r.ended_at));
 
     let mut team = vec![];
     let mut team_since = window_start;
@@ -1581,7 +1581,7 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
                 team.push((x.name.clone(), r.run));
             }
         }
-        team.sort_by(|a, b| b.1.ended_at.cmp(&a.1.ended_at));
+        team.sort_by_key(|t| std::cmp::Reverse(t.1.ended_at));
     }
 
     let cards = db
