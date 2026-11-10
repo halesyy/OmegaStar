@@ -746,39 +746,12 @@ fn undo(db: &Store, employee_dir: &Path, employee_id: &str, revs: &[SkillRevisio
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
-    }
+    use crate::fixtures::{self, NoSink};
 
     #[tokio::test]
     async fn a_question_about_a_tidys_proposal_leaves_it_to_approve() {
         let dir = std::env::temp_dir().join(format!("omegastar-tidy-ok-{}", uuid::Uuid::new_v4()));
-        let e = Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: now(),
-        };
+        let e = fixtures::employee();
         let proposal = |archived: bool| {
             let mut r = Run::new(&e.id, RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None }, "Tidy your skills.".into(), now());
             r.state = RunState::Succeeded;
@@ -816,27 +789,7 @@ mod tests {
     #[tokio::test]
     async fn a_change_to_what_they_own_put_back_comes_to_you_as_a_card_to_use() {
         let dir = std::env::temp_dir().join(format!("omegastar-own-proposal-{}", uuid::Uuid::new_v4()));
-        let e = Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: now(),
-        };
+        let e = fixtures::employee();
         let mut run = Run::new(&e.id, RunKind::Manual, "Review your week.".into(), now());
         run.state = RunState::Succeeded;
         run.ended_at = Some(now());

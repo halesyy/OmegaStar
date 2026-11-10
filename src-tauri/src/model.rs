@@ -2123,6 +2123,7 @@ pub const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures;
     use serde_json::{json, Value};
 
     fn build() -> Build {
@@ -2173,28 +2174,7 @@ mod tests {
 
     #[test]
     fn an_employee_saved_with_their_own_lanes_still_loads() {
-        let mut employee = serde_json::to_value(Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Analyst".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: true,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: Utc::now(),
-        })
-        .unwrap();
+        let mut employee = serde_json::to_value(Employee { id: "e1".into(), title: "Analyst".into(), auto_tidy: true, ..fixtures::employee() }).unwrap();
         employee.as_object_mut().unwrap().insert("lanes".into(), 2.into());
         assert_eq!(serde_json::from_value::<Employee>(employee).unwrap().name, "Ada", "older builds kept a lane count per employee");
     }

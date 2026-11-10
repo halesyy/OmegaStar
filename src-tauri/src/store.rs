@@ -1335,7 +1335,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::threads;
+    use crate::{fixtures, threads};
     use chrono::Utc;
     use std::path::PathBuf;
 
@@ -1352,22 +1352,10 @@ mod tests {
             id: id.clone(),
             slug: name.to_lowercase(),
             name: name.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
             manager_id: manager_id.map(String::from),
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
             workspaces: vec![format!("/office/employees/{id}")],
-            hue: 0,
-            image: None,
             chat_session: format!("chat-{name}"),
-            hired_at: Utc::now(),
+            ..fixtures::employee()
         }
     }
 

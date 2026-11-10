@@ -587,6 +587,7 @@ fn account_issue(recorded: Option<&str>, now: Option<&Account>) -> Option<Accoun
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::NoSink;
 
     fn window(percent: f64) -> Option<UsageWindow> {
         Some(UsageWindow { percent, resets_at: None, resets_text: None })
@@ -611,14 +612,6 @@ mod tests {
 
     fn account(logged_in: bool, email: Option<&str>) -> Account {
         Account { logged_in, email: email.map(String::from), org_name: None, plan: None }
-    }
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
     }
 
     #[tokio::test]

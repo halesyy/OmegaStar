@@ -51,30 +51,11 @@ impl Office {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures;
 
     /// An employee reporting to `manager_id`, or to you.
     fn employee(name: &str, manager_id: Option<&str>) -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: name.to_lowercase(),
-            name: name.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: manager_id.map(String::from),
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: format!("chat-{name}"),
-            hired_at: now(),
-        }
+        Employee { slug: name.to_lowercase(), name: name.into(), manager_id: manager_id.map(String::from), chat_session: format!("chat-{name}"), ..fixtures::employee() }
     }
 
     /// Saves a run in `state`; a finished one ended `ago` minutes back. Returns it as saved.

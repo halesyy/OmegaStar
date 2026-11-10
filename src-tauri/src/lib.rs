@@ -4,6 +4,8 @@ mod catalog;
 mod claude;
 mod commands;
 mod error;
+#[cfg(test)]
+mod fixtures;
 mod health;
 mod log;
 mod mcp;

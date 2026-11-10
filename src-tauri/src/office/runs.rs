@@ -1585,29 +1585,10 @@ pub(super) fn stderr_tail(stderr: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, NoSink};
 
     fn employee(clearance: Clearance) -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: now(),
-        }
+        Employee { clearance, ..fixtures::employee() }
     }
 
     fn outcome(ok: bool, subtype: &str, text: &str, limit: Option<Limit>) -> Outcome {
@@ -1645,14 +1626,6 @@ mod tests {
 
     fn task(label: &str) -> RunKind {
         RunKind::Task { label: label.into(), from: None, context: String::new() }
-    }
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
     }
 
     #[tokio::test]

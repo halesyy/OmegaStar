@@ -1046,40 +1046,17 @@ is not needed is churn.\n\n{b}{steps}"
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, scheduled};
 
     /// Ada, an analyst at Acme who works for Pat, with nothing else around her.
     fn snap() -> Snapshot {
-        let employee = Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Analyst".into(),
-            description: String::new(),
-            objective: "Keep the numbers right.".into(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: chrono::Utc::now(),
-        };
+        let employee = Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() };
         let company = Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() };
         test_snapshot(company, employee, None, false)
     }
 
     fn run(kind: RunKind) -> Run {
         Run::new("e1", kind, "Go.".into(), chrono::Utc::now())
-    }
-
-    fn scheduled(id: &str, quiet: bool) -> RunKind {
-        RunKind::Scheduled { schedule_id: id.into(), slot: chrono::Utc::now(), label: "Inbox sweep".into(), quiet, model: None, effort: None, review: false }
     }
 
     #[test]
@@ -1278,20 +1255,7 @@ it in your report.\n";
         let h = handbook(&s);
         assert!(h.contains("A task handed over in a conversation Pat started comes back as that conversation's next turn. Any other report waits for your next run"), "{h}");
         assert!(h.contains("Outside a conversation with Pat, a report takes at most 4 tasks a day from you"), "{h}");
-        s.people = vec![Person {
-            id: "p1".into(),
-            name: "Sam".into(),
-            title: "Bookkeeper".into(),
-            description: String::new(),
-            strengths: "Fast replies.".into(),
-            responsibilities: "Payroll.".into(),
-            channels: vec![],
-            notes: String::new(),
-            manager: PersonManager::You,
-            hue: 0,
-            image: None,
-            added_at: chrono::Utc::now(),
-        }];
+        s.people = vec![Person { id: "p1".into(), strengths: "Fast replies.".into(), responsibilities: "Payroll.".into(), ..fixtures::person() }];
         let h = handbook(&s);
         assert!(h.contains("Strengths: Fast replies. Responsible for: Payroll (person id `p1`)"), "{h}");
         assert!(h.contains("starts a follow-up run for you when they reply (it resumes this session). If they never reply"), "{h}");
@@ -1423,20 +1387,7 @@ it in your report.\n";
         s.source = Some("This began with Pat's own message to Mo.".into());
         s.colleagues = vec![Colleague { name: "Bo".into(), slug: "bo".into(), title: "Ops".into(), objective: "Ship.".into(), description: "Knows the warehouse.".into() }];
         s.reports = vec![Report { name: "Cy".into(), slug: "cy".into(), title: "Clerk".into(), objective: "File.".into() }];
-        s.people = vec![Person {
-            id: "p1".into(),
-            name: "Sam".into(),
-            title: "Bookkeeper".into(),
-            description: String::new(),
-            strengths: String::new(),
-            responsibilities: String::new(),
-            channels: vec![],
-            notes: String::new(),
-            manager: PersonManager::You,
-            hue: 0,
-            image: None,
-            added_at: chrono::Utc::now(),
-        }];
+        s.people = vec![Person { id: "p1".into(), ..fixtures::person() }];
         let request = |kind: fn(String, String) -> RunKind| kind("q1".into(), "p1".into());
         let kinds = vec![
             RunKind::Manual,

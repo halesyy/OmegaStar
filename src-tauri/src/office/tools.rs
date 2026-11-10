@@ -1587,6 +1587,7 @@ fn effort_arg(v: &str) -> Result<Option<Effort>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, NoSink};
 
     struct Office0 {
         dir: PathBuf,
@@ -1610,27 +1611,7 @@ mod tests {
 
     /// An employee reporting to `manager_id`, or to you.
     fn employee(db: &Store, name: &str, manager_id: Option<&str>) -> Employee {
-        let e = Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: name.to_lowercase(),
-            name: name.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: manager_id.map(String::from),
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: format!("chat-{name}"),
-            hired_at: now(),
-        };
+        let e = Employee { slug: name.to_lowercase(), name: name.into(), manager_id: manager_id.map(String::from), chat_session: format!("chat-{name}"), ..fixtures::employee() };
         db.save_employee(&e).unwrap();
         e
     }
@@ -1681,14 +1662,6 @@ mod tests {
         assert!(delivered(&o.db, &child));
         assert!(due_answers(&o.db, &child).unwrap().is_empty(), "delivered once");
         assert!(due_answers(&o.db, &parent).unwrap().is_empty());
-    }
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
     }
 
     #[tokio::test]

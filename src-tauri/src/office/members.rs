@@ -446,29 +446,10 @@ fn headline(report: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, NoSink};
 
     fn employee(name: &str) -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: name.to_lowercase(),
-            name: name.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: true,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: format!("chat-{name}"),
-            hired_at: now(),
-        }
+        Employee { slug: name.to_lowercase(), name: name.into(), auto_tidy: true, chat_session: format!("chat-{name}"), ..fixtures::employee() }
     }
 
     /// Saves a run of `e` in `state`, created `ago` minutes back.
@@ -529,33 +510,12 @@ mod tests {
         assert!(!mentions("Ask Sam.", " "), "no name, no mention");
     }
 
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
-    }
-
     #[tokio::test]
     async fn someone_who_leaves_is_cleaned_out_of_whoever_still_names_them() {
         let dir = std::env::temp_dir().join(format!("omegastar-left-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let (ada, bo, cy, dee) = (employee("Ada"), employee("Bo"), employee("Cy"), employee("Dee"));
-        let sam = Person {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: "Sam Lee".into(),
-            title: "Designer".into(),
-            description: String::new(),
-            strengths: String::new(),
-            responsibilities: String::new(),
-            channels: vec![],
-            notes: String::new(),
-            manager: PersonManager::You,
-            hue: 0,
-            image: None,
-            added_at: now(),
-        };
+        let sam = Person { name: "Sam Lee".into(), title: "Designer".into(), ..fixtures::person() };
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();

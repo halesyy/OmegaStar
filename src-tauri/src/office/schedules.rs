@@ -577,14 +577,7 @@ fn dated(l: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
-    }
+    use crate::fixtures::{self, NoSink};
 
     fn check(employee_id: &str, what: &str, due_at: Ts) -> Check {
         Check {
@@ -789,27 +782,7 @@ mod tests {
     }
 
     fn employee(slug: &str) -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: slug.into(),
-            name: slug.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: format!("chat-{slug}"),
-            hired_at: now(),
-        }
+        Employee { slug: slug.into(), name: slug.into(), chat_session: format!("chat-{slug}"), ..fixtures::employee() }
     }
 
     /// An office of Pat's at Acme with `e` on it, and its folder.

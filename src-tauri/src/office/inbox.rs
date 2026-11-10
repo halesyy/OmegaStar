@@ -793,37 +793,10 @@ pub(super) fn run_of(db: &Store, id: &str) -> Option<Run> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
-    }
+    use crate::fixtures::{self, NoSink};
 
     fn tester() -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: "cy".into(),
-            name: "Cy".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-cy".into(),
-            hired_at: now(),
-        }
+        Employee { slug: "cy".into(), name: "Cy".into(), chat_session: "chat-cy".into(), ..fixtures::employee() }
     }
 
     /// A finished report of `e` asking a decision with a card.

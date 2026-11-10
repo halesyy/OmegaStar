@@ -573,30 +573,11 @@ pub async fn probe_usage(program: &Path, cwd: &Path) -> Option<UsageSample> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, scheduled};
 
     #[test]
     fn a_schedule_can_run_on_its_own_model_and_effort() {
-        let e = Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: Some("opus".into()),
-            effort: Some(Effort::High),
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: chrono::Utc::now(),
-        };
+        let e = Employee { id: "e1".into(), model: Some("opus".into()), effort: Some(Effort::High), ..fixtures::employee() };
         let scheduled = |model: Option<&str>, effort| RunKind::Scheduled {
             schedule_id: "s1".into(),
             slot: chrono::Utc::now(),
@@ -612,27 +593,7 @@ mod tests {
     }
 
     fn ada() -> Employee {
-        Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Analyst".into(),
-            description: String::new(),
-            objective: "Keep the numbers right.".into(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: chrono::Utc::now(),
-        }
+        Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() }
     }
 
     fn acme() -> Company {
@@ -649,10 +610,6 @@ mod tests {
 
     fn file<'a>(inv: &'a Invocation, name: &str) -> &'a str {
         &inv.files.iter().find(|(p, _)| p.ends_with(name)).unwrap().1
-    }
-
-    fn scheduled(id: &str, quiet: bool) -> RunKind {
-        RunKind::Scheduled { schedule_id: id.into(), slot: chrono::Utc::now(), label: "Inbox sweep".into(), quiet, model: None, effort: None, review: false }
     }
 
     /// A finished run of Ada's, `mins` minutes ago.
