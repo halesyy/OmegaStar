@@ -9,7 +9,7 @@ import { parseThreadFocus, threadFocus } from "../lib/threads";
 import { Icon } from "../components/Icon";
 import { ErrorNote, Skeleton } from "../components/ui";
 import { NewConversation } from "../components/conversation/NewConversation";
-import { ConversationMenu, ConversationPicker, QuietState, useArchive, useLeave, useThreadState } from "../components/conversation/ConversationSwitcher";
+import { ConversationMenu, ConversationPicker, QuietState, useArchive, useLeave, useThreadState } from "../components/conversation/ConversationHeader";
 import { sendAndDone, ThreadSkeleton, ThreadView } from "../components/conversation/ThreadView";
 import "./Conversation.css";
 

@@ -9,8 +9,8 @@ import { getDraft, setDraft } from "../../lib/drafts";
 import { ms, reducedMotion } from "../../lib/motion";
 import { Icon } from "../Icon";
 import { ConfirmButton, ErrorNote } from "../ui";
-import type { AimTarget } from "../conversation/CardView";
-import "./ChatTab.css";
+import type { AimTarget } from "./CardView";
+import "./Chat.css";
 
 const MAX_FILES = 10;
 const MAX_FILE_MB = 20;

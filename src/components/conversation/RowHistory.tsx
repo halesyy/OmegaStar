@@ -8,7 +8,7 @@ import { RunCards } from "./CardView";
 import { kindNames } from "../RunRow";
 import { Icon } from "../Icon";
 import { Avatar } from "../ui";
-import "../panel/ChatTab.css";
+import "./Chat.css";
 
 /** One line of markdown as plain text. */
 function plain(line: string): string {

@@ -15,11 +15,11 @@ import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
 import { Visual } from "../Visual";
 import { ErrorNote, Popover, Skeleton } from "../ui";
-import { ChatSurface, type ChatSurfaceHandle } from "../panel/ChatSurface";
-import { Turn, Waiting, WhoLine } from "../panel/ChatTurn";
+import { ChatSurface, type ChatSurfaceHandle } from "./ChatSurface";
+import { Turn, Waiting, WhoLine } from "./ChatTurn";
 import { WorkLine } from "./WorkLine";
 import type { LiveRun } from "../../lib/runs";
-import "../panel/ChatTab.css";
+import "./Chat.css";
 
 /** What "Where are we?" sends as your message. */
 export const WHERE_ARE_WE = "Where are we? In three short lines: what is done, what is next, and what is waiting on whom.";

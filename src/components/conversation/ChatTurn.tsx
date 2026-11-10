@@ -13,9 +13,9 @@ import { Markdown } from "../Markdown";
 import { ProposedRow, RequestedRow, toItems, type TranscriptItem } from "../Transcript";
 import { Visual } from "../Visual";
 import { Avatar, ErrorNote } from "../ui";
-import { WorkLine } from "../conversation/WorkLine";
-import { partsOf } from "../conversation/work";
-import "./ChatTab.css";
+import { WorkLine } from "./WorkLine";
+import { partsOf } from "./work";
+import "./Chat.css";
 
 const isImage = (name: string) => /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(name);
 
