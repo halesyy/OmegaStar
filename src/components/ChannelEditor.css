@@ -1,5 +1,5 @@
-/* How to reach someone: a hairline list, not a stack of boxes. Sheet.css (the foundation's) has the base geometry;
-   these rules lay it flat. A row moves only when it is added. */
+/* How to reach someone: a hairline list, not a stack of boxes. Sheet.css has the base geometry; these rules lay it
+   flat. A row moves only when it is added. */
 .channels { gap: 0; }
 .channels .channel {
   padding: 12px 0; border: 0; border-radius: 0; background: transparent; box-shadow: inset 0 -1px 0 var(--line); animation: none;

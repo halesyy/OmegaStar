@@ -1,5 +1,5 @@
 /* ------------------------------------------------ cards: what an employee asks you, with the answer built in.
-   Every rule is scoped under .cv-card / .cv-ask. Shared by threads and the Inbox, which puts a card's buttons in its
+   Rules are scoped under .cv-card / .cv-ask. Shared by threads and the Inbox, which puts a card's buttons in its
    action bar (CardView's actionsSlot); that bar's slot carries .cv-slot, so the buttons keep their card styles there. */
 
 /* A card in a thread: its question and why, then what it is about, then the answer. One level, no box around it. */
@@ -93,8 +93,8 @@
 :is(.cv-card, .cv-slot) .card-item-about { margin: 0; font-size: var(--t-sm); line-height: 1.5; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 :is(.cv-card, .cv-slot) .card-item-about b { margin-right: 6px; font-size: 13px; font-weight: 650; color: var(--ink); }
 :is(.cv-card, .cv-slot) .card-item-text {
-  margin-top: 4px; padding-left: 0; border-left: 0; font-size: 13.5px; line-height: 1.55; color: var(--ink-2);
-  white-space: pre-line; overflow-wrap: anywhere; max-height: calc(1.55em * 3); overflow: hidden; transition: border-color var(--d-ui) var(--ease);
+  margin-top: 4px; font-size: 13.5px; line-height: 1.55; color: var(--ink-2);
+  white-space: pre-line; overflow-wrap: anywhere; max-height: calc(1.55em * 3); overflow: hidden;
 }
 :is(.cv-card, .cv-slot) .card-item-on .card-item-text { color: var(--ink); }
 :is(.cv-card, .cv-slot) .card-item-fade { cursor: pointer; -webkit-mask-image: linear-gradient(to bottom, #000 45%, transparent); mask-image: linear-gradient(to bottom, #000 45%, transparent); }

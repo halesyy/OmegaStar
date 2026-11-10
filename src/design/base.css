@@ -41,8 +41,6 @@ input, textarea { caret-color: var(--live); }
 .muted { color: var(--muted); }
 .faint { color: var(--faint); }
 .trunc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Inter Display: names and titles. Heavy, set tight. */
-.display { font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.03em; }
 .h-xl { font-size: var(--t-xl); font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.035em; line-height: 1.12; text-wrap: balance; }
 .h-lg { font-size: var(--t-lg); font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.03em; line-height: var(--lh-tight); }
 .h-md { font-size: var(--t-md); font-weight: 650; letter-spacing: -0.01em; }
@@ -133,14 +131,12 @@ input, textarea { caret-color: var(--live); }
 .dot-live { background: var(--live); }
 .dot-attn { background: var(--err); }
 .dot-ok { background: var(--ok); }
-.dot-warn { background: var(--warn); }
 .dot-wait { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .status { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 .status::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .status-live { color: var(--live-text); } .status-live::before { background: var(--live); }
 .status-attn { color: var(--err-text); } .status-attn::before { background: var(--err); }
 .status-wait::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
-.status-warn::before { background: var(--warn); }
 /* Failed and done carry an icon or nothing before the word instead of a dot. */
 .status-fail { color: var(--err-text); } .status-ok { color: var(--ok-text); }
 .status-fail::before, .status-ok::before, .status-plain::before { display: none; }
@@ -259,7 +255,6 @@ input, textarea { caret-color: var(--live); }
 /* ------------------------------------------------ motion
    Nothing moves unless state changes. Each class below is one move with a cause; under reduced motion it becomes a
    crossfade over --d-fade. src/lib/motion.ts holds the moves that need measuring (rows that move, values that roll). */
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes riseIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes m-fade-in { from { opacity: 0; } }
 @keyframes m-fade-out { to { opacity: 0; } }
@@ -267,16 +262,12 @@ input, textarea { caret-color: var(--live); }
 @keyframes m-rise-out { 60% { opacity: 0; } to { opacity: 0; translate: 0 -8px; } }
 @keyframes m-drop-in { from { opacity: 0; translate: 0 -8px; } }
 @keyframes m-pop-in { from { opacity: 0; translate: 0 -4px; } }
-@keyframes m-slide-in { from { translate: 32px 0; } }
-@keyframes m-slide-out { to { translate: 32px 0; opacity: 0; } }
 
 /* One body giving way to the next (a page swap, an Inbox item): out with a short rise, in from 8px below. */
 .enter-rise { animation: m-rise-in var(--d-swap) var(--ease) both; }
 .leave-rise { animation: m-rise-out 120ms var(--ease) both; pointer-events: none; }
 /* Something new arriving whole from just above: a card, a toast, a pill. */
 .enter-drop { animation: m-drop-in var(--d-arrive) var(--ease-arrive) both; }
-/* A menu or popover opening from its anchor. */
-.enter-pop { animation: m-pop-in var(--d-panel) var(--ease) both; }
 .enter-fade { animation: m-fade-in var(--d-panel) var(--ease) both; }
 .leave-fade { animation: m-fade-out var(--d-ui) var(--ease) both; pointer-events: none; }
 /* A value rolling to its new value (Roll in ui.tsx): both values share one clipped slot while it rolls. */
@@ -290,12 +281,12 @@ input, textarea { caret-color: var(--live); }
 
 @media (prefers-reduced-motion: reduce) {
   /* A safety net for durations written by hand: nothing travels or loops. The shared moves keep their crossfade. */
-  :not(.enter-rise, .leave-rise, .enter-drop, .enter-pop, .enter-fade, .leave-fade, .collapse, .toast, .palette, .palette-scrim, .slideover, .scrim),
-  :not(.enter-rise, .leave-rise, .enter-drop, .enter-pop, .enter-fade, .leave-fade, .collapse, .toast, .palette, .palette-scrim, .slideover, .scrim)::before,
-  :not(.enter-rise, .leave-rise, .enter-drop, .enter-pop, .enter-fade, .leave-fade, .collapse, .toast, .palette, .palette-scrim, .slideover, .scrim)::after {
+  :not(.enter-rise, .leave-rise, .enter-drop, .enter-fade, .leave-fade, .collapse, .toast, .palette, .palette-scrim, .slideover, .scrim),
+  :not(.enter-rise, .leave-rise, .enter-drop, .enter-fade, .leave-fade, .collapse, .toast, .palette, .palette-scrim, .slideover, .scrim)::before,
+  :not(.enter-rise, .leave-rise, .enter-drop, .enter-fade, .leave-fade, .collapse, .toast, .palette, .palette-scrim, .slideover, .scrim)::after {
     animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important;
   }
-  .enter-rise, .enter-drop, .enter-pop, .enter-fade { animation-name: m-fade-in; animation-duration: var(--d-fade); animation-timing-function: linear; }
+  .enter-rise, .enter-drop, .enter-fade { animation-name: m-fade-in; animation-duration: var(--d-fade); animation-timing-function: linear; }
   .leave-rise, .leave-fade { animation-name: m-fade-out; animation-duration: var(--d-fade); animation-timing-function: linear; }
   .collapse { transition: opacity var(--d-fade) linear; }
 }

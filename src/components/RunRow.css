@@ -1,5 +1,5 @@
 /* One run as a list row. Every run list shares this grid: who (or the kind of run), the title over what came of it, and
-   one fixed right track with the state's word over the age, as C's Inbox rows carry a tag over theirs. A plain success
+   one fixed right track with the state's word over the age, as the Inbox's rows carry a tag over theirs. A plain success
    leaves the word's slot empty, so ages always line up. */
 .runrow {
   position: relative; width: 100%; display: grid; align-items: center;
@@ -30,7 +30,7 @@
 .runrow-age { grid-area: age; justify-self: end; font-size: var(--t-sm); line-height: 1.35; color: var(--muted); }
 
 /* A list of runs that may be narrow (a work column): its rows reflow rather than shrink. Under about 460px a row says who,
-   its state and its age on the first line, and what the run is about on up to two lines under them, as C's Live work does. */
+   its state and its age on the first line, and what the run is about on up to two lines under them. */
 .runlist { container: runlist / inline-size; }
 @container runlist (max-width: 460px) {
   .runrow:has(.runrow-title > b) {
@@ -55,7 +55,6 @@
   display: flex; justify-content: space-between; padding: 0 12px 6px;
   font-size: var(--t-sm); font-weight: 600; color: var(--muted);
 }
-.daygroup-title span { font-weight: 500; color: var(--muted); }
 .daygroup > .runrow + .runrow::before {
   content: ""; position: absolute; top: 0; left: 12px; right: 12px; height: 1px; background: var(--line);
 }
