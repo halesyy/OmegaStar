@@ -24,7 +24,7 @@ const Row = ({ label, children }: { label?: string; children: ReactNode }) => (
 export function Parts() {
   const q = new URLSearchParams(location.search).get("theme");
   if (q === "dark" || q === "light") setTheme(q, false);
-  const [tab, setTab] = useState<"chat" | "work" | "skills" | "profile">("chat");
+  const [tab, setTab] = useState<"work" | "skills" | "profile">("work");
   const [seg, setSeg] = useState("everyone");
   const [on, setOn] = useState(true);
   const [count, setCount] = useState(16);
@@ -37,7 +37,7 @@ export function Parts() {
     <div className="pt">
       <style>{CSS}</style>
       <header className="pt-top">
-        <h1 className="h-xl">Shared parts</h1>
+        <h1 className="h-lg">Shared parts</h1>
         <p className="muted">Every part the screens reuse, from the real components. Light and dark come from the same tokens.</p>
       </header>
       <div className="pt-grid">
@@ -60,7 +60,7 @@ export function Parts() {
           <div className="seg">
             {["everyone", "employees", "people"].map((s) => <button key={s} aria-pressed={seg === s} onClick={() => setSeg(s)}>{s[0].toUpperCase() + s.slice(1)}</button>)}
           </div>
-          <Tabs className="pt-tabs" value={tab} onChange={setTab} tabs={[{ id: "chat", label: "Chat" }, { id: "work", label: "Work" }, { id: "skills", label: "Skills", badge: 1 }, { id: "profile", label: "Profile" }]} />
+          <Tabs className="pt-tabs" value={tab} onChange={setTab} tabs={[{ id: "work", label: "Work" }, { id: "skills", label: "Skills", badge: 1 }, { id: "profile", label: "Profile" }]} />
           <Row><Switch checked={on} onChange={setOn} label="Ask before sending email" /><span>Ask before sending email</span></Row>
           <Row><Switch checked={false} onChange={() => {}} label="Run on a schedule" disabled /><span className="muted">Run on a schedule</span></Row>
           <p className="pt-cap">The chosen option is a solid inverted block in light and a raised step in dark.</p>
@@ -68,7 +68,7 @@ export function Parts() {
 
         <Sec title="Chips, tags, keys">
           <Row><button className="chip" aria-pressed>All <span className="n">16</span></button><button className="chip">Decide <span className="n">5</span></button><button className="chip">Approve <span className="n">3</span></button><button className="chip">Do <span className="n">2</span></button></Row>
-          <Row><span className="tag tag-hire">Hire</span><span className="tag">Decide</span><span className="tag">Approve</span><span className="tag">Answer</span><span className="tag tag-attn">Failed</span><span className="tag tag-live">Working</span><span className="tag tag-warn">Not installed</span></Row>
+          <Row><span className="tag tag-hire">Hire</span><span className="tag">Decide</span><span className="tag">Approve</span><span className="tag">Answer</span><span className="tag tag-attn">Failed</span><span className="tag tag-warn">Not installed</span></Row>
           <Row><span className="kbd">⌘ K</span><span className="kbd">J</span><span className="kbd">K</span><span className="kbd">esc</span></Row>
           <p className="pt-cap">Chips filter and are round; tags label and are square.</p>
         </Sec>
@@ -110,11 +110,11 @@ export function Parts() {
 
         <Sec title="Status" note="a word first; colour says the same thing; nothing pulses" span={8}>
           <div className="pt-status">
-            <span className="pt-lab">Working</span><StatePill tone="accent">Working</StatePill><span className="status status-live">Working, 3 min</span><span className="dot dot-live" />
-            <span className="pt-lab">Waiting</span><StatePill tone="wait">Up next</StatePill><span className="status status-wait">Up next: booking widget</span><span className="dot dot-wait" />
+            <span className="pt-lab">Working</span><StatePill tone="accent">Working</StatePill><span className="status status-live">Working, 3 min</span><span />
+            <span className="pt-lab">Waiting</span><StatePill tone="wait">Up next</StatePill><span className="status status-wait">Up next: booking widget</span><span />
             <span className="pt-lab">Needs you</span><StatePill tone="err">Needs your OK</StatePill><span className="status status-attn">Needs your OK</span><span className="dot dot-attn" />
-            <span className="pt-lab">Failed</span><span className="pill pill-err"><Icon name="alert" size={12} />Last run failed</span><span className="status status-fail">Last run failed</span><span className="dot dot-attn" />
-            <span className="pt-lab">Done</span><span className="pill pill-ok"><Icon name="check" size={12} />Done</span><span className="status status-ok"><Icon name="check" size={12} />Otto reported back</span><span className="dot dot-ok" />
+            <span className="pt-lab">Failed</span><span className="pill pill-err"><Icon name="alert" size={12} />Last run failed</span><span /><span className="dot dot-attn" />
+            <span className="pt-lab">Done</span><span className="pill pill-ok"><Icon name="check" size={12} />Done</span><span className="status status-ok"><Icon name="check" size={12} />Otto reported back</span><span />
           </div>
           <p className="pt-cap">Ultramarine means working; coral means it needs you or failed; green only for done.</p>
         </Sec>
@@ -133,7 +133,7 @@ export function Parts() {
           <div className="pt-frame">
             <div className="pt-under"><Skeleton h={10} w="40%" /><Skeleton h={10} w="70%" /><Skeleton h={10} w="55%" /></div>
             <div className="scrim scrim-on pt-abs" />
-            <aside className="slideover slideover-modal slideover-on pt-sheet">
+            <aside className="slideover slideover-on pt-sheet">
               <header className="sheet-head"><div><h2 className="h-lg">Hire an employee</h2><p className="muted">An agent on your Claude Code who works on their own.</p></div><button className="btn btn-ghost btn-icon" aria-label="Close"><Icon name="close" /></button></header>
               <div className="sheet-body" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
                 <div className="sheet-form">
@@ -165,7 +165,7 @@ export function Parts() {
           <div className="empty pt-box">
             <div className="empty-title">Nothing waiting on you</div>
             <p>When an employee needs a decision, an answer or a hand, it lands here.</p>
-            <div className="empty-actions"><button className="btn btn-sm">Open the org chart</button></div>
+            <button className="btn btn-sm">Open the org chart</button>
           </div>
         </Sec>
 

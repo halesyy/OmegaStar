@@ -1,7 +1,7 @@
 # Design foundation
 
-Direction C, Ultramarine: an ultramarine sidebar that is the team's home, black and white work surfaces, coral for
-anything that needs you, heavy Inter Display on a strict grid. Every screen builds on the files here and in
+An ultramarine sidebar that is the team's home, black and white work surfaces, coral for anything that needs you,
+heavy Inter Display on a strict grid. Every screen builds on the files here and in
 `src/components/ui.*`; nothing in an area should need its own button, pill, menu or loading pattern.
 
 See every part at once: `npm run dev`, then `http://localhost:1420/?preview=parts` (add `&theme=dark`).
@@ -17,7 +17,7 @@ Employee pages (the `show` tool) get this file too: `src-tauri` embeds it, so `-
 |---|---|---|
 | Sidebar | `--side` `--side-ink` `--side-muted` `--side-line` `--side-fill` `--side-fill-muted` `--side-fill-attn` `--side-on` `--side-on-ink` `--side-attn` `--side-focus` | Anything on ultramarine. Never put `--ink` or `--muted` text on `--side`. `--side-on` is the open page; `--side-fill` is fields, hover and an open member, and quiet text on it is `--side-fill-muted`; `--side-attn` is "needs you" in words (`--side-fill-attn` on the fill). |
 | Surfaces | `--canvas` `--surface` `--raised` `--sunken` `--grid-dot` | `--canvas` is the page, `--raised` a column or foot, `--sunken` a well, hover or skeleton. |
-| Ink | `--ink` `--ink-2` `--muted` `--faint` | `--muted` is the quiet text (6:1). `--faint` is for large text and marks only (3.4:1 in light, 3.7:1 in dark), never small words. Dark `--faint` is lifted from C's #596070 to #646b7b so it holds 3:1 on every dark surface. |
+| Ink | `--ink` `--ink-2` `--muted` `--faint` | `--muted` is the quiet text (6:1). `--faint` is for large text and marks only (3.4:1 in light, 3.7:1 in dark), never small words. Dark `--faint` is #646b7b so it holds 3:1 on every dark surface. |
 | Lines | `--line` `--line-strong` `--line-card` | Hairlines between rows; `--line-strong` for controls and cards. |
 | Action | `--accent` `--accent-ink` `--accent-hover` `--accent-text` `--accent-soft` `--accent-line` | The one primary action per view: black in light, white in dark. |
 | Selection | `--sel` `--sel-ink` `--sel-muted` `--sel-live` `--sel-attn` `--me` `--me-ink` | A selected row, option or chip; tooltips and toasts. Inverted in light, a raised step in dark. `--me` is your own message. |
@@ -36,15 +36,15 @@ Employee pages (the `show` tool) get this file too: `src-tauri` embeds it, so `-
 | Buttons | `.btn` with `.btn-primary`, `.btn-ghost`, `.btn-danger` (asks first), `.btn-danger-solid` (the confirm), `.btn-sm` (28px), `.btn-lg`, `.btn-icon`; a key inside: `<span class="kc">L</span>` |
 | Inputs | `.input` `.textarea` `.select` `.input-affix`; `.field` `.field-label` (`.hint`) `.field-help` `.field-error`; `aria-invalid` for the error ring |
 | Choosing | `.seg` (buttons with `aria-pressed`), `Tabs`, `Switch`, `.chip` (round filter, `aria-pressed`, a count in `.n`) |
-| Labels | `.tag` (square kind: `.tag-attn` `.tag-live` `.tag-warn` `.tag-hire`), `.pill` (`.pill-live` `.pill-wait` `.pill-ok` `.pill-warn` `.pill-err`), `.kbd` |
-| Status | A word first, colour saying the same: `StatePill` (tones `accent` working, `wait` up next, `ok`, `warn`, `err`, `neutral`), `.status` (`.status-live` `.status-wait` `.status-attn` `.status-fail` `.status-ok` `.status-plain`), `.dot` (`.dot-live` `.dot-wait` `.dot-attn` `.dot-ok`). Nothing pulses. `runStateLabel` and `runStateTone` (`src/lib/format.ts`) give a run's word and tone; queued is "Up next" on `wait`. |
+| Labels | `.tag` (square kind: `.tag-attn` `.tag-warn` `.tag-hire`), `.pill` (`.pill-live` `.pill-wait` `.pill-ok` `.pill-warn` `.pill-err`), `.kbd` |
+| Status | A word first, colour saying the same: `StatePill` (tones `accent` working, `wait` up next, `ok`, `warn`, `err`, `neutral`), `.status` (`.status-live` `.status-wait` `.status-attn` `.status-ok` `.status-plain`), `.dot` (`.dot-attn`). Nothing pulses. `runStateLabel` and `runStateTone` (`src/lib/format.ts`) give a run's word and tone; queued is "Up next" on `wait`. |
 | Avatars | `Avatar` with `person` (ringed), `proposed` (dashed), `you` (ink disc) and `presence` (a still dot ringed in `--av-ring`) |
 | Menus and tips | `Popover`, `MenuButton`, `.menu` `.menu-item` (`.menu-item-danger`) `.menu-sep`. A tooltip: put `data-tip="..."` on anything; `TipLayer` (mounted once in `App`) draws it to the right, or the left near the window's edge, above every layer, so no scrolling sidebar or panel clips it, and follows the text if it changes while shown. `data-tip-key="K"` adds the key that does the same, as a keycap. A `.tip-words` child holding the same words keeps the tip quiet until a narrow layout hides them. |
-| Sheets | `SlideOver` (flush right, full height; `modal` adds the scrim; `returnFocus` is where focus goes on close); `.sheet-head` `.sheet-body` `.sheet-form` `.sheet-foot`. `useShell()`'s `hire`, `reviewProposal` and `addPerson` take the opening button last (`from`), because WebKit does not focus a button on click; the hire sheet sends focus back to it, and ⌘ or Ctrl+Enter hires or approves. |
+| Sheets | `SlideOver` (flush right, full height, over a scrim; `returnFocus` is where focus goes on close); `.sheet-head` `.sheet-body` `.sheet-form` `.sheet-foot`. `useShell()`'s `hire`, `reviewProposal` and `addPerson` take the opening button last (`from`), because WebKit does not focus a button on click; the hire sheet sends focus back to it, and ⌘ or Ctrl+Enter hires or approves. |
 | Feedback | `toast(text, tone, action?, { ms })` returns its id for `dismissToast(id)`: an Undo toast passes its window as `ms`; a failure (`err`) stays until dismissed and shows a close; anything else leaves after 4.2 s. A page with a bar at its foot sets `--toasts-bottom` so toasts land above it (the Inbox does). `ErrorNote` (inline, or with `title` for what happened, what happens next and one way to act), `ConfirmButton` |
-| Empty and loading | `.empty` `.empty-title` `.empty-actions`; `Skeleton` (still blocks at the content's own geometry) |
+| Empty and loading | `.empty` `.empty-title`; `Skeleton` (still blocks at the content's own geometry) |
 | Page frame | `PageHeader` (64px, 24px Display title), `PageColumn` (its header ends where its 820px column does, and the column fades under it as it scrolls), `Section` (its count rolls), `.plist` |
-| Type | `.h-xl` `.h-lg` `.h-md` `.mono` `.num` `.trunc` `.muted`; `shortAge()` in `src/lib/format.ts` for list ages ("4m", "3h", "2d") |
+| Type | `.h-lg` `.h-md` `.mono` `.num` `.trunc` `.muted`; `shortAge()` in `src/lib/format.ts` for list ages ("4m", "3h", "2d") |
 | Icons | `Icon` (`src/components/Icon.tsx`), one 1.5 stroke on a 16px box. No sparkles: use `teach` for skills grown, `lines` for a summary, `checklist` or `layers` for a tidy. |
 | Shell rules | `useRail()` and `railNow()` (`src/lib/sidebar.ts`): the rail below 1180px unless expanded there, each size keeping its own choice (onboarding's band uses the same). `macChrome`, `dragRegion` and `data-chrome="mac"` (`src/lib/chrome.ts`): the macOS overlay title bar's drag band. The overlay is set in `src-tauri/tauri.macos.conf.json`, which Tauri merges only into macOS builds; its merge replaces the `windows` array whole, so it repeats every field of the main window: change one, change both. `markPending` and `clearPending` (`src/lib/pending.ts`): an answer inside its Undo window, which the sidebar's Inbox badge leaves out. `openInbox(view, item)` and the `#/inbox/<view>/<item>` route, and `#/activity/numbers` (`src/lib/router.ts`). `setTheme` crossfades the window (a view transition) unless motion is reduced. `Shell`'s `arriving` drops the sidebar's parts into the band at the onboarding hand-off. `SideBrand`, `COLLAPSE_KEY`, `.side-top` and `.side-you*` keep their geometry; the sidebar's top grows by `--chrome-top` on macOS. |
 

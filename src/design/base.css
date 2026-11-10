@@ -41,7 +41,6 @@ input, textarea { caret-color: var(--live); }
 .muted { color: var(--muted); }
 .faint { color: var(--faint); }
 .trunc { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.h-xl { font-size: var(--t-xl); font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.035em; line-height: 1.12; text-wrap: balance; }
 .h-lg { font-size: var(--t-lg); font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.03em; line-height: var(--lh-tight); }
 .h-md { font-size: var(--t-md); font-weight: 650; letter-spacing: -0.01em; }
 .msg-label { font-size: var(--t-sm); font-weight: 600; color: var(--muted); }
@@ -117,7 +116,6 @@ input, textarea { caret-color: var(--live); }
 /* A tag labels a kind: square, quiet. Hire is the one inverted tag. */
 .tag { display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 6px; border-radius: 3px; font-size: var(--t-xs); font-weight: 650; color: var(--ink-2); background: var(--sunken); white-space: nowrap; }
 .tag-attn { background: var(--err-soft); color: var(--err-text); }
-.tag-live { background: var(--live-soft); color: var(--live-text); }
 .tag-warn { background: var(--warn-soft); color: var(--warn); }
 .tag-hire { background: var(--sel); color: var(--sel-ink); }
 .kbd {
@@ -128,18 +126,15 @@ input, textarea { caret-color: var(--live); }
 /* ------------------------------------------------ status: a word first; the colour says the same thing; nothing pulses */
 /* A dot on its own, or before a word (.status). Live and attention are filled; waiting is a hollow ring. */
 .dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
-.dot-live { background: var(--live); }
 .dot-attn { background: var(--err); }
-.dot-ok { background: var(--ok); }
-.dot-wait { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
 .status { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
 .status::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .status-live { color: var(--live-text); } .status-live::before { background: var(--live); }
 .status-attn { color: var(--err-text); } .status-attn::before { background: var(--err); }
 .status-wait::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
-/* Failed and done carry an icon or nothing before the word instead of a dot. */
-.status-fail { color: var(--err-text); } .status-ok { color: var(--ok-text); }
-.status-fail::before, .status-ok::before, .status-plain::before { display: none; }
+/* Done carries an icon or nothing before the word instead of a dot. */
+.status-ok { color: var(--ok-text); }
+.status-ok::before, .status-plain::before { display: none; }
 .status-plain { color: var(--muted); font-weight: 500; }
 
 /* ------------------------------------------------ switch */
@@ -236,7 +231,6 @@ input, textarea { caret-color: var(--live); }
 }
 .empty .empty-title { color: var(--ink); font-size: 20px; font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.03em; line-height: var(--lh-tight); text-wrap: balance; }
 .empty p { max-width: 360px; line-height: 1.5; }
-.empty-actions { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; }
 /* Loading: blocks at the content's own geometry. They hold still; real rows replace them top to bottom. */
 .skeleton { display: block; background: var(--sunken); border-radius: 3px; }
 .skeleton-c { border-radius: 50%; }

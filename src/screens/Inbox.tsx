@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { call, errorMessage } from "../api/client";
 import type { Card, CardReply, HireProposal, Run, Thread } from "../api/types";
 import { decisions, inboxLists, type Decision } from "../lib/decisions";
-import { dayHeading, firstName, whenInline } from "../lib/format";
+import { dayHeading, firstName, typing, whenInline } from "../lib/format";
 import { refreshConversations, useOrg, useProposals, useQuery, useSkillScan } from "../lib/hooks";
 import { setMark } from "../lib/marks";
 import { reducedMotion, useFlip } from "../lib/motion";
@@ -36,7 +36,6 @@ const NOTES: Record<Exclude<InboxView, "inbox">, string> = {
   archive: "What needed nothing from you.",
 };
 
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 const kbd = (k: string) => <kbd className="kbd">{k}</kbd>;
 
 /** The keys the Inbox answers to, as ? lists them. */
@@ -512,7 +511,7 @@ export function InboxScreen() {
         </EmptyCard>
       );
     } else {
-      card = <EmptyView view={view} hired={employees.length > 0} snoozedNext={snoozedNext} laterCount={snoozedDecisions?.length ?? 0} onView={pickView} onHire={(template, from) => shell.hire(null, template, from)} />;
+      card = <EmptyView view={view} hired={employees.length > 0} snoozedNext={snoozedNext} laterCount={snoozedDecisions?.length ?? 0} onView={pickView} onHire={(template, from) => shell.hire(template, from)} />;
     }
     return (
       <div className="ibx-one">

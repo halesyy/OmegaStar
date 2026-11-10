@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { call } from "../api/client";
 import type { EmployeeView, NewAttachment } from "../api/types";
-import { firstName } from "../lib/format";
+import { firstName, typing } from "../lib/format";
 import { refreshOrg, useOrg, useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
 import { navigate, type Route } from "../lib/router";
@@ -12,8 +12,6 @@ import { NewConversation } from "../components/conversation/NewConversation";
 import { ConversationMenu, ConversationPicker, QuietState, useArchive, useLeave, useThreadState } from "../components/conversation/ConversationSwitcher";
 import { sendAndDone, ThreadSkeleton, ThreadView } from "../components/conversation/ThreadView";
 import "./Conversation.css";
-
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
 /** The conversation filling the main window: one of an employee's threads, or a new one about to start. It is the one
  *  place you talk to an employee. */
@@ -101,7 +99,7 @@ function ConversationFrame({ title, picker, state, menu, children }: { title: st
   );
 }
 
-/** An old link to a run's own page: it opens the conversation the run is part of, where its work is now. */
+/** An old link to a run's own page: it opens the conversation the run is part of. */
 export function RunRedirect({ runId }: { runId: string }) {
   useEffect(() => {
     let live = true;

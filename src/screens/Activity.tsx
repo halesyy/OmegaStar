@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call } from "../api/client";
 import type { EmployeeUsage, EmployeeView, PersonView, RoutineUsage, Run, RunUsage, SkillRevision } from "../api/types";
-import { dayHeading, firstName, MOD, runKindLabel, shortAge, timeOrDay } from "../lib/format";
+import { dayHeading, firstName, listNames, MOD, runKindLabel, shortAge, timeOrDay } from "../lib/format";
 import { refreshOrg, useNow, useOrg, useQuery, useRunDetail, type Query } from "../lib/hooks";
 import { curve, ms, reducedMotion } from "../lib/motion";
 import { navigate, openChat, openMember, openRun, type ActivityView } from "../lib/router";
@@ -252,7 +252,7 @@ const CODE_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "Glob", "Grep", "No
 
 /** One run going on the rail: who, how long, the task, and the step it is on now. */
 function LiveRow({ run, e, employees, people }: { run: Run; e: EmployeeView; employees: EmployeeView[]; people: PersonView[] }) {
-  const { detail } = useRunDetail(run.id);
+  const detail = useRunDetail(run.id);
   const now = useNow(60_000);
   const items = useMemo(() => toItems(detail?.events ?? []), [detail?.events]);
   const tools = items.flatMap((i) => (i.kind === "tools" ? i.tools : []));
@@ -316,9 +316,6 @@ function ComingUp({ who, employees, people, waitingOnly = false }: { who: string
     </Section>
   );
 }
-
-/** "Kofi, Lena and Rafi". */
-const listNames = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
 /** What the team is waiting on someone else for, folded to one line under what needs you: real people first (each
  *  answered or chased in place), then colleagues. */
@@ -474,7 +471,7 @@ function NeedsList({ runs, employee, employees, people }: { runs: Run[]; employe
     <div ref={flip} className="act-list runlist">
       {rows.map(({ item: r, leaving }) => (
         <div key={r.id} data-key={r.id} className="act-row collapse" data-open={!leaving}>
-          <div><RunRow run={r} employee={employee(r)} employees={employees} people={people} showEmployee /></div>
+          <div><RunRow run={r} employee={employee(r)} employees={employees} people={people} /></div>
         </div>
       ))}
     </div>
@@ -519,7 +516,7 @@ function RunList({ groups, handedOn, employee, employees, people, filter }: {
         const key = keyOf(l);
         if ("day" in l) return <div key={key} data-key={key} className="act-day">{l.day}</div>;
         if ("quiet" in l) return <div key={key} data-key={key} className="act-row"><QuietRuns runs={l.quiet} employee={employee(l.quiet[0])} employees={employees} people={people} /></div>;
-        return <div key={key} data-key={key} className="act-row"><RunRow run={l.run} employee={employee(l.run)} employees={employees} people={people} showEmployee /></div>;
+        return <div key={key} data-key={key} className="act-row"><RunRow run={l.run} employee={employee(l.run)} employees={employees} people={people} /></div>;
       })}
     </div>
   );
@@ -544,7 +541,7 @@ function QuietRuns({ runs, employee, employees, people }: { runs: Run[]; employe
         <Age at={at} now={now} />
       </button>
       <div className="collapse act-quiet-runs" data-open={open} inert={!open}>
-        <div>{runs.map((r) => <RunRow key={r.id} run={r} employee={employee} employees={employees} people={people} showEmployee />)}</div>
+        <div>{runs.map((r) => <RunRow key={r.id} run={r} employee={employee} employees={employees} people={people} />)}</div>
       </div>
     </>
   );
@@ -924,7 +921,7 @@ function FirstUse({ view }: { view: ActivityView }) {
         ? "Once you hire someone, every change to their skills shows up here, and any of them can be undone."
         : view === "numbers" ? "Once you hire someone, what each of them does and uses shows up here, today and over the week."
         : "Once you hire someone, their runs show up here the moment they start: on a schedule, when you press Run now, or when a colleague hands one over."}
-      action={<button className="btn btn-primary" onClick={(ev) => shell.hire(null, null, ev.currentTarget)}><Icon name="plus" size={14} strokeWidth={1.8} /> Hire an employee</button>}
+      action={<button className="btn btn-primary" onClick={(ev) => shell.hire(null, ev.currentTarget)}><Icon name="plus" size={14} strokeWidth={1.8} /> Hire an employee</button>}
     />
   );
 }

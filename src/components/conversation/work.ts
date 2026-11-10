@@ -2,7 +2,7 @@
 // as rows, which the reply's one work line (WorkLine) stands for: what it is doing now while it runs, a summary once it
 // is done, and the rows when you open it. Pure.
 import type { EmployeeView, Run } from "../../api/types";
-import { firstName } from "../../lib/format";
+import { firstName, listNames } from "../../lib/format";
 import type { LiveRun, TaskView } from "../../lib/runs";
 import { isLive } from "../../lib/threads";
 import type { IconName } from "../Icon";
@@ -188,8 +188,6 @@ export function nowOf(rows: WorkRow[], turn: LiveRun): { key: string; verb: stri
   return { key: `pause:${rows.length}`, verb: pauseWord(turn.run.id, rows.length), object: "", code: false, pause: rows.length };
 }
 
-const and = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
-
 /** A finished stretch in a few words: "Worked for 3 min, with Otto · wrote a skill". `ms` is how long the reply took,
  *  for its last stretch; an earlier stretch counts its steps instead. */
 export function summaryOf(rows: WorkRow[], ms: number | null): string {
@@ -197,7 +195,7 @@ export function summaryOf(rows: WorkRow[], ms: number | null): string {
   const skills = rows.filter((r) => r.skill);
   const steps = rows.filter((r) => !r.key.startsWith("n:")).length;
   let s = ms !== null ? `Worked for ${took(ms)}` : `${steps} ${steps === 1 ? "step" : "steps"}`;
-  if (people.length) s += `, with ${and(people)}`;
+  if (people.length) s += `, with ${listNames(people)}`;
   if (skills.length) s += ` · ${skills.some((r) => r.tag === "New") ? "wrote" : "updated"} ${skills.length === 1 ? "a skill" : `${skills.length} skills`}`;
   return s;
 }

@@ -38,13 +38,12 @@
 .scrim { position: fixed; inset: 0; background: var(--scrim); opacity: 0; transition: opacity var(--d-panel) var(--ease); z-index: 30; }
 .scrim-on { opacity: 1; }
 .slideover {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 20; max-width: calc(100vw - var(--rail-w));
-  background: var(--surface); border-left: 1px solid var(--line); overflow: hidden;
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 31; max-width: calc(100vw - 120px);
+  background: var(--surface); box-shadow: var(--shadow-float); overflow: hidden;
   display: flex; flex-direction: column; outline: none;
   transform: translateX(100%); transition: transform var(--d-panel) var(--ease);
 }
 .slideover-on { transform: none; }
-.slideover-modal { z-index: 31; border-left: 0; box-shadow: var(--shadow-float); max-width: calc(100vw - 120px); }
 @media (prefers-reduced-motion: reduce) {
   .slideover { transform: none; opacity: 0; transition: opacity var(--d-fade) linear; }
   .slideover-on { opacity: 1; }

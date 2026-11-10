@@ -30,8 +30,8 @@ export function Avatar({ name, hue, image, size = 36, presence, person = false, 
 
 /** A surface that slides in from the window's right edge. Closing returns focus to `returnFocus` when given (pass the
  *  button that opened it: WebKit does not focus a button on click), else to whatever had focus when it opened. */
-export function SlideOver({ open, onClose, width = 760, children, label, modal = false, returnFocus }: {
-  open: boolean; onClose: () => void; width?: number | string; children: ReactNode; label: string; modal?: boolean; returnFocus?: HTMLElement | null;
+export function SlideOver({ open, onClose, width = 760, children, label, returnFocus }: {
+  open: boolean; onClose: () => void; width?: number | string; children: ReactNode; label: string; returnFocus?: HTMLElement | null;
 }) {
   const [mounted, setMounted] = useState(open);
   const [shown, setShown] = useState(false);
@@ -80,10 +80,10 @@ export function SlideOver({ open, onClose, width = 760, children, label, modal =
   if (!mounted) return null;
   return (
     <>
-      {modal ? <div className={`scrim ${shown ? "scrim-on" : ""}`} onClick={onClose} /> : null}
+      <div className={`scrim ${shown ? "scrim-on" : ""}`} onClick={onClose} />
       <aside
-        ref={ref} tabIndex={-1} role="dialog" aria-label={label} aria-modal={modal || undefined}
-        className={`slideover ${shown ? "slideover-on" : ""} ${modal ? "slideover-modal" : ""}`} style={{ width }}
+        ref={ref} tabIndex={-1} role="dialog" aria-label={label} aria-modal
+        className={`slideover ${shown ? "slideover-on" : ""}`} style={{ width }}
       >
         {children}
       </aside>

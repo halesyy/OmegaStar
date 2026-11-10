@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { HumanRequest, Person, PersonView } from "../../api/types";
-import { firstName } from "../../lib/format";
+import { firstName, listNames } from "../../lib/format";
 import { refreshOrg, useDraft, useOrg, useQuery, type Query } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import { PersonFields, personManagerName } from "../AddPersonSheet";
@@ -42,7 +42,7 @@ function PersonBand({ p, open }: { p: PersonView; open: HumanRequest[] }) {
   const others = open.length - who.length;
   const names = who.length === 0 ? `${open.length} ${open.length === 1 ? "employee" : "employees"}`
     : who.length === 1 ? who[0] + (others > 0 ? ` and ${others} more` : "")
-    : `${who.slice(0, -1).join(", ")} and ${who[who.length - 1]}`;
+    : listNames(who);
   const many = open.length > 1 || who.length > 1;
   return (
     <div className="band band-person band-warn">

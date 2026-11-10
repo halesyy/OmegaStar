@@ -41,8 +41,8 @@ export const TEMPLATES: Template[] = [
   { id: "blank", title: "Blank", description: "", objective: "", skills: [], firstLesson: "" },
 ];
 
-const emptyDraft = (managerId: string | null): EmployeeDraft => ({
-  name: "", title: "", description: "", objective: "", managerId,
+const emptyDraft = (): EmployeeDraft => ({
+  name: "", title: "", description: "", objective: "", managerId: null,
   skills: { builtins: false, keys: [] }, clearance: "supervised", allowRules: [],
   model: null, effort: null, browser: false, autoTidy: true, workspaces: [], hue: 250,
 });
@@ -60,22 +60,22 @@ const withTemplate = (d: EmployeeDraft, t: Template, catalog: SkillInfo[] | unde
   skills: { ...d.skills, keys: keysFor(t, catalog) },
 });
 
-function initialDraft(managerId: string | null, template: string | null, proposal: HireProposal | null, catalog: SkillInfo[] | undefined): EmployeeDraft {
+function initialDraft(template: string | null, proposal: HireProposal | null, catalog: SkillInfo[] | undefined): EmployeeDraft {
   if (proposal) return { ...proposal.draft, skills: { ...proposal.draft.skills, keys: [...proposal.draft.skills.keys] } };
   const t = TEMPLATES.find((x) => x.id === template);
-  return t ? withTemplate(emptyDraft(managerId), t, catalog) : emptyDraft(managerId);
+  return t ? withTemplate(emptyDraft(), t, catalog) : emptyDraft();
 }
 
 /** Hire an employee; with `proposal`, review a hire an employee proposed and approve it, changed or not.
  *  Its form starts from the props when it mounts, so the Shell remounts it (a new `key`) each time it opens. */
-export function HireSheet({ open, managerId, template, proposal, onClose, returnFocus = null }: {
-  open: boolean; managerId: string | null; template: string | null; proposal: HireProposal | null; onClose: () => void;
+export function HireSheet({ open, template, proposal, onClose, returnFocus = null }: {
+  open: boolean; template: string | null; proposal: HireProposal | null; onClose: () => void;
   /** Where focus goes back to when it closes (the Inbox's Review and hire). */
   returnFocus?: HTMLElement | null;
 }) {
   const { snap } = useOrg();
   const catalog = useCatalog();
-  const [draft, setD] = useState(() => initialDraft(managerId, template, proposal, catalog.data));
+  const [draft, setD] = useState(() => initialDraft(template, proposal, catalog.data));
   const [tpl, setTpl] = useState(proposal ? null : template);
   const [hueTouched, setHueTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -157,7 +157,7 @@ export function HireSheet({ open, managerId, template, proposal, onClose, return
   }, [open]);
 
   return (
-    <SlideOver open={open} onClose={onClose} width={760} label={proposal ? "Review a hire proposal" : "Hire an employee"} modal returnFocus={returnFocus}>
+    <SlideOver open={open} onClose={onClose} width={760} label={proposal ? "Review a hire proposal" : "Hire an employee"} returnFocus={returnFocus}>
       <header className="sheet-head">
         <div className="stack">
           <h2 className="h-lg">{proposal ? `${proposerName}'s hire proposal` : "Hire an employee"}</h2>

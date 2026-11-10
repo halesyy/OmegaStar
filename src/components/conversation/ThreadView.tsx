@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, NewAttachment, Run, Thread } from "../../api/types";
-import { firstName, relTime, whenShort } from "../../lib/format";
+import { firstName, relTime } from "../../lib/format";
 import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
 import { snoozePresets } from "../../lib/status";
 import { toast } from "../../lib/toasts";
 import { didNotFinish, flags, isLive, isOpen, isStreak, startedByYou } from "../../lib/threads";
 import { CardAim, RunCards, type AimTarget } from "./CardView";
+import { LaterPreset } from "./LaterMenu";
 import { RowHistory } from "./RowHistory";
 import { BlockedCard } from "../BlockedCard";
-import { TidyProposal } from "../TidyProposal";
+import { TidyProposal, tidyAsks } from "../TidyProposal";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
 import { Visual } from "../Visual";
@@ -153,8 +154,7 @@ const waiting = (run: Run) => run.cards.some(isOpen);
 /** What Omega Star flagged on a run, apart from its cards. */
 function Flags({ run }: { run: Run }) {
   // A tidy's bigger changes ask for themselves (TidyProposal), so their flag is not said again.
-  const proposing = run.kind.type === "tidy" && !!run.proposed && !run.approvedAt && !run.archivedAt;
-  const fs = proposing ? [] : flags(run);
+  const fs = tidyAsks(run) ? [] : flags(run);
   if (!fs.length) return null;
   return (
     <ul className="flags" aria-label="Needs you">
@@ -242,9 +242,8 @@ export async function markDone(...rootIds: string[]): Promise<boolean> {
   return ok;
 }
 
-/** Tries a run that did not finish again: it carries on from where it stopped, or a hand-off runs again for whoever
- *  handed it over. It stays disabled once it went, while the retry takes over. */
-function RetryButton({ run, name }: { run: Run; name: string }) {
+/** Retries a run that did not finish and says `name` is trying again; `busy` holds from the click until it fails. */
+export function useRetry(run: Run, name: string) {
   const [busy, setBusy] = useState(false);
   const retry = async () => {
     setBusy(true);
@@ -256,6 +255,13 @@ function RetryButton({ run, name }: { run: Run; name: string }) {
       setBusy(false);
     }
   };
+  return { busy, retry };
+}
+
+/** Tries a run that did not finish again: it carries on from where it stopped, or a hand-off runs again for whoever
+ *  handed it over. It stays disabled once it went, while the retry takes over. */
+function RetryButton({ run, name }: { run: Run; name: string }) {
+  const { busy, retry } = useRetry(run, name);
   return (
     <button className="btn btn-sm" disabled={busy} title="Try it again from where it stopped" onClick={() => void retry()}>
       <Icon name="refresh" size={13} /> Retry
@@ -305,12 +311,7 @@ export function SnoozeButton({ snoozedUntil, onSnooze, onWake }: { snoozedUntil:
       </button>
       <Popover anchor={ref} open={open} onClose={() => setOpen(false)} width={232} align="end">
         <div ref={menu} className="menu" role="menu" aria-label="Bring it back" data-esc-stop>
-          {presets.map((s) => (
-            <button key={s.label} type="button" role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSnooze(s.until); }}>
-              <span className="grow">{s.label}</span>
-              <span className="faint">{whenShort(s.until.toISOString()).replace(s.label === "Tomorrow" ? /^Tomorrow / : /^Today /, "")}</span>
-            </button>
-          ))}
+          {presets.map((s) => <LaterPreset key={s.label} preset={s} onPick={() => { setOpen(false); onSnooze(s.until); }} />)}
         </div>
       </Popover>
     </>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, Run, Thread } from "../../api/types";
 import { askComposer } from "../../lib/composer";
-import { firstName, threadTitle, whenInline, whenShort } from "../../lib/format";
+import { firstName, threadTitle, whenInline } from "../../lib/format";
 import { useOrg, useQuery } from "../../lib/hooks";
 import { setMark } from "../../lib/marks";
 import { openChat, openMember } from "../../lib/router";
@@ -12,6 +12,7 @@ import { doneHeld, isLive, rowThreads, threadFocus } from "../../lib/threads";
 import { kindIcon, kindNames } from "../RunRow";
 import { Icon, type IconName } from "../Icon";
 import { Popover } from "../ui";
+import { LaterPreset } from "./LaterMenu";
 import { newConversationDraft, TEACH_PREFIX } from "./NewConversation";
 import { markDone, reopen, WHERE_ARE_WE } from "./ThreadView";
 import { employeeItems, useStatuses, type Item } from "./useStatuses";
@@ -193,12 +194,7 @@ export function ConversationMenu({ e, rootId, s }: { e: EmployeeView; rootId: st
             btns[(i + (ev.key === "ArrowDown" ? 1 : btns.length - 1)) % btns.length]?.focus();
           }}
         >
-          {later ? presets.map((p) => (
-            <button key={p.label} type="button" role="menuitem" className="menu-item" onClick={() => { close(); snooze(p.until); }}>
-              <span className="grow">{p.label}</span>
-              <span className="faint">{whenShort(p.until.toISOString()).replace(p.label === "Tomorrow" ? /^Tomorrow / : /^Today /, "")}</span>
-            </button>
-          )) : entries.map((it, i) => it === "sep" ? (i > 0 ? <div key={`sep-${i}`} className="menu-sep" /> : null) : (
+          {later ? presets.map((p) => <LaterPreset key={p.label} preset={p} onPick={() => { close(); snooze(p.until); }} />) : entries.map((it, i) => it === "sep" ? (i > 0 ? <div key={`sep-${i}`} className="menu-sep" /> : null) : (
             <button key={it.label} type="button" role="menuitem" className="menu-item" onClick={() => { if (!it.keep) close(); it.onSelect(); }}>
               <Icon name={it.icon} size={14} />
               <span className="grow">{it.label}</span>

@@ -135,8 +135,8 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
   const showChart = settled === "chart" || both;
   const showOpen = settled === "open" || both;
   const shown = member ?? shownMember.current;
-  const hire = (from: HTMLElement) => shell.hire(null, null, from);
-  const addPerson = (from: HTMLElement) => shell.addPerson(null, from);
+  const hire = (from: HTMLElement) => shell.hire(null, from);
+  const addPerson = (from: HTMLElement) => shell.addPerson(from);
 
   return (
     <div className={cls} ref={root} data-folding={both || undefined}>
@@ -149,7 +149,7 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
           {!empty && hasPeople ? <Views view={view} setView={setView} /> : null}
           <div className="org-canvas">
             {empty ? (
-              <EmptyOrg company={snap.company} onHire={(t, from) => shell.hire(null, t, from)} onAddPerson={addPerson} />
+              <EmptyOrg company={snap.company} onHire={(t, from) => shell.hire(t, from)} onAddPerson={addPerson} />
             ) : (
               <OrgChart
                 ref={chart} company={snap.company} employees={snap.employees} people={snap.people} view={view} compact={compact}

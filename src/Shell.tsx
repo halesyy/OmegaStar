@@ -27,15 +27,15 @@ import { ActivityScreen } from "./screens/Activity";
 import { SettingsScreen } from "./screens/Settings";
 
 type Sheet =
-  | { kind: "hire"; managerId: string | null; template: string | null }
+  | { kind: "hire"; template: string | null }
   | { kind: "proposal"; proposal: HireProposal }
-  | { kind: "person"; managerId: string | null }
+  | { kind: "person" }
   | null;
 /** `from`: the button that opened a sheet, so focus goes back to it on close (WebKit doesn't focus a button on click). */
 type ShellApi = {
-  hire: (managerId?: string | null, template?: string | null, from?: HTMLElement | null) => void;
+  hire: (template?: string | null, from?: HTMLElement | null) => void;
   reviewProposal: (p: HireProposal, from?: HTMLElement | null) => void;
-  addPerson: (managerId?: string | null, from?: HTMLElement | null) => void;
+  addPerson: (from?: HTMLElement | null) => void;
 };
 const ShellCtx = createContext<ShellApi>({ hire: () => {}, reviewProposal: () => {}, addPerson: () => {} });
 export const useShell = () => useContext(ShellCtx);
@@ -79,9 +79,9 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
   const api = useMemo<ShellApi>(() => {
     const open = (s: Sheet, from: HTMLElement | null) => { setSheet(s); setSheetFrom(from); setSheetKey((k) => k + 1); };
     return {
-      hire: (managerId = null, template = null, from = null) => open({ kind: "hire", managerId, template }, from),
+      hire: (template = null, from = null) => open({ kind: "hire", template }, from),
       reviewProposal: (proposal, from = null) => open({ kind: "proposal", proposal }, from),
-      addPerson: (managerId = null, from = null) => open({ kind: "person", managerId }, from),
+      addPerson: (from = null) => open({ kind: "person" }, from),
     };
   }, []);
 
@@ -196,13 +196,12 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
       <HireSheet
         key={`hire-${sheetKey}`}
         open={sheet?.kind === "hire" || sheet?.kind === "proposal"}
-        managerId={sheet?.kind === "hire" ? sheet.managerId : null}
         template={sheet?.kind === "hire" ? sheet.template : null}
         proposal={sheet?.kind === "proposal" ? sheet.proposal : null}
         returnFocus={sheetFrom}
         onClose={closeSheet}
       />
-      <AddPersonSheet key={`person-${sheetKey}`} open={sheet?.kind === "person"} managerId={sheet?.kind === "person" ? sheet.managerId : null} onClose={closeSheet} />
+      <AddPersonSheet key={`person-${sheetKey}`} open={sheet?.kind === "person"} onClose={closeSheet} />
       {paletteShown ? <CommandPalette key={paletteOpens.n} leaving={!palette} onClose={() => setPalette(false)} api={api} /> : null}
     </ShellCtx.Provider>
   );

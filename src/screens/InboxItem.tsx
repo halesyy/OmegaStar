@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { call, errorMessage } from "../api/client";
 import type { Card, CardReply, EmployeeView, HireProposal, NewAttachment, OrgSnapshot, PersonView, Run, SkillInfo, Thread } from "../api/types";
 import type { CardDecision, Decision, Group } from "../lib/decisions";
-import { dateLong, firstName, runKindLabel, shortAge, taskLabel, threadTitle, whenInline } from "../lib/format";
+import { dateLong, firstName, listNames, runKindLabel, shortAge, taskLabel, threadTitle, whenInline } from "../lib/format";
 import { useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
 import { openChat } from "../lib/router";
@@ -14,14 +14,14 @@ import { BlockedCard } from "../components/BlockedCard";
 import { Icon, type IconName } from "../components/Icon";
 import { Markdown } from "../components/Markdown";
 import { ProposalActions, ProposalRecord, hireTitle } from "../components/ProposalCard";
-import { TidyProposal } from "../components/TidyProposal";
+import { TidyProposal, tidyAsks } from "../components/TidyProposal";
 import { Avatar } from "../components/ui";
 import { kindNames } from "../components/RunRow";
 import { CardImages } from "../components/conversation/CardImages";
 import { CardLink, webUrl } from "../components/conversation/CardLink";
 import { askAboutCard, CardFile, CardList, CardText, CardView, usePendingAnswers } from "../components/conversation/CardView";
 import { lines } from "../components/conversation/RowHistory";
-import { ThreadView } from "../components/conversation/ThreadView";
+import { ThreadView, useRetry } from "../components/conversation/ThreadView";
 import type { Item } from "../components/conversation/useStatuses";
 
 // ---------------------------------------------------------------- the model: what each row is and needs
@@ -78,15 +78,12 @@ const firstLine = (r: Run): string => lines(r.summary)[0] ?? (didNotFinish(r) ? 
 /** A list of first names, as "Ada, Bo and Cy". */
 function names(ids: string[], employees: EmployeeView[]): string {
   const ns = [...new Set(ids)].flatMap((id) => employees.find((x) => x.id === id) ?? []).map((x) => firstName(x.name));
-  return ns.length > 1 ? `${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}` : ns[0] ?? "";
+  return listNames(ns);
 }
 
 const NUMS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
 /** A count at the start of a sentence: "Two", and "12" past nine. */
 const Count = (n: number) => NUMS[n] ?? String(n);
-
-/** A tidy's bigger changes, waiting for your OK. */
-const tidyAsks = (r: Run): boolean => r.kind.type === "tidy" && !!r.proposed && !r.approvedAt && !r.archivedAt;
 
 /** The word for what a decision needs. */
 function wordOf(d: Decision<Item>): Word {
@@ -447,17 +444,7 @@ function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; gro
 
 /** Retry a run that didn't finish, from where it stopped. It stays in the Inbox until the retry is through. */
 function RetryMain({ run, who, disabled }: { run: Run; who: string; disabled: boolean }) {
-  const [busy, setBusy] = useState(false);
-  const retry = async () => {
-    setBusy(true);
-    try {
-      await call("retry_run", { runId: run.id });
-      toast(`${who} is trying again`, "ok");
-    } catch (err) {
-      toast(errorMessage(err), "err");
-      setBusy(false);
-    }
-  };
+  const { busy, retry } = useRetry(run, who);
   return <Main label={busy ? "Trying again" : "Retry"} icon="refresh" disabled={disabled || busy} title="Try it again from where it stopped" onClick={() => void retry()} />;
 }
 

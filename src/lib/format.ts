@@ -6,6 +6,8 @@ const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDat
 /** The key shortcuts go with: ⌘ on a Mac, Ctrl elsewhere. */
 export const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 
+export const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -16,6 +18,9 @@ export function initials(name: string): string {
 export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
 }
+
+/** "Kofi, Lena and Rafi". */
+export const listNames = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
 export function relTime(isoStr: string | null, now = Date.now()): string {
   if (!isoStr) return "";
