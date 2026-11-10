@@ -704,7 +704,7 @@ export function cannedAnswer(prompt: string): string {
   return "Got it. I've written that into my skills so it sticks, and I'll report back here when it's done.";
 }
 
-// ---------------------------------------------------------------- variations the areas design against
+// ---------------------------------------------------------------- variations on the busy office
 
 /** Adds `r` to the world as an open Inbox row, newest first. */
 function addOpen(w: World, r: Run, events: RunEvent[] = [init(9), ...(r.summary ? [said(r.summary)] : []), done(r)]) {

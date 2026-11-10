@@ -5,7 +5,7 @@ use super::*;
 use std::cmp::Reverse;
 
 impl Office {
-    /// Every conversation, for the Inbox, its badge and each employee's chips.
+    /// Every conversation, for the Inbox, its badge and the sidebar.
     pub fn conversations(&self) -> Result<Conversations> {
         Self::conversations_in(&self.db())
     }

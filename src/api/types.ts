@@ -243,7 +243,7 @@ export type NewAttachment = { name: string; data: string /* base64 */ };
  *  and `related` holds the row's other threads, oldest first: the rest of a hand-off, or a schedule's earlier
  *  failures in a row. Empty elsewhere. */
 export type Thread = { root: Run; replies: Run[]; related: Thread[] };
-/** Every conversation across the office, for the Inbox and each employee's chips. */
+/** Every conversation across the office, for the Inbox and the sidebar. */
 export type Conversations = {
   threads: Thread[];           // open threads of every employee, one per root, most recently active first
   inbox: string[];             // root ids of the threads that lead an Inbox row: what needs you
