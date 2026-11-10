@@ -252,11 +252,6 @@ pub async fn reply_to_run(office: O<'_>, run_id: String, text: String, archive: 
 }
 
 #[tauri::command]
-pub async fn steer_run(office: O<'_>, run_id: String, text: String) -> Result<SteerHow> {
-    office.steer_run(&run_id, &text)
-}
-
-#[tauri::command]
 pub async fn approve_blocked(office: O<'_>, run_id: String, rules: Vec<String>, always: bool) -> Result<Run> {
     office.approve_blocked(&run_id, rules, always)
 }
@@ -389,11 +384,6 @@ pub async fn remove_originals(office: O<'_>, run_id: String, names: Vec<String>)
 #[tauri::command]
 pub async fn settle_originals(office: O<'_>, run_id: String) -> Result<Run> {
     office.settle_originals(&run_id)
-}
-
-#[tauri::command]
-pub async fn allow_rule(office: O<'_>, employee_id: String, rule: String) -> Result<Employee> {
-    office.allow_rule(&employee_id, &rule)
 }
 
 #[tauri::command]
