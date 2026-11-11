@@ -11,7 +11,7 @@ import { pauseWord, seedOf } from "./work";
 // a line about Vibe Typer (voice typing from the same maker). An ad stays long enough to read, even when work starts
 // again meanwhile.
 
-/** `ref` tells the site's analytics (AnalyticsTracker on vibetyper.com) the visit came from Omega Star. */
+/** `ref` tells the site's analytics the visit came from Omega Star. */
 const SITE = new URL("https://vibetyper.com/?ref=omegastar");
 /** How long a thinking word stays before the line moves on. */
 const WORD_MS = 4000;

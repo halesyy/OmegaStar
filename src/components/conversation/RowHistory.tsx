@@ -8,7 +8,7 @@ import { RunCards } from "./CardView";
 import { kindNames } from "../RunRow";
 import { Icon } from "../Icon";
 import { Avatar } from "../ui";
-import "../panel/ChatTab.css";
+import "./Chat.css";
 
 /** One line of markdown as plain text. */
 function plain(line: string): string {
@@ -28,8 +28,8 @@ function plain(line: string): string {
 export const lines = (md: string | null) => (md ?? "").replace(/```[\s\S]*?```/g, " ").split(/\r?\n/).map(plain).filter((l) => l && !/^[-:\s]+$/.test(l));
 
 /** Every run filed under this row, oldest first: the rest of a hand-off between employees, everyone waiting on the same
- *  chore, or a week of reviews; each opens its run. A routine failing in a row is said once instead: how many times, when,
- *  and when it runs next, with the error itself in the report below. */
+ *  chore, or a week of reviews; each opens its conversation. A routine failing in a row is said once instead: how many
+ *  times, when, and when it runs next, with the error itself in the report below. */
 export function RowHistory({ t, employees, people, retry = null, refs = null }: { t: Thread; employees: EmployeeView[]; people: PersonView[]; retry?: ReactNode; refs?: ReactNode }) {
   const all = rowThreads(t);
   const [showAll, setShowAll] = useState(false);

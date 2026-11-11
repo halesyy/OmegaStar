@@ -330,21 +330,9 @@ impl Office {
     }
 
     pub fn request_tool(&self, caller_run: &str, caller: &Employee, args: &Value) -> Result<Value> {
-        let s = |k: &str| args.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|v| !v.is_empty());
-        let kind: RequestKind = serde_json::from_value(json!(s("kind").unwrap_or("question")))
-            .map_err(|_| AppError::invalid("kind must be question, task or info"))?;
-        let due_at = s("dueAt").map(parse_due).transpose()?;
-        let (req, person) = self.create_request(
-            &caller.id,
-            Some(caller_run),
-            s("person").ok_or_else(|| AppError::invalid("person is required"))?,
-            kind,
-            s("message").unwrap_or(""),
-            s("channelId"),
-            due_at,
-        )?;
+        let (req, person) = self.create_request(caller_run, caller, args)?;
         let channel = req.channel_id.as_ref().and_then(|c| person.channels.iter().find(|x| &x.id == c));
-        let relay = self.db().company()?.map(|c| c.ceo_name).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "the person you work for".into());
+        let relay = ceo_of(&self.db())?;
         let then = "then call `sent` with the request id, the tool you sent it with and exactly what that tool returned";
         let hint = match channel {
             Some(c) => format!(
@@ -469,7 +457,7 @@ impl Office {
             self.announce(&r);
         }
         if let Applied::Resolve { state, response } = applied {
-            self.resolve_request(&id, state.as_str(), Some(response), None)?;
+            self.resolve_request(&id, state, Some(response), None)?;
         }
         Ok(json!({ "recorded": verdict, "note": next }))
     }
@@ -482,7 +470,7 @@ impl Office {
         }
         let text = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("");
         let response = args.get("response").and_then(|v| v.as_str()).map(String::from);
-        let r = self.resolve_request(text("id"), text("state"), response, Some(&caller.id))?;
+        let r = self.resolve_request(text("id"), RequestState::parse(text("state"))?, response, Some(&caller.id))?;
         Ok(json!({ "request": self.present(r) }))
     }
 
@@ -699,7 +687,7 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
     /// Puts `card` on a run: a live run carries it until it ends, a finished one shows it in the Inbox again. A
     /// card about the same thing as one the run already has replaces it. Returns whether nobody else is waiting
     /// on the same thing, so this is the first time you are asked. No desktop notification.
-    pub(super) fn raise_card(&self, run_id: &str, card: Card) -> Result<bool> {
+    fn raise_card(&self, run_id: &str, card: Card) -> Result<bool> {
         let topic = card.topic();
         let same = |c: &Card| c.waiting() && topic.is_some() && c.topic() == topic;
         let waiting = match &topic {
@@ -744,21 +732,20 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
         Ok(first)
     }
 
-    /// Asks you for a chore on a run (`chrome` or `sign-in:<site>`) with `why` under it. Only the first run to
-    /// ask for it sends a desktop notification; the rest wait on the same Done. Returns whether this was the
-    /// first ask.
-    pub(super) fn raise_chore(&self, run_id: &str, subject: &str, message: &str, why: &str) -> Result<bool> {
-        let subject = cards::chore_subject(subject)?;
+    /// Asks you on a run to reconnect Claude in Chrome, with `why` under it. Only the first run to ask for it
+    /// sends a desktop notification; the rest wait on the same Done.
+    pub(super) fn raise_chrome_chore(&self, run_id: &str, why: &str) -> Result<()> {
+        const MESSAGE: &str = "Reconnect Claude in Chrome";
         let name = {
             let db = self.db();
             let run = db.run(run_id)?.map(|r| r.run);
             run.and_then(|r| db.employee(&r.employee_id).ok().flatten()).map(|e| e.name).unwrap_or_default()
         };
-        let first = self.raise_card(run_id, Card::new(message, Some(why.to_string()), None, CardAsk::Chore { subject, url: None }))?;
-        if first {
-            self.sink().notify(&format!("{name} needs you"), message);
+        let chore = CardAsk::Chore { subject: cards::CHROME.into(), url: None };
+        if self.raise_card(run_id, Card::new(MESSAGE, Some(why.to_string()), None, chore))? {
+            self.sink().notify(&format!("{name} needs you"), MESSAGE);
         }
-        Ok(first)
+        Ok(())
     }
 
     /// Closes the caller's cards about `key` still waiting on you (`Card::waiting`), ones put off with Later too: it was
@@ -815,7 +802,7 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
             }
         }
         if closed == 0 {
-            let open: Vec<String> = self.db().open_cards(&caller.id)?.iter().flat_map(|r| r.cards.iter().filter(|c| c.pending()).filter_map(|c| c.key.clone()).collect::<Vec<_>>()).collect();
+            let open: Vec<String> = self.db().open_cards(&caller.id)?.iter().flat_map(|r| r.cards.iter().filter(|c| c.pending()).filter_map(|c| c.key.clone())).collect();
             let open: Vec<&str> = open.iter().map(|k| cards::key_label(k)).collect();
             let list = if open.is_empty() { "none".to_string() } else { open.join(", ") };
             return Err(AppError::invalid(format!("You have no open card about '{key}'. Your open cards: {list}.")));
@@ -1269,7 +1256,7 @@ pub(super) fn due_answers(db: &Store, ended: &Run) -> Result<Vec<(Run, String)>>
     let mut due = vec![];
     // Your answer on the card of a colleague's ask or delegated work let them carry on: what came of it goes
     // to whoever handed it over, who already had their first report. Not when you stopped the reply.
-    if let Some(RunKind::Reply { card: true, to_run_id, .. }) = Some(&ended.kind).filter(|_| ended.state != RunState::Cancelled) {
+    if let Some(RunKind::Reply { card: true, to_run_id, .. }) = (ended.state != RunState::Cancelled).then_some(&ended.kind) {
         if let Some(root) = db.run(to_run_id)?.map(|r| r.run).filter(|r| r.state.is_finished()) {
             let parent = match root.parent_run_id() {
                 Some(p) => db.run(p)?.filter(|p| p.run.state.is_finished()),
@@ -1472,7 +1459,7 @@ fn answer_text(ceo: &str, from: &str, handed: &Run, parent: &Run, quote: bool, r
     prompt + &format!("\n\n{yours}:\n\n{}\n\n{theirs}:\n\n{}", handed.prompt, claude::clip(report, 20000))
 }
 
-/// Where a hand-off began, read from the store under its lock; `source_text` turns it into one line
+/// Where a hand-off began, read from the store under its lock; `source_text` turns it into a note
 /// from the transcripts once the lock is released.
 pub(super) struct SourceChain {
     ceo: String,
@@ -1521,11 +1508,11 @@ pub(super) fn source_chain(db: &Store, ceo: &str, from: &str) -> Result<SourceCh
     Ok(chain)
 }
 
-/// One line on where a hand-off began, quoting your own words where there are some, with what you
+/// A note on where a hand-off began, quoting your own words where there are some, with what you
 /// wrote into its runs on the way. Reads the runs' transcripts under `runs_dir`.
 pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
     let ceo = &chain.ceo;
-    let steered = |id: &str| claude::steered(&fs::read_to_string(runs_dir.join(id).join("transcript.jsonl")).unwrap_or_default());
+    let steered = |id: &str| claude::steered(&fs::read_to_string(runs_dir.join(id).join(TRANSCRIPT)).unwrap_or_default());
     let quote = |s: &str| format!("> \"{}\"", claude::clip(&claude::one_line(s), 600));
     let missing = format!("Where this began is no longer on record, so treat it as {}'s own request.", chain.sender);
     let mut text = match &chain.origin {
@@ -1571,7 +1558,7 @@ pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
     text
 }
 
-/// The avatar hue the hire sheet derives from a name (`hueFromName` in EmployeeFields.tsx).
+/// The avatar hue the hire sheet derives from a name (`hueFromName` in lib/format.ts).
 fn hue_from_name(name: &str) -> u16 {
     let n = name.trim().to_lowercase();
     if n.is_empty() {
@@ -1580,7 +1567,7 @@ fn hue_from_name(name: &str) -> u16 {
     n.encode_utf16().fold(0u32, |h, c| (h * 31 + c as u32) % 360) as u16
 }
 
-fn parse_due(s: &str) -> Result<Ts> {
+pub(super) fn parse_due(s: &str) -> Result<Ts> {
     if let Ok(t) = chrono::DateTime::parse_from_rfc3339(s) {
         return Ok(t.with_timezone(&Utc));
     }
@@ -1600,6 +1587,7 @@ fn effort_arg(v: &str) -> Result<Option<Effort>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, NoSink};
 
     struct Office0 {
         dir: PathBuf,
@@ -1623,27 +1611,7 @@ mod tests {
 
     /// An employee reporting to `manager_id`, or to you.
     fn employee(db: &Store, name: &str, manager_id: Option<&str>) -> Employee {
-        let e = Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: name.to_lowercase(),
-            name: name.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: manager_id.map(String::from),
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: format!("chat-{name}"),
-            hired_at: now(),
-        };
+        let e = Employee { slug: name.to_lowercase(), name: name.into(), manager_id: manager_id.map(String::from), chat_session: format!("chat-{name}"), ..fixtures::employee() };
         db.save_employee(&e).unwrap();
         e
     }
@@ -1655,7 +1623,7 @@ mod tests {
         r.state = state;
         if state.is_finished() {
             r.ended_at = Some(at);
-            r.summary = Some(format!("{} did it.", e.name)).filter(|_| state == RunState::Succeeded);
+            r.summary = (state == RunState::Succeeded).then(|| format!("{} did it.", e.name));
         }
         let session = session.map(String::from).unwrap_or_else(|| r.id.clone());
         assert!(db.insert_run(&r, &session).unwrap());
@@ -1694,14 +1662,6 @@ mod tests {
         assert!(delivered(&o.db, &child));
         assert!(due_answers(&o.db, &child).unwrap().is_empty(), "delivered once");
         assert!(due_answers(&o.db, &parent).unwrap().is_empty());
-    }
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
     }
 
     #[tokio::test]

@@ -24,7 +24,7 @@ use crate::org::Org;
 use crate::own_skills;
 use crate::proxy;
 use crate::reader::{self, ReadError};
-use crate::schedule::{self, Due};
+use crate::schedule;
 use crate::store::{RequestFilter, RunRecord, Store};
 use crate::threads;
 use crate::tidy;
@@ -73,6 +73,8 @@ pub(crate) const RUNNING_MARKER: &str = "omega.running";
 /// In a run's folder while it works: its employee's skills as they were when it started, so a run the
 /// app lost can still have its edits recorded.
 const BEFORE_SNAPSHOT: &str = "before.json";
+/// In a run's folder: its transcript, one JSON event per line.
+const TRANSCRIPT: &str = "transcript.jsonl";
 /// Times a run Omega Star stopped mid-turn goes back to the queue before it is lost, so one that keeps
 /// crashing the app cannot loop.
 const RESTART_RETRIES: u32 = 3;
@@ -183,7 +185,7 @@ fn now() -> Ts {
 /// chat message as one: the message itself, or for a colleague's answer that came back into its chat, the message
 /// whose ask it answers, through any answer turns there that asked on. None for anything else, or when the trail
 /// is gone.
-pub(super) fn conversation_of(db: &Store, run: &Run) -> Result<Option<String>> {
+fn conversation_of(db: &Store, run: &Run) -> Result<Option<String>> {
     let mut at = run.clone();
     // Each step goes to an earlier run, so this only guards against a damaged trail.
     for _ in 0..64 {
@@ -461,7 +463,7 @@ impl Office {
         for mut r in db.runs_in_state(RunState::Running)? {
             let run_dir = self.run_dir(&r.id);
             let home = self.employee_dir(&r.employee_id);
-            let path = run_dir.join("transcript.jsonl");
+            let path = run_dir.join(TRANSCRIPT);
             let transcript = fs::read_to_string(&path).unwrap_or_default();
             let employee = db.employee(&r.employee_id)?;
             let supervised = employee.as_ref().is_some_and(|e| e.clearance == Clearance::Supervised);
@@ -654,7 +656,7 @@ fn find_member<'a, T>(items: &'a [T], key: &str, f: impl Fn(&T) -> (&String, Opt
     let k = key.trim().to_lowercase();
     items.iter().find(|x| {
         let (id, slug, name) = f(x);
-        id.to_lowercase() == k || slug.map(|s| s.to_lowercase() == k).unwrap_or(false) || name.to_lowercase() == k
+        id.to_lowercase() == k || slug.is_some_and(|s| s.to_lowercase() == k) || name.to_lowercase() == k
     })
 }
 

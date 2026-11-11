@@ -1,5 +1,5 @@
-// Where each conversation stands, worked out in one place. The Inbox, its badge, the panel's chips and the
-// conversation header all read what `threadStatus` returns and decide nothing themselves. Pure.
+// Where each conversation stands, worked out in one place. The Inbox, its badge and the conversation header all
+// read what `threadStatus` returns and decide nothing themselves. Pure.
 import type { Thread } from "../api/types";
 import type { Mark, Marks } from "./marks";
 import { toolName } from "./rules";
@@ -7,7 +7,7 @@ import { activityAt, blockedNow, broken, flags, isLive, isTask, lastReply, lates
 
 /** What a conversation is waiting on: you, the employee (working, or queued for a free slot), a time (snoozed),
  *  nothing ever again (done), or nothing right now (idle). */
-export type State = "needsYou" | "working" | "queued" | "snoozed" | "done" | "idle";
+type State = "needsYou" | "working" | "queued" | "snoozed" | "done" | "idle";
 
 /** Where one conversation stands. */
 export type Status = {
@@ -57,7 +57,7 @@ const stateOf = (f: Facts): State => RULES.find(([, when]) => when(f))![0];
 const ms = (iso: string | null | undefined): number => (iso ? Date.parse(iso) : 0);
 
 /** Who spoke last in a thread: the employee once its newest run (the report, or your last reply) has ended. */
-export function lastSpeaker(t: Thread): "you" | "them" {
+function lastSpeaker(t: Thread): "you" | "them" {
   return (lastReply(t) ?? t.root).endedAt ? "them" : "you";
 }
 

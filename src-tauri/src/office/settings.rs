@@ -7,10 +7,6 @@ const SWEEP_FIRST: Duration = Duration::from_secs(300);
 const SWEEP_EVERY: Duration = Duration::from_secs(24 * 3600);
 
 impl Office {
-    pub fn company(&self) -> Result<Option<Company>> {
-        self.db().company()
-    }
-
     pub async fn setup_status(&self, background: bool) -> Result<SetupStatus> {
         let settings = self.settings()?;
         let path = claude::locate(settings.claude_path.as_deref());
@@ -26,7 +22,7 @@ impl Office {
                 version,
             },
             account,
-            company: self.company()?,
+            company: self.db().company()?,
             background,
             build: self.0.build.clone(),
         })
@@ -36,11 +32,7 @@ impl Office {
         if company_name.trim().is_empty() || ceo_name.trim().is_empty() {
             return Err(AppError::invalid("company name and your name are required"));
         }
-        let settings = self.settings()?;
-        let email = match claude::locate(settings.claude_path.as_deref()) {
-            Some(p) => claude::auth_status(&p, &settings.proxy.env()).await.and_then(|a| a.email),
-            None => None,
-        };
+        let email = signed_in(&self.settings()?).await.and_then(|a| a.email);
         let c = Self::edit_org(&self.db(), |org| {
             org.company = Company {
                 name: company_name.trim().into(),
@@ -162,14 +154,13 @@ impl Office {
     }
 
     /// Backs up if an automatic backup is due at `at` and the last one is out of date or gone.
-    /// Returns whether one was attempted.
-    pub async fn backup_tick(&self, at: Ts) -> Result<bool> {
+    pub async fn backup_tick(&self, at: Ts) -> Result<()> {
         let settings = self.settings()?.backup;
         let st = self.db().backup_status()?.unwrap_or_default();
         if !backup::is_due(settings.frequency, &st, at) {
-            return Ok(false);
+            return Ok(());
         }
-        let Ok(_backing_up) = self.0.backing_up.try_lock() else { return Ok(false) };
+        let Ok(_backing_up) = self.0.backing_up.try_lock() else { return Ok(()) };
         let dir = self.data_dir().to_path_buf();
         let fingerprint = tokio::task::spawn_blocking(move || backup::fingerprint(&dir))
             .await
@@ -180,12 +171,12 @@ impl Office {
             st.checked_at = Some(at);
             self.db().set_backup_status(&st)?;
             self.sink().backup_updated(&self.status_of_backups(false)?);
-            return Ok(false);
+            return Ok(());
         }
         if let Err(e) = self.run_backup(at).await {
             log!("backup failed: {e}");
         }
-        Ok(true)
+        Ok(())
     }
 
     /// Callers hold `backing_up`. Records the outcome either way.
@@ -286,14 +277,14 @@ impl Office {
         let runs_dir = self.0.data_dir.join("runs");
         let ids: Vec<String> = fs::read_dir(&runs_dir)?
             .flatten()
-            .filter(|e| e.path().join("transcript.jsonl").is_file())
+            .filter(|e| e.path().join(TRANSCRIPT).is_file())
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
         let runs = self.db().runs_by_id(&ids)?;
         let mut deleted = 0;
         for id in expired(&runs, at - chrono::Duration::days(days.into())) {
             let dir = runs_dir.join(id);
-            match fs::remove_file(dir.join("transcript.jsonl")) {
+            match fs::remove_file(dir.join(TRANSCRIPT)) {
                 Ok(()) => deleted += 1,
                 Err(e) => log!("could not delete the transcript of run {id}: {e}"),
             }
@@ -453,10 +444,7 @@ impl Office {
     /// could not tell. The only `claude auth status` cache in the app.
     pub(super) async fn refresh_account(&self) {
         let settings = self.settings().unwrap_or_default();
-        let account = match claude::locate(settings.claude_path.as_deref()) {
-            Some(p) => claude::auth_status(&p, &settings.proxy.env()).await,
-            None => None,
-        };
+        let account = signed_in(&settings).await;
         *lock(&self.0.account) = Some((now(), account.clone()));
         let recorded = match self.db().company() {
             Ok(c) => c.and_then(|c| c.email),
@@ -486,11 +474,7 @@ impl Office {
 
     /// Makes the account Claude Code is signed in to now the office's own, which ends an account pause.
     pub async fn use_signed_in_account(&self) -> Result<Company> {
-        let settings = self.settings()?;
-        let account = match claude::locate(settings.claude_path.as_deref()) {
-            Some(p) => claude::auth_status(&p, &settings.proxy.env()).await,
-            None => None,
-        };
+        let account = signed_in(&self.settings()?).await;
         let email = account
             .as_ref()
             .filter(|a| a.logged_in)
@@ -575,9 +559,15 @@ fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool,
     }
 }
 
-/// The runs whose folders the transcript sweep deletes: those that finished before `cutoff`. Pure.
+/// The runs whose transcripts the sweep deletes: those that finished before `cutoff`. Pure.
 fn expired(runs: &[Run], cutoff: Ts) -> Vec<&str> {
     runs.iter().filter(|r| r.state.is_finished() && r.ended_at.is_some_and(|t| t < cutoff)).map(|r| r.id.as_str()).collect()
+}
+
+/// The account Claude Code is signed in to; `None` when it is not found or could not tell.
+async fn signed_in(settings: &AppSettings) -> Option<Account> {
+    let program = claude::locate(settings.claude_path.as_deref())?;
+    claude::auth_status(&program, &settings.proxy.env()).await
 }
 
 /// Why routines must wait for the account: Claude Code is signed out, or signed in to another account
@@ -597,6 +587,7 @@ fn account_issue(recorded: Option<&str>, now: Option<&Account>) -> Option<Accoun
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::NoSink;
 
     fn window(percent: f64) -> Option<UsageWindow> {
         Some(UsageWindow { percent, resets_at: None, resets_text: None })
@@ -621,14 +612,6 @@ mod tests {
 
     fn account(logged_in: bool, email: Option<&str>) -> Account {
         Account { logged_in, email: email.map(String::from), org_name: None, plan: None }
-    }
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
     }
 
     #[tokio::test]
@@ -725,9 +708,8 @@ mod tests {
         assert!(dir.join("runs/not-a-run").exists(), "a folder no run owns is left alone");
 
         let gone = office.run_detail(&old.id).unwrap();
-        assert!(gone.transcript_gone && gone.events.is_empty());
+        assert!(gone.events.is_empty());
         assert_eq!(gone.run.summary.as_deref(), Some("All done."), "the row and its report stay");
-        assert!(!office.run_detail(&recent.id).unwrap().transcript_gone);
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

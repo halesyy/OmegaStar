@@ -9,8 +9,8 @@ import { getDraft, setDraft } from "../../lib/drafts";
 import { ms, reducedMotion } from "../../lib/motion";
 import { Icon } from "../Icon";
 import { ConfirmButton, ErrorNote } from "../ui";
-import type { AimTarget } from "../conversation/CardView";
-import "./ChatTab.css";
+import type { AimTarget } from "./CardView";
+import "./Chat.css";
 
 const MAX_FILES = 10;
 const MAX_FILE_MB = 20;
@@ -30,7 +30,6 @@ function toAttachment(file: File): Promise<NewAttachment> {
 export type ChatSurfaceHandle = {
   /** Puts text in the composer and moves the caret to its end. */
   prefill: (text: string) => void;
-  focus: () => void;
   /** Aims the composer at a card, so what you write answers it (null: back to the conversation). */
   aim: (target: AimTarget | null) => void;
 };
@@ -44,9 +43,7 @@ export type ChatSurfaceHandle = {
  */
 export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   e: EmployeeView;
-  /** A turn is in flight. */
-  busy: boolean;
-  /** The turn in flight, for the Stop button. */
+  /** The turn in flight, if any, for the placeholder and the Stop button. */
   live?: LiveRun;
   placeholder: string;
   /** Said above the composer once you start typing: "This won't answer the card above." */
@@ -65,7 +62,7 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   /** Open at the end of the conversation and keep to it (a thread); off for a page read from the top (a new one). */
   pin?: boolean;
   children: ReactNode;
-}>(function ChatSurface({ e, busy, live, placeholder, cardNote, draftKey, scrollKey, onSend, onSendDone, onStop, autoFocus = true, onAim, pin = true, children }, ref) {
+}>(function ChatSurface({ e, live, placeholder, cardNote, draftKey, scrollKey, onSend, onSendDone, onStop, autoFocus = true, onAim, pin = true, children }, ref) {
   const [text, setText] = useState(() => getDraft(draftKey));
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -118,28 +115,21 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
   const attempt = live ? live.events.slice(live.events.map((ev) => ev.type).lastIndexOf("init") + 1) : [];
   const steerable = live?.run.state === "running" && !attempt.some((ev) => ev.type === "result");
 
-  useImperativeHandle(ref, () => ({
-    prefill: (t) => {
-      setText(t);
-      requestAnimationFrame(() => {
-        const el = input.current;
-        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-      });
-    },
-    focus: () => input.current?.focus(),
-    aim: setAim,
-  }), [setAim]);
+  const prefill = useCallback((t: string) => {
+    setText(t);
+    requestAnimationFrame(() => {
+      const el = input.current;
+      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+    });
+  }, []);
+  useImperativeHandle(ref, () => ({ prefill, aim: setAim }), [prefill, setAim]);
 
   useEffect(() => { setDraft(draftKey, text); }, [draftKey, text]);
 
   // The conversation's menu: words to start from, or the file picker.
   useComposerAsks(draftKey, (ask) => {
-    if (ask.type === "attach") { picker.current?.click(); return; }
-    setText(ask.text);
-    requestAnimationFrame(() => {
-      const el = input.current;
-      if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
-    });
+    if (ask.type === "attach") picker.current?.click();
+    else prefill(ask.text);
   });
 
   // Previews are object URLs: release them when they leave the composer.
@@ -324,7 +314,7 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
           <div className="composer-row">
             <textarea
               ref={input} className="composer-input" value={text} disabled={sending} rows={1}
-              placeholder={aim ? `Your answer for ${aim.name}` : !busy ? placeholder : steerable ? `Message ${name}. They'll see it as they work.` : `Message ${name}. It goes to them as their next turn.`}
+              placeholder={aim ? `Your answer for ${aim.name}` : !live ? placeholder : steerable ? `Message ${name}. They'll see it as they work.` : `Message ${name}. It goes to them as their next turn.`}
               onChange={(ev) => setText(ev.target.value)}
               onPaste={(ev) => {
                 const pasted = [...ev.clipboardData.files];

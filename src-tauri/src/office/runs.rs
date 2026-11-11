@@ -1,10 +1,9 @@
 //! The run queue: enqueueing, claiming, gathering a snapshot, executing and cancelling runs.
 
 use super::*;
-use crate::cards;
 
 const EVENT_BATCH: Duration = Duration::from_millis(100);
-/// Told to a run whose Chrome dropped, with `{ceo}` filled in by `chrome_note`.
+/// Told to a run whose Chrome dropped, with `{ceo}` filled in.
 const CHROME_NOTE: &str = "Omega Star: Chrome is not connected, so {ceo} has been asked to reconnect it. Do not ask {ceo} about it yourself. Carry on with what does not need Chrome. If the rest needs Chrome, finish with what you have and say what is left; you will be picked up again once it is back.";
 
 impl Office {
@@ -112,13 +111,10 @@ impl Office {
 
     pub fn run_detail(&self, run_id: &str) -> Result<RunDetail> {
         let run = self.run(run_id)?;
-        let dir = self.run_dir(run_id);
-        let transcript = fs::read_to_string(dir.join("transcript.jsonl")).unwrap_or_default();
+        let transcript = fs::read_to_string(self.run_dir(run_id).join(TRANSCRIPT)).unwrap_or_default();
         let children = self.db().children(run_id)?;
         let events = claude::replay(&transcript, &self.employee_dir(&run.employee_id));
-        // Every run that started has a transcript until the transcript sweep deletes it.
-        let transcript_gone = run.state.is_finished() && run.started_at.is_some() && !dir.join("transcript.jsonl").exists();
-        Ok(RunDetail { events, run, children, transcript_gone })
+        Ok(RunDetail { events, run, children })
     }
 
     pub fn cancel_run(&self, run_id: &str) -> Result<()> {
@@ -336,17 +332,12 @@ impl Office {
     /// takes a message typed while it works, and `RunEvent::Heard` marks when. `false` when the run no longer takes
     /// messages (its turn is over, or it has not started).
     pub(super) fn steer(&self, run_id: &str, text: &str) -> bool {
-        self.steer_as(run_id, text, text)
-    }
-
-    /// `steer`, where the employee hears `said` and the run's events keep your own words, `text`.
-    fn steer_as(&self, run_id: &str, text: &str, said: &str) -> bool {
         let id = uuid::Uuid::new_v4().to_string();
         let ev = RunEvent::User { text: text.to_string(), id: Some(id.clone()) };
         {
             let mut active = lock(&self.0.active);
             let Some(a) = active.get_mut(run_id) else { return false };
-            if !a.input.as_ref().is_some_and(|i| i.send(claude::steer_line(said, &id)).is_ok()) {
+            if !a.input.as_ref().is_some_and(|i| i.send(claude::steer_line(text, &id)).is_ok()) {
                 return false;
             }
             a.waiting.push(id);
@@ -356,58 +347,6 @@ impl Office {
         }
         self.sink().run_events(run_id, &[ev]);
         true
-    }
-
-    /// Your words to a run you are watching from its page. While it works they go straight in, saying who is speaking
-    /// unless it is a conversation with you. While it waits to start for the first time they join what it starts with.
-    /// Otherwise (it finished, or could not take a message just then) they are your reply in its thread, which is also
-    /// how a conversation turn takes them, as its composer sends them. Whichever way they went, a run that is not a
-    /// conversation keeps its report for you in the Inbox (`Run::steered`).
-    pub fn steer_run(&self, run_id: &str, text: &str) -> Result<SteerHow> {
-        let text = text.trim();
-        if text.is_empty() {
-            return Err(AppError::invalid("message is empty"));
-        }
-        let watched = {
-            let db = self.db();
-            let mut run = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
-            if !run.kind.is_conversation() {
-                let ceo = ceo_of(&db)?;
-                match run.state {
-                    // Never started, as `tools::untouched` has it: a run back in the queue resumes past what it started with.
-                    RunState::Queued if run.restarts == 0 && run.limit_retries == 0 => {
-                        run.prompt = format!("{}\n\n{ceo} added before you started: {text}", run.prompt);
-                        run.steered = true;
-                        db.save_run(&run)?;
-                        drop(db);
-                        self.sink().run_updated(&run);
-                        return Ok(SteerHow::Added);
-                    }
-                    // Marked under the store lock, so the run's end, which keeps the mark (`execute`), cannot miss it.
-                    RunState::Running if self.steer_as(run_id, text, &steer_words(&run, &ceo, text)) => {
-                        run.steered = true;
-                        db.save_run(&run)?;
-                        return Ok(SteerHow::Steered);
-                    }
-                    _ => {}
-                }
-            }
-            !run.kind.is_conversation()
-        };
-        let reply = self.reply_to_run(run_id, text, false, vec![])?;
-        // Your words reached it all the same, as your reply in its thread, so its report waits for you too.
-        if watched {
-            let marked = {
-                let db = self.db();
-                let run = db.run(run_id)?.map(|r| r.run).filter(|r| !r.steered).map(|r| Run { steered: true, ..r });
-                run.map(|r| db.save_run(&r).map(|_| r)).transpose()?
-            };
-            if let Some(r) = marked {
-                self.sink().run_updated(&r);
-            }
-        }
-        // A run that just started can take it after all: the reply went into it.
-        Ok(if reply.id == run_id { SteerHow::Steered } else { SteerHow::Replied })
     }
 
     /// Writes into a run's open stdin without recording it as your message: for notes Omega Star writes,
@@ -425,14 +364,14 @@ impl Office {
             return;
         }
         let why = format!("{} is waiting. Open Chrome, check the Claude extension is on and signed in, then press Done.", e.name);
-        if let Err(err) = self.raise_chore(&run.id, cards::CHROME, "Reconnect Claude in Chrome", &why) {
+        if let Err(err) = self.raise_chrome_chore(&run.id, &why) {
             log!("run {}: asking you to reconnect Chrome failed: {err}", run.id);
         }
         let ceo = ceo_of(&self.db()).unwrap_or_else(|err| {
             log!("run {}: could not read the company for the Chrome note: {err}", run.id);
             "the person you work for".into()
         });
-        self.tell(&run.id, &chrome_note(&ceo));
+        self.tell(&run.id, &CHROME_NOTE.replace("{ceo}", &ceo));
     }
 
     /// Appends a synthetic event to a live run's transcript and forwards it to the UI.
@@ -503,7 +442,7 @@ impl Office {
                     let channels = people.iter().find(|p| &p.id == person_id).map(|p| p.channels.as_slice()).unwrap_or_default();
                     let channel = request.channel_id.as_ref().and_then(|c| channels.iter().find(|x| &x.id == c)).map(claude::channel_name);
                     let days = settings.as_ref().map_or(WatchSettings::default(), |s| s.watch.clone()).give_up_after_days;
-                    claude::Watched { person: person_name(person_id), channel, days, request }
+                    claude::Watched { channel, days, request }
                 })
             }
             _ => None,
@@ -520,8 +459,6 @@ impl Office {
                     (r, n)
                 })
                 .collect();
-        }
-        if let Some(o) = opening.as_mut() {
             tools::catch_up(&db, &employees, run, o)?;
         }
         let chain = match (&run.kind, run.upstream()) {
@@ -736,7 +673,7 @@ impl Office {
         let since = run.started_at.unwrap_or(run.created_at);
         reset_for_requeue(&mut run, &own_changes(&e.changes).collect::<Vec<_>>(), limit);
         // The next attempt's lines follow this one's, which ended in the limit.
-        run.attempt_from = fs::metadata(self.run_dir(&run.id).join("transcript.jsonl")).map_or(0, |m| m.len());
+        run.attempt_from = fs::metadata(self.run_dir(&run.id).join(TRANSCRIPT)).map_or(0, |m| m.len());
         let saved = {
             let db = self.db();
             db.tx(|| {
@@ -836,7 +773,7 @@ impl Office {
         let transcript = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(run_dir.join("transcript.jsonl"))?;
+            .open(run_dir.join(TRANSCRIPT))?;
         // A run requeued after the usage limit appends to the same transcript; this attempt's lines start here.
         let attempt_start = transcript.metadata().map(|m| m.len()).unwrap_or(0);
         let transcript = Arc::new(Mutex::new(transcript));
@@ -904,7 +841,7 @@ impl Office {
         });
         let _ = input.send(claude::user_line(&inv.stdin));
         // Your messages an earlier attempt never took, as Omega Star stopped before its next step, go in again now.
-        let unheard = if attempt_start > 0 { claude::unheard(&fs::read_to_string(run_dir.join("transcript.jsonl")).unwrap_or_default()) } else { vec![] };
+        let unheard = if attempt_start > 0 { claude::unheard(&fs::read_to_string(run_dir.join(TRANSCRIPT)).unwrap_or_default()) } else { vec![] };
         for (id, text) in &unheard {
             let _ = input.send(claude::steer_line(&steer_words(run, &snap.company.ceo_name, text), id));
         }
@@ -1002,7 +939,7 @@ impl Office {
         // reports no cost of its own.
         let before_cost = match spent.first() {
             _ if !snap.resume => Some(0.0),
-            Some(s) if s.own.is_none() => self.session_total_before(run, &snap.session, &run_dir.join("transcript.jsonl"), attempt_start),
+            Some(s) if s.own.is_none() => self.session_total_before(run, &snap.session, &run_dir.join(TRANSCRIPT), attempt_start),
             _ => None,
         };
         let cost = claude::run_cost(&spent, before_cost);
@@ -1047,9 +984,9 @@ impl Office {
             if was == is {
                 continue;
             }
-            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
+            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
             let wrote = skills::wrote_file(text, &path, &snap.employee_dir);
-            if !skills::ceo_present(&run) {
+            if !skills::ceo_present(run) {
                 let who = (skill == own_skills::OWN).then_some(snap.employee.id.as_str());
                 let since = run.started_at.unwrap_or(run.created_at);
                 let seen = {
@@ -1087,7 +1024,7 @@ impl Office {
             .into_iter()
             .map(|c| {
                 let wrote = !alone && {
-                    let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
+                    let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
                     moved.get_or_insert_with(|| moved_skills(text)).contains(&c.change.skill)
                         || own_skills::recorded_path(&snap.employee_dir, &c.change.skill, &c.change.file).is_ok_and(|path| skills::wrote_file(text, &path, &snap.employee_dir))
                 };
@@ -1102,7 +1039,7 @@ impl Office {
         );
         // Which of its skills it used, so a skill no run uses shows up (`health`). Looking after them is not using them.
         if !matches!(run.kind, RunKind::Tidy { .. } | RunKind::Organize { .. }) {
-            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join("transcript.jsonl"), attempt_start));
+            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
             let own = own_skills::own_skill_names(&skills_dir);
             let used: HashSet<String> = skills_used(text).into_iter().filter(|s| own.contains(s)).collect();
             if let Err(e) = self.db().record_skill_use(&run.employee_id, &used, now()) {
@@ -1140,7 +1077,7 @@ impl Office {
             return Some(total);
         }
         let turns = self.db().turns_of_session(session, &run.id).ok()?;
-        turns.iter().find_map(|r| claude::last_total(&fs::read_to_string(self.run_dir(&r.id).join("transcript.jsonl")).ok()?))
+        turns.iter().find_map(|r| claude::last_total(&fs::read_to_string(self.run_dir(&r.id).join(TRANSCRIPT)).ok()?))
     }
 
     /// Takes the image data out of finished runs' transcripts, which older builds saved whole: one file at a time,
@@ -1153,7 +1090,7 @@ impl Office {
             if !self.db().run(&id).ok().flatten().is_some_and(|r| r.run.state.is_finished()) {
                 continue;
             }
-            match compact_transcript(&dir.path().join("transcript.jsonl")) {
+            match compact_transcript(&dir.path().join(TRANSCRIPT)) {
                 Ok(n) => saved += n,
                 Err(e) => log!("run {id}: could not take the images out of its transcript: {e}"),
             }
@@ -1227,7 +1164,7 @@ pub(super) fn moved_skills(transcript: &str) -> HashSet<String> {
 }
 
 /// The skills a run used, its subagents included: invoked with the Skill tool, or a `SKILL.md` read in a skills folder.
-pub(super) fn skills_used(transcript: &str) -> HashSet<String> {
+fn skills_used(transcript: &str) -> HashSet<String> {
     let mut used = HashSet::new();
     let lines = transcript.lines().filter(|l| l.contains("\"tool_use\"")).filter_map(|l| serde_json::from_str::<Value>(l).ok());
     for v in lines.filter(|v| v["type"] == "assistant") {
@@ -1293,8 +1230,8 @@ struct Ended {
     cost: Option<f64>,
 }
 
-/// What you did to a run while it worked, after the copy its end holds was taken: you wrote into it (`steer_run`), or
-/// replied in its thread (`reply_to_run`). Kept when its end saves that copy over `stored`. Pure.
+/// What you did to a run while it worked, after the copy its end holds was taken: you wrote into it or replied in
+/// its thread (`reply_to_run`). Kept when its end saves that copy over `stored`. Pure.
 fn keep_yours(run: &mut Run, stored: &Run) {
     run.steered |= stored.steered;
     run.replied_at = run.replied_at.max(stored.replied_at);
@@ -1302,7 +1239,7 @@ fn keep_yours(run: &mut Run, stored: &Run) {
 
 /// A colleague's answer coming back, and a colleague's question (not a task): short runs that never wait behind
 /// their employee's other background work, though they still keep to the cap and to their session. Pure.
-pub(super) fn fast_lane(kind: &RunKind) -> bool {
+fn fast_lane(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Answered { .. } | RunKind::Asked { task: false, .. })
 }
 
@@ -1332,15 +1269,15 @@ enum Gate {
     Skip,
 }
 
-/// The office-wide holds on a queued run, in order: the usage limit holds every run (a conversation would
-/// fail the same way); work you are not in waits for the right account; a tidy waits while anything else of its
-/// employee's runs (`busy`), so it never tidies a skill a conversation, an answer or the other lane is still using
-/// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
-/// you: nobody may be watching when it lands. Pure.
 /// Off until omega.log shows its "dark wake" lines only during real dark wakes (`pmset -g log`), never
 /// while the display merely sleeps in a full wake: a wrong reading would hold every routine overnight.
 const GATE_DARK_WAKE: bool = false;
 
+/// The office-wide holds on a queued run, in order: the usage limit holds every run (a conversation would
+/// fail the same way); work you are not in waits for the right account; a tidy waits while anything else of its
+/// employee's runs (`busy`), so it never tidies a skill a conversation, an answer or another lane is still using
+/// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
+/// you: nobody may be watching when it lands. Pure.
 fn gate(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> Gate {
     let background = !skills::ceo_present(run);
     if held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake) {
@@ -1503,11 +1440,8 @@ fn attachment_names<'a>(raw: impl IntoIterator<Item = &'a str>) -> Vec<String> {
     out
 }
 
-fn chrome_note(ceo: &str) -> String {
-    CHROME_NOTE.replace("{ceo}", ceo)
-}
-
-/// What an employee at work on `run` hears of your words: a conversation with you needs nobody named. Pure.
+/// Your words an earlier attempt of `run` never took, as the employee hears them again: a conversation with you
+/// needs nobody named. Pure.
 fn steer_words(run: &Run, ceo: &str, text: &str) -> String {
     if run.kind.is_conversation() { text.to_string() } else { format!("{ceo} is watching this run and says: {text}") }
 }
@@ -1556,7 +1490,7 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
     };
     let mut work: Vec<Run> =
         finished_after(&e.id, window_start)?.into_iter().filter(|r| r.run.id != run.id && r.session != session).map(|r| r.run).collect();
-    work.sort_by(|a, b| b.ended_at.cmp(&a.ended_at));
+    work.sort_by_key(|r| std::cmp::Reverse(r.ended_at));
 
     let mut team = vec![];
     let mut team_since = window_start;
@@ -1581,7 +1515,7 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
                 team.push((x.name.clone(), r.run));
             }
         }
-        team.sort_by(|a, b| b.1.ended_at.cmp(&a.1.ended_at));
+        team.sort_by_key(|t| std::cmp::Reverse(t.1.ended_at));
     }
 
     let cards = db
@@ -1651,29 +1585,10 @@ pub(super) fn stderr_tail(stderr: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, NoSink};
 
     fn employee(clearance: Clearance) -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: now(),
-        }
+        Employee { clearance, ..fixtures::employee() }
     }
 
     fn outcome(ok: bool, subtype: &str, text: &str, limit: Option<Limit>) -> Outcome {
@@ -1711,14 +1626,6 @@ mod tests {
 
     fn task(label: &str) -> RunKind {
         RunKind::Task { label: label.into(), from: None, context: String::new() }
-    }
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
     }
 
     #[tokio::test]
@@ -1796,66 +1703,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn your_words_reach_a_run_you_watch_however_far_along_it_is() {
+    async fn your_reply_reaches_a_run_as_it_works() {
         let dir = std::env::temp_dir().join(format!("omegastar-steer-{}", uuid::Uuid::new_v4()));
         let ada = employee(Clearance::Supervised);
-        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..employee(Clearance::Supervised) };
-        let run = |kind: RunKind, prompt: &str, state: RunState| {
-            let mut r = Run::new(&ada.id, kind, prompt.into(), now());
-            r.state = state;
-            r
-        };
-        let handed = run(RunKind::Asked { parent_run_id: "r-bo".into(), asked_by: bo.id.clone(), task: true }, "Count the stock.", RunState::Running);
-        let talk = run(task("Draft the memo"), "Draft the memo.", RunState::Running);
-        let waiting = run(RunKind::Manual, "Sweep the inbox.", RunState::Queued);
-        let mut again = run(RunKind::Manual, "Pay the invoices.", RunState::Queued);
-        again.limit_retries = 1;
-        let mut done = run(RunKind::Manual, "Book the venue.", RunState::Succeeded);
-        done.ended_at = Some(now());
-        done.summary = Some("Booked the hall for Friday.".into());
-        let office = held_office(&dir, &[&ada, &bo], &[&handed, &talk, &waiting, &again, &done]).await;
+        let mut run = Run::new(&ada.id, RunKind::Manual, "Count the stock.".into(), now());
+        run.state = RunState::Running;
+        let office = held_office(&dir, &[&ada], &[&run]).await;
 
-        // Working, it hears you at its next step, told who is speaking, and its events show your own words. The
-        // message goes in tagged, waiting to be taken, so a restart before then sends it again.
-        let mut heard = working(&office, &handed, true);
-        assert_eq!(office.steer_run(&handed.id, "  Count the back room too. ").unwrap(), SteerHow::Steered);
-        let transcript = fs::read_to_string(office.run_dir(&handed.id).join("transcript.jsonl")).unwrap();
+        // It hears you at its next step, and its events show your words. The message goes in tagged, waiting to be
+        // taken, so a restart before then sends it again.
+        let mut heard = working(&office, &run, true);
+        assert_eq!(office.reply_to_run(&run.id, "  Count the back room too. ", false, vec![]).unwrap().id, run.id);
+        let transcript = fs::read_to_string(office.run_dir(&run.id).join("transcript.jsonl")).unwrap();
         let [(id, text)] = &claude::unheard(&transcript)[..] else { panic!("one message waits: {transcript}") };
         assert_eq!(text, "Count the back room too.");
-        assert_eq!(heard.try_recv().unwrap(), claude::steer_line("Pat is watching this run and says: Count the back room too.", id));
-        assert_eq!(lock(&office.0.active)[&handed.id].waiting, vec![id.clone()]);
+        assert_eq!(heard.try_recv().unwrap(), claude::steer_line("Count the back room too.", id));
+        assert_eq!(lock(&office.0.active)[&run.id].waiting, vec![id.clone()]);
         assert_eq!(claude::steered(&transcript), vec!["Count the back room too.".to_string()]);
-        assert!(office.run(&handed.id).unwrap().steered, "its report waits for you");
+        assert!(office.run(&run.id).unwrap().steered, "its report waits for you");
 
-        // Once its turn is over, your words are your reply in its thread, which resumes its session.
-        lock(&office.0.active).get_mut(&handed.id).unwrap().input = None;
-        assert_eq!(office.steer_run(&handed.id, "And the shelves.").unwrap(), SteerHow::Replied);
-        assert_eq!(office.thread(&handed.id).unwrap().replies.iter().map(|r| r.prompt.as_str()).collect::<Vec<_>>(), vec!["And the shelves."]);
-
-        // A conversation with you needs nobody named.
-        let mut heard = working(&office, &talk, true);
-        assert_eq!(office.steer_run(&talk.id, "Keep it short.").unwrap(), SteerHow::Steered);
-        assert!(heard.try_recv().unwrap().contains(r#""content":"Keep it short.""#));
-
-        // Waiting to start, your words join what it starts with.
-        assert_eq!(office.steer_run(&waiting.id, "Skip the newsletters.").unwrap(), SteerHow::Added);
-        let w = office.run(&waiting.id).unwrap();
-        assert_eq!(w.prompt, "Sweep the inbox.\n\nPat added before you started: Skip the newsletters.");
-        assert!(w.steered && w.state == RunState::Queued);
-
-        // Back in the queue after a limit, it resumes past what it started with, so they wait as your reply.
-        assert_eq!(office.steer_run(&again.id, "Only the overdue ones.").unwrap(), SteerHow::Replied);
-        assert_eq!(office.run(&again.id).unwrap().prompt, "Pay the invoices.");
-        assert_eq!(office.thread(&again.id).unwrap().replies.len(), 1);
-        assert!(office.run(&again.id).unwrap().steered, "you wrote into it, so its report waits for you");
-
-        // Finished, they follow up its report in its thread.
-        assert!(!office.run(&done.id).unwrap().steered);
-        assert_eq!(office.steer_run(&done.id, "Why that hall?").unwrap(), SteerHow::Replied);
-        let t = office.thread(&done.id).unwrap();
-        assert!(matches!(&t.replies[..], [r] if r.prompt.ends_with("Pat's reply:\n\nWhy that hall?")), "{:?}", t.replies);
-        assert!(t.root.steered);
-        assert_eq!(office.steer_run(&done.id, "  ").unwrap_err().message, "message is empty");
+        // Once its turn is over, your words start a reply in its thread, which resumes its session.
+        lock(&office.0.active).get_mut(&run.id).unwrap().input = None;
+        assert_ne!(office.reply_to_run(&run.id, "And the shelves.", false, vec![]).unwrap().id, run.id);
+        assert_eq!(office.thread(&run.id).unwrap().replies.len(), 1);
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -2044,7 +1914,7 @@ mod tests {
         queue(&office, &ada, routine("s1", 0), None, RunState::Running);
         let again = queue(&office, &ada, routine("s1", 1), None, RunState::Queued);
         let other = queue(&office, &ada, routine("s2", 2), None, RunState::Queued);
-        // Bo has only a colleague's answer going, beside which a tidy would once have started.
+        // Bo has only a colleague's answer going, which takes none of Bo's lanes.
         let answer = RunKind::Answered { asked_run_id: "a1".into(), from: ada.id.clone(), task: false, chat: false, thread: None };
         queue(&office, &bo, answer, None, RunState::Running);
         let tidying = queue(&office, &bo, tidy(), None, RunState::Queued);
@@ -2282,7 +2152,6 @@ mod tests {
         let tidy = RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
         let talk = task("Draft it");
         let gate = |kind: &RunKind, held, account_ok, busy, awake| gate(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, busy, awake);
-        // gate(run, held, account_ok, busy, awake)
         assert_eq!(gate(&talk, true, true, false, true), Gate::Skip);
         assert_eq!(gate(&talk, false, false, false, true), Gate::Claim);
         assert_eq!(gate(&scheduled, false, false, false, true), Gate::Skip);
@@ -2630,7 +2499,7 @@ mod tests {
         let supervised = employee(Clearance::Supervised);
         assert!(!covered(&supervised, &["Bash(git:*)".into()], &d));
         assert!(covered(&supervised, &[claude::CHROME_RULE.into()], &d));
-        assert!(covered(&supervised, &[d.tool.clone()], &d));
+        assert!(covered(&supervised, std::slice::from_ref(&d.tool), &d));
         let git = Denial { tool: "Bash".into(), brief: "git push".into(), suggested_rule: "Bash(git:*)".into() };
         assert!(covered(&supervised, &["Bash(git:*)".into()], &git));
         assert!(!covered(&supervised, &["Bash(ls:*)".into()], &git));

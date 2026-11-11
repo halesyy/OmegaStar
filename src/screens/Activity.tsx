@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call } from "../api/client";
 import type { EmployeeUsage, EmployeeView, PersonView, RoutineUsage, Run, RunUsage, SkillRevision } from "../api/types";
-import { dayHeading, firstName, MOD, runKindLabel, shortAge, timeOrDay } from "../lib/format";
+import { dayHeading, firstName, listNames, MOD, runKindLabel, shortAge, timeOrDay } from "../lib/format";
 import { refreshOrg, useNow, useOrg, useQuery, useRunDetail, type Query } from "../lib/hooks";
 import { curve, ms, reducedMotion } from "../lib/motion";
 import { navigate, openChat, openMember, openRun, type ActivityView } from "../lib/router";
@@ -23,8 +23,6 @@ import "./Activity.css";
 const WEEK_MS = 8 * 24 * 3600 * 1000;
 /** Wide enough for the history beside a work column. */
 const WIDE = 1040;
-
-type Shown = "runs" | "numbers" | "skills";
 
 /** Whether an element is at least `px` wide, measured before paint and kept up to date. Pass the returned callback as
  *  the element's `ref`, so it is followed however it mounts. */
@@ -51,8 +49,6 @@ function useWide(px: number): [(el: HTMLElement | null) => void, boolean] {
 export function ActivityScreen({ view }: { view: ActivityView }) {
   const { snap, error } = useOrg();
   const [who, setWho] = useState<string | null>(null);
-  // The route says which view: runs, numbers (#/activity/numbers) or skill changes.
-  const shown: Shown = view;
   const employees = useMemo(() => snap?.employees ?? [], [snap]);
   const people = useMemo(() => snap?.people ?? [], [snap]);
   const chosen = employees.find((e) => e.id === who);
@@ -64,31 +60,31 @@ export function ActivityScreen({ view }: { view: ActivityView }) {
   // Every view's data loads with the page, so switching views shows what is there at once, never a skeleton between.
   const numbersData = useNumbersData();
   const changes = useChanges(employees);
-  const swapKey = `${shown}~${who ?? ""}`;
+  const swapKey = `${view}~${who ?? ""}`;
 
   const side = useScrollFade<HTMLElement>();
   const main = useScrollFade<HTMLDivElement>();
 
-  const go = (to: Shown) => navigate({ page: "activity", view: to });
+  const go = (to: ActivityView) => navigate({ page: "activity", view: to });
 
   // The work column is drawn only when there is something to put in it; otherwise the page takes the whole width.
   const column = wide && hired && !(!snap && error);
   let body: ReactNode;
   if (!snap && error) body = <ErrorCard title="Couldn't load activity" text={error} onRetry={refreshOrg} />;
-  else if (!snap) body = <PageSkeleton view={shown} wide={wide} />;
-  else if (!hired) body = <FirstUse view={shown} />;
-  else if (shown === "runs") body = <Runs q={runs} who={who} name={name} employees={employees} people={people} wide={wide} />;
-  else if (shown === "numbers") body = <Numbers data={numbersData} who={who} employees={employees} />;
+  else if (!snap) body = <PageSkeleton view={view} wide={wide} />;
+  else if (!hired) body = <FirstUse view={view} />;
+  else if (view === "runs") body = <Runs q={runs} who={who} name={name} employees={employees} people={people} wide={wide} />;
+  else if (view === "numbers") body = <Numbers data={numbersData} who={who} employees={employees} />;
   else body = <SkillChanges q={changes} who={who} name={name} employees={employees} people={people} runs={runs.data} />;
 
   return (
-    <div ref={page} className="activity" data-view={shown} data-wide={wide} data-column={column} data-empty={!!snap && !hired}>
+    <div ref={page} className="activity" data-column={column}>
       <PageHeader title="Activity">
         {hired && (snap || !error) ? <WhoPicker who={who} employees={employees} onPick={setWho} loading={!snap} /> : null}
         <div className="seg" role="group" aria-label="Show">
-          <button aria-pressed={shown === "runs"} onClick={() => go("runs")}>Runs</button>
-          <button aria-pressed={shown === "numbers"} onClick={() => go("numbers")}>Numbers</button>
-          <button aria-pressed={shown === "skills"} onClick={() => go("skills")}>Skill changes</button>
+          <button aria-pressed={view === "runs"} onClick={() => go("runs")}>Runs</button>
+          <button aria-pressed={view === "numbers"} onClick={() => go("numbers")}>Numbers</button>
+          <button aria-pressed={view === "skills"} onClick={() => go("skills")}>Skill changes</button>
         </div>
       </PageHeader>
       <div ref={main} className="act-main scroll-fade">
@@ -222,12 +218,6 @@ function clampWords(text: string, max: number): string {
   return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), max * 0.6)).replace(/[\s,;:.]+$/, "")}…`;
 }
 
-/** A fold: a heading row that opens its own space under it. */
-function useFold(start: boolean): [boolean, () => void] {
-  const [open, setOpen] = useState(start);
-  return [open, () => setOpen((o) => !o)];
-}
-
 // ---------------------------------------------------------------- live work, coming up, and who the team waits on
 
 /** The runs going now, oldest first: who, what, and what each is doing now (the sidebar already says who is working).
@@ -242,7 +232,7 @@ function LiveWork({ who, employees, people, column = false }: { who: string | nu
   if (!column && !rows.length) return null;
   const name = who ? firstName(employees.find((e) => e.id === who)?.name ?? "") : null;
   return (
-    <Section title="Live work" count={live.length} className="act-live" id="live">
+    <Section title="Live work" count={live.length} className="act-live">
       {rows.length ? (
         <div ref={flip} className="act-rail">
           {rows.map(({ item: { run, e }, leaving }) => (
@@ -262,7 +252,7 @@ const CODE_TOOLS = new Set(["Bash", "Read", "Edit", "Write", "Glob", "Grep", "No
 
 /** One run going on the rail: who, how long, the task, and the step it is on now. */
 function LiveRow({ run, e, employees, people }: { run: Run; e: EmployeeView; employees: EmployeeView[]; people: PersonView[] }) {
-  const { detail } = useRunDetail(run.id);
+  const detail = useRunDetail(run.id);
   const now = useNow(60_000);
   const items = useMemo(() => toItems(detail?.events ?? []), [detail?.events]);
   const tools = items.flatMap((i) => (i.kind === "tools" ? i.tools : []));
@@ -300,7 +290,7 @@ function ComingUp({ who, employees, people, waitingOnly = false }: { who: string
   const flip = useMoveRows<HTMLDivElement>(queued.map((q) => q.run.id).join("|"));
   if (!queued.length && !next.length) return null;
   return (
-    <Section title={waitingOnly ? "Up next" : "Coming up"} className={`act-coming ${waitingOnly ? "act-coming-narrow" : ""}`}>
+    <Section title={waitingOnly ? "Up next" : "Coming up"} className="act-coming">
       <div ref={flip} className="act-rail">
         {queued.map(({ run, e }) => (
           <div key={run.id} data-key={run.id} className="act-rail-item">
@@ -327,15 +317,12 @@ function ComingUp({ who, employees, people, waitingOnly = false }: { who: string
   );
 }
 
-/** "Kofi, Lena and Rafi". */
-const listNames = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
-
 /** What the team is waiting on someone else for, folded to one line under what needs you: real people first (each
  *  answered or chased in place), then colleagues. */
 function Waiting({ who, employees, people }: { who: string | null; employees: EmployeeView[]; people: PersonView[] }) {
   const requests = useQuery(() => call("requests", { personId: null, employeeId: who, state: "open" }), [who], ["request:updated", "org:changed"]);
   const asks = useQuery(() => call("open_asks"), [], ["run:updated"]);
-  const [open, toggle] = useFold(false);
+  const [open, setOpen] = useState(false);
   const mine = (asks.data ?? []).filter((r) => who === null || r.employeeId === who || (r.kind.type === "asked" && r.kind.askedBy === who));
   const reqs = requests.data ?? [];
   if (!reqs.length && !mine.length) return null;
@@ -345,7 +332,7 @@ function Waiting({ who, employees, people }: { who: string | null; employees: Em
   ].filter((x, i, all) => all.findIndex((y) => y.id === x.id) === i);
   return (
     <section className="act-waiting" aria-label="Waiting on others">
-      <button type="button" className="act-fold-head" aria-expanded={open} onClick={toggle}>
+      <button type="button" className="act-fold-head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <span className="act-fold-title">Waiting on others</span>
         <span className="act-fold-n num"><Roll value={reqs.length + mine.length} /></span>
         <span className="act-fold-faces" aria-hidden>{waitedOn.slice(0, 4).map((x) => <Avatar key={x.id} name={x.name} hue={x.hue} image={x.image} size={20} person={x.person} />)}</span>
@@ -461,7 +448,7 @@ function Runs({ q, who, name, employees, people, wide }: { q: Query<Run[]>; who:
           </div>
           <Crossfade k={filter}>
             {runs.length === 0 ? (
-              <div className="act-end act-end-filter">
+              <div className="act-end">
                 <p className="act-end-title">Nothing here in the latest runs</p>
                 <p className="act-end-text">{filter === "failed" ? "Anything that still needs you is at the top. " : ""}To find older work, search with {MOD} K.</p>
               </div>
@@ -484,7 +471,7 @@ function NeedsList({ runs, employee, employees, people }: { runs: Run[]; employe
     <div ref={flip} className="act-list runlist">
       {rows.map(({ item: r, leaving }) => (
         <div key={r.id} data-key={r.id} className="act-row collapse" data-open={!leaving}>
-          <div><RunRow run={r} employee={employee(r)} employees={employees} people={people} showEmployee /></div>
+          <div><RunRow run={r} employee={employee(r)} employees={employees} people={people} /></div>
         </div>
       ))}
     </div>
@@ -529,7 +516,7 @@ function RunList({ groups, handedOn, employee, employees, people, filter }: {
         const key = keyOf(l);
         if ("day" in l) return <div key={key} data-key={key} className="act-day">{l.day}</div>;
         if ("quiet" in l) return <div key={key} data-key={key} className="act-row"><QuietRuns runs={l.quiet} employee={employee(l.quiet[0])} employees={employees} people={people} /></div>;
-        return <div key={key} data-key={key} className="act-row"><RunRow run={l.run} employee={employee(l.run)} employees={employees} people={people} showEmployee /></div>;
+        return <div key={key} data-key={key} className="act-row"><RunRow run={l.run} employee={employee(l.run)} employees={employees} people={people} /></div>;
       })}
     </div>
   );
@@ -554,7 +541,7 @@ function QuietRuns({ runs, employee, employees, people }: { runs: Run[]; employe
         <Age at={at} now={now} />
       </button>
       <div className="collapse act-quiet-runs" data-open={open} inert={!open}>
-        <div>{runs.map((r) => <RunRow key={r.id} run={r} employee={employee} employees={employees} people={people} showEmployee />)}</div>
+        <div>{runs.map((r) => <RunRow key={r.id} run={r} employee={employee} employees={employees} people={people} />)}</div>
       </div>
     </>
   );
@@ -832,7 +819,7 @@ function SkillChanges({ q, who, name, employees, people, runs }: { q: Changes; w
   );
 }
 
-/** Where a change came from, as the Skills tab says it: the run's own name, else how it was made. */
+/** Where a change came from: the run's own name, else how it was made. */
 function changeSource(r: SkillRevision, run: Run | undefined, employees: EmployeeView[], people: PersonView[]): string {
   if (r.runId) return run ? (run.kind.type === "chat" ? "Learned in a conversation" : run.kind.type === "manual" || run.kind.type === "delegated" ? workLabel(run, employees, people) : runKindLabel(run.kind)) : "During a run";
   return r.change === "added" ? "Set up" : "Edited by you";
@@ -900,7 +887,7 @@ function RunsSkeleton() {
 }
 
 /** The whole page while the office loads, shaped like the view that will replace it. */
-function PageSkeleton({ view, wide }: { view: Shown; wide: boolean }) {
+function PageSkeleton({ view, wide }: { view: ActivityView; wide: boolean }) {
   if (view === "runs") return <>{wide ? null : <div className="psec"><div className="psec-head"><Skeleton h={12} w={72} /></div><div className="act-rail">{[0, 1].map((i) => <RailSkelRow key={i} />)}</div></div>}<RunsSkeleton /></>;
   return <ListSkeleton />;
 }
@@ -925,7 +912,7 @@ function RailSkeleton() {
 }
 
 /** Nobody hired yet: the message as page type in the upper third, with its one action. */
-function FirstUse({ view }: { view: Shown }) {
+function FirstUse({ view }: { view: ActivityView }) {
   const shell = useShell();
   return (
     <EmptyPage
@@ -934,7 +921,7 @@ function FirstUse({ view }: { view: Shown }) {
         ? "Once you hire someone, every change to their skills shows up here, and any of them can be undone."
         : view === "numbers" ? "Once you hire someone, what each of them does and uses shows up here, today and over the week."
         : "Once you hire someone, their runs show up here the moment they start: on a schedule, when you press Run now, or when a colleague hands one over."}
-      action={<button className="btn btn-primary" onClick={(ev) => shell.hire(null, null, ev.currentTarget)}><Icon name="plus" size={14} strokeWidth={1.8} /> Hire an employee</button>}
+      action={<button className="btn btn-primary" onClick={(ev) => shell.hire(null, ev.currentTarget)}><Icon name="plus" size={14} strokeWidth={1.8} /> Hire an employee</button>}
     />
   );
 }

@@ -5,13 +5,12 @@
 .tree-children { position: relative; display: flex; flex-direction: column; gap: 2px; margin-left: 13px; padding-left: 18px; padding-top: 4px; border-left: 1px solid var(--line-strong); }
 /* Each child hangs from the line on a rounded elbow, as the org outline does. */
 .node { position: relative; }
-.tree-children > .node-wrap > .node::before, .tree-children > .node::before { content: ""; position: absolute; left: -19px; top: 12px; width: 15px; height: 8px; border-left: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); border-bottom-left-radius: 6px; }
-.tree-children > .node-wrap:last-child > .node::after, .tree-children > .node:last-child::after { content: ""; position: absolute; left: -20px; top: 12px; bottom: 0; width: 2px; background: var(--canvas); z-index: 0; }
-.tree-children > .node-wrap:last-child > .node::before, .tree-children > .node:last-child::before { z-index: 1; }
+.tree-children > .node-wrap > .node::before { content: ""; position: absolute; left: -19px; top: 12px; width: 15px; height: 8px; border-left: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); border-bottom-left-radius: 6px; }
+.tree-children > .node-wrap:last-child > .node::after { content: ""; position: absolute; left: -20px; top: 12px; bottom: 0; width: 2px; background: var(--canvas); z-index: 0; }
+.tree-children > .node-wrap:last-child > .node::before { z-index: 1; }
 .node-main { width: 100%; display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 8px 10px; border-radius: var(--r-card); transition: background var(--d-ui) var(--ease); }
 .node-main:hover { background: var(--sunken); }
 .node-role > .node-main { box-shadow: inset 0 0 0 1px var(--line-card); padding: 10px 12px; margin-left: 0; }
-.node-role > .node-main:hover { background: var(--sunken); }
 .node-glyph { flex: none; width: 16px; height: 18px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent-text); }
 /* A skill is a solid dot: the hollow ring means "Up next" in status, so it is never used here. A router (a skill that
    leads to others) is the larger, darker dot. */

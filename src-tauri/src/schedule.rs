@@ -5,36 +5,25 @@ use chrono::{TimeZone, Utc};
 use croner::Cron;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Due {
-    /// Nothing new since `last_slot`.
-    Nothing,
-    /// Fire this slot (the latest one if several were missed).
-    Fire(Ts),
-}
-
 pub fn parse(cron: &str) -> Result<Cron, String> {
     Cron::from_str(cron.trim()).map_err(|e| e.to_string())
 }
 
-/// Decides whether a schedule is due at `now`, given the last slot it fired (or was created) at.
-/// Slots missed while the app was closed or asleep become one run of the latest.
-pub fn due_slot<Tz: TimeZone>(cron: &Cron, last_slot: Ts, now: Ts, tz: &Tz) -> Due {
-    let local_now = now.with_timezone(tz);
-    let Ok(latest) = cron.find_previous_occurrence(&local_now, true) else {
-        return Due::Nothing;
-    };
-    let latest = latest.with_timezone(&Utc);
-    if latest <= last_slot { Due::Nothing } else { Due::Fire(latest) }
+/// The slot a schedule fires at `now`, given the last slot it fired (or was created) at: `None` when nothing
+/// is new since. Slots missed while the app was closed or asleep become one run of the latest.
+pub fn due_slot<Tz: TimeZone>(cron: &Cron, last_slot: Ts, now: Ts, tz: &Tz) -> Option<Ts> {
+    let latest = cron.find_previous_occurrence(&now.with_timezone(tz), true).ok()?.with_timezone(&Utc);
+    (latest > last_slot).then_some(latest)
 }
 
-fn next_fires<Tz: TimeZone>(cron: &Cron, after: Ts, tz: &Tz, n: usize) -> Vec<Ts> {
-    cron.iter_after(after.with_timezone(tz)).take(n).map(|t| t.with_timezone(&Utc)).collect()
+/// The slots `cron` fires at after `after`, on the clock of `tz`.
+pub fn slots_after<Tz: TimeZone>(cron: &Cron, after: Ts, tz: &Tz) -> impl Iterator<Item = Ts> {
+    cron.iter_after(after.with_timezone(tz)).map(|t| t.with_timezone(&Utc))
 }
 
 pub fn preview<Tz: TimeZone>(cron: &str, now: Ts, tz: &Tz) -> CronPreview {
     match parse(cron) {
-        Ok(c) => CronPreview::Ok { description: twelve_hour(&c.describe()), next: next_fires(&c, now, tz, 5) },
+        Ok(c) => CronPreview::Ok { description: twelve_hour(&c.describe()), next: slots_after(&c, now, tz).take(5).collect() },
         Err(error) => CronPreview::Err { error },
     }
 }
@@ -74,7 +63,7 @@ mod tests {
         let cron = parse("*/30 * * * *").unwrap();
         let now = Utc.with_ymd_and_hms(2026, 3, 2, 12, 10, 0).unwrap();
         let latest = Utc.with_ymd_and_hms(2026, 3, 2, 12, 0, 0).unwrap();
-        assert_eq!(due_slot(&cron, now - chrono::Duration::hours(3), now, &Utc), Due::Fire(latest));
-        assert_eq!(due_slot(&cron, latest, now, &Utc), Due::Nothing, "the six missed slots fire once");
+        assert_eq!(due_slot(&cron, now - chrono::Duration::hours(3), now, &Utc), Some(latest));
+        assert_eq!(due_slot(&cron, latest, now, &Utc), None, "the six missed slots fire once");
     }
 }

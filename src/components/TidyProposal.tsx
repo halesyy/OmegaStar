@@ -7,6 +7,9 @@ import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import "./TidyProposal.css";
 
+/** A tidy's bigger changes, waiting for your OK. */
+export const tidyAsks = (r: Run): r is Run & { proposed: string } => r.kind.type === "tidy" && !!r.proposed && !r.approvedAt && !r.archivedAt;
+
 /**
  * The bigger changes a tidy wants to make: splitting, merging, renaming or retiring a skill, or
  * changing a rule you taught. It only proposes them; approving starts a second run that makes exactly these.
@@ -14,7 +17,7 @@ import "./TidyProposal.css";
 export function TidyProposal({ run, employee }: { run: Run; employee: EmployeeView | undefined }) {
   const [busy, setBusy] = useState(false);
   // Asking about it decides nothing. An archived one waits until you reopen it, so one an older build approved stays approved.
-  if (run.kind.type !== "tidy" || !run.proposed || run.approvedAt || run.archivedAt) return null;
+  if (!tidyAsks(run)) return null;
   const name = employee ? firstName(employee.name) : "They";
   const approve = async () => {
     setBusy(true);

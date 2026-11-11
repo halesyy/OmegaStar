@@ -90,7 +90,7 @@
 .org-state { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .org-state .error-note { width: min(520px, 100%); }
 
-/* Nobody hired yet: your card, a dashed stem, and the slot for your first employee, as the parts sheet draws it. */
+/* Nobody hired yet: your card, a dashed stem, and the slot for your first employee. */
 .org-empty { position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; padding: 40px 24px;
   background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px); background-size: 20px 20px; background-position: 10px 10px; }
 .org-empty-you { width: 248px; height: 58px; flex: none; margin-top: auto; }

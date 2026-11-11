@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, OwnSkill, Run, SkillRevision } from "../../api/types";
-import { dateLong, firstName, recordedName, runKindLabel } from "../../lib/format";
+import { dateLong, firstName, recordedName } from "../../lib/format";
 import { refreshOrg, useQuery } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import { openRun } from "../../lib/router";
@@ -9,11 +9,11 @@ import { Diff, lineStats } from "../Diff";
 import { Icon } from "../Icon";
 import { Markdown, splitFrontmatter } from "../Markdown";
 import { ConfirmButton, ErrorNote, Section, Skeleton } from "../ui";
-import { TimelineItem } from "./SkillsOverview";
+import { changeSource, TimelineItem } from "./SkillsOverview";
 
 const folder = (name: string): OwnSkill => ({ name, description: "", role: false, managed: false, files: [], updatedAt: "" });
 /** Files recorded like skills that are not skills: a tidy's notes in workspace/, the company page, and what the employee owns. */
-export const PSEUDO_FOLDERS: Record<string, OwnSkill> = { "@workspace": folder("@workspace"), "@company": folder("@company"), "@own": folder("@own") };
+const PSEUDO_FOLDERS: Record<string, OwnSkill> = { "@workspace": folder("@workspace"), "@company": folder("@company"), "@own": folder("@own") };
 export const pseudoFolder = (name: string): OwnSkill | undefined => (name.startsWith("@") ? PSEUDO_FOLDERS[name] : undefined);
 
 export function FileView({ e, skill, file, history, onBack, onOpenRev, onChanged }: {
@@ -141,7 +141,7 @@ export function RevisionView({ e, rev, run, onBack, onOpenFile, onChanged }: {
           <span className="rev-sub">
             {rev.runId ? (
               <button className="linkish" onClick={() => rev.runId && openRun(rev.runId)}>
-                {run ? (run.kind.type === "chat" ? "Learned in a conversation" : runKindLabel(run.kind)) : "During a run"} <Icon name="arrowUpRight" size={11} />
+                {changeSource(run)} <Icon name="arrowUpRight" size={11} />
               </button>
             ) : "Edited by you"}
             <span className="muted"> · {dateLong(rev.at)}</span>

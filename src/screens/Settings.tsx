@@ -170,15 +170,15 @@ function FailLine({ id, save }: { id: string; save?: RowSave }) {
  *  never moves when the words beside it change. Its save shows beside the title and a failed save opens a line under
  *  the description. A field whose Save button reports for itself passes `mark={false}`; the proxy's fields, which are
  *  saved together at the foot, pass `fail={false}` too. */
-function Row({ title, desc, children, mark = true, fail = true, className }: {
-  title: string; desc?: ReactNode; children?: ReactNode; mark?: boolean; fail?: boolean; className?: string;
+function Row({ title, desc, children, mark = true, fail = true }: {
+  title: string; desc?: ReactNode; children?: ReactNode; mark?: boolean; fail?: boolean;
 }) {
   const save = useRowSave(title);
   const ids = useId();
   const failed = fail && save?.state === "failed";
   const describedBy = [desc ? `${ids}d` : "", failed ? `${ids}f` : ""].filter(Boolean).join(" ") || undefined;
   return (
-    <div className={`set-row ${className ?? ""}`} role="group" aria-labelledby={`${ids}t`} aria-describedby={describedBy}>
+    <div className="set-row" role="group" aria-labelledby={`${ids}t`} aria-describedby={describedBy}>
       <div className="set-words">
         <div className="set-title-line">
           <span id={`${ids}t`} className="set-title">{title}</span>
@@ -367,7 +367,7 @@ const LOADING: { head: number; link?: number; sub?: number[]; rows: { t: number;
 ];
 const INDEX_WIDTHS = [76, 50, 76, 112, 72, 98, 56, 40];
 
-/** Loading: the first two sections at their own geometry and the section list's place, held still. */
+/** Loading: the first four sections at their own geometry and the section list's place, held still. */
 function SettingsLoading() {
   return (
     <div className="set-page set-loading" aria-busy="true" aria-label="Loading settings">
@@ -386,7 +386,7 @@ function SettingsLoading() {
                   <div key={i} className="set-row">
                     <div className="set-words">
                       <span className="set-sk-line"><Skeleton h={11} w={row.t} /></span>
-                      {row.d.map((w, j) => <span key={j} className="set-sk-line set-sk-desc"><Skeleton h={9} w={w} /></span>)}
+                      {row.d.map((w, j) => <span key={j} className="set-sk-line"><Skeleton h={9} w={w} /></span>)}
                     </div>
                     <div className="set-control">
                       {row.c2 ? <div className="set-hours"><div className="set-times">{blocks(row.c)}</div><div className="set-times">{blocks(row.c2)}</div></div> : blocks(row.c)}
@@ -655,7 +655,7 @@ function ProxyGroup({ confirmed, onEdit, onSave }: {
   const edit = (key: keyof ProxySettings) => (e: { target: { value: string } }) => {
     setDraft({ ...draft, [key]: e.target.value });
     if (key in errs) setErrs({ ...errs, [key]: undefined });
-    if (save?.state === "failed") onEdit();
+    if (failed) onEdit();
   };
   const submit = () => {
     const next = { url: draft.url.trim().replace(/\/+$/, ""), apiKey: draft.apiKey.trim(), managementKey: draft.managementKey.trim() };
@@ -673,7 +673,7 @@ function ProxyGroup({ confirmed, onEdit, onSave }: {
     setSetup(false);
     onEdit();
   };
-  const field =(key: "url" | "apiKey" | "managementKey", label: string, extra: { placeholder?: string; type?: string } = {}) => {
+  const field = (key: "url" | "apiKey" | "managementKey", label: string, extra: { placeholder?: string; type?: string } = {}) => {
     const err = key === "apiKey" ? undefined : errs[key];
     return (
       <div className="set-field">

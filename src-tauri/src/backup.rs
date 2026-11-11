@@ -25,7 +25,7 @@ const DB_FILES: [&str; 4] = ["office.db", "office.db-wal", "office.db-shm", "off
 /// Backed up, but it changes on its own every session, so the fingerprint ignores it.
 const LOG: &str = "omega.log";
 /// Files larger than this are left out, except run transcripts.
-pub const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 /// Dependency, build and cache folders, left out wherever they are in the office folder.
 const BULK_DIRS: [&str; 13] = ["node_modules", "target", ".gradle", "DerivedData", "Pods", "__pycache__", ".venv", ".cache", ".next", ".turbo", "build", "builds", "dist"];
 const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, app bundles, and dependency, build and cache folders (such as node_modules, target, build and dist) are not in this backup.";
@@ -108,7 +108,7 @@ pub fn up_to_date(st: &BackupStatus, fingerprint: &str, dir: &str, data_dir: &Pa
     st.last_error.is_none() && st.fingerprint.as_deref() == Some(fingerprint) && st.last_file.as_deref().map(Path::new).is_some_and(in_place)
 }
 
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default)]
 pub struct Summary {
     pub files: u64,
     /// Files or folders that couldn't be read and were left out.
@@ -324,13 +324,12 @@ pub fn write_archive(data_dir: &Path, db_snapshot: &Path, dest: &Path, mut manif
 }
 
 /// Deletes all but the newest `keep` backups in `dir`, and any half-written ones. Files that aren't
-/// Omega Star backups are never touched. Returns how many were deleted.
-pub fn prune(dir: &Path, keep: u32) -> Result<usize> {
-    let doomed = prunable(dir, keep)?;
-    for path in &doomed {
+/// Omega Star backups are never touched.
+pub fn prune(dir: &Path, keep: u32) -> Result<()> {
+    for path in prunable(dir, keep)? {
         fs::remove_file(path)?;
     }
-    Ok(doomed.len())
+    Ok(())
 }
 
 /// What `prune` deletes: the backups older than the newest `keep`, and any half-written ones.

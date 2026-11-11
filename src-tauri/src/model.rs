@@ -236,9 +236,8 @@ pub struct EmployeeView {
     pub presence: Presence,
     /// What they are working on: every queued or running run of theirs, running first, oldest first within each.
     pub live: Vec<Run>,
-    /// How many runs they have going at once, and how many more wait to start.
+    /// How many runs they have going at once.
     pub working: u32,
-    pub waiting: u32,
     pub next_fire: Option<Ts>,
     /// Their latest work-lane run. `Presence::Attention` is decided from it, so it stays work-only.
     pub last_run: Option<Run>,
@@ -611,10 +610,6 @@ pub enum ProposalState {
 }
 
 impl ProposalState {
-    pub fn parse(s: &str) -> Result<Self> {
-        serde_json::from_value(serde_json::Value::String(s.to_string()))
-            .map_err(|_| AppError::invalid(format!("unknown proposal state '{s}'")))
-    }
     pub fn as_str(self) -> &'static str {
         match self {
             ProposalState::Open => "open",
@@ -680,7 +675,6 @@ pub struct SkillInfo {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillSources {
-    pub config_dir: String,
     pub skills_dir: String,
     /// Catalog entries.
     pub found: usize,
@@ -1132,11 +1126,6 @@ impl Card {
         self.pending() || self.put_off()
     }
 
-    /// News you have not seen yet.
-    pub fn unseen_news(&self) -> bool {
-        self.answer.is_none() && self.ask == CardAsk::News
-    }
-
     /// What the card is about: its key, or for a chore asked before keys `chore:<subject>`.
     pub fn topic(&self) -> Option<String> {
         match (&self.key, &self.ask) {
@@ -1330,8 +1319,8 @@ pub struct Run {
     /// When you last replied to this report from the Inbox.
     #[serde(default)]
     pub replied_at: Option<Ts>,
-    /// You wrote into it while it worked or waited to start, so its report waits for you in the Inbox like a reply,
-    /// whatever kind of run it is.
+    /// You wrote into it while it worked, so its report waits for you in the Inbox like a reply, whatever kind of run
+    /// it is.
     #[serde(default)]
     pub steered: bool,
     /// For a reply: your question about one of the thread's cards (`CardReply::Ask`). Your own words, but it leaves the
@@ -1346,7 +1335,7 @@ pub struct Run {
     /// the check's id. A check's own run names it in its kind instead (`RunKind::check_id`).
     #[serde(default)]
     pub check: Option<String>,
-    /// Permission rules you granted for this run only ("Allow once & retry"). They go into the run's
+    /// Permission rules you granted for this run only ("Allow once"). They go into the run's
     /// settings and are never saved to the employee.
     #[serde(default)]
     pub allow_once: Vec<String>,
@@ -1470,7 +1459,7 @@ impl Run {
 
     /// It has news you have not seen, which keeps its row in the Inbox.
     pub fn has_news(&self) -> bool {
-        self.cards.iter().any(Card::unseen_news)
+        self.cards.iter().any(|c| c.answer.is_none() && c.ask == CardAsk::News)
     }
 
     /// What needs you that is not a card: flags Omega Star raised, and `notify` messages from before cards.
@@ -1528,8 +1517,8 @@ impl Run {
 }
 
 /// A report and the replies you exchanged on it: the root run and every later turn chained to it
-/// (`Run::reply_to`), oldest first. One chip on the employee's panel. In the Inbox and the Archive a thread is a row's
-/// lead, with the row's other threads in `related`.
+/// (`Run::reply_to`), oldest first. In the Inbox and the Archive a thread is a row's lead, with the row's other threads
+/// in `related`.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Thread {
@@ -1546,7 +1535,7 @@ impl Thread {
     }
 }
 
-/// Every conversation across the office, for the Inbox and each employee's chips, in one read.
+/// Every conversation across the office, for the Inbox and the sidebar, in one read.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Conversations {
@@ -1636,10 +1625,6 @@ pub struct HealthFinding {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillHealth {
-    /// Skills in the family, not counting the managed `omega-skill-craft`.
-    pub skills: u32,
-    /// Characters of every description together: the part loaded on every turn.
-    pub description_chars: u32,
     pub findings: Vec<HealthFinding>,
 }
 
@@ -1772,26 +1757,12 @@ pub enum TaskOutcome {
     Stopped,
 }
 
-/// Where your words to a run you watch went (`Office::steer_run`).
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum SteerHow {
-    /// Into the run as it works.
-    Steered,
-    /// Into what it starts with, as it had not started yet.
-    Added,
-    /// Into its thread as your reply: it had finished, or could not take a message just then.
-    Replied,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunDetail {
     pub run: Run,
     pub events: Vec<RunEvent>,
     pub children: Vec<Run>,
-    /// The run's folder was deleted after `AppSettings::transcript_days`: no events, its report is on the run.
-    pub transcript_gone: bool,
 }
 
 /// What runs did and used since a time, for Activity's digest of today and its usage this week. Usage is what
@@ -2152,6 +2123,7 @@ pub const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures;
     use serde_json::{json, Value};
 
     fn build() -> Build {
@@ -2202,28 +2174,7 @@ mod tests {
 
     #[test]
     fn an_employee_saved_with_their_own_lanes_still_loads() {
-        let mut employee = serde_json::to_value(Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Analyst".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: true,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: Utc::now(),
-        })
-        .unwrap();
+        let mut employee = serde_json::to_value(Employee { id: "e1".into(), title: "Analyst".into(), auto_tidy: true, ..fixtures::employee() }).unwrap();
         employee.as_object_mut().unwrap().insert("lanes".into(), 2.into());
         assert_eq!(serde_json::from_value::<Employee>(employee).unwrap().name, "Ada", "older builds kept a lane count per employee");
     }

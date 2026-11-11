@@ -107,7 +107,7 @@ function Who({ r, emp, person, employee, showPerson }: { r: HumanRequest; emp: s
 
 /** A request an employee sent a real person. Open: the one action you'd take, the rest in a menu. Settled: the outcome. */
 export function RequestCard({ r, employee, person, showPerson = false, onChanged }: {
-  r: HumanRequest; employee: EmployeeView | undefined; person: PersonView | undefined; showPerson?: boolean; onChanged?: (r: HumanRequest) => void;
+  r: HumanRequest; employee: EmployeeView | undefined; person: PersonView | undefined; showPerson?: boolean; onChanged: () => void;
 }) {
   const [mode, setMode] = useState<"idle" | "reply">("idle");
   const [text, setText] = useState("");
@@ -127,8 +127,8 @@ export function RequestCard({ r, employee, person, showPerson = false, onChanged
     setBusy(true);
     setErr(null);
     try {
-      const next = await call("resolve_request", { requestId: r.id, state, response });
-      onChanged?.(next);
+      await call("resolve_request", { requestId: r.id, state, response });
+      onChanged();
       refreshOrg();
       setMode("idle");
       setText("");
@@ -146,7 +146,7 @@ export function RequestCard({ r, employee, person, showPerson = false, onChanged
     setErr(null);
     try {
       const next = await call("watch_request", { requestId: r.id, action });
-      onChanged?.(next);
+      onChanged();
       const note = watchNote(action, r, next, empName, personName);
       toast(note.text, note.tone);
     } catch (x) {

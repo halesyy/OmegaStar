@@ -54,6 +54,7 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
   const [view, setView] = useState<OrgView>("everyone");
   // Whether you have moved the chart away from the framing it opened on: then Recentre brings that framing back.
   const [moved, setMoved] = useState(false);
+  const chart = useRef<OrgChartHandle>(null);
 
   // Who is open, and where the fold stands. `settled` is the view on screen when nothing moves.
   const member = memberOf(snap, route.memberId);
@@ -99,8 +100,6 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
 
   const close = useCallback(() => navigate({ page: "org", memberId: null, tab: null, focus: null }), []);
 
-  // Opening someone (a chart card, the outline) opens their page; you talk to them in the conversation.
-  const open = useCallback((id: string) => openMember(id), []);
   // Esc closes the page, unless something on top of it (a sheet, a menu, the palette) takes it first.
   useEffect(() => {
     if (want !== "open") return;
@@ -115,7 +114,7 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
     return () => window.removeEventListener("keydown", onKey);
   }, [want, close]);
 
-  const cls = `org ${compact ? "org-compact" : ""} ${short ? "org-short" : ""}`;
+  const cls = `org ${compact ? "org-compact" : ""}`;
   if (!snap) {
     return (
       <div className={cls} ref={root}>
@@ -136,8 +135,8 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
   const showChart = settled === "chart" || both;
   const showOpen = settled === "open" || both;
   const shown = member ?? shownMember.current;
-  const hire = (from?: HTMLElement | null) => shell.hire(null, null, from ?? null);
-  const addPerson = (from?: HTMLElement | null) => shell.addPerson(null, from ?? null);
+  const hire = (from: HTMLElement) => shell.hire(null, from);
+  const addPerson = (from: HTMLElement) => shell.addPerson(from);
 
   return (
     <div className={cls} ref={root} data-folding={both || undefined}>
@@ -145,14 +144,17 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
         <section className="org-chart" data-view="chart" aria-label="Org chart" aria-hidden={both && want === "open" ? true : undefined}>
           <OrgHead
             ruled={empty || !hasPeople}
-            tool={!empty && moved ? <ChartFit /> : null}
+            tool={!empty && moved ? <ChartFit onFit={() => chart.current?.fit()} /> : null}
           />
           {!empty && hasPeople ? <Views view={view} setView={setView} /> : null}
           <div className="org-canvas">
             {empty ? (
-              <EmptyOrg company={snap.company} onHire={(t, from) => shell.hire(null, t, from)} onAddPerson={addPerson} />
+              <EmptyOrg company={snap.company} onHire={(t, from) => shell.hire(t, from)} onAddPerson={addPerson} />
             ) : (
-              <ChartCanvas snap={snap} view={view} compact={compact} size={size} focusId={openId.current} onMoved={setMoved} onOpen={open} />
+              <OrgChart
+                ref={chart} company={snap.company} employees={snap.employees} people={snap.people} view={view} compact={compact}
+                frame={size ?? { w: 1200, h: 800 }} focusId={openId.current} onOpen={openMember} onMoved={setMoved}
+              />
             )}
           </div>
           {empty ? null : <OrgFoot icons={false} onHire={hire} onAddPerson={addPerson} />}
@@ -168,7 +170,7 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
             {!compact && hasPeople ? <Views view={view} setView={setView} /> : null}
             <OrgOutline
               company={snap.company} employees={snap.employees} people={snap.people} view={view} compact={compact}
-              selectedId={route.memberId ?? openId.current} onOpen={(id) => (id === route.memberId ? openMember(id, route.tab) : open(id))}
+              selectedId={route.memberId ?? openId.current} onOpen={(id) => openMember(id, id === route.memberId ? route.tab : null)}
             />
             <OrgFoot icons={compact} onHire={hire} onAddPerson={addPerson} />
           </nav>
@@ -222,7 +224,6 @@ function Views({ view, setView }: { view: OrgView; setView: (v: OrgView) => void
 function OrgFoot({ icons, onHire, onAddPerson }: { icons: boolean; onHire: (from: HTMLElement) => void; onAddPerson: (from: HTMLElement) => void }) {
   return (
     <footer className="org-foot">
-      {/* `pagehead-actions` names this group for the screenshot script; it has no style of its own here. */}
       <div className="pagehead-actions org-foot-actions" data-pair="foot">
         <button className={`btn btn-primary btn-sm ${icons ? "btn-icon" : ""}`} onClick={(e) => onHire(e.currentTarget)} aria-label={icons ? "Hire" : undefined} data-tip={icons ? "Hire" : undefined}>
           <Icon name="plus" size={14} strokeWidth={1.8} />{icons ? null : "Hire"}
@@ -237,28 +238,12 @@ function OrgFoot({ icons, onHire, onAddPerson }: { icons: boolean; onHire: (from
 
 // ---------------------------------------------------------------- the chart's canvas
 
-// Recentre is wired through a module-level handle, so the head (outside the canvas) can reach the chart. It shows only
-// once you have moved the view, and brings back the framing it opened on.
-let fitChart: (() => void) | null = null;
-function ChartFit() {
+/** Recentre: shows only once you have moved the view, and brings back the framing it opened on. */
+function ChartFit({ onFit }: { onFit: () => void }) {
   return (
-    <button className="btn btn-ghost btn-sm" data-pair="tool" data-tip="Back to the framing the chart opened on" onClick={() => fitChart?.()}>
+    <button className="btn btn-ghost btn-sm" data-pair="tool" data-tip="Back to the framing the chart opened on" onClick={onFit}>
       <Icon name="fit" size={14} /> Recentre
     </button>
-  );
-}
-
-function ChartCanvas({ snap, view, compact, size, focusId, onMoved, onOpen }: { snap: OrgSnapshot; view: OrgView; compact: boolean; size: { w: number; h: number } | null; focusId: string | null; onMoved: (v: boolean) => void; onOpen: (id: string) => void }) {
-  const chart = useRef<OrgChartHandle>(null);
-  useEffect(() => {
-    fitChart = () => chart.current?.fit();
-    return () => { fitChart = null; };
-  }, []);
-  return (
-    <OrgChart
-      ref={chart} company={snap.company} employees={snap.employees} people={snap.people} view={view} compact={compact}
-      frame={size ?? { w: 1200, h: 800 }} focusId={focusId} onOpen={onOpen} onMoved={onMoved}
-    />
   );
 }
 

@@ -41,7 +41,6 @@
 .who-line b { font-size: 13.5px; font-weight: 700; color: var(--ink); }
 .who-line > .av { flex: none; }
 .who-meta { white-space: nowrap; }
-.who-live { color: var(--live-text); font-weight: 550; }
 .msg-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 /* Conversation prose at reading size. Cards and files keep their own. */
 .msg-body > .md, .chat-inner .report-body > .md { font-size: var(--t-md); line-height: 1.6; }
@@ -88,9 +87,6 @@
 .task-wait-row .status { flex: none; font-size: var(--t-sm); }
 /* What a run waiting to start will do: its instruction, in the reply's own prose. */
 .task-ask { margin: 0; font-size: var(--t-md); line-height: 1.55; color: var(--ink); white-space: pre-wrap; }
-/* The run page's still dots while nothing has streamed yet (Activity owns it; kept still). */
-.thinking { display: inline-flex; gap: 4px; padding: 8px 0; }
-.thinking span { width: 6px; height: 6px; border-radius: 50%; background: var(--live); opacity: 0.45; }
 
 /* "Show 4 earlier" above the latest exchange. */
 .thread-earlier { align-self: center; color: var(--muted); }
@@ -130,7 +126,6 @@
 .composer-aim-what { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-aim-what b { font-weight: 650; color: var(--ink); }
 .composer-aim .btn { flex: none; }
-.composer-busy { background: var(--raised); }
 /* The field and its one button on a line; the button keeps to the field's last line as it grows. */
 .composer-row { display: flex; align-items: flex-end; min-width: 0; }
 .composer-input { display: block; flex: 1; min-width: 0; resize: none; border: 0; background: transparent; padding: 11px 6px 11px 14px; outline: none; line-height: 1.5; font-size: var(--t-md); color: var(--ink); }
@@ -138,7 +133,6 @@
 .composer-input:focus-visible { box-shadow: none; }
 .composer-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 7px; min-width: 0; }
 .composer-bar > .btn, .composer-bar > .confirm { flex: none; }
-.composer-hint { font-size: var(--t-xs); margin-right: 8px; }
 .composer-send { border-radius: var(--r-input); }
 .composer-send.btn-sm { width: 30px; height: 30px; }
 .chat .composer-send { background: var(--sunken); color: var(--faint); box-shadow: none; }
@@ -170,7 +164,6 @@
 
 /* ------------------------------------------------ a thread */
 .thread { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.thread-time { font-size: var(--t-xs); white-space: nowrap; }
 /* What Omega Star flagged on a run, apart from its cards: it needs you, so it leads like a card does. */
 .flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .flags li { display: flex; gap: 8px; align-items: flex-start; font-size: var(--t-md); font-weight: 650; line-height: 1.45; color: var(--ink); }

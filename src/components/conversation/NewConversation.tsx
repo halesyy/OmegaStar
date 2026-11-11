@@ -6,8 +6,8 @@ import { openChat } from "../../lib/router";
 import { threadFocus } from "../../lib/threads";
 import { Icon } from "../Icon";
 import { Avatar } from "../ui";
-import { ChatSurface, type ChatSurfaceHandle } from "../panel/ChatSurface";
-import "../panel/ChatTab.css";
+import { ChatSurface, type ChatSurfaceHandle } from "./ChatSurface";
+import "./Chat.css";
 
 /** What "Teach a new task" puts in the composer, to finish in your own words. */
 export const TEACH_PREFIX = "I want to teach you a new task: ";
@@ -41,7 +41,7 @@ export function NewConversation({ e }: { e: EmployeeView }) {
   };
   return (
     <ChatSurface
-      ref={surface} e={e} busy={false} draftKey={newConversationDraft(e.id)} scrollKey="" pin={false}
+      ref={surface} e={e} draftKey={newConversationDraft(e.id)} scrollKey="" pin={false}
       placeholder={`Message ${name}. Teach them something, or ask.`} onSend={start}
     >
       <div className="chat-inner">

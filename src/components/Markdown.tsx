@@ -112,13 +112,15 @@ function renderMarkdown(src: string, breaks: boolean): string {
   return out.innerHTML;
 }
 
+export const ID_PATTERN = /\b([A-Z][A-Z0-9]*-\d+)\b/;
+
 /** Ids like INV-2291 or PR-88 stay whole on one line: never broken at their hyphen. */
 function wholeIds(root: DocumentFragment) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const hits: Text[] = [];
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (/\b[A-Z][A-Z0-9]*-\d+\b/.test(n.textContent ?? "") && !n.parentElement?.closest("code, pre")) hits.push(n as Text);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) if (ID_PATTERN.test(n.textContent ?? "") && !n.parentElement?.closest("code, pre")) hits.push(n as Text);
   for (const t of hits) {
-    const parts = (t.textContent ?? "").split(/\b([A-Z][A-Z0-9]*-\d+)\b/);
+    const parts = (t.textContent ?? "").split(ID_PATTERN);
     t.replaceWith(...parts.map((p, i) => {
       if (i % 2 === 0) return document.createTextNode(p);
       const s = document.createElement("span");

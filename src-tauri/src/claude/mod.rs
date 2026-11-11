@@ -104,15 +104,13 @@ fn scrubbed_vars<'a>(names: impl Iterator<Item = &'a OsStr>) -> Vec<OsString> {
 
 async fn capture(program: &Path, env: &[(String, String)], args: &[&str]) -> Option<String> {
     let fut = command(program).args(args).envs(env.iter().cloned()).stdin(Stdio::null()).output();
-    let out = tokio::time::timeout(std::time::Duration::from_secs(20), fut).await.ok()?.ok()?;
+    let out = tokio::time::timeout(Duration::from_secs(20), fut).await.ok()?.ok()?;
     // `auth status` exits non-zero when logged out but still prints JSON.
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 pub async fn version(program: &Path) -> Option<String> {
-    let s = capture(program, &[], &["--version"]).await?;
-    let v = s.split_whitespace().next()?.to_string();
-    (!v.is_empty()).then_some(v)
+    capture(program, &[], &["--version"]).await?.split_whitespace().next().map(String::from)
 }
 
 fn parse_auth(stdout: &str) -> Option<Account> {
@@ -234,20 +232,18 @@ pub struct Opening {
 /// The request a reply check, nudge or give-up is about.
 pub struct Watched {
     pub request: HumanRequest,
-    pub person: String,
     /// The channel it went out on, as the handbook names it ("Teams jordan@example.com").
     pub channel: Option<String>,
     /// How many business days the watch waited before giving up.
     pub days: u32,
 }
 
-/// What a Tidy run works from: what the health check found, what the person taught the employee
-/// since the last tidy, and for an approved tidy the plan they approved.
+/// What a Tidy run works from: what the health check found, and what the person taught the employee
+/// since the last tidy.
 pub struct TidyBrief {
     pub findings: Vec<HealthFinding>,
     /// (when, what they said) in conversations and in Inbox replies.
     pub taught: Vec<(Ts, String)>,
-    pub plan: Option<String>,
 }
 
 pub struct Invocation {
@@ -296,7 +292,7 @@ pub fn clip(s: &str, n: usize) -> String {
 
 /// The start and the end of a long text, so a report's closing lines survive: one line, and when it is
 /// longer than `2n + 5` characters, its first and last `n` around " ... ".
-pub(crate) fn ends(s: &str, n: usize) -> String {
+fn ends(s: &str, n: usize) -> String {
     let s = one_line(s);
     let chars: Vec<char> = s.chars().collect();
     if chars.len() <= 2 * n + 5 {
@@ -332,7 +328,7 @@ pub fn channel_name(c: &Channel) -> String {
 }
 
 pub fn channel_line(c: &Channel) -> String {
-    format!("{} {}: use for {} (channel id `{}`)", channel_kind(c.kind), c.address.trim(), one_line(&c.when_to_use), c.id)
+    format!("{}: use for {} (channel id `{}`)", channel_name(c), one_line(&c.when_to_use), c.id)
 }
 
 fn path_arg(p: &Path) -> String {
@@ -345,7 +341,7 @@ pub fn attachments_dir(employee_dir: &Path, run_id: &str) -> PathBuf {
 }
 
 /// The prompt, followed by the absolute path of each attached file.
-pub(super) fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
+fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
     if names.is_empty() {
         return prompt.to_string();
     }
@@ -378,11 +374,11 @@ fn model_args(kind: &RunKind, e: &Employee) -> Vec<String> {
 
 /// The first message of a run that goes again after the usage limit or a rate limit stopped it: the
 /// conversation it resumes already holds the message it was answering.
-pub const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
+const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
 
 /// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
 /// went with it, so it is told to raise again any it still needs.
-pub const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
+const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
 
 pub fn prepare(s: &Snapshot, run: &Run) -> Invocation {
     let e = &s.employee;
@@ -577,30 +573,11 @@ pub async fn probe_usage(program: &Path, cwd: &Path) -> Option<UsageSample> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, scheduled};
 
     #[test]
     fn a_schedule_can_run_on_its_own_model_and_effort() {
-        let e = Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: Some("opus".into()),
-            effort: Some(Effort::High),
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: chrono::Utc::now(),
-        };
+        let e = Employee { id: "e1".into(), model: Some("opus".into()), effort: Some(Effort::High), ..fixtures::employee() };
         let scheduled = |model: Option<&str>, effort| RunKind::Scheduled {
             schedule_id: "s1".into(),
             slot: chrono::Utc::now(),
@@ -616,27 +593,7 @@ mod tests {
     }
 
     fn ada() -> Employee {
-        Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Analyst".into(),
-            description: String::new(),
-            objective: "Keep the numbers right.".into(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: chrono::Utc::now(),
-        }
+        Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() }
     }
 
     fn acme() -> Company {
@@ -653,10 +610,6 @@ mod tests {
 
     fn file<'a>(inv: &'a Invocation, name: &str) -> &'a str {
         &inv.files.iter().find(|(p, _)| p.ends_with(name)).unwrap().1
-    }
-
-    fn scheduled(id: &str, quiet: bool) -> RunKind {
-        RunKind::Scheduled { schedule_id: id.into(), slot: chrono::Utc::now(), label: "Inbox sweep".into(), quiet, model: None, effort: None, review: false }
     }
 
     /// A finished run of Ada's, `mins` minutes ago.

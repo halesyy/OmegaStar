@@ -2,10 +2,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { call, errorMessage } from "../api/client";
 import type { Card, CardReply, HireProposal, Run, Thread } from "../api/types";
 import { decisions, inboxLists, type Decision } from "../lib/decisions";
-import { dayHeading, firstName, whenInline } from "../lib/format";
+import { dayHeading, firstName, typing, whenInline } from "../lib/format";
 import { refreshConversations, useOrg, useProposals, useQuery, useSkillScan } from "../lib/hooks";
 import { setMark } from "../lib/marks";
-import { useFlip } from "../lib/motion";
+import { reducedMotion, useFlip } from "../lib/motion";
 import { clearPending, markPending, usePending } from "../lib/pending";
 import { openChat, openInbox, openRun, useRoute, type InboxView } from "../lib/router";
 import { useScrollFade } from "../lib/scrollFade";
@@ -15,7 +15,6 @@ import { useShell } from "../Shell";
 import { TEMPLATES } from "../components/HireSheet";
 import { Icon } from "../components/Icon";
 import { MenuButton, Popover, Roll, type MenuItem } from "../components/ui";
-import { reducedMotion } from "../lib/motion";
 import { answerCard, answering, undoAnswer, undoLatest, UNDO_MS } from "../components/conversation/CardView";
 import { LaterMenu } from "../components/conversation/LaterMenu";
 import { markDone, reopen, sendAndDone, SnoozeButton } from "../components/conversation/ThreadView";
@@ -37,9 +36,7 @@ const NOTES: Record<Exclude<InboxView, "inbox">, string> = {
   archive: "What needed nothing from you.",
 };
 
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 const kbd = (k: string) => <kbd className="kbd">{k}</kbd>;
-const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /** The keys the Inbox answers to, as ? lists them. */
 const KEYS: [ReactNode, string][] = [
@@ -373,16 +370,16 @@ export function InboxScreen() {
   };
 
   // ---------------------------------------------------------------- keys
-  // J and K (or the arrows) move; Enter presses the main action (A too, as before); 1 to 4 pick a choice; L is Later;
+  // J and K (or the arrows) move; Enter presses the main action (A too); 1 to 4 pick a choice; L is Later;
   // X is No, Can't, Not now or Decline; R replies; E archives, or in the Archive reopens; Z takes back your newest
   // answer still waiting to go; Escape goes back to the list; ? lists the keys. Nothing acts while you type or while
   // a sheet is open.
-  const latest = useRef({ move, view, sel, shownRow, detailCtx });
-  latest.current = { move, view, sel, shownRow, detailCtx };
+  const latest = useRef({ move, sel, shownRow, detailCtx });
+  latest.current = { move, sel, shownRow, detailCtx };
   useEffect(() => {
     const press = (el: HTMLElement | null | undefined) => {
       if (!el || pressing.current) return !!el;
-      if (reduced()) {
+      if (reducedMotion()) {
         settledByKeys.current = true;
         el.click();
         window.setTimeout(() => { settledByKeys.current = false; }, 600);
@@ -514,7 +511,7 @@ export function InboxScreen() {
         </EmptyCard>
       );
     } else {
-      card = <EmptyView view={view} hired={employees.length > 0} snoozedNext={snoozedNext} laterCount={snoozedDecisions?.length ?? 0} onView={pickView} onHire={(template, from) => shell.hire(null, template, from)} />;
+      card = <EmptyView view={view} hired={employees.length > 0} snoozedNext={snoozedNext} laterCount={snoozedDecisions?.length ?? 0} onView={pickView} onHire={(template, from) => shell.hire(template, from)} />;
     }
     return (
       <div className="ibx-one">
@@ -609,21 +606,18 @@ function focusRow(id: string) {
 
 /** The ⋯ menu's actions for the open item: the conversation it came from. */
 function moreFor(row: Row, ctx: DetailContext): MenuItem[] {
-  const talk = (employeeId: string, focus: string): MenuItem | null =>
-    ctx.employees.some((x) => x.id === employeeId) ? { label: "Open the conversation", icon: "chat", onSelect: () => openChat(employeeId, focus) } : null;
-  const out: (MenuItem | null)[] = [];
+  const talk = (employeeId: string, focus: string): MenuItem[] =>
+    ctx.employees.some((x) => x.id === employeeId) ? [{ label: "Open the conversation", icon: "chat", onSelect: () => openChat(employeeId, focus) }] : [];
   if (row.kind === "hire") {
     const runId = row.p.runId;
-    if (runId) out.push({ label: "Open the conversation that asked", icon: "chat", onSelect: () => openRun(runId) });
-  } else if (row.kind === "decision") {
-    const d = row.d;
-    out.push(d.type === "failures" ? { label: "Open the conversation", icon: "chat", onSelect: () => openRun(d.run.id) } : talk(d.run.employeeId, threadFocus(d.thread.root.id)));
-  } else if (row.kind === "parked") {
-    out.push(talk(row.run.employeeId, threadFocus(row.run.id)));
-  } else {
-    out.push(talk(row.item.employee.id, threadFocus(row.item.thread.root.id)));
+    return runId ? [{ label: "Open the conversation that asked", icon: "chat", onSelect: () => openRun(runId) }] : [];
   }
-  return out.filter((x): x is MenuItem => !!x);
+  if (row.kind === "decision") {
+    const d = row.d;
+    return d.type === "failures" ? [{ label: "Open the conversation", icon: "chat", onSelect: () => openRun(d.run.id) }] : talk(d.run.employeeId, threadFocus(d.thread.root.id));
+  }
+  if (row.kind === "parked") return talk(row.run.employeeId, threadFocus(row.run.id));
+  return talk(row.item.employee.id, threadFocus(row.item.thread.root.id));
 }
 
 /** Later in the bar: a card's own Later (it comes back, and once it has, Later parks it), or Later for the whole row
@@ -784,7 +778,7 @@ function useLeaving(rows: Row[]): { row: Row; leaving: boolean }[] {
       timers.current.delete(id);
     }
     const css = getComputedStyle(document.documentElement);
-    const wait = (reduced() ? parseFloat(css.getPropertyValue("--d-fade")) : parseFloat(css.getPropertyValue("--d-settle"))) + 40;
+    const wait = (reducedMotion() ? parseFloat(css.getPropertyValue("--d-fade")) : parseFloat(css.getPropertyValue("--d-settle"))) + 40;
     for (const id of gone.current.keys()) {
       if (timers.current.has(id)) continue;
       timers.current.set(id, window.setTimeout(() => {
@@ -869,9 +863,9 @@ function Chips({ counts, total, active, onPick, loading }: { counts: Map<Word, n
   );
 }
 
-/** The list's title, which is also the switch between views: the view's name and how many it holds. */
 type ViewItem = { label: string; count: number | null; current: boolean; onSelect: () => void };
 
+/** The list's title, which is also the switch between views: the view's name and how many it holds. */
 function TitleMenu({ title, count, items }: { title: string; count: number | null; items: ViewItem[] }) {
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);

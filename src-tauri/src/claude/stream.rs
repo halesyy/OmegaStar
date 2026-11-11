@@ -133,7 +133,7 @@ fn tool_brief(input: &Value, home: &Path) -> String {
     clip(&one_line(&s), 160)
 }
 
-pub fn suggested_rule(tool: &str, input: &Value) -> String {
+fn suggested_rule(tool: &str, input: &Value) -> String {
     match (tool, input.get("command").and_then(|c| c.as_str()).and_then(|c| c.split_whitespace().next())) {
         ("Bash", Some(word)) => format!("Bash({word}:*)"),
         _ => tool.to_string(),
@@ -187,7 +187,7 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
     let Ok(v) = serde_json::from_str::<Value>(line) else { return p };
     let str_at = |v: &Value, k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
     // Subagent traffic (parent_tool_use_id set) stays in the raw transcript only.
-    let nested = v.get("parent_tool_use_id").map(|x| !x.is_null()).unwrap_or(false);
+    let nested = is_nested(&v);
     match v.get("type").and_then(|t| t.as_str()).unwrap_or("") {
         "stream_event" => {
             p.partial = true;
@@ -341,7 +341,7 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
 /// its id, so whether it is a sub-agent is known from having seen it start.
 #[derive(Default)]
 pub struct TaskWatch {
-    agents: std::collections::HashSet<String>,
+    agents: HashSet<String>,
 }
 
 impl TaskWatch {
@@ -360,7 +360,7 @@ impl TaskWatch {
 /// Keeps only the newest `TaskProgress` of each task: they arrive many times a second and each one
 /// replaces the last.
 pub fn coalesce_progress(events: &mut Vec<RunEvent>) {
-    let mut newest = std::collections::HashMap::new();
+    let mut newest = HashMap::new();
     for (i, ev) in events.iter().enumerate() {
         if let RunEvent::TaskProgress { task_id, .. } = ev {
             newest.insert(task_id.clone(), i);
@@ -410,10 +410,11 @@ fn one_liner(text: &str) -> bool {
 /// answered you stays first. A notice that failed after the report succeeded, a limit included, leaves the run
 /// as the report left it: its work was done.
 pub fn merge_outcome(prev: Outcome, next: Outcome) -> Outcome {
+    let mut denials = prev.denials;
+    denials.extend(next.denials);
+    let turns = prev.turns + next.turns;
     if next.notice && !next.ok && prev.ok {
-        let mut denials = prev.denials;
-        denials.extend(next.denials);
-        return Outcome { turns: prev.turns + next.turns, denials, limit: None, ..prev };
+        return Outcome { turns, denials, limit: None, ..prev };
     }
     let text = if next.text.trim().is_empty() {
         prev.text
@@ -422,13 +423,11 @@ pub fn merge_outcome(prev: Outcome, next: Outcome) -> Outcome {
     } else {
         next.text
     };
-    let mut denials = prev.denials;
-    denials.extend(next.denials);
     Outcome {
         ok: next.ok,
         text,
         subtype: next.subtype,
-        turns: prev.turns + next.turns,
+        turns,
         duration_ms: next.duration_ms,
         denials,
         limit: next.limit,
@@ -466,7 +465,7 @@ pub fn transcript_outcome(transcript: &str, home: &Path) -> Option<Outcome> {
 /// The input of every top-level call of `tool` that did not come back as an error, in order.
 pub fn office_calls(transcript: &str, tool: &str) -> Vec<Value> {
     let mut calls = vec![];
-    let mut failed = std::collections::HashSet::new();
+    let mut failed = HashSet::new();
     for v in json_lines(transcript).filter(|v| !is_nested(v)) {
         let blocks = v["message"]["content"].as_array().cloned().unwrap_or_default();
         match v["type"].as_str() {
@@ -499,7 +498,7 @@ pub fn steered(transcript: &str) -> Vec<String> {
 /// Your messages the employee never took, each with its id: the run stopped before its next step. Pure.
 pub fn unheard(transcript: &str) -> Vec<(String, String)> {
     let mut sent = vec![];
-    let mut heard = std::collections::HashSet::new();
+    let mut heard = HashSet::new();
     for ev in omega_events(transcript) {
         match ev {
             RunEvent::User { text, id: Some(id) } => sent.push((id, text)),
@@ -609,7 +608,7 @@ pub fn stopped_helpers(stderr: &str) -> Option<String> {
 }
 
 /// What a Chrome tool returns when the browser extension is not connected (not marked as an error).
-pub const CHROME_DOWN: &str = "Browser extension is not connected";
+const CHROME_DOWN: &str = "Browser extension is not connected";
 
 /// Chrome counts as down once its calls keep finding the extension not connected: this many in a row, or for this
 /// many seconds, with none working since. The first call of a run often loses a race and the next one works.
@@ -780,7 +779,7 @@ mod tests {
     }
 
     fn last_outcome(transcript: &str) -> Outcome {
-        parsed(transcript).into_iter().filter_map(|p| p.outcome).last().expect("a result")
+        parsed(transcript).into_iter().filter_map(|p| p.outcome).next_back().expect("a result")
     }
 
     fn signals(transcript: &str) -> RunSignals {
@@ -853,7 +852,7 @@ mod tests {
 
     #[test]
     fn the_synthetic_line_keeps_the_context() {
-        let last = parsed(LIMIT).into_iter().filter_map(|p| p.context).last();
+        let last = parsed(LIMIT).into_iter().filter_map(|p| p.context).next_back();
         assert_eq!(last, Some(20_505));
     }
 

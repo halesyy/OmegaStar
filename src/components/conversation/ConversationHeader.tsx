@@ -2,34 +2,33 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, Run, Thread } from "../../api/types";
 import { askComposer } from "../../lib/composer";
-import { firstName, threadTitle, whenInline, whenShort } from "../../lib/format";
+import { firstName, threadTitle, whenInline } from "../../lib/format";
 import { useOrg, useQuery } from "../../lib/hooks";
 import { setMark } from "../../lib/marks";
 import { openChat, openMember } from "../../lib/router";
 import { snoozePresets, threadStatus, type Status } from "../../lib/status";
 import { toast } from "../../lib/toasts";
-import { didNotFinish, doneHeld, isLive, rowThreads, startedByYou, threadFocus } from "../../lib/threads";
+import { doneHeld, isLive, rowThreads, threadFocus } from "../../lib/threads";
 import { kindIcon, kindNames } from "../RunRow";
 import { Icon, type IconName } from "../Icon";
 import { Popover } from "../ui";
+import { LaterPreset } from "./LaterMenu";
 import { newConversationDraft, TEACH_PREFIX } from "./NewConversation";
 import { markDone, reopen, WHERE_ARE_WE } from "./ThreadView";
 import { employeeItems, useStatuses, type Item } from "./useStatuses";
 
 /** Where a conversation stands, for its header and its actions: its runs, its state, and whether it can be archived. */
 export type ThreadState = {
-  root: Run | null; runs: Run[]; title: string; status: Status | null; archived: boolean; task: boolean;
+  root: Run | null; runs: Run[]; title: string; status: Status | null; archived: boolean;
   /** It finished and nothing is running, so Archive can file it. */
   ready: boolean;
   /** A card waits on you: it is answered on the card, so neither Archive nor E closes it. */
   carded: boolean;
   /** The Inbox row it is in, when it leads one. */
   row: Item | null;
-  failed: boolean;
 };
 
-/** The thread with `rootId` as its header and actions need it: read on its own (light, no transcripts), so the switcher
- *  works wherever it is placed. */
+/** The thread with `rootId` as its header and actions need it: read on its own (light, no transcripts). */
 export function useThreadState(rootId: string | null): ThreadState {
   const { snap } = useOrg();
   const { items, filed, ctx } = useStatuses();
@@ -41,15 +40,12 @@ export function useThreadState(rootId: string | null): ThreadState {
   const row = inRow?.thread.root.id === rootId ? inRow : null;
   const own = root ? { root, replies: runs.slice(1), related: [] } : null;
   const status = own ? threadStatus(own, !!(rootId && filed?.has(rootId)), ctx) : row?.status ?? null;
-  const tail = runs[runs.length - 1];
   return {
     root, runs, status, row,
     title: root ? threadTitle(root, kindNames(root, snap?.employees ?? [], snap?.people ?? [])) : row?.title ?? "",
     archived: !!root?.archivedAt,
-    task: !!root && startedByYou(root),
     ready: !!root?.endedAt && !root.archivedAt && !runs.some(isLive),
     carded: own ? doneHeld(own, inRow?.thread ?? own) : false,
-    failed: !!tail && didNotFinish(tail) && !runs.some(isLive),
   };
 }
 
@@ -84,7 +80,7 @@ export function QuietState({ s }: { s: ThreadState }) {
   return null;
 }
 
-/** A dot for where a conversation stands, as the menu lists it. */
+/** A word for where a conversation stands, as the menu lists it. */
 const WORD: Partial<Record<Status["state"], string>> = { needsYou: "Needs you", working: "Working", queued: "Up next", snoozed: "Later" };
 
 /**
@@ -198,16 +194,11 @@ export function ConversationMenu({ e, rootId, s }: { e: EmployeeView; rootId: st
             btns[(i + (ev.key === "ArrowDown" ? 1 : btns.length - 1)) % btns.length]?.focus();
           }}
         >
-          {later ? presets.map((p) => (
-            <button key={p.label} type="button" role="menuitem" className="menu-item" onClick={() => { close(); snooze(p.until); }}>
-              <span className="grow">{p.label}</span>
-              <span className="faint">{whenShort(p.until.toISOString()).replace(p.label === "Tomorrow" ? /^Tomorrow / : /^Today /, "")}</span>
-            </button>
-          )) : entries.map((it, i) => it === "sep" ? (i > 0 ? <div key={`sep-${i}`} className="menu-sep" /> : null) : (
+          {later ? presets.map((p) => <LaterPreset key={p.label} preset={p} onPick={() => { close(); snooze(p.until); }} />) : entries.map((it, i) => it === "sep" ? (i > 0 ? <div key={`sep-${i}`} className="menu-sep" /> : null) : (
             <button key={it.label} type="button" role="menuitem" className="menu-item" onClick={() => { if (!it.keep) close(); it.onSelect(); }}>
               <Icon name={it.icon} size={14} />
               <span className="grow">{it.label}</span>
-              {it.hint === "E" ? <kbd className="kbd">E</kbd> : it.hint ? <span className="faint">{it.hint}</span> : it.keep ? <Icon name="chevronRight" size={13} className="faint" /> : null}
+              {it.hint ? <kbd className="kbd">{it.hint}</kbd> : it.keep ? <Icon name="chevronRight" size={13} className="faint" /> : null}
             </button>
           ))}
         </div>

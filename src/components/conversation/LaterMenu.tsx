@@ -7,6 +7,16 @@ import { Popover } from "../ui";
 /** A day as a date field holds it, "2026-11-03", in this computer's time zone. */
 const fieldDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+/** One of `snoozePresets` as a menu row: its name, and the time it brings things back. */
+export function LaterPreset({ preset, onPick }: { preset: { label: string; until: Date }; onPick: () => void }) {
+  return (
+    <button type="button" role="menuitem" className="menu-item" onClick={onPick}>
+      <span className="grow">{preset.label}</span>
+      <span className="faint">{whenShort(preset.until.toISOString()).replace(preset.label === "Tomorrow" ? /^Tomorrow / : /^Today /, "")}</span>
+    </button>
+  );
+}
+
 /** Later, in place of Not now: the card goes away and comes back by itself tomorrow or next week at 9 am, or at 9 am
  *  on a day you pick. Once it has come back (`timesBack`), Later parks it instead, and the menu says so. */
 export function LaterMenu({ timesBack, disabled, onLater }: { timesBack: number; disabled: boolean; onLater: (until: Date) => void }) {
@@ -61,12 +71,7 @@ export function LaterMenu({ timesBack, disabled, onLater }: { timesBack: number;
                 items[(i + (ev.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
               }}
             >
-              {presets.map((p) => (
-                <button key={p.label} type="button" role="menuitem" className="menu-item" onClick={() => choose(p.until)}>
-                  <span className="grow">{p.label}</span>
-                  <span className="faint">{whenShort(p.until.toISOString()).replace(/^Tomorrow /, "")}</span>
-                </button>
-              ))}
+              {presets.map((p) => <LaterPreset key={p.label} preset={p} onPick={() => choose(p.until)} />)}
               <button type="button" role="menuitem" className="menu-item" onClick={() => setPicking(true)}>Pick a date…</button>
             </div>
           )}

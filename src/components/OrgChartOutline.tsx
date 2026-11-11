@@ -6,7 +6,7 @@ import { useScrollFade } from "../lib/scrollFade";
 import { NameParts, employeeState, liveLines, personLine, textWidth, visibleMembers, type OrgView, type StateTone } from "./OrgChart";
 import { Avatar } from "./ui";
 
-// Row geometry: the tree lines are drawn from it, so it is fixed (OrgChart.css keeps the same numbers).
+// Row geometry: the tree lines are drawn from it, so it is fixed (Org.css keeps the same numbers).
 // `room`: the width a row's words have at depth 0 (the column, less the row's insets, avatar and gap); each level of
 // depth takes one indent from it.
 const ROW = { wide: { h: 44, indent: 22, pad: 16, av: 28, room: 215 }, compact: { h: 40, indent: 20, pad: 12, av: 22, room: 124 } };

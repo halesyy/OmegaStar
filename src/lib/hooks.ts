@@ -107,7 +107,8 @@ function wireConversations() {
   refreshConversations();
 }
 
-/** Every conversation across the office, for the Inbox and each employee's chips; one read shared by every reader. */
+/** Every conversation across the office, for the Inbox, the sidebar and the conversation screen; one read shared by
+ *  every reader. */
 export function useConversations(): ConversationsState {
   useEffect(wireConversations, []);
   return useStore(conversations);
@@ -148,7 +149,7 @@ let proposalsWired = false;
 function wireProposals() {
   if (proposalsWired) return;
   proposalsWired = true;
-  call("proposals", { state: null }).then(proposals.set, () => {});
+  call("proposals").then(proposals.set, () => {});
   subscribe("proposal:updated", (p) => {
     const cur = proposals.get() ?? [];
     proposals.set(cur.some((x) => x.id === p.id) ? cur.map((x) => (x.id === p.id ? p : x)) : [p, ...cur]);
@@ -237,9 +238,9 @@ function useLiveRuns(load: () => Promise<LiveRun[]>, belongs: (r: Run) => boolea
 const details = (ids: string[]) => Promise.all(ids.map((runId) => call("run_detail", { runId }).then(liveRunOf)));
 
 /** One run with its live transcript, sub-agents and the runs it handed work to. */
-export function useRunDetail(runId: string): { detail: LiveRun | null; error: string | null; reload: () => void } {
-  const { runs, error, reload } = useLiveRuns(() => details([runId]), () => false, [runId]);
-  return { detail: runs?.[0] ?? null, error, reload };
+export function useRunDetail(runId: string): LiveRun | null {
+  const { runs } = useLiveRuns(() => details([runId]), () => false, [runId]);
+  return runs?.[0] ?? null;
 }
 
 export type Conversation = { turns: LiveRun[] | null; error: string | null; reload: () => void; appendRun: (r: Run) => void };

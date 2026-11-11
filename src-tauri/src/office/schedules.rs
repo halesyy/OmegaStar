@@ -91,7 +91,7 @@ impl Office {
         let ceo = ceo_of(&db)?;
         db.tx(|| {
             for (nth, e) in db.employees()?.iter().enumerate() {
-                self.seed_review(&db, e, &ceo, nth)?;
+                Self::seed_review(&db, e, &ceo, nth)?;
             }
             db.set_reviews_seeded()
         })
@@ -100,7 +100,7 @@ impl Office {
     /// Adds `e`'s weekly review on Monday: 7 am for the first employee, then ten minutes later for each one
     /// after (`nth`), up to 7:50, so the team does not all start at once. It counts from now, so it never
     /// fires for a slot already past.
-    pub(super) fn seed_review(&self, db: &Store, e: &Employee, ceo: &str, nth: usize) -> Result<()> {
+    pub(super) fn seed_review(db: &Store, e: &Employee, ceo: &str, nth: usize) -> Result<()> {
         let s = Schedule {
             id: uuid::Uuid::new_v4().to_string(),
             employee_id: e.id.clone(),
@@ -142,25 +142,21 @@ impl Office {
                     continue;
                 }
                 let Ok(cron) = schedule::parse(&s.cron) else { continue };
-                match schedule::due_slot(&cron, last, now, &Local) {
-                    Due::Nothing => {}
-                    Due::Fire(slot) => {
-                        db.set_last_slot(&s.id, slot)?;
-                        // Kept to business hours: a slot outside them is skipped, never caught up later.
-                        if s.active_hours && !watch::in_hours(slot, &settings.watch.hours, &Local) {
-                            continue;
-                        }
-                        if db.schedule_has_queued_run(&s.id)? {
-                            continue;
-                        }
-                        let Some(e) = db.employee(&s.employee_id)? else { continue };
-                        let prompt = slot_prompt(&db, &s, &e, slot)?;
-                        let kind = RunKind::Scheduled { schedule_id: s.id.clone(), slot, label: s.label.clone(), quiet: s.quiet, model: s.model.clone(), effort: s.effort, review: s.review };
-                        let run = Run::new(&s.employee_id, kind, prompt, now);
-                        if db.insert_run(&run, &run.id)? {
-                            created.push(run);
-                        }
-                    }
+                let Some(slot) = schedule::due_slot(&cron, last, now, &Local) else { continue };
+                db.set_last_slot(&s.id, slot)?;
+                // Kept to business hours: a slot outside them is skipped, never caught up later.
+                if s.active_hours && !watch::in_hours(slot, &settings.watch.hours, &Local) {
+                    continue;
+                }
+                if db.schedule_has_queued_run(&s.id)? {
+                    continue;
+                }
+                let Some(e) = db.employee(&s.employee_id)? else { continue };
+                let prompt = slot_prompt(&db, &s, &e, slot)?;
+                let kind = RunKind::Scheduled { schedule_id: s.id.clone(), slot, label: s.label.clone(), quiet: s.quiet, model: s.model.clone(), effort: s.effort, review: s.review };
+                let run = Run::new(&s.employee_id, kind, prompt, now);
+                if db.insert_run(&run, &run.id)? {
+                    created.push(run);
                 }
             }
             // A check set in a conversation you are in, and not archived, comes back into it as its next turn.
@@ -366,9 +362,7 @@ fn due_check_runs(mut checks: Vec<Check>, busy: &HashSet<String>, departed: &Has
 /// A due check's run as the next turn of `t`, the conversation it was set in: a reply Omega Star writes there with
 /// the same instruction, so what it finds shows where the work began. Named as a reply you type there is. Pure.
 fn into_turn(run: Run, t: &Thread) -> Run {
-    let chat = matches!(t.root.kind, RunKind::Chat);
-    let label = if chat { threads::task_label(&t.root.prompt, &t.root.attachments) } else { threads::report_label(&t.root.kind) };
-    let task = chat || matches!(t.root.kind, RunKind::Task { .. });
+    let (label, task) = threads::reply_label(&t.root);
     let check = run.kind.check_id().map(String::from);
     Run { kind: RunKind::Reply { to_run_id: t.root.id.clone(), label, task, card: false }, omega_wrote: true, check, ..run }
 }
@@ -386,7 +380,7 @@ fn same_check(a: &str, b: &str) -> bool {
 /// The next slot `s` runs at after `after`. One kept to business hours skips the slots outside them,
 /// looking up to a year or 20,000 slots ahead (two weeks of a routine that runs every minute). Pure.
 pub(super) fn next_slot<Tz: chrono::TimeZone>(s: &Schedule, hours: &BusinessHours, after: Ts, tz: &Tz) -> Option<Ts> {
-    let mut slots = schedule::parse(&s.cron).ok()?.iter_after(after.with_timezone(tz)).map(|t| t.with_timezone(&Utc));
+    let mut slots = schedule::slots_after(&schedule::parse(&s.cron).ok()?, after, tz);
     if !s.active_hours {
         return slots.next();
     }
@@ -397,7 +391,7 @@ pub(super) fn next_slot<Tz: chrono::TimeZone>(s: &Schedule, hours: &BusinessHour
 /// Whether `cron` runs more often than hourly: two of its next dozen slots are under an hour apart. Pure.
 fn more_than_hourly<Tz: chrono::TimeZone>(cron: &str, after: Ts, tz: &Tz) -> bool {
     let Ok(cron) = schedule::parse(cron) else { return false };
-    let next: Vec<Ts> = cron.iter_after(after.with_timezone(tz)).take(12).map(|t| t.with_timezone(&Utc)).collect();
+    let next: Vec<Ts> = schedule::slots_after(&cron, after, tz).take(12).collect();
     next.windows(2).any(|w| w[1] - w[0] < chrono::Duration::hours(1))
 }
 
@@ -583,14 +577,7 @@ fn dated(l: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
-    }
+    use crate::fixtures::{self, NoSink};
 
     fn check(employee_id: &str, what: &str, due_at: Ts) -> Check {
         Check {
@@ -795,27 +782,7 @@ mod tests {
     }
 
     fn employee(slug: &str) -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: slug.into(),
-            name: slug.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: format!("chat-{slug}"),
-            hired_at: now(),
-        }
+        Employee { slug: slug.into(), name: slug.into(), chat_session: format!("chat-{slug}"), ..fixtures::employee() }
     }
 
     /// An office of Pat's at Acme with `e` on it, and its folder.

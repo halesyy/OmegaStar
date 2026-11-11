@@ -77,15 +77,10 @@ fn find_server(claude_json: Option<&Value>, project_mcp: Option<&Value>, employe
         .find_map(|entry| stdio_spec(name, entry, employee_dir))
 }
 
-/// Reads Claude Code's `.claude.json` and the folder's `.mcp.json`, then `find_server`.
-pub fn load_server(employee_dir: &Path, employee_id: &str, name: &str) -> Result<Option<ServerSpec>, String> {
-    load_server_from(&catalog::claude_json_path(), employee_dir, employee_id, name)
-}
-
-/// `load_server` with Claude Code's settings file at `claude_json`. A file that is missing holds no
-/// servers; one that exists but cannot be read is an error, never a missing server: Claude Code
+/// Reads Claude Code's `.claude.json` and the folder's `.mcp.json`, then `find_server`. A file that is missing
+/// holds no servers; one that exists but cannot be read is an error, never a missing server: Claude Code
 /// rewrites it while it runs.
-fn load_server_from(claude_json: &Path, employee_dir: &Path, employee_id: &str, name: &str) -> Result<Option<ServerSpec>, String> {
+pub fn load_server(employee_dir: &Path, employee_id: &str, name: &str) -> Result<Option<ServerSpec>, String> {
     let read = |p: &Path| -> Result<Option<Value>, String> {
         match std::fs::read_to_string(p) {
             Ok(text) => serde_json::from_str(&text).map(Some).map_err(|e| format!("could not read {}: {e}", p.display())),
@@ -93,7 +88,7 @@ fn load_server_from(claude_json: &Path, employee_dir: &Path, employee_id: &str, 
             Err(e) => Err(format!("could not read {}: {e}", p.display())),
         }
     };
-    Ok(find_server(read(claude_json)?.as_ref(), read(&employee_dir.join(".mcp.json"))?.as_ref(), employee_dir, employee_id, name))
+    Ok(find_server(read(&catalog::claude_json_path())?.as_ref(), read(&employee_dir.join(".mcp.json"))?.as_ref(), employee_dir, employee_id, name))
 }
 
 /// The program to start: a bare name is looked up on the child PATH, as a shell would (so `npx`
@@ -113,7 +108,7 @@ fn program(command: &str, cwd: &Path) -> PathBuf {
 /// Reads the newest messages of each chat, one result per chat id, starting the server once and
 /// killing it (and everything it started) at the end.
 pub async fn read_teams(spec: &ServerSpec, chat_ids: &[String]) -> Vec<Result<Vec<ChatMessage>, ReadError>> {
-    let every = |e: ReadError| chat_ids.iter().map(|_| Err(e.clone())).collect::<Vec<_>>();
+    let every = |e: ReadError| vec![Err(e); chat_ids.len()];
     let mut c = claude::command(&program(&spec.command, &spec.cwd));
     c.args(&spec.args)
         .current_dir(&spec.cwd)
@@ -198,7 +193,7 @@ impl Session {
     }
 
     async fn read(&mut self, server: &str, chat_ids: &[String]) -> Vec<Result<Vec<ChatMessage>, ReadError>> {
-        let every = |e: ReadError| chat_ids.iter().map(|_| Err(e.clone())).collect::<Vec<_>>();
+        let every = |e: ReadError| vec![Err(e); chat_ids.len()];
         let hello = json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "omega-star", "version": env!("CARGO_PKG_VERSION") } });
         if let Err(e) = self.call("initialize", hello).await {
             return every(ReadError::Failed(format!("{server} did not start: {e}")));

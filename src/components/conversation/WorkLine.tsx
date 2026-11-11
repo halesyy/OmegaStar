@@ -88,11 +88,12 @@ function RollLine({ k, children }: { k: string; children: ReactNode }) {
  *  their conversation, a skill's opens the change, and a step with output opens it under the row. */
 function StepRow({ row, e }: { row: WorkRow; e: EmployeeView }) {
   const [open, setOpen] = useState(false);
-  const act = row.skill && row.runId ? () => openMember(e.id, "skills", `diff~${row.runId}~${row.skill!.skill}~${row.skill!.file}`)
-    : row.key.startsWith("d:") && row.runId ? () => openRun(row.runId!)
+  const { skill, runId } = row;
+  const act = skill ? () => openMember(e.id, "skills", `diff~${runId}~${skill.skill}~${skill.file}`)
+    : row.key.startsWith("d:") ? () => openRun(runId)
     : row.detail ? () => setOpen((o) => !o)
     : null;
-  const tip = row.skill ? "See what changed" : row.key.startsWith("d:") ? "Open their conversation" : undefined;
+  const tip = skill ? "See what changed" : row.key.startsWith("d:") ? "Open their conversation" : undefined;
   const body = (
     <>
       {row.avatar ? <Avatar name={row.avatar.name} hue={row.avatar.hue} image={row.avatar.image} size={16} /> : <Icon name={row.icon} size={14} className="wl-icon" />}
@@ -107,7 +108,7 @@ function StepRow({ row, e }: { row: WorkRow; e: EmployeeView }) {
   return (
     <div className="wl-item">
       {act ? (
-        <button type="button" className="wl-row" aria-expanded={row.detail && !row.skill && !row.key.startsWith("d:") ? open : undefined} data-tip={tip} onClick={act}>{body}</button>
+        <button type="button" className="wl-row" aria-expanded={row.detail && !skill && !row.key.startsWith("d:") ? open : undefined} data-tip={tip} onClick={act}>{body}</button>
       ) : <div className="wl-row">{body}</div>}
       {row.detail ? (
         <div className="collapse" data-open={open}>

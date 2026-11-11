@@ -6,7 +6,7 @@
   background: var(--surface); border-radius: 8px; box-shadow: var(--shadow-float); overflow: hidden;
   animation: m-pop-in var(--d-panel) var(--ease) both;
 }
-.palette-leave, .palette-scrim.palette-leave { animation: m-fade-out var(--d-ui) var(--ease) both; pointer-events: none; }
+.palette-leave { animation: m-fade-out var(--d-ui) var(--ease) both; pointer-events: none; }
 .palette-input { display: flex; align-items: center; gap: 10px; padding: 0 16px; height: 52px; border-bottom: 1px solid var(--line); color: var(--muted); }
 .palette-input > svg { flex: none; }
 .palette-input input { flex: 1; min-width: 0; border: 0; background: transparent; font-size: var(--t-md); color: var(--ink); outline: none; }
@@ -37,5 +37,5 @@
 .palette-foot .kbd { background: var(--surface); }
 @media (prefers-reduced-motion: reduce) {
   .palette, .palette-scrim { animation: m-fade-in var(--d-fade) linear both; }
-  .palette-leave, .palette-scrim.palette-leave { animation: m-fade-out var(--d-fade) linear both; }
+  .palette-leave { animation: m-fade-out var(--d-fade) linear both; }
 }
