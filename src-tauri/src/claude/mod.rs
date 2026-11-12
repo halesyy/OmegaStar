@@ -1,13 +1,22 @@
 //! Everything that knows the Claude Code CLI: locating it, account status, turning a run into an
-//! invocation (argv, files), spawning and killing it, and probing usage. The handbook and framing
-//! live in `prompt`, stream-json parsing in `stream`, and the reply judge in `judge`.
+//! invocation (argv, files), spawning and killing it, and probing usage. The handbook lives
+//! in `handbook`, framing in `frame`, the opening note in `note`, the per-run settings in
+//! `settings`, stream-json parsing in `stream`, and the reply judge in `judge`.
 
+#[cfg(test)]
+mod fixtures;
+mod frame;
+mod handbook;
 mod judge;
-mod prompt;
+mod note;
+mod settings;
 mod stream;
 
+pub use frame::*;
+pub use handbook::*;
 pub use judge::*;
-pub use prompt::*;
+pub use note::*;
+pub use settings::*;
 pub use stream::*;
 
 use crate::model::*;
@@ -294,30 +303,6 @@ pub struct Invocation {
     pub files: Vec<(PathBuf, String)>,
 }
 
-pub fn kind_label(k: &RunKind) -> String {
-    match k {
-        RunKind::Manual => "manual".into(),
-        RunKind::Chat => "chat".into(),
-        RunKind::Scheduled { label, .. } => format!("scheduled '{label}'"),
-        RunKind::Delegated { .. } => "delegated by your manager".into(),
-        RunKind::Asked { task: false, .. } => "question from a colleague".into(),
-        RunKind::Asked { task: true, .. } => "task from a colleague".into(),
-        RunKind::Answered { .. } => "a colleague's answer".into(),
-        RunKind::FollowUp { .. } => "follow-up on a reply".into(),
-        RunKind::Organize { .. } => "organized imported skills".into(),
-        RunKind::Tidy { reason: TidyReason::Approved, .. } => "tidy of your skills (approved changes)".into(),
-        RunKind::Tidy { .. } => "tidy of your skills and notes".into(),
-        RunKind::Reply { task: false, .. } => "reply to your report".into(),
-        RunKind::Reply { task: true, label, .. } => format!("reply in your conversation '{label}'"),
-        RunKind::Task { label, .. } => format!("conversation '{label}'"),
-        RunKind::HireDecided { approved: true, .. } => "hire proposal approved".into(),
-        RunKind::HireDecided { approved: false, .. } => "hire proposal declined".into(),
-        RunKind::ReplyCheck { .. } => "reply check".into(),
-        RunKind::Nudge { .. } => "nudge to a person".into(),
-        RunKind::Unanswered { .. } => "no reply to a request".into(),
-    }
-}
-
 pub fn clip(s: &str, n: usize) -> String {
     let s = s.trim();
     if s.chars().count() <= n {
@@ -344,30 +329,6 @@ pub(crate) fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn channel_kind(k: ChannelKind) -> &'static str {
-    match k {
-        ChannelKind::Teams => "Teams",
-        ChannelKind::Slack => "Slack",
-        ChannelKind::Email => "Email",
-        ChannelKind::Jira => "Jira",
-        ChannelKind::Asana => "Asana",
-        ChannelKind::AzureDevOps => "Azure DevOps",
-        ChannelKind::Github => "GitHub",
-        ChannelKind::Linear => "Linear",
-        ChannelKind::Phone => "Phone",
-        ChannelKind::Other => "Other",
-    }
-}
-
-/// A channel as a run names it: "Teams nina@example.com".
-pub fn channel_name(c: &Channel) -> String {
-    format!("{} {}", channel_kind(c.kind), c.address.trim())
-}
-
-pub fn channel_line(c: &Channel) -> String {
-    format!("{}: use for {} (channel id `{}`)", channel_name(c), one_line(&c.when_to_use), c.id)
-}
-
 fn path_arg(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
@@ -375,16 +336,6 @@ fn path_arg(p: &Path) -> String {
 /// Where a run's attachments live: inside the employee's home, so reading them needs no permission.
 pub fn attachments_dir(employee_dir: &Path, run_id: &str) -> PathBuf {
     employee_dir.join("attachments").join(run_id)
-}
-
-/// The prompt, followed by the absolute path of each attached file.
-fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
-    if names.is_empty() {
-        return prompt.to_string();
-    }
-    let list: Vec<String> = names.iter().map(|n| format!("- {}", path_arg(&dir.join(n)))).collect();
-    let note = format!("Attached files (read each one before you reply; the Read tool opens images and PDFs too):\n{}", list.join("\n"));
-    if prompt.trim().is_empty() { note } else { format!("{prompt}\n\n{note}") }
 }
 
 /// Claude Code tools whose effect dies with the `claude -p` process or bypasses Omega Star. The
@@ -408,14 +359,6 @@ fn model_args(kind: &RunKind, e: &Employee) -> Vec<String> {
     }
     args
 }
-
-/// The first message of a run that goes again after the usage limit or a rate limit stopped it: the
-/// conversation it resumes already holds the message it was answering.
-const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
-
-/// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
-/// went with it, so it is told to raise again any it still needs.
-const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
 
 pub fn prepare(s: &Snapshot, run: &Run) -> Invocation {
     let e = &s.employee;
@@ -607,6 +550,7 @@ pub async fn probe_usage(program: &Path, cwd: &Path) -> Option<UsageSample> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claude::fixtures::*;
     use crate::fixtures::{self, scheduled};
 
     #[test]
@@ -646,35 +590,8 @@ mod tests {
         assert_eq!(model_args(&RunKind::Reply { to_run_id: "r1".into(), label: "Inbox watch".into(), task: false, card: false }, &e), ["--model", "opus", "--effort", "high"]);
     }
 
-    fn ada() -> Employee {
-        Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() }
-    }
-
-    fn acme() -> Company {
-        Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }
-    }
-
-    fn snapshot(opening: Option<Opening>, resume: bool) -> Snapshot {
-        test_snapshot(acme(), ada(), opening, resume)
-    }
-
-    fn now_opening(since: Option<Ts>) -> Opening {
-        Opening { now: chrono::Utc::now(), since, ..Opening::default() }
-    }
-
     fn file<'a>(inv: &'a Invocation, name: &str) -> &'a str {
         &inv.files.iter().find(|(p, _)| p.ends_with(name)).unwrap().1
-    }
-
-    /// A finished run of Ada's, `mins` minutes ago.
-    fn done(kind: RunKind, mins: i64, summary: &str) -> Run {
-        let at = chrono::Utc::now() - chrono::Duration::minutes(mins);
-        let mut r = Run::new("e1", kind, "Go.".into(), at);
-        r.state = RunState::Succeeded;
-        r.started_at = Some(at);
-        r.ended_at = Some(at);
-        r.summary = Some(summary.into());
-        r
     }
 
     #[test]
@@ -718,65 +635,6 @@ mod tests {
         assert!(inv.stdin.ends_with(&format!("</omega-star>\n\n{RESTART_NOTE}")), "the latest cause, the restart: {}", inv.stdin);
         let inv = prepare(&snapshot(None, false), &restarted);
         assert!(inv.stdin.ends_with("Archive it."), "a session that never started hears the message itself");
-    }
-
-    #[test]
-    fn the_handbook_stays_the_same_whatever_happened_lately() {
-        let mut busy = now_opening(None);
-        busy.work = vec![done(RunKind::Manual, 30, "Paid the invoice.")];
-        busy.notes = vec![("brief.md".into(), chrono::Utc::now())];
-        assert_eq!(handbook(&snapshot(Some(busy), false)), handbook(&snapshot(Some(now_opening(None)), false)));
-        assert_eq!(handbook(&snapshot(None, false)), handbook(&snapshot(Some(now_opening(Some(chrono::Utc::now()))), true)));
-    }
-
-    #[test]
-    fn quiet_runs_fold_into_one_line_per_routine() {
-        let mut o = now_opening(None);
-        for i in 0..47 {
-            o.work.push(done(scheduled("s1", true), 10 + i, &format!("Nothing new in run {i}.")));
-        }
-        let mut flagged = done(scheduled("s1", true), 5, "Found a renewal notice.");
-        flagged.needs_you = vec!["The domain renews on Friday.".into()];
-        o.work.insert(0, flagged);
-        o.parents = [o.work[3].id.clone(), o.work[9].id.clone()].into();
-        let run = Run::new("e1", RunKind::Manual, "Go.".into(), chrono::Utc::now());
-        let text = first_message(&snapshot(Some(o), false), &run);
-        let fold = text.lines().find(|l| l.contains("quiet runs")).unwrap();
-        assert!(fold.starts_with("- Inbox sweep: 47 quiet runs since "), "{fold}");
-        assert!(fold.contains(", 2 reached someone. Latest (") && fold.ends_with("): Nothing new in run 0."), "{fold}");
-        let raised = text.lines().find(|l| l.contains("(you raised: The domain renews on Friday.)")).unwrap();
-        assert!(raised.contains("scheduled 'Inbox sweep': Found a renewal notice."), "{raised}");
-        assert_eq!(text.lines().filter(|l| l.starts_with("- ")).count(), 2, "{text}");
-
-        let mut o = now_opening(None);
-        o.work = (0..3).map(|i| done(scheduled("s1", true), 10 + i, "Nothing new.")).collect();
-        let text = first_message(&snapshot(Some(o), false), &run);
-        assert!(text.contains("3 quiet runs since ") && text.contains(", none reached anyone. Latest ("), "{text}");
-    }
-
-    #[test]
-    fn a_long_report_keeps_its_start_and_its_end() {
-        let mut o = now_opening(None);
-        let summary = format!("Reconciled the accounts. {}**Still open:** the bank has not confirmed the transfer.", "Checked every line twice. ".repeat(35));
-        assert!(summary.chars().count() > 900);
-        o.work = vec![done(RunKind::Manual, 30, &summary)];
-        let run = Run::new("e1", RunKind::Manual, "Go.".into(), chrono::Utc::now());
-        let text = first_message(&snapshot(Some(o), false), &run);
-        let line = text.lines().find(|l| l.contains("Reconciled the accounts.")).unwrap();
-        assert!(line.contains(" ... ") && line.ends_with("**Still open:** the bank has not confirmed the transfer."), "{line}");
-        assert_eq!(ends("short", 150), "short");
-    }
-
-    #[test]
-    fn a_quiet_routine_with_nothing_new_gets_no_note() {
-        let quiet = Run::new("e1", scheduled("s1", true), "Sweep the inbox.".into(), chrono::Utc::now());
-        let since = Some(chrono::Utc::now() - chrono::Duration::minutes(15));
-        assert_eq!(first_message(&snapshot(Some(now_opening(since)), false), &quiet), quiet.prompt);
-        let loud = Run::new("e1", scheduled("s2", false), "Write the weekly report.".into(), chrono::Utc::now());
-        let text = first_message(&snapshot(Some(now_opening(since)), false), &loud);
-        let note = text.split_once("\n\n").unwrap().1;
-        assert!(note.starts_with("Now: ") && note.contains(".\n</omega-star>"), "only the time: {text}");
-        assert_eq!(first_message(&snapshot(None, false), &quiet), quiet.prompt, "no note at all");
     }
 
     #[test]
