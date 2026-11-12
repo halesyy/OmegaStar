@@ -195,14 +195,15 @@ export function InboxScreen() {
   const wanted = routeItem ?? lastOpen.get(view) ?? null;
   const sel = live.find((r) => r.id === wanted) ?? live[Math.min(lastIndex.current, live.length - 1)] ?? null;
   const selIndex = sel ? live.indexOf(sel) : -1;
+  const selId = sel?.id ?? null;
   const allIds = useMemo(() => new Set((viewRows ?? []).map((r) => r.id)), [viewRows]);
 
   useEffect(() => {
     if (selIndex >= 0) lastIndex.current = selIndex;
-    if (!sel) return;
-    lastOpen.set(view, sel.id);
-    if (sel.id !== routeItem) openInbox(view, sel.id, true);
-  }, [sel?.id, selIndex, view, routeItem]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!selId) return;
+    lastOpen.set(view, selId);
+    if (route.page === "inbox" && selId !== routeItem) openInbox(view, selId, true);
+  }, [selId, selIndex, view, routeItem, route.page]);
 
   // The open item gives way to the next, the two overlapping so no frame is empty: when it left the list (settled) it
   // rises out as the next rises in from just below; when you moved, a quick crossfade; the first one simply shows. The
