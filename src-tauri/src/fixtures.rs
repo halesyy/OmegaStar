@@ -1,7 +1,9 @@
 //! Test fixtures shared across the crate's test modules. Tests change what they need with struct update syntax.
 
-use crate::model::{Clearance, Employee, HumanRequest, Person, PersonManager, Run, RunEvent, RunKind, SkillGrant};
-use crate::office::EventSink;
+use crate::model::{Build, Clearance, Company, Employee, HumanRequest, Person, PersonManager, Run, RunEvent, RunKind, SkillGrant};
+use crate::office::{EventSink, Office};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// A sink for an Office in tests, which drops every event.
 pub struct NoSink;
@@ -59,4 +61,31 @@ pub fn person() -> Person {
 /// A slot of the "Inbox sweep" schedule `id`, due now.
 pub fn scheduled(id: &str, quiet: bool) -> RunKind {
     RunKind::Scheduled { schedule_id: id.into(), slot: chrono::Utc::now(), label: "Inbox sweep".into(), quiet, model: None, effort: None, review: false }
+}
+
+/// Pat's company, Acme.
+pub fn acme() -> Company {
+    Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }
+}
+
+/// A task's kind.
+pub fn task(label: &str) -> RunKind {
+    RunKind::Task { label: label.into(), from: None, context: String::new() }
+}
+
+/// A path of its own for one test's folder, named after `tag`, not made yet.
+pub fn temp_path(tag: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("omegastar-{tag}-{}", uuid::Uuid::new_v4()))
+}
+
+/// A new, empty folder for one test, named after `tag`.
+pub fn temp_dir(tag: &str) -> PathBuf {
+    let dir = temp_path(tag);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The office kept in `dir`, telling no one what changes.
+pub async fn open_office(dir: &Path) -> Office {
+    Office::open(dir.to_path_buf(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap()
 }

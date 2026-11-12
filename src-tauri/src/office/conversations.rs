@@ -51,7 +51,7 @@ impl Office {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures;
+    use crate::fixtures::{self, task, temp_dir};
 
     /// An employee reporting to `manager_id`, or to you.
     fn employee(name: &str, manager_id: Option<&str>) -> Employee {
@@ -71,15 +71,9 @@ mod tests {
         r
     }
 
-    /// A task's kind.
-    fn task(label: &str) -> RunKind {
-        RunKind::Task { label: label.into(), from: None, context: String::new() }
-    }
-
     #[test]
     fn conversations_gather_every_open_thread_once() {
-        let dir = std::env::temp_dir().join(format!("omegastar-conversations-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("conversations");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let ada = employee("Ada", None);
         let bo = employee("Bo", Some(&ada.id));

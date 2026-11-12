@@ -1578,7 +1578,7 @@ fn effort_arg(v: &str) -> Result<Option<Effort>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, NoSink};
+    use crate::fixtures::{self, acme, open_office, task, temp_path};
 
     struct Office0 {
         dir: PathBuf,
@@ -1593,10 +1593,10 @@ mod tests {
 
     /// A temp store whose CEO is called Pat.
     fn office() -> Office0 {
-        let dir = std::env::temp_dir().join(format!("omegastar-tools-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("tools");
         fs::create_dir_all(dir.join("runs")).unwrap();
         let db = Store::open(&dir.join("office.db")).unwrap();
-        db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+        db.set_company(&acme()).unwrap();
         Office0 { dir, db }
     }
 
@@ -1672,7 +1672,7 @@ mod tests {
             o.db.save_run(&r).unwrap();
         }
 
-        let office = Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&o.dir).await;
         assert!(delivered(&o.db, &child), "the lost manager still gets the report that waited for it");
         assert!(delivered(&o.db, &lost), "the lost hand-off reports back to who handed it over");
         let answered: Vec<Run> = o.db.runs_in_state(RunState::Queued).unwrap();
@@ -1717,7 +1717,7 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let r = run(&o.db, &ada, RunKind::Manual, "Draft the reply.", RunState::Succeeded, 5, None);
-        let office = Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&o.dir).await;
         let draft = office.employee_dir(&ada.id).join("workspace/reply.md");
         fs::create_dir_all(draft.parent().unwrap()).unwrap();
         fs::write(&draft, "First go").unwrap();
@@ -1791,8 +1791,8 @@ mod tests {
     async fn a_card_in_a_conversation_you_are_in_shows_there_without_a_notification() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let fresh = run(&o.db, &ada, talk("The offsite"), "Plan the offsite.", RunState::Succeeded, 5, None);
-        let old = run(&o.db, &ada, talk("The rota"), "Plan the rota.", RunState::Succeeded, 60, None);
+        let fresh = run(&o.db, &ada, task("The offsite"), "Plan the offsite.", RunState::Succeeded, 5, None);
+        let old = run(&o.db, &ada, task("The rota"), "Plan the rota.", RunState::Succeeded, 60, None);
         let (office, told) = told_office(&o).await;
         let ask = |message: &str, key: &str| json!({ "message": message, "key": key, "choices": [{ "label": "Go ahead" }] });
         assert_eq!(office.notify_tool(&fresh.id, &ada, &ask("Book the hall?", "hall")).unwrap()["notified"], false, "you wrote in it 5 minutes ago");
@@ -1873,7 +1873,7 @@ mod tests {
         fs::create_dir_all(o.dir.join("runs").join(&r.id)).unwrap();
         fs::write(o.dir.join("runs").join(&r.id).join("transcript.jsonl"), transcript).unwrap();
 
-        let office = Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&o.dir).await;
         let cards = o.db.run(&r.id).unwrap().unwrap().run.cards;
         let files: Vec<_> = cards.iter().map(|c| c.file.clone()).collect();
         assert_eq!(files, vec![Some(fs::canonicalize(home.join("workspace/reply.md")).unwrap().to_string_lossy().into_owned()), None]);
@@ -1888,7 +1888,7 @@ mod tests {
         let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Running, 30, None);
         let child = run(&o.db, &bo, delegated(&parent), "Count the stock.", RunState::Succeeded, 20, None);
 
-        let office = Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&o.dir).await;
         assert_eq!(o.db.run(&parent.id).unwrap().unwrap().run.state, RunState::Queued, "it carries on");
         assert!(!delivered(&o.db, &child), "it collects the report with await_reports, or gets it when it ends");
         drop(office);
@@ -1934,7 +1934,7 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let task = RunKind::Task { label: "The numbers".into(), from: None, context: String::new() };
+        let task = task("The numbers");
         let parent = run(&o.db, &ada, task, "Ask Bo for the numbers.", RunState::Succeeded, 30, None);
         o.db.mark_inited(&parent.id).unwrap();
         let mut child = run(&o.db, &bo, asked(&parent, false), "What are the numbers?", RunState::Succeeded, 20, None);
@@ -2126,7 +2126,7 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         let cy = employee(&o.db, "Cy", None);
-        let task = RunKind::Task { label: "The stock".into(), from: None, context: String::new() };
+        let task = task("The stock");
         let delegating = run(&o.db, &ada, task, "Get Bo to count the stock.", RunState::Succeeded, 35, None);
         steer(&o, &delegating, &["Only the warehouse."]);
 
@@ -2195,10 +2195,6 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         RunKind::Scheduled { schedule_id: id.into(), slot: now(), label: "Stand-up".into(), quiet: false, model: None, effort: None, review: false }
     }
 
-    fn talk(label: &str) -> RunKind {
-        RunKind::Task { label: label.into(), from: None, context: String::new() }
-    }
-
     /// A finished, delivered hand-off of `kind` to `to` in the chain `root` started, `ago` minutes back.
     fn handed(db: &Store, to: &Employee, kind: RunKind, root: &Run, ago: i64) -> Run {
         let mut r = run(db, to, kind, "Over to you.", RunState::Succeeded, ago, None);
@@ -2211,7 +2207,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
     /// The Office on `o`'s store, held for an hour so nothing it queues starts.
     async fn held_office(o: &Office0) -> Office {
         o.db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
-        Office::open(o.dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap()
+        open_office(&o.dir).await
     }
 
     fn saved(db: &Store, id: &str) -> Run {
@@ -2354,21 +2350,21 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
             handed(&o.db, &dee, asked(&theirs, false), &root, 280);
         }
         let office = held_office(&o).await;
-        let task = |n: usize| office.delegate(&root.id, &ada, "Bo", &format!("Count shelf {n}."));
-        let first = saved(&o.db, &run_id(&task(1).unwrap()));
+        let hand = |n: usize| office.delegate(&root.id, &ada, "Bo", &format!("Count shelf {n}."));
+        let first = saved(&o.db, &run_id(&hand(1).unwrap()));
         assert_eq!((first.not_before, first.chain.clone()), (None, Some(root.id.clone())), "39 hand-offs came before it");
-        let second = task(2).unwrap();
+        let second = hand(2).unwrap();
         assert!(second["note"].as_str().unwrap().starts_with("Omega Star paused this hand-off to keep the chain short. It goes to Bo by itself at "), "{second}");
         assert!(saved(&o.db, &run_id(&second)).not_before.is_some(), "the 41st waits");
-        task(3).unwrap();
-        task(4).unwrap();
-        assert_eq!(task(5).unwrap_err().message, "Bo already has 4 tasks from you today. Put the rest in your plan for tomorrow.");
+        hand(3).unwrap();
+        hand(4).unwrap();
+        assert_eq!(hand(5).unwrap_err().message, "Bo already has 4 tasks from you today. Put the rest in your plan for tomorrow.");
         let team = office.team(&ada).unwrap();
         assert_eq!((team["reports"][0]["tasksToday"].clone(), team["tasksPerDay"].clone()), (json!(4), json!(4)));
         // One you stopped no longer counts, and a conversation with Pat may hand out more.
         office.cancel_run(&first.id).unwrap();
-        task(5).unwrap();
-        let talking = run(&o.db, &ada, talk("The stock"), "Get Bo on the shelves.", RunState::Running, 5, None);
+        hand(5).unwrap();
+        let talking = run(&o.db, &ada, task("The stock"), "Get Bo on the shelves.", RunState::Running, 5, None);
         let v = office.delegate(&talking.id, &ada, "Bo", "Count shelf 6.").unwrap();
         assert!(v["note"].as_str().unwrap().ends_with("as your next turn in this conversation."), "{v}");
         drop(office);
@@ -2408,7 +2404,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         assert_eq!(o.db.active_runs_of(&cy.id).unwrap().len(), 1);
 
         // Not from a conversation with Pat, where its answer would land elsewhere, nor once it has started.
-        let talking = run(&o.db, &ada, talk("Rooms"), "Find a room.", RunState::Running, 2, None);
+        let talking = run(&o.db, &ada, task("Rooms"), "Find a room.", RunState::Running, 2, None);
         assert_ne!(run_id(&office.ask_colleague(&talking.id, &ada, "Cy", "Which floor?", "question").unwrap()), first);
         let mut started = r.clone();
         started.state = RunState::Running;
@@ -2482,7 +2478,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
 
         // A conversation with Pat leaves them, and the next run of Ada's own work takes them in, in place of the held run.
         let employees = vec![ada.clone(), bo.clone(), cy.clone()];
-        let chat = Run::new(&ada.id, talk("Stock"), "How is the count going?".into(), now());
+        let chat = Run::new(&ada.id, task("Stock"), "How is the count going?".into(), now());
         assert!(caught_up(&o.db, &employees, &chat).held.is_empty());
         let next = run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
         let took = caught_up(&o.db, &employees, &next).held;
@@ -2505,7 +2501,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let talking = run(&o.db, &ada, talk("The stock"), "Get Bo to count the shelf.", RunState::Succeeded, 30, None);
+        let talking = run(&o.db, &ada, task("The stock"), "Get Bo to count the shelf.", RunState::Succeeded, 30, None);
         let counted = run(&o.db, &bo, delegated(&talking), "Count the shelf.", RunState::Succeeded, 20, None);
         let due = due_answers(&o.db, &counted).unwrap();
         assert!(matches!(&due[0].0.kind, RunKind::Answered { thread: Some(t), .. } if *t == talking.id), "{due:?}");
@@ -2535,7 +2531,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let recent = asker(RunKind::Manual, "Plan the day.", 30, 20_000);
         assert_eq!(answer_to(&recent).1, recent.id, "a short, recent one resumes");
         // Never for a conversation with Pat.
-        let talking = asker(talk("The offsite"), "Plan the offsite.", 3 * 24 * 60, 150_000);
+        let talking = asker(task("The offsite"), "Plan the offsite.", 3 * 24 * 60, 150_000);
         let (a, session) = answer_to(&talking);
         assert_eq!(session, talking.id);
         assert!(matches!(&a.kind, RunKind::Answered { thread: Some(t), .. } if *t == talking.id));
@@ -2606,7 +2602,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
     async fn name_thread_names_the_thread_its_run_is_in() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let first = run(&o.db, &ada, talk("Can you look at the sale"), "Can you look at the sale?", RunState::Succeeded, 30, None);
+        let first = run(&o.db, &ada, task("Can you look at the sale"), "Can you look at the sale?", RunState::Succeeded, 30, None);
         let reply = Run::new(&ada.id, RunKind::Reply { to_run_id: first.id.clone(), label: "Can you look at the sale".into(), task: true, card: false }, "And the emails?".into(), now());
         assert!(o.db.insert_run(&reply, &first.id).unwrap());
         let office = held_office(&o).await;
@@ -2655,7 +2651,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let ada = Employee { workspaces: vec![repo.to_string_lossy().into_owned()], ..employee(&o.db, "Ada", None) };
         let bo = employee(&o.db, "Bo", None);
         // Finished, so nothing is left to start: whether Pat is in a run depends on its kind alone.
-        let talking = run(&o.db, &ada, talk("The report"), "Show me the report.", RunState::Succeeded, 1, None);
+        let talking = run(&o.db, &ada, task("The report"), "Show me the report.", RunState::Succeeded, 1, None);
         let sweep = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 1, None);
         let back = RunKind::Reply { to_run_id: talking.id.clone(), label: "The report".into(), task: true, card: false };
         let check = Run { check: Some("c1".into()), state: RunState::Succeeded, ..Run::new(&ada.id, back, "Check.".into(), now()) };

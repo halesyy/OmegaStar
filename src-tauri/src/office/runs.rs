@@ -1569,7 +1569,7 @@ pub(super) fn stderr_tail(stderr: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, NoSink};
+    use crate::fixtures::{self, acme, open_office, task, temp_dir, temp_path};
 
     fn employee(clearance: Clearance) -> Employee {
         Employee { clearance, ..fixtures::employee() }
@@ -1585,8 +1585,7 @@ mod tests {
 
     /// A temp store in its own folder.
     fn opening_store() -> (PathBuf, Store) {
-        let dir = std::env::temp_dir().join(format!("omegastar-opening-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("opening");
         let db = Store::open(&dir.join("office.db")).unwrap();
         (dir, db)
     }
@@ -1604,18 +1603,13 @@ mod tests {
     }
 
     fn note(e: &Employee, o: claude::Opening, run: &Run) -> String {
-        let company = Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() };
+        let company = acme();
         claude::first_message(&claude::test_snapshot(company, e.clone(), Some(o), false), run)
-    }
-
-    fn task(label: &str) -> RunKind {
-        RunKind::Task { label: label.into(), from: None, context: String::new() }
     }
 
     #[tokio::test]
     async fn a_newer_card_sends_the_answers_its_run_held() {
-        let dir = std::env::temp_dir().join(format!("omegastar-replace-held-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("replace-held");
         let ada = employee(Clearance::Supervised);
         let card = |q: &str, key: &str| Card::new(q, None, Some(key.into()), CardAsk::Choices { choices: vec!["Go".into(), "Not now".into()], recommended: 0 });
         let (root, newer) = {
@@ -1631,7 +1625,7 @@ mod tests {
             db.save_run(&newer).unwrap();
             (root, newer)
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         office.replace_older_cards(&newer).unwrap();
         let t = office.thread(&root.id).unwrap();
         assert_eq!(t.root.cards[0].answer.as_ref().map(|a| a.how), Some(AnswerHow::Replaced));
@@ -1648,13 +1642,13 @@ mod tests {
         fs::create_dir_all(dir).unwrap();
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
-            db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+            db.set_company(&acme()).unwrap();
             for e in employees {
                 db.save_employee(e).unwrap();
             }
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
         }
-        let office = Office::open(dir.to_path_buf(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(dir).await;
         for r in runs {
             assert!(office.db().insert_run(r, &r.id).unwrap());
         }
@@ -1688,7 +1682,7 @@ mod tests {
 
     #[tokio::test]
     async fn your_reply_reaches_a_run_as_it_works() {
-        let dir = std::env::temp_dir().join(format!("omegastar-steer-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("steer");
         let ada = employee(Clearance::Supervised);
         let mut run = Run::new(&ada.id, RunKind::Manual, "Count the stock.".into(), now());
         run.state = RunState::Running;
@@ -1716,7 +1710,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_routine_run_you_wrote_into_waits_for_you_when_a_later_one_moves_on() {
-        let dir = std::env::temp_dir().join(format!("omegastar-steered-routine-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("steered-routine");
         let ada = employee(Clearance::Supervised);
         let routine = |mins: i64, state: RunState, steered: bool| {
             // To the millisecond, as the store keeps when a run was made.
@@ -1747,15 +1741,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_turn_held_by_the_cap_keeps_its_place_in_its_session() {
-        let dir = std::env::temp_dir().join(format!("omegastar-cap-order-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("cap-order");
         let ada = employee(Clearance::Supervised);
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.save_employee(&ada).unwrap();
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
         }
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         {
             let db = office.db();
             for i in 0..3 {
@@ -1790,7 +1783,7 @@ mod tests {
             }
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
         }
-        let office = Office::open(dir.to_path_buf(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(dir).await;
         lock(&office.0.usage).held_until = None;
         // Background work waits for the first account check.
         *lock(&office.0.account) = Some((now(), None));
@@ -1818,7 +1811,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_colleagues_question_never_waits_for_a_lane() {
-        let dir = std::env::temp_dir().join(format!("omegastar-fast-lane-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("fast-lane");
         let (ada, bo) = (employee(Clearance::Supervised), Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), ..employee(Clearance::Supervised) });
         let office = claiming_office(&dir, &[&ada, &bo]).await;
         set_cap(&office, 1);
@@ -1839,8 +1832,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_paused_handoff_waits_for_its_time() {
-        let dir = std::env::temp_dir().join(format!("omegastar-not-before-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("not-before");
         let ada = employee(Clearance::Supervised);
         let named = |name: &str| Employee { name: name.into(), slug: name.to_lowercase(), chat_session: format!("chat-{name}"), ..employee(Clearance::Supervised) };
         let (bo, cy) = (named("Bo"), named("Cy"));
@@ -1859,7 +1851,7 @@ mod tests {
             };
             (ask(&bo, 60), ask(&cy, -1))
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         lock(&office.0.usage).held_until = None;
         *lock(&office.0.account) = Some((now(), None));
         let (started, _) = office.claim_runnable().unwrap();
@@ -1871,7 +1863,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_employee_does_as_much_background_work_at_once_as_the_cap_allows() {
-        let dir = std::env::temp_dir().join(format!("omegastar-lanes-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("lanes");
         let ada = employee(Clearance::Supervised);
         let office = claiming_office(&dir, &[&ada]).await;
         set_cap(&office, 3);
@@ -1889,7 +1881,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_routine_never_runs_twice_at_once_and_a_tidy_waits_for_quiet() {
-        let dir = std::env::temp_dir().join(format!("omegastar-one-routine-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("one-routine");
         let ada = employee(Clearance::Supervised);
         let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), chat_session: "chat-bo".into(), ..employee(Clearance::Supervised) };
         let office = claiming_office(&dir, &[&ada, &bo]).await;
@@ -1925,7 +1917,7 @@ mod tests {
 
     #[tokio::test]
     async fn finished_transcripts_lose_their_images_once() {
-        let dir = std::env::temp_dir().join(format!("omegastar-compact-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("compact");
         let ada = employee(Clearance::Supervised);
         let office = claiming_office(&dir, &[&ada]).await;
         let done = queue(&office, &ada, RunKind::Manual, None, RunState::Succeeded);
@@ -2108,7 +2100,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_routine_that_works_again_files_its_failures() {
-        let dir = std::env::temp_dir().join(format!("omegastar-streak-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("streak");
         let ada = employee(Clearance::Supervised);
         let office = claiming_office(&dir, &[&ada]).await;
         let run = |mins: i64, state: RunState| {
@@ -2193,9 +2185,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_rate_limit_holds_the_office_longer_each_time_and_a_usage_check_cannot_end_it() {
-        let dir = std::env::temp_dir().join(format!("omegastar-rate-hold-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let dir = temp_dir("rate-hold");
+        let office = open_office(&dir).await;
         let held_for = |office: &Office| office.usage_limits().held_until.map(|t| ((t - now()).num_seconds() as f64 / 60.0).round() as i64);
         office.hold_for_transient_limit();
         assert_eq!(held_for(&office), Some(5));
@@ -2211,7 +2202,7 @@ mod tests {
 
         // After a restart it is still a rate limit's hold, which a usage check cannot end, and the next waits longer.
         drop(office);
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         office.observe_usage(room(), true);
         assert_eq!(held_for(&office), Some(10));
         assert!(office.release_hold(now() + chrono::Duration::minutes(11)));
@@ -2241,8 +2232,7 @@ mod tests {
 
     #[test]
     fn a_retry_reads_only_its_own_attempt() {
-        let dir = std::env::temp_dir().join(format!("omegastar-attempt-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("attempt");
         let path = dir.join("transcript.jsonl");
         assert_eq!(attempt_text(&path, 0), "", "a missing transcript is empty");
         fs::write(&path, "first attempt\n").unwrap();
@@ -2256,8 +2246,7 @@ mod tests {
 
     #[test]
     fn a_requeued_run_is_queued_with_its_changes() {
-        let dir = std::env::temp_dir().join(format!("omegastar-requeue-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("requeue");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let e = employee(Clearance::Supervised);
         db.save_employee(&e).unwrap();
@@ -2297,8 +2286,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_run_cut_off_by_a_restart_carries_on_without_reporting_back() {
-        let dir = std::env::temp_dir().join(format!("omegastar-restart-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("restart");
         let ada = employee(Clearance::Supervised);
         let child = {
             let db = Store::open(&dir.join("office.db")).unwrap();
@@ -2312,7 +2300,7 @@ mod tests {
             db.save_run(&child).unwrap();
             child
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let saved = office.run(&child.id).unwrap();
         assert_eq!((saved.state, saved.restarts, saved.restarted, saved.delivered_at), (RunState::Queued, 1, true, None));
         let runs = office.runs(None, 100).unwrap();
@@ -2323,8 +2311,7 @@ mod tests {
 
     #[test]
     fn a_newer_routine_card_replaces_the_older_ones() {
-        let dir = std::env::temp_dir().join(format!("omegastar-cards-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("cards");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let e = employee(Clearance::Supervised);
         db.save_employee(&e).unwrap();

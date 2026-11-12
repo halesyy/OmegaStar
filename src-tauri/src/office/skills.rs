@@ -746,11 +746,11 @@ fn undo(db: &Store, employee_dir: &Path, employee_id: &str, revs: &[SkillRevisio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, NoSink};
+    use crate::fixtures::{self, open_office, task, temp_dir, temp_path};
 
     #[tokio::test]
     async fn a_question_about_a_tidys_proposal_leaves_it_to_approve() {
-        let dir = std::env::temp_dir().join(format!("omegastar-tidy-ok-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("tidy-ok");
         let e = fixtures::employee();
         let proposal = |archived: bool| {
             let mut r = Run::new(&e.id, RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None }, "Tidy your skills.".into(), now());
@@ -774,7 +774,7 @@ mod tests {
             assert!(db.insert_run(&open, &open.id).unwrap());
             assert!(db.insert_run(&old, &old.id).unwrap());
         }
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         office.reply_to_run(&open.id, "Why split it?", false, vec![]).unwrap();
         let approved = office.approve_tidy(&open.id).unwrap();
         assert!(matches!(&approved.kind, RunKind::Tidy { reason: TidyReason::Approved, plan, .. } if *plan == open.proposed), "{:?}", approved.kind);
@@ -788,7 +788,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_change_to_what_they_own_put_back_comes_to_you_as_a_card_to_use() {
-        let dir = std::env::temp_dir().join(format!("omegastar-own-proposal-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("own-proposal");
         let e = fixtures::employee();
         let mut run = Run::new(&e.id, RunKind::Manual, "Review your week.".into(), now());
         run.state = RunState::Succeeded;
@@ -800,7 +800,7 @@ mod tests {
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
             assert!(db.insert_run(&run, &run.id).unwrap());
         }
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let own = office.employee_dir(&e.id).join(own_skills::OWN_FILE);
         let (before, theirs) = ("The signups.".to_string(), "The signups and the churn.".to_string());
         fs::create_dir_all(own.parent().unwrap()).unwrap();
@@ -843,8 +843,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_save_in_you_is_seen_by_a_runs_guard() {
-        let dir = std::env::temp_dir().join(format!("omegastar-page-{}", uuid::Uuid::new_v4()));
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let dir = temp_path("page");
+        let office = open_office(&dir).await;
         let started = now();
         assert!(!office.company_saved_since(started), "nothing saved yet");
         office.save_company_page("# Company page\n\n- Releases: Sam.\n").unwrap();
@@ -855,8 +855,7 @@ mod tests {
 
     #[test]
     fn unchanged_since_compares_the_whole_file() {
-        let dir = std::env::temp_dir().join(format!("omegastar-undo-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("undo");
         let path = dir.join("CLAUDE.md");
         assert!(unchanged_since(&path, None), "a missing file is None");
         fs::write(&path, "one").unwrap();
@@ -868,7 +867,7 @@ mod tests {
 
     #[test]
     fn undo_keeps_a_newer_change_to_the_company_page() {
-        let root = std::env::temp_dir().join(format!("omegastar-undo-{}", uuid::Uuid::new_v4()));
+        let root = temp_path("undo");
         let employee_dir = root.join("employees").join("e1");
         fs::create_dir_all(own_skills::skills_dir(&employee_dir).join("ada")).unwrap();
         let db = Store::open(&root.join("office.db")).unwrap();
@@ -964,7 +963,7 @@ mod tests {
         assert!(!ceo_in(&scheduled));
         assert!(!ceo_in(&RunKind::Delegated { parent_run_id: "r1".into() }));
         assert!(ceo_in(&RunKind::Chat));
-        assert!(ceo_in(&RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }));
+        assert!(ceo_in(&task("Draft it")));
         assert!(ceo_in(&RunKind::Reply { to_run_id: "r1".into(), label: "Sweep".into(), task: false, card: false }));
     }
 }

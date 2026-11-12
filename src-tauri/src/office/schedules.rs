@@ -577,7 +577,7 @@ fn dated(l: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, NoSink};
+    use crate::fixtures::{self, acme, open_office, task, temp_dir};
 
     fn check(employee_id: &str, what: &str, due_at: Ts) -> Check {
         Check {
@@ -674,10 +674,9 @@ mod tests {
 
     #[test]
     fn the_review_brief_lists_only_what_there_is() {
-        let dir = std::env::temp_dir().join(format!("omegastar-brief-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("brief");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+        db.set_company(&acme()).unwrap();
         let hire = |slug: &str| {
             let e = employee(slug);
             db.save_employee(&e).unwrap();
@@ -787,14 +786,13 @@ mod tests {
 
     /// An office of Pat's at Acme with `e` on it, and its folder.
     async fn office_with(e: &Employee) -> (Office, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("omegastar-schedules-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("schedules");
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
-            db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+            db.set_company(&acme()).unwrap();
             db.save_employee(e).unwrap();
         }
-        (Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap(), dir)
+        (open_office(&dir).await, dir)
     }
 
     fn routine(employee_id: &str, cron: &str) -> Schedule {
@@ -942,18 +940,17 @@ mod tests {
     #[tokio::test]
     async fn a_check_set_in_a_conversation_you_are_in_comes_back_into_it() {
         let (ada, bo, cy) = (employee("ada"), employee("bo"), employee("cy"));
-        let dir = std::env::temp_dir().join(format!("omegastar-check-back-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("check-back");
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
-            db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+            db.set_company(&acme()).unwrap();
             for e in [&ada, &bo, &cy] {
                 db.save_employee(e).unwrap();
             }
             // Held, so nothing a tick queues starts.
             db.set_held_until(Some(now() + chrono::Duration::days(1))).unwrap();
         }
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let t = now();
         let finished = |e: &Employee, kind: RunKind, archived: bool| {
             let mut r = Run::new(&e.id, kind, "Go.".into(), t - chrono::Duration::hours(30));
@@ -964,16 +961,15 @@ mod tests {
             office.db().mark_inited(&r.id).unwrap();
             r
         };
-        let talk = |label: &str| RunKind::Task { label: label.into(), from: None, context: String::new() };
         let set = |by: &Run, what: &str| {
             let c = Check { run_id: Some(by.id.clone()), ..check(&by.employee_id, what, t - chrono::Duration::hours(1)) };
             office.db().save_check(&c).unwrap();
             c
         };
-        let listing = finished(&ada, talk("Ship the listing"), false);
+        let listing = finished(&ada, task("Ship the listing"), false);
         let live = set(&listing, "Did the listing go live?");
         let sweep = set(&finished(&bo, RunKind::Manual, false), "Did signups move?");
-        let done = set(&finished(&cy, talk("Fix the price"), true), "Did the price update?");
+        let done = set(&finished(&cy, task("Fix the price"), true), "Did the price update?");
         let queued = |e: &Employee| office.db().active_runs_of(&e.id).unwrap();
 
         office.tick(t).unwrap();

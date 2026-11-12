@@ -793,7 +793,7 @@ pub(super) fn run_of(db: &Store, id: &str) -> Option<Run> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, NoSink};
+    use crate::fixtures::{self, open_office, task, temp_dir, temp_path};
 
     fn tester() -> Employee {
         Employee { slug: "cy".into(), name: "Cy".into(), chat_session: "chat-cy".into(), ..fixtures::employee() }
@@ -811,8 +811,7 @@ mod tests {
 
     #[test]
     fn a_reply_you_type_sends_what_was_held_and_answers_no_card() {
-        let dir = std::env::temp_dir().join(format!("omegastar-typed-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("typed");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let e = tester();
         db.save_employee(&e).unwrap();
@@ -837,8 +836,7 @@ mod tests {
 
     #[test]
     fn a_weeks_reviews_share_one_row() {
-        let dir = std::env::temp_dir().join(format!("omegastar-team-week-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("team-week");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let hire = |slug: &str, manager: Option<&Employee>| {
             let e = Employee { slug: slug.into(), name: slug.into(), chat_session: format!("chat-{slug}"), manager_id: manager.map(|m| m.id.clone()), ..tester() };
@@ -900,8 +898,7 @@ mod tests {
 
     #[test]
     fn a_week_that_needs_you_is_one_inbox_row_with_every_review() {
-        let dir = std::env::temp_dir().join(format!("omegastar-week-needs-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("week-needs");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let slot = "2026-10-07T12:00:00Z".parse::<Ts>().unwrap();
         let review = |slug: &str, flag: bool| {
@@ -964,8 +961,7 @@ mod tests {
 
     #[tokio::test]
     async fn done_on_one_review_conversation_leaves_another_in_the_same_week_going() {
-        let dir = std::env::temp_dir().join(format!("omegastar-week-done-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("week-done");
         let week = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
@@ -974,7 +970,7 @@ mod tests {
             talk_about(&db, &week[1]);
             week
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         office.set_archived(&week[0].id, true).unwrap();
         let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
         assert!(archived(&week[0]), "Done ends the conversation you pressed it on");
@@ -986,8 +982,7 @@ mod tests {
 
     #[tokio::test]
     async fn done_leaves_what_still_needs_you_and_undo_brings_back_only_what_it_filed() {
-        let dir = std::env::temp_dir().join(format!("omegastar-done-spares-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("done-spares");
         let week = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
@@ -1001,7 +996,7 @@ mod tests {
             }
             week
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
         let filed = office.set_archived(&week[0].id, true).unwrap();
         assert_eq!(filed.iter().cloned().collect::<HashSet<_>>(), HashSet::from([week[0].id.clone(), week[4].id.clone()]), "yours, and what needs nothing");
@@ -1015,8 +1010,7 @@ mod tests {
 
     #[tokio::test]
     async fn done_on_a_routine_that_keeps_failing_files_its_failures_together() {
-        let dir = std::env::temp_dir().join(format!("omegastar-done-streak-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("done-streak");
         let e = tester();
         let failed = |mins: i64| {
             let at = now() - chrono::Duration::minutes(mins);
@@ -1035,8 +1029,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_tap_files_only_what_needs_nothing_more() {
-        let dir = std::env::temp_dir().join(format!("omegastar-tap-spares-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("tap-spares");
         let week = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
@@ -1051,7 +1044,7 @@ mod tests {
             }
             week
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
         office.answer_card(&week[0].id, 0, CardReply::Choice { index: 1 }).unwrap();
         assert!(!archived(&week[0]), "Cy's card is still open in the row");
@@ -1065,8 +1058,7 @@ mod tests {
 
     #[tokio::test]
     async fn retry_carries_a_failed_report_on_in_its_thread() {
-        let dir = std::env::temp_dir().join(format!("omegastar-retry-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("retry");
         let e = tester();
         let report = |state: RunState| {
             let mut r = Run::new(&e.id, RunKind::Manual, "Count the stock.".into(), now());
@@ -1095,8 +1087,7 @@ mod tests {
 
     #[tokio::test]
     async fn retry_runs_a_lost_hand_off_again_so_its_report_still_goes_back() {
-        let dir = std::env::temp_dir().join(format!("omegastar-retry-handoff-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("retry-handoff");
         let ada = tester();
         let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
         let mut plan = Run::new(&ada.id, RunKind::Manual, "Plan the week.".into(), now());
@@ -1132,8 +1123,7 @@ mod tests {
 
     #[test]
     fn a_check_that_worked_for_long_reports_to_the_archive() {
-        let dir = std::env::temp_dir().join(format!("omegastar-long-check-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("long-check");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let e = tester();
         db.save_employee(&e).unwrap();
@@ -1163,8 +1153,7 @@ mod tests {
 
     #[tokio::test]
     async fn answering_the_last_card_of_a_week_archives_a_review_whose_card_was_answered_first() {
-        let dir = std::env::temp_dir().join(format!("omegastar-week-cards-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("week-cards");
         let week = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
@@ -1174,7 +1163,7 @@ mod tests {
             }
             week
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
         assert_eq!(office.answer_card(&week[0].id, 0, CardReply::Choice { index: 1 }).unwrap().len(), 1);
         assert!(!archived(&week[0]), "the week still waits on the other card");
@@ -1186,8 +1175,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_card_in_another_conversation_of_the_row_does_not_hold_up_done() {
-        let dir = std::env::temp_dir().join(format!("omegastar-week-other-card-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("week-other-card");
         let week = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.set_held_until(Some(now() + chrono::Duration::hours(1))).unwrap();
@@ -1197,7 +1185,7 @@ mod tests {
             db.save_run(&with_card(turn, "Boost the post?")).unwrap();
             week
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         office.set_archived(&week[0].id, true).unwrap();
         let archived = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.archived_at.is_some();
         assert!(archived(&week[0]) && !archived(&week[1]), "the card waits in its own conversation");
@@ -1208,10 +1196,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_card_in_an_answer_that_came_back_into_a_conversation_holds_up_done() {
-        let dir = std::env::temp_dir().join(format!("omegastar-answer-card-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("answer-card");
         let e = tester();
-        let mut task = Run::new(&e.id, RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, "Draft it.".into(), now());
+        let mut task = Run::new(&e.id, task("Draft it"), "Draft it.".into(), now());
         task.state = RunState::Succeeded;
         task.ended_at = Some(now());
         let kind = RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: false, thread: Some(task.id.clone()) };
@@ -1228,11 +1215,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_tap_or_an_approval_in_a_conversation_you_started_keeps_it_going() {
-        let dir = std::env::temp_dir().join(format!("omegastar-task-tap-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("task-tap");
         let e = tester();
         let start = |label: &str| {
-            let mut r = Run::new(&e.id, RunKind::Task { label: label.into(), from: None, context: String::new() }, format!("{label}."), now());
+            let mut r = Run::new(&e.id, task(label), format!("{label}."), now());
             r.state = RunState::Succeeded;
             r.ended_at = Some(now());
             r
@@ -1252,8 +1238,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_reply_in_an_older_chat_message_is_a_turn_of_your_conversation() {
-        let dir = std::env::temp_dir().join(format!("omegastar-old-chat-reply-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("old-chat-reply");
         let e = tester();
         let mut message = Run::new(&e.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
         message.state = RunState::Succeeded;
@@ -1273,8 +1258,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_tap_on_an_answer_in_an_older_chat_message_keeps_its_conversation_going() {
-        let dir = std::env::temp_dir().join(format!("omegastar-old-chat-tap-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("old-chat-tap");
         let e = tester();
         let mut message = Run::new(&e.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
         message.state = RunState::Succeeded;
@@ -1294,8 +1278,7 @@ mod tests {
 
     #[tokio::test]
     async fn turns_an_older_chat_left_waiting_move_to_the_work_lane() {
-        let dir = std::env::temp_dir().join(format!("omegastar-old-chat-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("old-chat");
         let e = tester();
         let message = Run::new(&e.id, RunKind::Chat, "Can you draft the launch note?".into(), now());
         let came = RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: true, thread: None };
@@ -1305,7 +1288,7 @@ mod tests {
         done.ended_at = Some(now());
         let office = held_office(&dir, &e, &[&message, &answer, &done]).await;
         let stored = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run.kind;
-        assert_eq!(stored(&message), RunKind::Task { label: "Draft the launch note".into(), from: None, context: String::new() }, "your message is a conversation");
+        assert_eq!(stored(&message), task("Draft the launch note"), "your message is a conversation");
         assert_eq!(stored(&answer), RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: false, thread: None });
         assert_eq!(stored(&done), RunKind::Chat, "a finished turn stays as it was");
         let work: HashSet<String> = office.db().work_runs(&e.id, 10).unwrap().into_iter().map(|r| r.id).collect();
@@ -1316,8 +1299,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_older_chat_answer_comes_back_into_the_chat_message_that_asked() {
-        let dir = std::env::temp_dir().join(format!("omegastar-old-chat-answer-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("old-chat-answer");
         let ana = Employee { slug: "ana".into(), name: "Ana".into(), chat_session: "chat-ana".into(), ..tester() };
         let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
         let cy = Employee { manager_id: Some(ana.id.clone()), ..tester() };
@@ -1346,8 +1328,7 @@ mod tests {
 
     #[test]
     fn a_review_you_are_talking_about_leaves_the_rest_of_its_week_in_the_archive() {
-        let dir = std::env::temp_dir().join(format!("omegastar-week-talking-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("week-talking");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let week = plain_week(&db, &["ada", "bo", "cy"]);
         talk_about(&db, &week[0]);
@@ -1360,8 +1341,7 @@ mod tests {
 
     #[test]
     fn a_week_leaves_out_the_reviews_of_someone_you_let_go() {
-        let dir = std::env::temp_dir().join(format!("omegastar-week-departed-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("week-departed");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let week = plain_week(&db, &["bo", "dee"]);
         // Both need you, and the review by the one you let go is the newer.
@@ -1383,8 +1363,7 @@ mod tests {
 
     #[test]
     fn the_archive_holds_what_reached_you_and_needs_nothing_and_the_inbox_what_does() {
-        let dir = std::env::temp_dir().join(format!("omegastar-archive-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("archive");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let e = tester();
         db.save_employee(&e).unwrap();
@@ -1416,7 +1395,7 @@ mod tests {
         // A conversation you started and marked done, with the employee's answer in it, and one still going.
         let task = |hours: f64, archived: Option<Ts>| {
             let at = ago(hours);
-            let mut r = Run::new(&e.id, RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, "Draft it.".into(), at);
+            let mut r = Run::new(&e.id, task("Draft it"), "Draft it.".into(), at);
             r.state = RunState::Succeeded;
             r.ended_at = Some(at);
             r.archived_at = archived;
@@ -1447,8 +1426,7 @@ mod tests {
 
     #[test]
     fn a_quiet_routine_you_wrote_into_waits_in_the_inbox_until_you_mark_it_done() {
-        let dir = std::env::temp_dir().join(format!("omegastar-steered-row-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("steered-row");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let e = tester();
         db.save_employee(&e).unwrap();
@@ -1478,8 +1456,7 @@ mod tests {
 
     #[tokio::test]
     async fn typing_into_a_working_report_keeps_it_for_you_unless_you_send_it_away() {
-        let dir = std::env::temp_dir().join(format!("omegastar-steered-report-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("steered-report");
         let e = tester();
         let mut broke = Run::new(&e.id, RunKind::Manual, "Count the stock.".into(), now());
         broke.state = RunState::Failed;
@@ -1511,8 +1488,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_open_card_keeps_its_row_in_the_inbox() {
-        let dir = std::env::temp_dir().join(format!("omegastar-card-row-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("card-row");
         let e = tester();
         let report = carded(&e);
         {
@@ -1520,7 +1496,7 @@ mod tests {
             db.save_employee(&e).unwrap();
             assert!(db.insert_run(&report, &report.id).unwrap());
         }
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         assert_eq!(office.set_archived(&report.id, true).unwrap_err().message, "Answer the card first, or dismiss it.");
         assert!(office.set_archived(&report.id, false).is_ok(), "moving it back is never blocked");
         assert_eq!(office.answer_card(&report.id, 0, CardReply::Choice { index: 5 }).unwrap_err().message, "That answer does not fit this card.");
@@ -1551,13 +1527,12 @@ mod tests {
                 assert!(db.insert_run(r, &r.id).unwrap());
             }
         }
-        Office::open(dir.to_path_buf(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap()
+        open_office(dir).await
     }
 
     #[tokio::test]
     async fn one_answer_reaches_everyone_asked_the_same_thing_and_close_ask_withdraws_one() {
-        let dir = std::env::temp_dir().join(format!("omegastar-same-ask-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("same-ask");
         let ada = tester();
         let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
         let ask = |e: &Employee, message: &str, key: &str| {
@@ -1607,8 +1582,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_runs_answers_go_together_once_its_last_card_is_answered() {
-        let dir = std::env::temp_dir().join(format!("omegastar-card-set-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("card-set");
         let e = tester();
         let report = two_cards(&e);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1629,8 +1603,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_reply_you_type_carries_the_answers_held_for_it_and_leaves_the_rest_open() {
-        let dir = std::env::temp_dir().join(format!("omegastar-card-typed-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("card-typed");
         let e = tester();
         let report = two_cards(&e);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1651,8 +1624,7 @@ mod tests {
 
     #[tokio::test]
     async fn your_own_words_on_a_card_answer_it_and_wait_for_the_rest_like_a_tap() {
-        let dir = std::env::temp_dir().join(format!("omegastar-card-text-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("card-text");
         let e = tester();
         let report = two_cards(&e);
         // Someone else asking the same thing hears the same answer.
@@ -1676,8 +1648,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_question_about_a_card_goes_now_and_keeps_it_open() {
-        let dir = std::env::temp_dir().join(format!("omegastar-card-ask-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("card-ask");
         let e = tester();
         let report = two_cards(&e);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1698,8 +1669,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_question_about_a_card_leaves_a_later_tap_to_file_the_row() {
-        let dir = std::env::temp_dir().join(format!("omegastar-card-ask-tap-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("card-ask-tap");
         let e = tester();
         let report = carded(&e);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1713,8 +1683,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_card_put_off_still_waits_until_it_is_settled() {
-        let dir = std::env::temp_dir().join(format!("omegastar-put-off-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("put-off");
         let e = tester();
         let keyed = |key: &str| {
             let mut r = carded(&e);
@@ -1750,8 +1719,7 @@ mod tests {
 
     #[tokio::test]
     async fn approving_a_block_keeps_news_you_have_not_seen() {
-        let dir = std::env::temp_dir().join(format!("omegastar-approve-news-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("approve-news");
         let e = tester();
         let mut blocked = with_news(&e, false);
         blocked.denials = vec![Denial { tool: "Bash".into(), brief: "git push".into(), suggested_rule: "Bash(git push:*)".into() }];
@@ -1765,8 +1733,7 @@ mod tests {
 
     #[tokio::test]
     async fn retry_sends_an_answer_once_whatever_omega_star_queued_again() {
-        let dir = std::env::temp_dir().join(format!("omegastar-retry-answer-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("retry-answer");
         let ada = tester();
         let answer = |asked: &str, mins: i64, state: RunState| {
             let came = RunKind::Answered { asked_run_id: asked.into(), from: "e-bo".into(), task: false, chat: false, thread: None };
@@ -1801,8 +1768,7 @@ mod tests {
 
     #[tokio::test]
     async fn closing_the_last_open_card_sends_the_answers_held_for_it() {
-        let dir = std::env::temp_dir().join(format!("omegastar-card-closed-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("card-closed");
         let e = tester();
         let report = two_cards(&e);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1818,8 +1784,7 @@ mod tests {
 
     #[tokio::test]
     async fn later_brings_a_card_back_by_itself_once_then_parks_it() {
-        let dir = std::env::temp_dir().join(format!("omegastar-later-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("later");
         let e = tester();
         let report = carded(&e);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1857,8 +1822,7 @@ mod tests {
 
     #[tokio::test]
     async fn not_now_from_an_older_inbox_is_later_until_tomorrow_and_no_drops_it() {
-        let dir = std::env::temp_dir().join(format!("omegastar-not-now-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("not-now");
         let e = tester();
         let later = carded(&e);
         let mut no = carded(&e);
@@ -1890,8 +1854,7 @@ mod tests {
 
     #[tokio::test]
     async fn news_keeps_its_row_until_seen_and_holds_up_no_answer() {
-        let dir = std::env::temp_dir().join(format!("omegastar-news-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("news");
         let e = tester();
         let report = with_news(&e, true);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1910,8 +1873,7 @@ mod tests {
 
     #[tokio::test]
     async fn your_words_on_news_follow_it_up_and_count_as_seeing_it() {
-        let dir = std::env::temp_dir().join(format!("omegastar-news-words-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("news-words");
         let e = tester();
         let report = with_news(&e, false);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1924,8 +1886,7 @@ mod tests {
 
     #[tokio::test]
     async fn done_counts_as_seeing_news_and_undo_unsees_it() {
-        let dir = std::env::temp_dir().join(format!("omegastar-news-done-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("news-done");
         let e = tester();
         let report = with_news(&e, false);
         let office = held_office(&dir, &e, &[&report]).await;
@@ -1944,8 +1905,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_shared_key_hears_a_choice_only_where_it_is_offered() {
-        let dir = std::env::temp_dir().join(format!("omegastar-shared-key-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("shared-key");
         let ada = tester();
         let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
         let ask = |e: &Employee, choices: &[&str]| {
@@ -1974,8 +1934,7 @@ mod tests {
 
     #[tokio::test]
     async fn going_ahead_with_a_company_line_adds_it_to_the_page() {
-        let dir = std::env::temp_dir().join(format!("omegastar-company-line-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("company-line");
         let e = tester();
         let proposed = |line: &str| {
             let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), now());
@@ -2001,8 +1960,7 @@ mod tests {
 
     #[tokio::test]
     async fn chrome_dropping_in_a_chat_raises_no_card() {
-        let dir = std::env::temp_dir().join(format!("omegastar-chrome-chat-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("chrome-chat");
         let e = tester();
         let mut chat = Run::new(&e.id, RunKind::Chat, "hi".into(), now());
         chat.state = RunState::Succeeded;
@@ -2018,8 +1976,7 @@ mod tests {
 
     #[tokio::test]
     async fn done_reaches_a_run_held_for_the_usage_limit_without_a_reply() {
-        let dir = std::env::temp_dir().join(format!("omegastar-chore-held-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("chore-held");
         let e = tester();
         let done = chrome_wait(&e, RunState::Succeeded);
         let held = chrome_wait(&e, RunState::Queued);
@@ -2037,8 +1994,7 @@ mod tests {
 
     #[tokio::test]
     async fn done_on_a_working_run_clears_its_chore_headline() {
-        let dir = std::env::temp_dir().join(format!("omegastar-chore-live-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("chore-live");
         let e = tester();
         let done = chrome_wait(&e, RunState::Succeeded);
         let office = held_office(&dir, &e, &[&done]).await;
@@ -2093,7 +2049,7 @@ mod tests {
 
     #[tokio::test]
     async fn archiving_a_replied_thread_writes_only_archived_at() {
-        let dir = std::env::temp_dir().join(format!("omegastar-inbox-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("inbox");
         let path = dir.join("office.db");
         fs::create_dir_all(&dir).unwrap();
         let ada = Employee { slug: "ada".into(), name: "Ada".into(), chat_session: "chat-ada".into(), ..tester() };
@@ -2113,7 +2069,7 @@ mod tests {
             assert!(db.insert_run(&reply, &report.id).unwrap());
         }
 
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let before = every_row(&path);
         assert_eq!(office.set_archived(&reply.id, true).unwrap(), vec![report.id.clone()]);
         assert!(office.db().run(&report.id).unwrap().unwrap().run.archived_at.is_some());

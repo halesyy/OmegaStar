@@ -127,10 +127,11 @@ fn embedded(s: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::temp_path;
 
     #[test]
     fn local_images_are_embedded_wherever_the_page_names_them() {
-        let dir = std::env::temp_dir().join(format!("omegastar-visuals-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("visuals");
         fs::create_dir_all(dir.join("with space")).unwrap();
         let shot = dir.join("with space").join("shot.png");
         fs::write(&shot, b"png").unwrap();

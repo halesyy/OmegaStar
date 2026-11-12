@@ -442,7 +442,7 @@ fn headline(report: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, NoSink};
+    use crate::fixtures::{self, acme, open_office, task, temp_dir};
 
     fn employee(name: &str) -> Employee {
         Employee { slug: name.to_lowercase(), name: name.into(), auto_tidy: true, chat_session: format!("chat-{name}"), ..fixtures::employee() }
@@ -461,15 +461,14 @@ mod tests {
 
     #[test]
     fn presence_lists_live_work_running_first_then_oldest_first() {
-        let dir = std::env::temp_dir().join(format!("omegastar-presence-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("presence");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let ada = employee("Ada");
         let bo = employee("Bo");
         db.save_employee(&ada).unwrap();
         db.save_employee(&bo).unwrap();
 
-        let task = RunKind::Task { label: "Draft the plan".into(), from: None, context: String::new() };
+        let task = task("Draft the plan");
         let queued_old = run(&db, &ada, RunKind::Manual, RunState::Queued, 30);
         let running_new = run(&db, &ada, RunKind::Manual, RunState::Running, 5);
         let running_old = run(&db, &ada, task, RunState::Running, 20);
@@ -508,13 +507,12 @@ mod tests {
 
     #[tokio::test]
     async fn someone_who_leaves_is_cleaned_out_of_whoever_still_names_them() {
-        let dir = std::env::temp_dir().join(format!("omegastar-left-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("left");
         let (ada, bo, cy, dee) = (employee("Ada"), employee("Bo"), employee("Cy"), employee("Dee"));
         let sam = Person { name: "Sam Lee".into(), title: "Designer".into(), ..fixtures::person() };
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
-            db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+            db.set_company(&acme()).unwrap();
             for e in [&ada, &bo, &cy, &dee] {
                 db.save_employee(e).unwrap();
             }
@@ -522,7 +520,7 @@ mod tests {
             // Held, so the runs it starts wait.
             db.set_held_until(Some(now() + chrono::Duration::days(1))).unwrap();
         }
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let write = |e: &Employee, file: &str, text: &str| {
             let path = office.employee_dir(&e.id).join(file);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -548,8 +546,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_hire_decision_resumes_the_started_work_session_it_was_proposed_in_and_starts_fresh_otherwise() {
-        let dir = std::env::temp_dir().join(format!("omegastar-decision-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("decision");
         let ada = employee("Ada");
         let (started, unstarted, chat) = {
             let db = Store::open(&dir.join("office.db")).unwrap();
@@ -565,7 +562,7 @@ mod tests {
             db.mark_inited(&chat.id).unwrap();
             (started, unstarted, chat)
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let decided = |from: Option<&Run>| {
             let p = HireProposal {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -599,8 +596,7 @@ mod tests {
 
     #[test]
     fn the_status_says_their_number_their_last_report_and_what_is_next() {
-        let dir = std::env::temp_dir().join(format!("omegastar-status-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("status");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let ada = employee("Ada");
         db.save_employee(&ada).unwrap();
