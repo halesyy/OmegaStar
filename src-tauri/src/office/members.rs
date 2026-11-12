@@ -442,18 +442,7 @@ fn headline(report: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, acme, employee_named, open_office, task, temp_dir};
-
-    /// Saves a run of `e` in `state`, created `ago` minutes back.
-    fn run(db: &Store, e: &Employee, kind: RunKind, state: RunState, ago: i64) -> Run {
-        let mut r = Run::new(&e.id, kind, "go".into(), now() - chrono::Duration::minutes(ago));
-        r.state = state;
-        if state.is_finished() {
-            r.ended_at = Some(r.created_at);
-        }
-        assert!(db.insert_run(&r, &r.id).unwrap());
-        r
-    }
+    use crate::fixtures::{self, acme, employee_named, open_office, saved_run, task, temp_dir};
 
     #[test]
     fn presence_lists_live_work_running_first_then_oldest_first() {
@@ -465,12 +454,12 @@ mod tests {
         db.save_employee(&bo).unwrap();
 
         let task = task("Draft the plan");
-        let queued_old = run(&db, &ada, RunKind::Manual, RunState::Queued, 30);
-        let running_new = run(&db, &ada, RunKind::Manual, RunState::Running, 5);
-        let running_old = run(&db, &ada, task, RunState::Running, 20);
-        let queued_new = run(&db, &ada, RunKind::Manual, RunState::Queued, 1);
-        run(&db, &ada, RunKind::Manual, RunState::Succeeded, 60);
-        run(&db, &bo, RunKind::Manual, RunState::Succeeded, 10);
+        let queued_old = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Queued, 30, None);
+        let running_new = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Running, 5, None);
+        let running_old = saved_run(&db, &ada, task, "go", RunState::Running, 20, None);
+        let queued_new = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Queued, 1, None);
+        saved_run(&db, &ada, RunKind::Manual, "go", RunState::Succeeded, 60, None);
+        saved_run(&db, &bo, RunKind::Manual, "go", RunState::Succeeded, 10, None);
 
         let v = Office::presence(&db, &ada, now(), false).unwrap();
         let ids: Vec<&str> = v.live.iter().map(|r| r.id.as_str()).collect();
@@ -480,7 +469,7 @@ mod tests {
         let idle = Office::presence(&db, &bo, now(), false).unwrap();
         assert!(idle.live.is_empty());
         assert_eq!(idle.presence, Presence::Idle);
-        run(&db, &bo, RunKind::Manual, RunState::Queued, 1);
+        saved_run(&db, &bo, RunKind::Manual, "go", RunState::Queued, 1, None);
         assert_eq!(Office::presence(&db, &bo, now(), false).unwrap().presence, Presence::Queued);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -548,9 +537,9 @@ mod tests {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.save_employee(&ada).unwrap();
             db.set_held_until(Some(now() + chrono::Duration::days(1))).unwrap();
-            let started = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 30);
+            let started = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Succeeded, 30, None);
             db.mark_inited(&started.id).unwrap();
-            let unstarted = run(&db, &ada, RunKind::Manual, RunState::Failed, 20);
+            let unstarted = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Failed, 20, None);
             let mut chat = Run::new(&ada.id, RunKind::Chat, "Find us a designer.".into(), now() - chrono::Duration::minutes(10));
             chat.state = RunState::Succeeded;
             chat.ended_at = Some(chat.created_at);

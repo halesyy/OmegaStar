@@ -1578,7 +1578,7 @@ fn effort_arg(v: &str) -> Result<Option<Effort>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{acme, employee_named, open_office, task, temp_path};
+    use crate::fixtures::{acme, employee_named, open_office, saved_run, task, temp_path};
 
     struct Office0 {
         dir: PathBuf,
@@ -1607,20 +1607,6 @@ mod tests {
         e
     }
 
-    /// Saves a run of `e` in `state`, created `ago` minutes back, in `session` (its own id when None).
-    fn run(db: &Store, e: &Employee, kind: RunKind, prompt: &str, state: RunState, ago: i64, session: Option<&str>) -> Run {
-        let at = now() - chrono::Duration::minutes(ago);
-        let mut r = Run::new(&e.id, kind, prompt.into(), at);
-        r.state = state;
-        if state.is_finished() {
-            r.ended_at = Some(at);
-            r.summary = (state == RunState::Succeeded).then(|| format!("{} did it.", e.name));
-        }
-        let session = session.map(String::from).unwrap_or_else(|| r.id.clone());
-        assert!(db.insert_run(&r, &session).unwrap());
-        r
-    }
-
     fn delegated(parent: &Run) -> RunKind {
         RunKind::Delegated { parent_run_id: parent.id.clone() }
     }
@@ -1638,9 +1624,9 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
+        let parent = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
         o.db.mark_inited(&parent.id).unwrap();
-        let child = run(&o.db, &bo, asked(&parent, true), "Count the stock.", RunState::Succeeded, 20, None);
+        let child = saved_run(&o.db, &bo, asked(&parent, true), "Count the stock.", RunState::Succeeded, 20, None);
 
         let due = due_answers(&o.db, &child).unwrap();
         assert_eq!(due.len(), 1);
@@ -1661,11 +1647,11 @@ mod tests {
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         // Ada was waiting on Bo's report when the app quit; Bo's own hand-off to Cy was lost with it.
-        let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Running, 30, None);
-        let child = run(&o.db, &bo, delegated(&parent), "Count the stock.", RunState::Succeeded, 20, None);
+        let parent = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Running, 30, None);
+        let child = saved_run(&o.db, &bo, delegated(&parent), "Count the stock.", RunState::Succeeded, 20, None);
         let cy = employee(&o.db, "Cy", Some(&bo.id));
-        let asker = run(&o.db, &bo, RunKind::Manual, "Price the stock.", RunState::Succeeded, 25, None);
-        let lost = run(&o.db, &cy, delegated(&asker), "Check the prices.", RunState::Running, 20, None);
+        let asker = saved_run(&o.db, &bo, RunKind::Manual, "Price the stock.", RunState::Succeeded, 25, None);
+        let lost = saved_run(&o.db, &cy, delegated(&asker), "Check the prices.", RunState::Running, 20, None);
         // Both already went back to the queue as often as a run may, so this restart loses them.
         for mut r in [parent.clone(), lost.clone()] {
             r.restarts = RESTART_RETRIES;
@@ -1716,7 +1702,7 @@ mod tests {
     async fn a_card_shows_its_file_as_it_is_now() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let r = run(&o.db, &ada, RunKind::Manual, "Draft the reply.", RunState::Succeeded, 5, None);
+        let r = saved_run(&o.db, &ada, RunKind::Manual, "Draft the reply.", RunState::Succeeded, 5, None);
         let office = open_office(&o.dir).await;
         let draft = office.employee_dir(&ada.id).join("workspace/reply.md");
         fs::create_dir_all(draft.parent().unwrap()).unwrap();
@@ -1760,8 +1746,8 @@ mod tests {
     async fn a_list_grows_and_an_edit_notifies_nobody_again() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let first = run(&o.db, &ada, RunKind::Manual, "Review the pull requests.", RunState::Succeeded, 30, None);
-        let later = run(&o.db, &ada, RunKind::Manual, "Review the pull requests.", RunState::Succeeded, 10, None);
+        let first = saved_run(&o.db, &ada, RunKind::Manual, "Review the pull requests.", RunState::Succeeded, 30, None);
+        let later = saved_run(&o.db, &ada, RunKind::Manual, "Review the pull requests.", RunState::Succeeded, 10, None);
         let (office, told) = told_office(&o).await;
         let list = |items: &[(&str, &str)]| {
             let items: Vec<Value> = items.iter().map(|(id, text)| json!({ "id": id, "text": text })).collect();
@@ -1791,8 +1777,8 @@ mod tests {
     async fn a_card_in_a_conversation_you_are_in_shows_there_without_a_notification() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let fresh = run(&o.db, &ada, task("The offsite"), "Plan the offsite.", RunState::Succeeded, 5, None);
-        let old = run(&o.db, &ada, task("The rota"), "Plan the rota.", RunState::Succeeded, 60, None);
+        let fresh = saved_run(&o.db, &ada, task("The offsite"), "Plan the offsite.", RunState::Succeeded, 5, None);
+        let old = saved_run(&o.db, &ada, task("The rota"), "Plan the rota.", RunState::Succeeded, 60, None);
         let (office, told) = told_office(&o).await;
         let ask = |message: &str, key: &str| json!({ "message": message, "key": key, "choices": [{ "label": "Go ahead" }] });
         assert_eq!(office.notify_tool(&fresh.id, &ada, &ask("Book the hall?", "hall")).unwrap()["notified"], false, "you wrote in it 5 minutes ago");
@@ -1810,7 +1796,7 @@ mod tests {
     async fn a_card_carries_a_link_and_images_and_asks_for_what_it_is_about() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let r = run(&o.db, &ada, RunKind::Manual, "Review it.", RunState::Succeeded, 5, None);
+        let r = saved_run(&o.db, &ada, RunKind::Manual, "Review it.", RunState::Succeeded, 5, None);
         let office = held_office(&o).await;
         let home = office.employee_dir(&ada.id);
         fs::create_dir_all(home.join("workspace/shots")).unwrap();
@@ -1840,7 +1826,7 @@ mod tests {
     async fn a_company_line_is_proposed_on_a_card_from_any_run() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let r = run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Succeeded, 5, None);
+        let r = saved_run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Succeeded, 5, None);
         let (office, told) = told_office(&o).await;
         let line = json!({ "section": "Who to ask", "line": "Bo signs off refunds.", "why": "Three of us asked this week." });
         let v = office.propose_company_line_tool(&r.id, &ada, &line).unwrap();
@@ -1859,7 +1845,7 @@ mod tests {
     async fn a_card_read_back_after_a_restart_shows_its_file_only_if_notify_would_have() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let r = run(&o.db, &ada, RunKind::Manual, "Draft the replies.", RunState::Running, 10, None);
+        let r = saved_run(&o.db, &ada, RunKind::Manual, "Draft the replies.", RunState::Running, 10, None);
         let home = o.dir.join("employees").join(&ada.id);
         fs::create_dir_all(home.join("workspace")).unwrap();
         fs::write(home.join("workspace/reply.md"), "Hi").unwrap();
@@ -1885,8 +1871,8 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Running, 30, None);
-        let child = run(&o.db, &bo, delegated(&parent), "Count the stock.", RunState::Succeeded, 20, None);
+        let parent = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Running, 30, None);
+        let child = saved_run(&o.db, &bo, delegated(&parent), "Count the stock.", RunState::Succeeded, 20, None);
 
         let office = open_office(&o.dir).await;
         assert_eq!(o.db.run(&parent.id).unwrap().unwrap().run.state, RunState::Queued, "it carries on");
@@ -1899,8 +1885,8 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let mut parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Running, 30, None);
-        let child = run(&o.db, &bo, asked(&parent, true), "Count the stock.", RunState::Succeeded, 20, None);
+        let mut parent = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Running, 30, None);
+        let child = saved_run(&o.db, &bo, asked(&parent, true), "Count the stock.", RunState::Succeeded, 20, None);
         assert!(due_answers(&o.db, &child).unwrap().is_empty(), "the manager can still collect it");
         assert!(!delivered(&o.db, &child));
 
@@ -1917,12 +1903,12 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
-        let stopped = run(&o.db, &bo, delegated(&parent), "Count the stock.", RunState::Cancelled, 20, None);
+        let parent = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
+        let stopped = saved_run(&o.db, &bo, delegated(&parent), "Count the stock.", RunState::Cancelled, 20, None);
         assert!(due_answers(&o.db, &stopped).unwrap().is_empty());
         assert!(delivered(&o.db, &stopped), "stamped all the same");
 
-        let mut collected = run(&o.db, &bo, delegated(&parent), "Count the till.", RunState::Succeeded, 20, None);
+        let mut collected = saved_run(&o.db, &bo, delegated(&parent), "Count the till.", RunState::Succeeded, 20, None);
         collected.delivered_at = Some(now());
         o.db.save_run(&collected).unwrap();
         assert!(due_answers(&o.db, &collected).unwrap().is_empty());
@@ -1935,9 +1921,9 @@ mod tests {
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         let task = task("The numbers");
-        let parent = run(&o.db, &ada, task, "Ask Bo for the numbers.", RunState::Succeeded, 30, None);
+        let parent = saved_run(&o.db, &ada, task, "Ask Bo for the numbers.", RunState::Succeeded, 30, None);
         o.db.mark_inited(&parent.id).unwrap();
-        let mut child = run(&o.db, &bo, asked(&parent, false), "What are the numbers?", RunState::Succeeded, 20, None);
+        let mut child = saved_run(&o.db, &bo, asked(&parent, false), "What are the numbers?", RunState::Succeeded, 20, None);
         child.needs_you = vec!["Look at this.".into()];
         o.db.save_run(&child).unwrap();
 
@@ -1958,8 +1944,8 @@ mod tests {
 
         // An ask from your reply in the conversation comes back into it too, after the turn before it.
         let reply = RunKind::Reply { to_run_id: parent.id.clone(), label: "The numbers".into(), task: true, card: false };
-        let replied = run(&o.db, &ada, reply, "And the totals?", RunState::Succeeded, 5, Some(&parent.id));
-        let again = run(&o.db, &bo, asked(&replied, false), "And the totals?", RunState::Succeeded, 2, None);
+        let replied = saved_run(&o.db, &ada, reply, "And the totals?", RunState::Succeeded, 5, Some(&parent.id));
+        let again = saved_run(&o.db, &bo, asked(&replied, false), "And the totals?", RunState::Succeeded, 2, None);
         let (b, session) = due_answers(&o.db, &again).unwrap().remove(0);
         assert!(matches!(&b.kind, RunKind::Answered { thread: Some(t), .. } if *t == parent.id), "{:?}", b.kind);
         assert_eq!(session, parent.id);
@@ -1970,9 +1956,9 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let parent = run(&o.db, &ada, RunKind::Chat, "Ask Bo for the numbers.", RunState::Succeeded, 30, Some(&ada.chat_session));
+        let parent = saved_run(&o.db, &ada, RunKind::Chat, "Ask Bo for the numbers.", RunState::Succeeded, 30, Some(&ada.chat_session));
         o.db.mark_inited(&parent.id).unwrap();
-        let child = run(&o.db, &bo, asked(&parent, false), "What are the numbers?", RunState::Succeeded, 20, None);
+        let child = saved_run(&o.db, &bo, asked(&parent, false), "What are the numbers?", RunState::Succeeded, 20, None);
         let (a, session) = due_answers(&o.db, &child).unwrap().remove(0);
         assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: false, chat: false, thread: Some(parent.id.clone()) });
         assert_eq!(session, a.id, "never into the old chat");
@@ -1986,12 +1972,12 @@ mod tests {
         let ada = employee(&o.db, "Ada", Some(&di.id));
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         let cy = employee(&o.db, "Cy", None);
-        let message = run(&o.db, &ada, RunKind::Chat, "Ask Bo for the numbers.", RunState::Succeeded, 40, Some(&ada.chat_session));
+        let message = saved_run(&o.db, &ada, RunKind::Chat, "Ask Bo for the numbers.", RunState::Succeeded, 40, Some(&ada.chat_session));
         o.db.mark_inited(&message.id).unwrap();
-        let first = run(&o.db, &bo, asked(&message, false), "What are the numbers?", RunState::Succeeded, 30, None);
+        let first = saved_run(&o.db, &bo, asked(&message, false), "What are the numbers?", RunState::Succeeded, 30, None);
         let came = RunKind::Answered { asked_run_id: first.id.clone(), from: bo.id.clone(), task: false, chat: true, thread: None };
-        let turn = run(&o.db, &ada, came, "Bo answered your question.", RunState::Succeeded, 20, Some(&ada.chat_session));
-        let child = run(&o.db, &cy, asked(&turn, false), "Do they include the till?", RunState::Succeeded, 10, None);
+        let turn = saved_run(&o.db, &ada, came, "Bo answered your question.", RunState::Succeeded, 20, Some(&ada.chat_session));
+        let child = saved_run(&o.db, &cy, asked(&turn, false), "Do they include the till?", RunState::Succeeded, 10, None);
         let (a, _) = due_answers(&o.db, &child).unwrap().remove(0);
         assert_eq!(a.kind, RunKind::Answered { asked_run_id: child.id.clone(), from: cy.id.clone(), task: false, chat: false, thread: Some(message.id.clone()) });
     }
@@ -2001,15 +1987,15 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let never_started = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Failed, 30, None);
-        let child = run(&o.db, &bo, asked(&never_started, true), "Count the stock.", RunState::Succeeded, 20, None);
+        let never_started = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Failed, 30, None);
+        let child = saved_run(&o.db, &bo, asked(&never_started, true), "Count the stock.", RunState::Succeeded, 20, None);
         let (a, session) = due_answers(&o.db, &child).unwrap().remove(0);
         assert_eq!(session, never_started.id);
         assert!(a.prompt.contains("\n\nYour run had started from:\n\nPlan the launch.\n\nYour task:"), "{}", a.prompt);
 
         let came = RunKind::Answered { asked_run_id: child.id.clone(), from: bo.id.clone(), task: true, chat: false, thread: None };
-        let answered = run(&o.db, &ada, came, "Bo finished the task you handed them.", RunState::Succeeded, 10, None);
-        let child = run(&o.db, &bo, asked(&answered, true), "Count the till.", RunState::Failed, 5, None);
+        let answered = saved_run(&o.db, &ada, came, "Bo finished the task you handed them.", RunState::Succeeded, 10, None);
+        let child = saved_run(&o.db, &bo, asked(&answered, true), "Count the till.", RunState::Failed, 5, None);
         let (a, _) = due_answers(&o.db, &child).unwrap().remove(0);
         assert!(a.prompt.contains("\n\nYour run had started from:\n\nBo finished the task"), "{}", a.prompt);
         assert!(a.prompt.contains("Their report:\n\nThey did not finish (failed): no details"), "{}", a.prompt);
@@ -2020,9 +2006,9 @@ mod tests {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
+        let parent = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
         o.db.mark_inited(&parent.id).unwrap();
-        let mut child = run(&o.db, &bo, delegated(&parent), "Boost the post.", RunState::Succeeded, 20, None);
+        let mut child = saved_run(&o.db, &bo, delegated(&parent), "Boost the post.", RunState::Succeeded, 20, None);
         let answer = CardAnswer { at: now(), how: AnswerHow::Tapped, text: "Chose: Not now.".into(), held: false };
         let mut card = Card::new("Boost it?", None, Some("ask:boost".into()), CardAsk::Choices { choices: vec!["Not now".into(), "Go".into()], recommended: 0 });
         card.answer = Some(answer);
@@ -2033,7 +2019,7 @@ mod tests {
 
         let reply = |card: bool, state: RunState| {
             let kind = RunKind::Reply { to_run_id: child.id.clone(), label: "Delegated".into(), task: false, card };
-            run(&o.db, &bo, kind, "Your card: \"Boost it?\"\nChose: Not now.", state, 5, Some(&child.id))
+            saved_run(&o.db, &bo, kind, "Your card: \"Boost it?\"\nChose: Not now.", state, 5, Some(&child.id))
         };
         assert!(due_answers(&o.db, &reply(false, RunState::Succeeded)).unwrap().is_empty(), "a reply you typed stays with Bo");
         assert!(due_answers(&o.db, &reply(true, RunState::Cancelled)).unwrap().is_empty(), "a reply you stopped stays with Bo");
@@ -2094,11 +2080,11 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
         let bo = employee(&o.db, "Bo", None);
         let cap = |n: u32| o.db.set_settings(&AppSettings { max_concurrent_runs: n, ..AppSettings::default() }).unwrap();
         cap(1);
-        let asker = run(&o.db, &ada, RunKind::Manual, "Ask Bo.", RunState::Succeeded, 30, None);
-        run(&o.db, &bo, RunKind::Manual, "A long build.", RunState::Running, 20, None);
-        let earlier = run(&o.db, &bo, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: true }, "Fix it.", RunState::Queued, 10, None);
-        let task = run(&o.db, &bo, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: true }, "Ship it.", RunState::Queued, 5, None);
-        let question = run(&o.db, &bo, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: false }, "Which room?", RunState::Queued, 1, None);
+        let asker = saved_run(&o.db, &ada, RunKind::Manual, "Ask Bo.", RunState::Succeeded, 30, None);
+        saved_run(&o.db, &bo, RunKind::Manual, "A long build.", RunState::Running, 20, None);
+        let earlier = saved_run(&o.db, &bo, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: true }, "Fix it.", RunState::Queued, 10, None);
+        let task = saved_run(&o.db, &bo, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: true }, "Ship it.", RunState::Queued, 5, None);
+        let question = saved_run(&o.db, &bo, RunKind::Asked { parent_run_id: asker.id.clone(), asked_by: ada.id.clone(), task: false }, "Which room?", RunState::Queued, 1, None);
         assert_eq!(queue_ahead(&o.db, &task, now()).unwrap(), 2, "the build, and the task queued before it");
         assert_eq!(queue_ahead(&o.db, &earlier, now()).unwrap(), 1);
         assert_eq!(queue_ahead(&o.db, &question, now()).unwrap(), 0, "a question runs beside background work");
@@ -2127,14 +2113,14 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         let cy = employee(&o.db, "Cy", None);
         let task = task("The stock");
-        let delegating = run(&o.db, &ada, task, "Get Bo to count the stock.", RunState::Succeeded, 35, None);
+        let delegating = saved_run(&o.db, &ada, task, "Get Bo to count the stock.", RunState::Succeeded, 35, None);
         steer(&o, &delegating, &["Only the warehouse."]);
 
-        let d = run(&o.db, &bo, delegated(&delegating), "Count the stock.", RunState::Running, 30, None);
+        let d = saved_run(&o.db, &bo, delegated(&delegating), "Count the stock.", RunState::Running, 30, None);
         steer(&o, &d, &["Use last week's sheet."]);
         assert_eq!(source(&o, &d), "This began with Pat's own message to Ada:\n> \"Get Bo to count the stock. Only the warehouse.\"");
         // Bo asks Cy on: what Pat wrote into Bo's run on the way comes with it.
-        let a = run(&o.db, &cy, asked(&d, false), "Where is last week's sheet?", RunState::Running, 20, None);
+        let a = saved_run(&o.db, &cy, asked(&d, false), "Where is last week's sheet?", RunState::Running, 20, None);
         assert_eq!(
             source(&o, &a),
             "This began with Pat's own message to Ada:\n> \"Get Bo to count the stock. Only the warehouse.\"\n\
@@ -2142,8 +2128,8 @@ Pat also wrote into Bo's run on the way:\n\
 > \"Use last week's sheet.\""
         );
         // A hand-off from an older build's chat quotes the message it began with.
-        let chat = run(&o.db, &ada, RunKind::Chat, "Ask Bo for a date.", RunState::Succeeded, 10, Some(&ada.chat_session));
-        let d = run(&o.db, &bo, delegated(&chat), "Find a date.", RunState::Running, 5, None);
+        let chat = saved_run(&o.db, &ada, RunKind::Chat, "Ask Bo for a date.", RunState::Succeeded, 10, Some(&ada.chat_session));
+        let d = saved_run(&o.db, &bo, delegated(&chat), "Find a date.", RunState::Running, 5, None);
         assert_eq!(source(&o, &d), "This began with Pat's own message to Ada:\n> \"Ask Bo for a date.\"");
     }
 
@@ -2153,15 +2139,15 @@ Pat also wrote into Bo's run on the way:\n\
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         let from = |origin: &Run| {
-            let d = run(&o.db, &bo, delegated(origin), "Count the stock.", RunState::Running, 0, None);
+            let d = saved_run(&o.db, &bo, delegated(origin), "Count the stock.", RunState::Running, 0, None);
             source(&o, &d)
         };
 
         let sweep = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
-        let scheduled = run(&o.db, &ada, sweep, "Sweep the inbox.", RunState::Running, 5, None);
+        let scheduled = saved_run(&o.db, &ada, sweep, "Sweep the inbox.", RunState::Running, 5, None);
         assert_eq!(from(&scheduled), "This began with Ada's scheduled 'Sweep', not a message from Pat.");
 
-        let root = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 60, None);
+        let root = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 60, None);
         assert_eq!(from(&root), "This began with Pat's own message to Ada:\n> \"Plan the launch.\"");
         let reply = RunKind::Reply { to_run_id: root.id.clone(), label: "Manual run".into(), task: false, card: false };
         let mut approval = Run::new(&ada.id, reply, "Pat approved what was blocked:\n- Bash: npm publish".into(), now());
@@ -2173,13 +2159,13 @@ Pat also wrote into Bo's run on the way:\n\
 quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         );
 
-        let bare = run(&o.db, &ada, RunKind::Manual, DEFAULT_PROMPT, RunState::Running, 5, None);
+        let bare = saved_run(&o.db, &ada, RunKind::Manual, DEFAULT_PROMPT, RunState::Running, 5, None);
         assert_eq!(from(&bare), "This began when Pat started a run for Ada from the app, with no instructions.");
 
-        let lost = run(&o.db, &bo, RunKind::Delegated { parent_run_id: "gone".into() }, "Count the stock.", RunState::Running, 0, None);
+        let lost = saved_run(&o.db, &bo, RunKind::Delegated { parent_run_id: "gone".into() }, "Count the stock.", RunState::Running, 0, None);
         assert_eq!(source(&o, &lost), "Where this began is no longer on record, so treat it as the sender's own request.");
         let cy = employee(&o.db, "Cy", None);
-        let on = run(&o.db, &cy, asked(&lost, false), "Which stock?", RunState::Running, 0, None);
+        let on = saved_run(&o.db, &cy, asked(&lost, false), "Which stock?", RunState::Running, 0, None);
         assert_eq!(source(&o, &on), "Where this began is no longer on record, so treat it as Bo's own request.");
     }
 
@@ -2197,7 +2183,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
 
     /// A finished, delivered hand-off of `kind` to `to` in the chain `root` started, `ago` minutes back.
     fn handed(db: &Store, to: &Employee, kind: RunKind, root: &Run, ago: i64) -> Run {
-        let mut r = run(db, to, kind, "Over to you.", RunState::Succeeded, ago, None);
+        let mut r = saved_run(db, to, kind, "Over to you.", RunState::Succeeded, ago, None);
         r.chain = Some(root.id.clone());
         r.delivered_at = Some(now());
         db.save_run(&r).unwrap();
@@ -2230,7 +2216,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let cy = employee(&o.db, "Cy", None);
-        let root = run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Succeeded, 180, None);
+        let root = saved_run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Succeeded, 180, None);
         for _ in 0..3 {
             handed(&o.db, &cy, asked(&root, false), &root, 150);
         }
@@ -2242,7 +2228,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let h5 = handed(&o.db, &cy, asked(&h4, false), &root, 20);
         let answer = |h: &Run, state| {
             let came = RunKind::Answered { asked_run_id: h.id.clone(), from: cy.id.clone(), task: false, chat: false, thread: None };
-            run(&o.db, &ada, came, "Cy answered your question.", state, 10, None)
+            saved_run(&o.db, &ada, came, "Cy answered your question.", state, 10, None)
         };
         answer(&h3, RunState::Succeeded);
         let caller = answer(&h5, RunState::Running);
@@ -2272,15 +2258,15 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         let cy = employee(&o.db, "Cy", None);
-        let root = run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Running, 0, None);
+        let root = saved_run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Running, 0, None);
         // Six tasks Ada handed Bo in this chain just now: the daily cap covers those, so they never pause an ask.
         for _ in 0..6 {
             handed(&o.db, &bo, delegated(&root), &root, 0);
         }
-        let theirs = run(&o.db, &cy, RunKind::Manual, "Price the stock.", RunState::Running, 0, None);
+        let theirs = saved_run(&o.db, &cy, RunKind::Manual, "Price the stock.", RunState::Running, 0, None);
         // Two asks between Ada and Cy were paused today, one each way: each started a chain of its own.
         for (from, to) in [(&root, &cy), (&theirs, &ada)] {
-            let mut r = run(&o.db, to, asked(from, false), "Which supplier?", RunState::Succeeded, 0, None);
+            let mut r = saved_run(&o.db, to, asked(from, false), "Which supplier?", RunState::Succeeded, 0, None);
             r.chain = Some(r.id.clone());
             o.db.save_run(&r).unwrap();
         }
@@ -2303,9 +2289,9 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let morning = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 300, None);
+        let morning = saved_run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 300, None);
         let parent = o.db.run(&morning.id).unwrap().unwrap();
-        let report = |task: &str| run(&o.db, &bo, delegated(&morning), task, RunState::Succeeded, 0, None);
+        let report = |task: &str| saved_run(&o.db, &bo, delegated(&morning), task, RunState::Succeeded, 0, None);
         let batch = || o.db.active_runs_of(&ada.id).unwrap().remove(0);
         let first = now() - chrono::Duration::minutes(110);
         hold(&o.db, "Pat", &report("Count the shelf."), &parent, first).unwrap();
@@ -2321,11 +2307,11 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let morning = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 60, None);
-        let shelf = run(&o.db, &bo, delegated(&morning), "Count the shelf.", RunState::Succeeded, 20, None);
+        let morning = saved_run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 60, None);
+        let shelf = saved_run(&o.db, &bo, delegated(&morning), "Count the shelf.", RunState::Succeeded, 20, None);
         assert!(due_answers(&o.db, &shelf).unwrap().is_empty(), "held for Ada");
         // Ada's next run took it in, then went back to the queue for the usage limit, where you stop it.
-        let next = run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
+        let next = saved_run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
         assert_eq!(caught_up(&o.db, &[ada.clone(), bo.clone()], &next).held.len(), 1);
         let mut back = saved(&o.db, &next.id);
         (back.state, back.limit_retries) = (RunState::Queued, 1);
@@ -2344,8 +2330,8 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let ada = employee(&o.db, "Ada", None);
         employee(&o.db, "Bo", Some(&ada.id));
         let (cy, dee) = (employee(&o.db, "Cy", None), employee(&o.db, "Dee", None));
-        let root = run(&o.db, &ada, standup("s1"), "Hand out the week's work.", RunState::Running, 300, None);
-        let theirs = run(&o.db, &cy, RunKind::Manual, "Ask Dee.", RunState::Succeeded, 290, None);
+        let root = saved_run(&o.db, &ada, standup("s1"), "Hand out the week's work.", RunState::Running, 300, None);
+        let theirs = saved_run(&o.db, &cy, RunKind::Manual, "Ask Dee.", RunState::Succeeded, 290, None);
         for _ in 0..39 {
             handed(&o.db, &dee, asked(&theirs, false), &root, 280);
         }
@@ -2364,7 +2350,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         // One you stopped no longer counts, and a conversation with Pat may hand out more.
         office.cancel_run(&first.id).unwrap();
         hand(5).unwrap();
-        let talking = run(&o.db, &ada, task("The stock"), "Get Bo on the shelves.", RunState::Running, 5, None);
+        let talking = saved_run(&o.db, &ada, task("The stock"), "Get Bo on the shelves.", RunState::Running, 5, None);
         let v = office.delegate(&talking.id, &ada, "Bo", "Count shelf 6.").unwrap();
         assert!(v["note"].as_str().unwrap().ends_with("as your next turn in this conversation."), "{v}");
         drop(office);
@@ -2375,8 +2361,8 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let waiting = run(&o.db, &bo, RunKind::Manual, "Price the stock.", RunState::Running, 10, None);
-        let asked_ada = run(&o.db, &ada, asked(&waiting, false), "Which supplier?", RunState::Running, 5, None);
+        let waiting = saved_run(&o.db, &bo, RunKind::Manual, "Price the stock.", RunState::Running, 10, None);
+        let asked_ada = saved_run(&o.db, &ada, asked(&waiting, false), "Which supplier?", RunState::Running, 5, None);
         let office = held_office(&o).await;
         let ask = office.ask_colleague(&asked_ada.id, &ada, "Bo", "Which shelf?", "question").unwrap_err();
         assert!(ask.message.starts_with("Bo is already waiting on you further up this chain, so they cannot answer now."), "{}", ask.message);
@@ -2390,8 +2376,8 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let cy = employee(&o.db, "Cy", None);
-        let sweep = run(&o.db, &ada, standup("s1"), "Sweep.", RunState::Succeeded, 30, None);
-        let later = run(&o.db, &ada, RunKind::Manual, "Plan.", RunState::Running, 5, None);
+        let sweep = saved_run(&o.db, &ada, standup("s1"), "Sweep.", RunState::Succeeded, 30, None);
+        let later = saved_run(&o.db, &ada, RunKind::Manual, "Plan.", RunState::Running, 5, None);
         let office = held_office(&o).await;
         let first = run_id(&office.ask_colleague(&sweep.id, &ada, "Cy", "Which room?", "question").unwrap());
         let again = office.ask_colleague(&later.id, &ada, "Cy", "Book it for Friday.", "task").unwrap();
@@ -2404,7 +2390,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         assert_eq!(o.db.active_runs_of(&cy.id).unwrap().len(), 1);
 
         // Not from a conversation with Pat, where its answer would land elsewhere, nor once it has started.
-        let talking = run(&o.db, &ada, task("Rooms"), "Find a room.", RunState::Running, 2, None);
+        let talking = saved_run(&o.db, &ada, task("Rooms"), "Find a room.", RunState::Running, 2, None);
         assert_ne!(run_id(&office.ask_colleague(&talking.id, &ada, "Cy", "Which floor?", "question").unwrap()), first);
         let mut started = r.clone();
         started.state = RunState::Running;
@@ -2419,7 +2405,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", None);
         let cy = employee(&o.db, "Cy", None);
-        let sender = run(&o.db, &ada, RunKind::Manual, "Ship it.", RunState::Running, 5, None);
+        let sender = saved_run(&o.db, &ada, RunKind::Manual, "Ship it.", RunState::Running, 5, None);
         let office = held_office(&o).await;
         let one = office.ask_colleague(&sender.id, &ada, "Bo", "The new opening hours are up.", "info").unwrap();
         assert_eq!(one["note"], "Omega Star shows this to Bo at the top of their next run. It starts no run, and nothing comes back.");
@@ -2451,10 +2437,10 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
         let cy = employee(&o.db, "Cy", Some(&ada.id));
-        let morning = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 60, None);
+        let morning = saved_run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 60, None);
         o.db.mark_inited(&morning.id).unwrap();
-        let shelf = run(&o.db, &bo, delegated(&morning), "Count the shelf.", RunState::Succeeded, 20, None);
-        let till = run(&o.db, &cy, delegated(&morning), "Count the till.", RunState::Succeeded, 10, None);
+        let shelf = saved_run(&o.db, &bo, delegated(&morning), "Count the shelf.", RunState::Succeeded, 20, None);
+        let till = saved_run(&o.db, &cy, delegated(&morning), "Count the till.", RunState::Succeeded, 10, None);
         let queued = |db: &Store| db.active_runs_of(&ada.id).unwrap();
 
         assert!(due_answers(&o.db, &shelf).unwrap().is_empty(), "held, not brought back at once");
@@ -2480,7 +2466,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let employees = vec![ada.clone(), bo.clone(), cy.clone()];
         let chat = Run::new(&ada.id, task("Stock"), "How is the count going?".into(), now());
         assert!(caught_up(&o.db, &employees, &chat).held.is_empty());
-        let next = run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
+        let next = saved_run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
         let took = caught_up(&o.db, &employees, &next).held;
         let said = |who: &str, task: &str| (who.to_string(), task.to_string(), format!("{who} did it."));
         assert_eq!(took, vec![said("Bo", "Count the shelf."), said("Cy", "Count the till.")]);
@@ -2501,8 +2487,8 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", Some(&ada.id));
-        let talking = run(&o.db, &ada, task("The stock"), "Get Bo to count the shelf.", RunState::Succeeded, 30, None);
-        let counted = run(&o.db, &bo, delegated(&talking), "Count the shelf.", RunState::Succeeded, 20, None);
+        let talking = saved_run(&o.db, &ada, task("The stock"), "Get Bo to count the shelf.", RunState::Succeeded, 30, None);
+        let counted = saved_run(&o.db, &bo, delegated(&talking), "Count the shelf.", RunState::Succeeded, 20, None);
         let due = due_answers(&o.db, &counted).unwrap();
         assert!(matches!(&due[0].0.kind, RunKind::Answered { thread: Some(t), .. } if *t == talking.id), "{due:?}");
     }
@@ -2513,14 +2499,14 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", None);
         let asker = |kind: RunKind, prompt: &str, ago: i64, context: u64| {
-            let mut r = run(&o.db, &ada, kind, prompt, RunState::Succeeded, ago, None);
+            let mut r = saved_run(&o.db, &ada, kind, prompt, RunState::Succeeded, ago, None);
             r.context_tokens = Some(context);
             o.db.save_run(&r).unwrap();
             o.db.mark_inited(&r.id).unwrap();
             r
         };
         let answer_to = |parent: &Run| {
-            let child = run(&o.db, &bo, asked(parent, false), "Which room?", RunState::Succeeded, 5, None);
+            let child = saved_run(&o.db, &bo, asked(parent, false), "Which room?", RunState::Succeeded, 5, None);
             due_answers(&o.db, &child).unwrap().remove(0)
         };
         let (a, session) = answer_to(&asker(RunKind::Manual, "Plan the launch.", 30, 150_000));
@@ -2542,10 +2528,10 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let bo = employee(&o.db, "Bo", None);
-        let parent = run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
+        let parent = saved_run(&o.db, &ada, RunKind::Manual, "Plan the launch.", RunState::Succeeded, 30, None);
         o.db.mark_inited(&parent.id).unwrap();
         let answer_for = |question: &str| {
-            let child = run(&o.db, &bo, asked(&parent, false), question, RunState::Succeeded, 20, None);
+            let child = saved_run(&o.db, &bo, asked(&parent, false), question, RunState::Succeeded, 20, None);
             due_answers(&o.db, &child).unwrap().remove(0)
         };
         let (mut answer, session) = answer_for("Which room?");
@@ -2578,7 +2564,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let o = office();
         let ada = employee(&o.db, "Ada", None);
         let replaced = |message: &str, mins: i64| {
-            let mut r = run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Succeeded, 300, None);
+            let mut r = saved_run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Succeeded, 300, None);
             let mut card = Card::new(message, None, Some(format!("ask:card-{mins}")), CardAsk::Choices { choices: vec!["Go".into()], recommended: 0 });
             card.answer = Some(CardAnswer { at: now() - chrono::Duration::minutes(mins), how: AnswerHow::Replaced, text: String::new(), held: false });
             r.cards = vec![card];
@@ -2587,13 +2573,13 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         replaced("Order more paper?", 180);
         replaced("Book the bigger room?", 60);
         let started = |kind: RunKind, mins: i64| {
-            let mut r = run(&o.db, &ada, kind, "Go.", RunState::Succeeded, mins, None);
+            let mut r = saved_run(&o.db, &ada, kind, "Go.", RunState::Succeeded, mins, None);
             r.started_at = Some(now() - chrono::Duration::minutes(mins));
             o.db.save_run(&r).unwrap();
         };
         started(RunKind::Manual, 120);
         started(RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None }, 30);
-        let next = run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
+        let next = saved_run(&o.db, &ada, RunKind::Manual, "Go.", RunState::Running, 0, None);
         let said: Vec<String> = caught_up(&o.db, std::slice::from_ref(&ada), &next).replaced.into_iter().map(|(_, c)| c.message).collect();
         assert_eq!(said, vec!["Book the bigger room?".to_string()], "the last run heard of the earlier one, and a tidy hears of none");
     }
@@ -2602,7 +2588,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
     async fn name_thread_names_the_thread_its_run_is_in() {
         let o = office();
         let ada = employee(&o.db, "Ada", None);
-        let first = run(&o.db, &ada, task("Can you look at the sale"), "Can you look at the sale?", RunState::Succeeded, 30, None);
+        let first = saved_run(&o.db, &ada, task("Can you look at the sale"), "Can you look at the sale?", RunState::Succeeded, 30, None);
         let reply = Run::new(&ada.id, RunKind::Reply { to_run_id: first.id.clone(), label: "Can you look at the sale".into(), task: true, card: false }, "And the emails?".into(), now());
         assert!(o.db.insert_run(&reply, &first.id).unwrap());
         let office = held_office(&o).await;
@@ -2615,7 +2601,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         office.name_thread_tool(&reply.id, &"x".repeat(60)).unwrap();
 
         // A report still being written names its own thread, and its end keeps the name.
-        let report = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Running, 5, None);
+        let report = saved_run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Running, 5, None);
         let live = Active { token: "t".into(), employee_id: ada.id.clone(), ..Default::default() };
         lock(&office.0.active).insert(report.id.clone(), live);
         office.name_thread_tool(&report.id, "Weekly numbers").unwrap();
@@ -2651,8 +2637,8 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let ada = Employee { workspaces: vec![repo.to_string_lossy().into_owned()], ..employee(&o.db, "Ada", None) };
         let bo = employee(&o.db, "Bo", None);
         // Finished, so nothing is left to start: whether Pat is in a run depends on its kind alone.
-        let talking = run(&o.db, &ada, task("The report"), "Show me the report.", RunState::Succeeded, 1, None);
-        let sweep = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 1, None);
+        let talking = saved_run(&o.db, &ada, task("The report"), "Show me the report.", RunState::Succeeded, 1, None);
+        let sweep = saved_run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Succeeded, 1, None);
         let back = RunKind::Reply { to_run_id: talking.id.clone(), label: "The report".into(), task: true, card: false };
         let check = Run { check: Some("c1".into()), state: RunState::Succeeded, ..Run::new(&ada.id, back, "Check.".into(), now()) };
         assert!(o.db.insert_run(&check, &talking.id).unwrap());

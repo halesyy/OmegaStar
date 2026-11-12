@@ -1,7 +1,8 @@
 //! Test fixtures shared across the crate's test modules. Tests change what they need with struct update syntax.
 
-use crate::model::{Build, Clearance, Company, Employee, HumanRequest, Person, PersonManager, Run, RunEvent, RunKind, SkillGrant};
+use crate::model::{Build, Clearance, Company, Employee, HumanRequest, Person, PersonManager, Run, RunEvent, RunKind, RunState, SkillGrant};
 use crate::office::{EventSink, Office};
+use crate::store::Store;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -93,4 +94,19 @@ pub fn temp_dir(tag: &str) -> PathBuf {
 /// The office kept in `dir`, telling no one what changes.
 pub async fn open_office(dir: &Path) -> Office {
     Office::open(dir.to_path_buf(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap()
+}
+
+/// Saves a run of `e` in `state`, created `ago` minutes back, in `session` (its own id when None). A finished run
+/// ended then, and a successful one reports "<name> did it."
+pub fn saved_run(db: &Store, e: &Employee, kind: RunKind, prompt: &str, state: RunState, ago: i64, session: Option<&str>) -> Run {
+    let at = chrono::Utc::now() - chrono::Duration::minutes(ago);
+    let mut r = Run::new(&e.id, kind, prompt.into(), at);
+    r.state = state;
+    if state.is_finished() {
+        r.ended_at = Some(at);
+        r.summary = (state == RunState::Succeeded).then(|| format!("{} did it.", e.name));
+    }
+    let session = session.map(String::from).unwrap_or_else(|| r.id.clone());
+    assert!(db.insert_run(&r, &session).unwrap());
+    r
 }
