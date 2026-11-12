@@ -7,6 +7,7 @@ import type { SetupStatus } from "../api/types";
 import { CopyCommand } from "../components/CopyCommand";
 import { Icon } from "../components/Icon";
 import { Avatar, ErrorNote, PageHeader, Roll, Section, Switch } from "../components/ui";
+import { INSTALL_CLAUDE, SHELL, signInCommand } from "../lib/claudeCode";
 import { dragRegion, macChrome } from "../lib/chrome";
 import { initials } from "../lib/format";
 import { curve, ms, reducedMotion, usePresence } from "../lib/motion";
@@ -273,8 +274,8 @@ function ClaudeCode({ status, checking, error, onCheck }: { status: SetupStatus;
         </div>
         <Collapse open={!found} className="ob-body">
           <div className="ob-body-in">
-            <p className="ob-line">Run this in a terminal to install it, then come back here.</p>
-            <div className="ob-act"><CopyCommand command="npm install -g @anthropic-ai/claude-code" />{check}</div>
+            <p className="ob-line">Run this in {SHELL} to install it, then come back here.</p>
+            <div className="ob-act"><CopyCommand command={INSTALL_CLAUDE} />{check}</div>
           </div>
         </Collapse>
       </div>
@@ -286,8 +287,8 @@ function ClaudeCode({ status, checking, error, onCheck }: { status: SetupStatus;
           </div>
           <Collapse open={found && !signedIn} className="ob-body">
             <div className="ob-body-in">
-              <p className="ob-line">Run this in a terminal and follow the browser prompt.</p>
-              <div className="ob-act"><CopyCommand command="claude auth login" />{check}</div>
+              <p className="ob-line">Run this in {SHELL} and follow the browser prompt.</p>
+              <div className="ob-act"><CopyCommand command={signInCommand(status.claude.path)} />{check}</div>
             </div>
           </Collapse>
         </div>
