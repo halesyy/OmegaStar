@@ -424,6 +424,10 @@ impl Office {
         self.0.data_dir.join("runs").join(id)
     }
 
+    fn transcript_path(&self, id: &str) -> PathBuf {
+        self.run_dir(id).join(TRANSCRIPT)
+    }
+
     fn skills_dir(&self, employee_id: &str) -> PathBuf {
         own_skills::skills_dir(&self.employee_dir(employee_id))
     }

@@ -620,7 +620,7 @@ has to start that work, hand it back with what they need to start it instead of 
         if undelivered.is_empty() {
             return Ok(());
         }
-        let transcript = fs::read_to_string(self.run_dir(run_id).join(TRANSCRIPT)).unwrap_or_default();
+        let transcript = fs::read_to_string(self.transcript_path(run_id)).unwrap_or_default();
         let found = watch::capture(&transcript, &undelivered, &claimed);
         let mut changed = vec![];
         {
