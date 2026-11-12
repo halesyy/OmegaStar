@@ -111,6 +111,25 @@ pub struct RequestFilter {
     pub state: Option<RequestState>,
 }
 
+/// The kinds of run made about a request, which `active_run_for` and `has_run_for` look up.
+#[derive(Clone, Copy)]
+pub enum RequestRun {
+    ReplyCheck,
+    Nudge,
+    Unanswered,
+}
+
+impl RequestRun {
+    /// Its `RunKind`'s serde `type` tag, as the run's JSON stores it.
+    fn tag(self) -> &'static str {
+        match self {
+            RequestRun::ReplyCheck => "replyCheck",
+            RequestRun::Nudge => "nudge",
+            RequestRun::Unanswered => "unanswered",
+        }
+    }
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
         let conn = Connection::open(path)?;
@@ -999,24 +1018,24 @@ impl Store {
         Ok(v)
     }
 
-    /// The queued or running run of `kind` (its `type` tag) about a request.
-    pub fn active_run_for(&self, request_id: &str, kind: &str) -> Result<Option<Run>> {
+    /// The queued or running run of `kind` about a request.
+    pub fn active_run_for(&self, request_id: &str, kind: RequestRun) -> Result<Option<Run>> {
         Ok(self
             .runs_where(
                 "WHERE state IN ('queued', 'running') AND json_valid(data) AND json_extract(data, '$.kind.type') = ? AND json_extract(data, '$.kind.requestId') = ? LIMIT 1",
-                &[&kind, &request_id],
+                &[&kind.tag(), &request_id],
             )?
             .into_iter()
             .next())
     }
 
     /// Whether a run of `kind` about a request was ever made, in any state.
-    pub fn has_run_for(&self, request_id: &str, kind: &str) -> Result<bool> {
+    pub fn has_run_for(&self, request_id: &str, kind: RequestRun) -> Result<bool> {
         Ok(self
             .conn
             .query_row(
                 "SELECT 1 FROM runs WHERE json_valid(data) AND json_extract(data, '$.kind.type') = ? AND json_extract(data, '$.kind.requestId') = ? LIMIT 1",
-                [kind, request_id],
+                [kind.tag(), request_id],
                 |_| Ok(()),
             )
             .optional()?
@@ -1473,8 +1492,8 @@ mod tests {
         assert!(db.conversation_runs().unwrap().is_empty());
         assert!(db.open_asks().unwrap().is_empty());
         // So do the reply watch and Tidy.
-        assert!(!db.has_run_for("req-1", "nudge").unwrap());
-        assert!(db.active_run_for("req-1", "nudge").unwrap().is_none());
+        assert!(!db.has_run_for("req-1", RequestRun::Nudge).unwrap());
+        assert!(db.active_run_for("req-1", RequestRun::Nudge).unwrap().is_none());
         assert!(db.tidy_runs(&ada.id).unwrap().is_empty());
         assert!(db.taught_since(&ada.id, None, 10).unwrap().is_empty());
         // And the hand-off queries.
@@ -2319,5 +2338,41 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
 
         drop(db);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn runs_about_a_request_are_found_by_kind() {
+        let dir = temp_dir();
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let ada = employee("Ada", None);
+        db.save_employee(&ada).unwrap();
+        let nudge = run(&ada, RunKind::Nudge { request_id: "q1".into(), person_id: "p1".into() }, RunState::Queued);
+        let check = run(&ada, RunKind::ReplyCheck { request_id: "q1".into(), person_id: "p1".into() }, RunState::Succeeded);
+        let unanswered = run(&ada, RunKind::Unanswered { request_id: "q2".into(), person_id: "p1".into() }, RunState::Running);
+        for r in [&nudge, &check, &unanswered] {
+            assert!(db.insert_run(r, &r.id).unwrap());
+        }
+
+        assert_eq!(db.active_run_for("q1", RequestRun::Nudge).unwrap().map(|r| r.id), Some(nudge.id));
+        assert!(db.has_run_for("q1", RequestRun::Nudge).unwrap());
+        assert!(db.active_run_for("q1", RequestRun::ReplyCheck).unwrap().is_none(), "a finished check is not active");
+        assert!(db.has_run_for("q1", RequestRun::ReplyCheck).unwrap(), "but it was made");
+        assert!(!db.has_run_for("q1", RequestRun::Unanswered).unwrap());
+        assert_eq!(db.active_run_for("q2", RequestRun::Unanswered).unwrap().map(|r| r.id), Some(unanswered.id));
+        assert!(!db.has_run_for("q2", RequestRun::Nudge).unwrap(), "another request's kind");
+
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_request_run_tag_is_its_run_kinds_type() {
+        for (run, kind) in [
+            (RequestRun::ReplyCheck, RunKind::ReplyCheck { request_id: "q1".into(), person_id: "p1".into() }),
+            (RequestRun::Nudge, RunKind::Nudge { request_id: "q1".into(), person_id: "p1".into() }),
+            (RequestRun::Unanswered, RunKind::Unanswered { request_id: "q1".into(), person_id: "p1".into() }),
+        ] {
+            assert_eq!(serde_json::to_value(kind).unwrap()["type"], run.tag());
+        }
     }
 }
