@@ -2,6 +2,7 @@
 //! diffs (the raw material of `skill_revisions`), guarded file access, and promotion to the catalog.
 
 use crate::catalog;
+use crate::claude::{granted_line, one_line};
 use crate::model::*;
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
@@ -69,37 +70,17 @@ pub fn slugify(name: &str, taken: &HashSet<String>) -> String {
     (2..).map(|n| format!("{base}-{n}")).find(|s| free(s)).expect("unbounded")
 }
 
-fn one_line(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 fn yaml_quote(s: &str) -> String {
     format!("\"{}\"", one_line(s).replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-fn clip(s: &str, n: usize) -> String {
-    let s = one_line(s);
-    if s.chars().count() <= n {
-        s
-    } else {
-        format!("{}...", s.chars().take(n).collect::<String>().trim_end())
-    }
-}
-
 fn role_skill_text(e: &Employee, granted: &[SkillInfo]) -> String {
     let objective = if e.objective.trim().is_empty() { "Not set yet. Ask the person you work for." } else { e.objective.trim() };
-    let about = if e.description.trim().is_empty() { "" } else { e.description.trim() };
+    let about = e.description.trim();
     let granted_list = if granted.is_empty() {
         "None granted yet.".to_string()
     } else {
-        granted
-            .iter()
-            .map(|s| match &s.skills {
-                Some(list) => format!("- Plugin `{}` ({}): {}", s.name, list.join(", "), clip(&s.description, 200)),
-                None => format!("- `{}`: {}", s.name, clip(&s.description, 200)),
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        granted.iter().map(granted_line).collect::<Vec<_>>().join("\n")
     };
     format!(
         "---\nname: {slug}\ndescription: {desc}\n---\n\n# {name}, {title}\n\n## Objective\n\n{objective}\n\n{about}\n\n\
@@ -231,8 +212,8 @@ pub fn load_snapshot(path: &Path) -> Option<Snapshot> {
 /// under, so they can be reviewed and reverted like skill edits. Not a folder, so never a skill name.
 pub const NOTES: &str = "@workspace";
 
-/// Top-level markdown files in the employee's `workspace/`, keyed like skill files. Only a tidy takes
-/// this snapshot: ordinary runs rewrite their state files every time, which would drown the history.
+/// Top-level markdown files in the employee's `workspace/`, keyed like skill files. Only a tidy records
+/// changes to them: ordinary runs rewrite their state files every time, which would drown the history.
 pub fn notes_snapshot(workspace: &Path) -> Snapshot {
     let mut snap = Snapshot::new();
     for e in fs::read_dir(workspace).into_iter().flatten().flatten() {
@@ -338,7 +319,7 @@ pub fn recorded_path(employee_dir: &Path, skill: &str, file: &str) -> Result<Pat
         };
     }
     if skill == NOTES {
-        if file.contains(['/', '\\']) || !safe_segment(file) {
+        if !safe_segment(file) {
             return Err(AppError::invalid(format!("invalid notes file '{file}'")));
         }
         return Ok(employee_dir.join("workspace").join(file));
@@ -421,15 +402,15 @@ fn safe_segment(s: &str) -> bool {
     !s.is_empty()
         && s != "."
         && s != ".."
-        && !s.contains(':')
+        && !s.contains([':', '/', '\\'])
         && matches!(Path::new(s).components().next(), Some(Component::Normal(_)))
         && Path::new(s).components().count() == 1
 }
 
 /// Resolves `<skills_dir>/<skill>/<file>`, refusing anything that could leave the skill folder.
-pub fn resolve(skills_dir: &Path, skill: &str, file: &str) -> Result<PathBuf> {
+fn resolve(skills_dir: &Path, skill: &str, file: &str) -> Result<PathBuf> {
     let bad = || AppError::invalid(format!("invalid skill path '{skill}/{file}'"));
-    if !safe_segment(skill) || skill.contains(['/', '\\']) {
+    if !safe_segment(skill) {
         return Err(bad());
     }
     let parts: Vec<&str> = file.split(['/', '\\']).collect();
@@ -524,7 +505,7 @@ pub fn imports_dir(employee_dir: &Path) -> PathBuf {
 
 /// Copies a catalog skill folder, scripts and all, into `imports/<name>`.
 pub fn stage_import(imports: &Path, from: &Path, name: &str) -> Result<()> {
-    if !safe_segment(name) || name.contains(['/', '\\']) {
+    if !safe_segment(name) {
         return Err(AppError::invalid(format!("invalid skill name '{name}'")));
     }
     let dest = imports.join(name);
@@ -556,16 +537,14 @@ pub fn backup_imports(imports: &Path, dest: &Path) -> Result<()> {
 }
 
 /// Restores backed-up imports that are neither staged nor in the family any more.
-pub fn restore_imports(backup: &Path, imports: &Path, names: &[String], skills_dir: &Path) -> Result<Vec<String>> {
-    let mut restored = vec![];
+pub fn restore_imports(backup: &Path, imports: &Path, names: &[String], skills_dir: &Path) -> Result<()> {
     for name in names {
         let (src, dest) = (backup.join(name), imports.join(name));
         if src.is_dir() && !dest.exists() && !skills_dir.join(name).exists() {
             copy_dir(&src, &dest)?;
-            restored.push(name.clone());
         }
     }
-    Ok(restored)
+    Ok(())
 }
 
 /// `<slug>-<words>`: lowercase ASCII words joined by single hyphens.
@@ -603,7 +582,7 @@ fn with_name(text: &str, name: &str) -> String {
 /// Finds `name` among the staged imports first, then the family. The role skill and the managed
 /// skill never move.
 fn movable(skills_dir: &Path, imports: &Path, slug: &str, name: &str) -> Result<PathBuf> {
-    if !safe_segment(name) || name.contains(['/', '\\']) {
+    if !safe_segment(name) {
         return Err(AppError::invalid(format!("invalid skill name '{name}'")));
     }
     if name == CRAFT_NAME || name == slug {
@@ -635,7 +614,7 @@ pub fn move_skill(skills_dir: &Path, imports: &Path, slug: &str, from: &str, to:
 }
 
 /// Moves a staged import or one of the employee's skills out of the way, into `archive/<name>`.
-pub fn retire_skill(skills_dir: &Path, imports: &Path, slug: &str, name: &str, archive: &Path) -> Result<PathBuf> {
+pub fn retire_skill(skills_dir: &Path, imports: &Path, slug: &str, name: &str, archive: &Path) -> Result<()> {
     let src = movable(skills_dir, imports, slug, name)?;
     let dest = (1..).map(|n| if n == 1 { archive.join(name) } else { archive.join(format!("{name}-{n}")) }).find(|d| !d.exists()).expect("unbounded");
     fs::create_dir_all(archive)?;
@@ -643,7 +622,7 @@ pub fn retire_skill(skills_dir: &Path, imports: &Path, slug: &str, name: &str, a
         copy_dir(&src, &dest)?;
         fs::remove_dir_all(&src)?;
     }
-    Ok(dest)
+    Ok(())
 }
 
 /// Copies an employee skill into the user's Claude Code skills, where it joins the catalog.
@@ -751,7 +730,7 @@ mod tests {
         fs::write(&target, "export SECRET=1\n").unwrap();
         let own = employee.join(OWN_FILE);
         std::os::unix::fs::symlink(&target, &own).unwrap();
-        assert!(guarded_snapshot(&employee).get(&(OWN.to_string(), OWN_FILE.to_string())).is_none(), "the target is not read");
+        assert!(!guarded_snapshot(&employee).contains_key(&(OWN.to_string(), OWN_FILE.to_string())), "the target is not read");
         write_recorded(&own, OWN, Some("The weekly signups.\n")).unwrap();
         assert_eq!(fs::read_to_string(&target).unwrap(), "export SECRET=1\n", "the target is untouched");
         assert!(!is_link(&own));

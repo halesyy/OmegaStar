@@ -32,7 +32,6 @@
 .shell-collapsed { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
 
 .side {
-  --av-ring: var(--side);
   display: flex; flex-direction: column; min-height: 0; padding: calc(12px + var(--chrome-top)) 10px 10px; gap: 0; overflow: hidden auto;
   background: var(--side); color: var(--side-ink);
 }
@@ -47,9 +46,8 @@
 .side > .side-nav { flex-shrink: 1; min-height: 232px; }
 .side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; height: 30px; padding: 0 0 0 8px; }
 .side-brand { display: inline-flex; align-items: center; gap: 9px; min-width: 0; color: var(--side-ink); text-decoration: none !important; }
-.side-brand .logomark, .boot-side .logomark { flex: none; color: var(--side-ink); }
+.side-brand .logomark { flex: none; color: var(--side-ink); }
 .side-word { font-size: 14.5px; font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.025em; white-space: nowrap; }
-.boot-side .side-top { padding-left: 8px; }
 .side-collapse {
   width: 30px; height: 30px; flex: none; border-radius: var(--r-input); display: inline-flex; align-items: center; justify-content: center;
   color: var(--side-muted); transition: background var(--d-ui) var(--ease), color var(--d-ui) var(--ease);
@@ -90,9 +88,7 @@
 .side-member { font-weight: 500; }
 .side-member-av { position: relative; display: inline-flex; flex: none; }
 .side-member .av-person { box-shadow: inset 0 0 0 1.5px var(--side-muted); color: var(--side-ink); }
-/* Each row says its state in a word, right-aligned: white for working, quiet for up next, pale coral (after a still
-   coral dot) for needs you or failed. On the rail, where there is no room for the word, a dot on the avatar says it. */
-/* Where each teammate stands: one dot on their face, ringed in the sidebar's ink. */
+/* Where each teammate stands: one dot on their face, ringed in the sidebar's own colour. */
 .side-dot { position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 2px var(--side); }
 .side-item-on .side-dot, .side-member:hover .side-dot { box-shadow: 0 0 0 2px var(--side-fill); }
 .side-dot-live { background: var(--side-ink); }
@@ -135,9 +131,9 @@
 .shell-collapsed .side-item-on .side-badge { box-shadow: 0 0 0 2px var(--side-on); }
 .shell-collapsed .side-you { justify-content: center; padding: 10px 0 0; }
 
-/* ------------------------------------------------ a short window (640 to 760 px tall): the state rows get the height.
-   Every gap in the sidebar tightens a step so the list of who is working or needs you fits whole, never under the
-   fade; if it still doesn't, the usage card folds to its nearer limit (side-tight, set by the Shell). */
+/* ------------------------------------------------ a short window (640 to 760 px tall): the team rows get the height.
+   Every gap in the sidebar tightens a step so the team fits whole, never under the fade; if it still doesn't, the
+   usage card folds to its nearer limit (side-tight, set by the Shell). */
 @media (max-height: 760px) {
   .side { padding-top: calc(10px + var(--chrome-top)); padding-bottom: 8px; }
   .side-search { margin: 10px 0 6px; }
@@ -163,7 +159,6 @@
 .side-arriving .side-nav > :nth-child(1) { --i: 1; }
 .side-arriving .side-nav > :nth-child(2) { --i: 2; }
 .side-arriving .side-nav > :nth-child(3) { --i: 3; }
-.side-arriving .side-nav > :nth-child(4) { --i: 4; }
 .side-arriving .side-team > :nth-child(1) { --i: 5; }
 .side-arriving .side-team > :nth-child(2) { --i: 6; }
 .side-arriving .side-team > :nth-child(3) { --i: 7; }

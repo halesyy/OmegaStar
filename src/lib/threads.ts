@@ -1,7 +1,7 @@
 // A thread is a report and the replies you exchanged on it (`Thread { root, replies }`). A conversation you
 // started is a thread too (a task under the hood), whose root is your first message, and an answer a colleague
 // brought back into it is one of its replies. These helpers read one the same way everywhere: the Inbox and its
-// Archive, the panel's chips, and the conversation screen.
+// Archive, and the conversation screen.
 import type { Card, Run, Thread } from "../api/types";
 
 export const isLive = (r: Run): boolean => r.state === "running" || r.state === "queued";
@@ -31,17 +31,8 @@ export const startedByYou = (r: Run): boolean => r.kind.type === "task" || r.kin
 
 export const isTask = (t: Thread): boolean => startedByYou(t.root);
 
-
 /** The employee is answering (a conversation's first message or a later turn is queued or running). */
 export const threadBusy = (t: Thread): boolean => isLive(t.root) || t.replies.some(isLive);
-
-/** Who spoke last: the employee once their newest reply finished, you while it is still on its way. A
- *  conversation's first message counts as a reply; a report does not. */
-export function lastFrom(t: Thread): "you" | "them" | null {
-  const l = lastReply(t) ?? (isTask(t) ? t.root : undefined);
-  if (!l) return null;
-  return l.endedAt ? "them" : "you";
-}
 
 /** An Inbox row's threads, oldest first: the one it leads with and the others filed with it. */
 export const rowThreads = (t: Thread): Thread[] =>
@@ -85,11 +76,11 @@ export const openCards = (t: Thread): OpenCard[] =>
 
 /** A conversation you are in: one going on (not archived, with replies) that you started or typed into. Turns Omega
  *  Star wrote from a tap alone do not make one. Mirrors Rust `threads::talking`. */
-export const talking = (t: Thread): boolean =>
+const talking = (t: Thread): boolean =>
   !t.root.archivedAt && t.replies.length > 0 && (isTask(t) || t.replies.some((r) => !r.omegaWrote && !r.aboutCard));
 
 /** A card waiting on you holds up Archive on `thread`, a thread of the Inbox row `row`: a card in the thread itself, or
- *  in another member Archive would file with it. Another conversation you are in goes on in its own chip, so a card
+ *  in another member Archive would file with it. Another conversation you are in goes on by itself, so a card
  *  there does not, and news never does. Mirrors Rust `Office::set_archived`. */
 export const doneHeld = (thread: Thread, row: Thread): boolean =>
   openCards(thread).some((c) => isOpen(c.card))

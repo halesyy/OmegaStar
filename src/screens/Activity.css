@@ -1,6 +1,6 @@
 /* ------------------------------------------------ the page
    One column, gutter to gutter, when there is no work column to draw. In a wide window with work to show, the history
-   keeps the page and the live work gets C's work column beside it, full height on the raised ground. */
+   keeps the page and the live work gets the work column beside it, full height on the raised ground. */
 .activity { height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
 .activity[data-column="true"] { grid-template-columns: minmax(0, 1fr) var(--work-w); }
 .activity > .pagehead { grid-column: 1; grid-row: 1; padding-right: 24px; }
@@ -31,8 +31,6 @@
 .act-day { padding: 22px 12px 6px; font-size: var(--t-sm); font-weight: 600; color: var(--muted); }
 .act-list > .act-day:first-child { padding-top: 2px; }
 .act-filters { display: flex; flex-wrap: wrap; gap: 6px; }
-.act-empty { padding-top: 56px; }
-.act-empty-filter { padding-top: 32px; }
 /* Inside the Failed filter a row needn't say Failed again. */
 .act-list[data-filter="failed"] .runrow[data-state="failed"] .runrow-status { visibility: hidden; }
 

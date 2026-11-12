@@ -1,9 +1,12 @@
 import type { Run, RunKind, RunState, SkillChange, UsageWindow } from "../api/types";
 
 const DAY_MS = 86_400_000;
+const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
 
 /** The key shortcuts go with: ⌘ on a Mac, Ctrl elsewhere. */
-export const MOD = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+export const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+
+export const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
 export function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -15,6 +18,9 @@ export function initials(name: string): string {
 export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] || name;
 }
+
+/** "Kofi, Lena and Rafi". */
+export const listNames = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
 export function relTime(isoStr: string | null, now = Date.now()): string {
   if (!isoStr) return "";
@@ -47,8 +53,7 @@ export function whenShort(isoStr: string | null, now = new Date()): string {
   if (!isoStr) return "";
   const d = new Date(isoStr);
   const time = clock(d);
-  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((startOf(d) - startOf(now)) / DAY_MS);
+  const days = Math.round((startOfDay(d) - startOfDay(now)) / DAY_MS);
   if (days === 0) return `Today ${time}`;
   if (days === 1) return `Tomorrow ${time}`;
   if (days === -1) return `Yesterday ${time}`;
@@ -94,8 +99,7 @@ export function dateLong(isoStr: string): string {
 
 export function dayHeading(isoStr: string, now = new Date()): string {
   const d = new Date(isoStr);
-  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((startOf(now) - startOf(d)) / DAY_MS);
+  const days = Math.round((startOfDay(now) - startOfDay(d)) / DAY_MS);
   if (days === 0) return "Today";
   if (days === 1) return "Yesterday";
   return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
@@ -221,7 +225,7 @@ export function recordedName(skill: string): string {
   }
 }
 
-/** What a run did to the employee's skills, by skill rather than by file: "Refined hazel-inbox-watch". A tidy's notes are "notes". */
+/** What a run did to the employee's skills, by skill rather than by file: "Changed hazel-inbox-watch". A tidy's notes are "notes". */
 export function skillsChanged(changes: SkillChange[]): { label: string; title: string } {
   const names = [...new Set(changes.map((c) => c.skill))];
   const skills = names.filter((n) => recordedName(n) === n);

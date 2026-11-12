@@ -4,7 +4,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { storageGet, storageSet } from "./storage";
 
-export const RAIL_BELOW = 1180;
+const RAIL_BELOW = 1180;
 /** The saved choice at RAIL_BELOW px and wider: "1" collapsed to the rail. */
 export const COLLAPSE_KEY = "omega.sidebarCollapsed";
 /** The saved choice below RAIL_BELOW px: "1" expanded (the rail is the default there). */
@@ -27,7 +27,7 @@ function subscribe(cb: () => void) {
 }
 
 /** The rail or the full sidebar, and a toggle that saves the choice for the size you are at. */
-export function useRail(): { rail: boolean; narrow: boolean; toggle: () => void } {
+export function useRail(): { rail: boolean; toggle: () => void } {
   const narrow = useSyncExternalStore(subscribe, narrowNow);
   const rail = useSyncExternalStore(subscribe, () => railNow(narrow));
   const toggle = useCallback(() => {
@@ -35,5 +35,5 @@ export function useRail(): { rail: boolean; narrow: boolean; toggle: () => void 
     else storageSet(COLLAPSE_KEY, railNow(false) ? "0" : "1");
     listeners.forEach((l) => l());
   }, []);
-  return { rail, narrow, toggle };
+  return { rail, toggle };
 }

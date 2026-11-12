@@ -27,14 +27,14 @@ const rel = (el: Element, host: DOMRect): R => {
   const a = el.getBoundingClientRect();
   return { x: a.left - host.left, y: a.top - host.top, w: a.width, h: a.height };
 };
-const shown = (el: Element | null): el is HTMLElement => !!el && el instanceof HTMLElement && el.getClientRects().length > 0;
+const shown = (el: Element | null): el is HTMLElement => el instanceof HTMLElement && el.getClientRects().length > 0;
 const inside = (r: R, box: R) => r.x + r.w > box.x && r.x < box.x + box.w && r.y + r.h > box.y && r.y < box.y + box.h;
 const fullyInside = (r: R, box: R) => r.y >= box.y - 1 && r.y + r.h <= box.y + box.h + 1;
 
 /** Builds the fold between the two rendered views and starts it toward `target`. */
 export function startFold(root: HTMLElement, target: FoldTarget, selectedId: string | null): Fold {
   const host = root.getBoundingClientRect();
-  const q = <T extends Element = HTMLElement>(sel: string) => root.querySelector<T & Element>(sel);
+  const q = (sel: string) => root.querySelector<HTMLElement>(sel);
   const chart = q('[data-view="chart"]');
   const outline = q('[data-view="outline"]');
   const page = q('[data-view="page"]');
@@ -50,8 +50,8 @@ export function startFold(root: HTMLElement, target: FoldTarget, selectedId: str
     anims.push(el.animate(kf, { duration: D, easing: move, fill: "both", ...o }));
   };
   const lin: KeyframeAnimationOptions = { easing: "linear" };
-  const fadeOut = (until = 0.25): Keyframe[] => [{ opacity: 1, offset: 0 }, { opacity: 0, offset: until }, { opacity: 0 }];
-  const fadeIn = (from = 0.6): Keyframe[] => [{ opacity: 0, offset: 0 }, { opacity: 0, offset: from }, { opacity: 1 }];
+  const fadeOut = (until: number): Keyframe[] => [{ opacity: 1, offset: 0 }, { opacity: 0, offset: until }, { opacity: 0 }];
+  const fadeIn = (from: number): Keyframe[] => [{ opacity: 0, offset: 0 }, { opacity: 0, offset: from }, { opacity: 1 }];
   const hold: Keyframe[] = [{ opacity: 0, offset: 0 }, { opacity: 0, offset: 0.999 }, { opacity: 1 }];
 
   let total = D;
@@ -100,13 +100,17 @@ export function startFold(root: HTMLElement, target: FoldTarget, selectedId: str
     const grouped = travellers.length === 0;
     const xs = travellers.map((t) => t.a.x);
     const minX = Math.min(...xs), range = Math.max(1, Math.max(...xs) - minX);
+    const part = (el: Element, p: string) => el.querySelector<HTMLElement>(`[data-part="${p}"]`);
+    const local = (el: HTMLElement | null, box: R): R | null => {
+      if (!shown(el)) return null;
+      const r = rel(el, host);
+      return { ...r, x: r.x - box.x, y: r.y - box.y };
+    };
 
     let i = 0;
     for (const { row, card, a, b, id } of travellers) {
       const d = Math.round(((a.x - minX) / range) * SPREAD) + i++ * STAG;
       const sel = id === selectedId;
-      const part = (el: Element, p: string) => el.querySelector<HTMLElement>(`[data-part="${p}"]`);
-      const local = (el: HTMLElement | null, box: R) => (el && shown(el) ? (() => { const r = rel(el, host); return { ...r, x: r.x - box.x, y: r.y - box.y }; })() : null);
 
       // The travelling copy: a frame, and each part placed absolutely where it sits on the card.
       const n = document.createElement("div");
@@ -140,9 +144,9 @@ export function startFold(root: HTMLElement, target: FoldTarget, selectedId: str
       // The open person's selection lands once their row has settled: the fill arrives over a beat, and each word turns
       // light the moment the fill is more than half dark, never mid-grey on mid-grey for long.
       const SEL = ms("--d-ui");
-      const landed: KeyframeAnimationOptions = { duration: SEL, delay: d + D, easing: "linear" };
-      const flip = (el: Element, from: string, to: string) => add(el, [{ color: from, offset: 0 }, { color: from, offset: 0.5 }, { color: to, offset: 0.501 }, { color: to }], landed);
-      if (sel) add(frame, [{ background: "var(--canvas)" }, { background: "var(--sel)" }], landed);
+      const arrive: KeyframeAnimationOptions = { duration: SEL, delay: d + D, easing: "linear" };
+      const flip = (el: Element, from: string, to: string) => add(el, [{ color: from, offset: 0 }, { color: from, offset: 0.5 }, { color: to, offset: 0.501 }, { color: to }], arrive);
+      if (sel) add(frame, [{ background: "var(--canvas)" }, { background: "var(--sel)" }], arrive);
 
       // Avatar: moves and scales to the row's.
       const cAv = local(part(card, "av"), a), rAv = local(part(row, "av"), b);
@@ -164,7 +168,7 @@ export function startFold(root: HTMLElement, target: FoldTarget, selectedId: str
       const rowLine = part(row, "line");
       const keepKind = rowLine && shown(rowLine) ? rowLine.dataset.kind : null;
       const kept = keepKind === "state" ? part(card, "state") : keepKind === "role" ? part(card, "role") : null;
-      for (const p of ["role", "state", "glance", "kind"]) {
+      for (const p of ["role", "state", "glance"]) {
         const src = part(card, p);
         const at = local(src, a);
         if (!src || !at) continue;

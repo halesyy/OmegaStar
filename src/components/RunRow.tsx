@@ -41,7 +41,7 @@ function titleOf(line: string): string {
 }
 
 /** What a run is about, in a few words: a manual run you gave an instruction is its first sentence, and work a manager
- *  handed down is its task, never who handed it over (that is the row's second line and the page's byline). */
+ *  handed down is its task, never who handed it over (that is the row's second line). */
 export function workLabel(run: Run, employees: EmployeeView[], people: PersonView[]): string {
   if ((run.kind.type === "manual" && run.prompt !== DEFAULT_PROMPT) || run.kind.type === "delegated") {
     const line = firstPromptLine(run.prompt);
@@ -51,7 +51,7 @@ export function workLabel(run: Run, employees: EmployeeView[], people: PersonVie
 }
 
 /** Who handed a delegated run over, as its second line says it: "From Juniper". */
-export function handedBy(run: Run, employees: EmployeeView[], people: PersonView[]): string | null {
+function handedBy(run: Run, employees: EmployeeView[], people: PersonView[]): string | null {
   if (run.kind.type !== "delegated") return null;
   const m = kindNames(run, employees, people).manager;
   return m ? `From ${m}` : "From their manager";
@@ -88,7 +88,6 @@ function detailOf(run: Run, label: string): string {
     if (line) return line;
   }
   if ((run.state === "failed" || run.state === "lost") && run.error) return firstLine(run.error);
-  // What it was asked, less what its title already says.
   const text = run.prompt.split("\n").map((l) => l.trim()).filter(Boolean).join(" ");
   return text.startsWith(label) ? text.slice(label.length).replace(/^[.!?]?\s*/, "") : text;
 }
@@ -154,10 +153,11 @@ const HOUR_MS = 3_600_000;
 
 /**
  * One run as a list row, on the one grid every run list shares: who (or the kind of run), what it was about over what came
- * of it, its state as a word in a fixed track (empty for a plain success), and its age in a fixed track. Opens the run.
+ * of it, its state as a word in a fixed track (empty for a plain success), and its age in a fixed track. Opens its
+ * conversation.
  */
-export function RunRow({ run, employee, employees, people, showEmployee = false }: {
-  run: Run; employee?: EmployeeView; employees: EmployeeView[]; people: PersonView[]; showEmployee?: boolean;
+export function RunRow({ run, employee, employees, people }: {
+  run: Run; employee?: EmployeeView; employees: EmployeeView[]; people: PersonView[];
 }) {
   const at = run.startedAt ?? run.createdAt;
   // Ages move by the minute for the last hour; older ones change so rarely that the next reload keeps them right.
@@ -166,14 +166,13 @@ export function RunRow({ run, employee, employees, people, showEmployee = false 
   const label = workLabel(run, employees, people);
   const detail = held ?? (detailOf(run, label) || handedBy(run, employees, people) || "");
   const took = run.endedAt ? duration(elapsedMs(run)) : "";
-  const who = showEmployee && employee ? employee : null;
   return (
     <button className="runrow" data-state={run.state} onClick={() => openRun(run.id)} title={took ? `${whenShort(run.createdAt)} · took ${took}` : whenShort(run.createdAt)}>
-      {who ? <Avatar name={who.name} hue={who.hue} image={who.image} size={28} className="runrow-lead" /> : (
+      {employee ? <Avatar name={employee.name} hue={employee.hue} image={employee.image} size={28} className="runrow-lead" /> : (
         <span className="runrow-lead runrow-icon"><Icon name={kindIcon(run)} size={14} /></span>
       )}
       <span className="runrow-title">
-        {who ? <b>{firstName(who.name)}</b> : null}
+        {employee ? <b>{firstName(employee.name)}</b> : null}
         <span className="runrow-label">{label}</span>
       </span>
       <span className="runrow-detail">{detail}</span>

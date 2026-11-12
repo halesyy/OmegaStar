@@ -1,5 +1,5 @@
 // What the preview shows where the desktop app reads from disk: the page an employee showed (`show`), and the
-// images cards and messages point at. Plus the one piece of Tauri the UI calls directly, `convertFileSrc`.
+// images cards and messages point at. Plus the pieces of Tauri the UI calls directly, outside the transport.
 import tokens from "../design/tokens.css?raw";
 import interOpsz from "@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2?inline";
 
@@ -45,14 +45,14 @@ function pageUrl(id: string): string {
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
 
-/** The UI's call into Tauri for a page's address. Nothing else of Tauri is here: `inTauri` was decided before this
- *  loads, so the transport stays the preview's. */
+/** The UI's calls into Tauri outside the transport: a page's address (`convertFileSrc`), and the Dock badge and opening
+ *  a link, which do nothing here. `inTauri` was decided before this loads, so the transport stays the preview's. */
 export function installTauriShim() {
   const w = window as unknown as Record<string, unknown>;
   if (w.__TAURI_INTERNALS__) return;
   w.__TAURI_INTERNALS__ = {
     convertFileSrc: (path: string, protocol: string) => (protocol === "omega-visual" ? pageUrl(path.split("/").pop() ?? "") : path),
-    metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
+    metadata: { currentWindow: { label: "main" } },
     invoke: () => Promise.resolve(null),
   };
 }
@@ -62,7 +62,7 @@ export function imageUrl(path: string): string {
   let h = 0;
   for (const c of path) h = (h * 31 + c.charCodeAt(0)) % 360;
   const bg = `hsl(${h} 30% 92%)`, ink = `hsl(${h} 25% 30%)`, soft = `hsl(${h} 35% 80%)`, accent = `hsl(${(h + 150) % 360} 45% 55%)`;
-  const rows = [0, 1, 2, 3].map((i) => `<rect x="${236}" y="${118 + i * 46}" width="${300 - (i % 2) * 70}" height="30" rx="8" fill="${i === 1 ? accent : "#fff"}"/>`).join("");
+  const rows = [0, 1, 2, 3].map((i) => `<rect x="236" y="${118 + i * 46}" width="${300 - (i % 2) * 70}" height="30" rx="8" fill="${i === 1 ? accent : "#fff"}"/>`).join("");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
 <rect width="640" height="400" fill="${bg}"/>
 <rect x="72" y="64" width="496" height="296" rx="18" fill="#fff" opacity="0.65"/>

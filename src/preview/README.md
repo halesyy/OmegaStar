@@ -54,7 +54,7 @@ http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts
 | `live-more` | `full` with three runs going on Juniper's thread (her reply, Otto's `billing-1` and Mae's `help-1`, both delegated); `billing-1` finishes 6 seconds in; `slow-1` has 22 steps |
 | `thread-error` | `full`, but every conversation fails to load (`thread` errors) |
 | `live-arrives` | `full`; 3 seconds in, Juniper asks Mae to update the help centre (`help-1`, delegated from `plan-2`), and Mae starts on it: live work arriving |
-| `live-ends` | `full`; everything live finishes in turn (the sub-agent at 2.5 s, `billing-1` at 4 s, `plan-2` at 6.5 s, the runs waiting to start by 8 s), so nothing is live after that: the work column closing |
+| `live-ends` | `full`; everything live finishes in turn (the sub-agent at 2.5 s, `billing-1` at 4 s, `plan-2` at 6.5 s, the runs waiting to start by 8 s), so nothing is live after that |
 
 ### Routes
 
@@ -104,7 +104,7 @@ Every screen in the list at the top of the script, in light and dark, at 980 x 6
 shots whose file name contains the text and updates just those in the manifest. The browser clock is held at
 Thursday 5 November 2026, 2:30 pm Sydney time (en-AU), so two runs pair up as before and after.
 
-Beyond one shot per screen and state, the list covers what the areas asked for: onboarding pressed with a name
+Beyond one shot per screen and state, the list covers onboarding pressed with a name
 missing, the re-check passing, "Opening…", the create failing and the hand-off (its fields are found by label);
 Settings' middle sections, the proxy, and a save in progress, saved and failed; the quiet, large, Inbox and live-work
 states; the sidebar expanded at every size and with the macOS title bar's room; the update's confirm and the rail's

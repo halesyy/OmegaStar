@@ -27,22 +27,19 @@ import { ActivityScreen } from "./screens/Activity";
 import { SettingsScreen } from "./screens/Settings";
 
 type Sheet =
-  | { kind: "hire"; managerId: string | null; template: string | null }
+  | { kind: "hire"; template: string | null }
   | { kind: "proposal"; proposal: HireProposal }
-  | { kind: "person"; managerId: string | null }
+  | { kind: "person" }
   | null;
 /** `from`: the button that opened a sheet, so focus goes back to it on close (WebKit doesn't focus a button on click). */
 type ShellApi = {
-  hire: (managerId?: string | null, template?: string | null, from?: HTMLElement | null) => void;
+  hire: (template?: string | null, from?: HTMLElement | null) => void;
   reviewProposal: (p: HireProposal, from?: HTMLElement | null) => void;
-  addPerson: (managerId?: string | null, from?: HTMLElement | null) => void;
-  palette: () => void;
+  addPerson: (from?: HTMLElement | null) => void;
 };
-const ShellCtx = createContext<ShellApi>({ hire: () => {}, reviewProposal: () => {}, addPerson: () => {}, palette: () => {} });
+const ShellCtx = createContext<ShellApi>({ hire: () => {}, reviewProposal: () => {}, addPerson: () => {} });
 export const useShell = () => useContext(ShellCtx);
 
-// Kept for onboarding, which matches the band to the sidebar: src/lib/sidebar.ts holds the rule now.
-export { COLLAPSE_KEY } from "./lib/sidebar";
 /** The palette's leaving fade (--d-ui), with a frame to spare. */
 const PALETTE_LEAVE_MS = 160;
 
@@ -52,7 +49,7 @@ const ARRIVE_MS = 1200;
 /** `arriving`: onboarding has just handed over, so the canvas comes in as one body swap and the sidebar's parts drop
  *  into the band in reading order (your row, already there in onboarding's band, stays put). */
 export function Shell({ arriving = false }: { arriving?: boolean }) {
-  // Only for the hand-off itself: a row that arrives later (someone starts working) is not part of it.
+  // Only for the hand-off itself: a row that arrives later (a new hire) is not part of it.
   const [arrive, setArrive] = useState(arriving);
   useEffect(() => {
     if (!arrive) return;
@@ -82,10 +79,9 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
   const api = useMemo<ShellApi>(() => {
     const open = (s: Sheet, from: HTMLElement | null) => { setSheet(s); setSheetFrom(from); setSheetKey((k) => k + 1); };
     return {
-      hire: (managerId = null, template = null, from = null) => open({ kind: "hire", managerId, template }, from),
+      hire: (template = null, from = null) => open({ kind: "hire", template }, from),
       reviewProposal: (proposal, from = null) => open({ kind: "proposal", proposal }, from),
-      addPerson: (managerId = null, from = null) => open({ kind: "person", managerId }, from),
-      palette: () => setPalette(true),
+      addPerson: (from = null) => open({ kind: "person" }, from),
     };
   }, []);
 
@@ -200,19 +196,18 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
       <HireSheet
         key={`hire-${sheetKey}`}
         open={sheet?.kind === "hire" || sheet?.kind === "proposal"}
-        managerId={sheet?.kind === "hire" ? sheet.managerId : null}
         template={sheet?.kind === "hire" ? sheet.template : null}
         proposal={sheet?.kind === "proposal" ? sheet.proposal : null}
         returnFocus={sheetFrom}
         onClose={closeSheet}
       />
-      <AddPersonSheet key={`person-${sheetKey}`} open={sheet?.kind === "person"} managerId={sheet?.kind === "person" ? sheet.managerId : null} onClose={closeSheet} />
+      <AddPersonSheet key={`person-${sheetKey}`} open={sheet?.kind === "person"} onClose={closeSheet} />
       {paletteShown ? <CommandPalette key={paletteOpens.n} leaving={!palette} onClose={() => setPalette(false)} api={api} /> : null}
     </ShellCtx.Provider>
   );
 }
 
-/** Whether the usage card should fold to its nearer limit, so the state rows above fit whole: true while the list would
+/** Whether the usage card should fold to its nearer limit, so the team rows above fit whole: true while the list would
  *  overflow without the fold. Measured against the room the fold gives (one usage row), so it never flips back and
  *  forth. */
 function useTight(nav: React.RefObject<HTMLElement | null>): boolean {
@@ -248,7 +243,7 @@ async function dockBadge(count: number) {
 export function SideBrand() {
   return (
     <a href="#/org" className="side-brand" aria-label="Omega Star">
-      <LogoMark size={20} tile={false} />
+      <LogoMark size={20} />
       <span className="side-word">Omega Star</span>
     </a>
   );

@@ -1,5 +1,5 @@
-/* Omega Star design tokens: direction C, Ultramarine. An ultramarine sidebar that is the team's home, black and white
-   work surfaces, coral for anything that needs you, heavy Inter Display on a strict grid.
+/* Omega Star design tokens: an ultramarine sidebar that is the team's home, black and white work surfaces, coral for
+   anything that needs you, heavy Inter Display on a strict grid.
 
    Two colours carry meaning and nothing else: --live (ultramarine, the brand) is "working", --err (coral) is "needs you"
    or "failed". --accent is the primary action (black in light, white in dark); --sel is a selected row or option.
@@ -12,8 +12,7 @@
    Keep the two identical. src/design/README.md says what each token is for. */
 :root {
   color-scheme: light;
-  --bg: #ffffff;            /* behind everything; text on --ink surfaces */
-  --side: #1745d6;          /* ultramarine: the brand, and the team's home */
+  --side: #1745d6;         /* ultramarine: the brand, and the team's home */
   --side-ink: #ffffff;      /* text on the sidebar */
   --side-muted: #c2cff8;    /* quieter text on the sidebar, 4.8:1 */
   --side-line: #3a62df;     /* rules and meter tracks on the sidebar */
@@ -29,7 +28,6 @@
   --raised: #f6f7f9;
   --sunken: #eff1f5;
   --grid-dot: #e3e6ec;
-  --grid-dot-strong: #cfd4dd;
   --ink: #0a0c12;
   --ink-2: #2b303c;
   --muted: #5b6170;         /* 6.1:1 on white, 5.8:1 on --raised */
@@ -91,7 +89,6 @@
   --t-lg: 22px;
   --t-xl: 30px;
   --t-title: 26px;          /* page titles: a person, a conversation */
-  --t-hero: 34px;           /* the decision in the Inbox */
   --lh-tight: 1.2;
   --lh-body: 1.55;
 
@@ -128,14 +125,10 @@
   --work-w: 336px;          /* Activity's live rail */
   --head-h: 64px;           /* every page header band */
   --chrome-top: 0px;        /* room the window's own controls take at the top of the sidebar: macOS only, below */
-
-  --logo-tile: var(--side-ink);
-  --logo-ink: var(--side);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #08090c;
   --side: #0e2470;          /* night ultramarine */
   --side-ink: #ffffff;
   --side-muted: #abbcf0;
@@ -151,11 +144,10 @@
   --raised: #14171e;
   --sunken: #1a1e27;
   --grid-dot: #1c2029;
-  --grid-dot-strong: #282d38;
   --ink: #f3f5f9;
   --ink-2: #cdd2dc;
   --muted: #8c93a2;
-  --faint: #646b7b;         /* lifted from C's #596070 so it holds 3:1 on every dark surface, as light does */
+  --faint: #646b7b;         /* holds 3:1 on every dark surface, as light does */
   --line: #1d212a;
   --line-strong: #2a2f3a;
   --accent: #f3f5f9;        /* the primary action stays the one white thing */
@@ -198,7 +190,6 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #08090c;
     --side: #0e2470;
     --side-ink: #ffffff;
     --side-muted: #abbcf0;
@@ -214,7 +205,6 @@
     --raised: #14171e;
     --sunken: #1a1e27;
     --grid-dot: #1c2029;
-    --grid-dot-strong: #282d38;
     --ink: #f3f5f9;
     --ink-2: #cdd2dc;
     --muted: #8c93a2;

@@ -29,8 +29,8 @@ export function EmployeePanel({ employee: e, tab, focus, short, onClose }: { emp
     ? snap?.employees.find((x) => x.id === e.managerId)?.name ?? snap?.people.find((x) => x.id === e.managerId)?.name ?? "None"
     : null;
   const s = employeeState(e, snap?.employees ?? [], snap?.people ?? []);
-  // On a short window a quiet band (nothing running, nothing needing you) folds into the header's line, so the
-  // conversation gets that room; the outline already shows who they report to.
+  // On a short window a quiet band (nothing running, nothing needing you) folds into the header's line, so the tab
+  // gets that room; the outline already shows who they report to.
   const fold = short && s.tone === "plain";
 
   return (
@@ -40,7 +40,7 @@ export function EmployeePanel({ employee: e, tab, focus, short, onClose }: { emp
         name={e.name} role={fold ? `${e.title} · ${quietLine(e, s)}` : `${e.title} · Reports to ${managerName ?? "you"}`}
         actions={<><Message e={e} /><RunNow e={e} /></>} onClose={onClose}
       />
-      {fold ? null : <Band e={e} tab={current} />}
+      {fold ? null : <Band e={e} s={s} tab={current} />}
       <div className="mpage-tabs">
         <Tabs tabs={TABS} value={current} onChange={(t) => openMember(e.id, t, null, true)} />
       </div>
@@ -87,11 +87,7 @@ function quietLine(e: EmployeeView, s: MemberState, now = Date.now()): string {
  *  is its short name, the one the chart card uses, so it never wraps or cuts; what is up next is on the Work tab. Nothing
  *  is said twice: on the Work tab, a failure has its own card, so the band gives the state only. Working is
  *  ultramarine, needing you is coral, the rest is quiet. */
-function Band({ e, tab }: { e: EmployeeView; tab: PanelTab }) {
-  const { snap } = useOrg();
-  const employees = snap?.employees ?? [];
-  const people = snap?.people ?? [];
-  const s = employeeState(e, employees, people);
+function Band({ e, s, tab }: { e: EmployeeView; s: MemberState; tab: PanelTab }) {
   const running = e.live.filter((r) => r.state === "running");
   const now = useNow(15_000, running.length > 0);
   const n = numberParts(e.status.number);

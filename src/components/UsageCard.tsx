@@ -15,14 +15,14 @@ const said = (w: UsageWindow | null, known: boolean) => (w ? `${pct(w)} used` : 
 /** One window: label, meter, percent, each row itself the Refresh: under the pointer its label says so. The tooltip
  *  names the card and holds the reset time and when it was checked; the reset time is on screen once the window runs
  *  high. */
-function Window({ label, w, now, known, checked, refreshing, refresh, near = false, other = null }: {
+function Window({ label, w, now, known, checked, refreshing, refresh, near, other }: {
   label: string; w: UsageWindow | null; now: number; known: boolean; checked: string; refreshing: boolean; refresh: () => void;
   /** The limit you will reach first: on a short window it may be the only row, so its tooltip names the other too. */
-  near?: boolean; other?: string | null;
+  near: boolean; other: string;
 }) {
   const resets = w ? resetsLabel(w, new Date(now)) : "";
   const lv = level(w);
-  const tip = `Claude usage, ${label}: ${said(w, known)}${w && resets ? ` · ${resets}` : ""}${near && other ? ` · ${other}` : ""} · ${checked}`;
+  const tip = `Claude usage, ${label}: ${said(w, known)}${w && resets ? ` · ${resets}` : ""}${near ? ` · ${other}` : ""} · ${checked}`;
   return (
     <button className={`usage-row ${lv} ${near ? "usage-near" : ""}`} onClick={refresh} disabled={refreshing} data-tip={tip} aria-label={`${tip}. Refresh`}>
       <span className="usage-label">

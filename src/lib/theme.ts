@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { reducedMotion } from "./motion";
 import { storageGet, storageSet } from "./storage";
 import { createStore, useStore } from "./store";
 
@@ -23,7 +24,7 @@ export function setTheme(pref: ThemePref, fade = true) {
   storageSet(KEY, pref);
   const apply = () => { applyTheme(pref); theme.set(pref); };
   const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
-  if (fade && doc.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) doc.startViewTransition(apply);
+  if (fade && doc.startViewTransition && !reducedMotion()) doc.startViewTransition(apply);
   else apply();
 }
 

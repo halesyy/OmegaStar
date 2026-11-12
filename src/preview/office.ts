@@ -10,11 +10,10 @@ import type {
 // ---------------------------------------------------------------- time
 
 const MIN = 60_000;
-const DAY = 86_400_000;
 export const NOW = Date.now();
 export const iso = (ms: number) => new Date(ms).toISOString();
 /** `minutes` before the page loaded. */
-export const ago = (minutes: number) => iso(NOW - minutes * MIN);
+const ago = (minutes: number) => iso(NOW - minutes * MIN);
 /** `minutes` after the page loaded. */
 export const ahead = (minutes: number) => iso(NOW + minutes * MIN);
 /** A local clock time `days` from today (negative: before today). */
@@ -28,11 +27,11 @@ export function onDay(days: number, h: number, m = 0): string {
 const lastAt = (h: number, m = 0) => (Date.parse(onDay(0, h, m)) <= NOW ? onDay(0, h, m) : onDay(-1, h, m));
 /** The next h:m to come: today's, else tomorrow's. */
 const nextAt = (h: number, m = 0) => (Date.parse(onDay(0, h, m)) > NOW ? onDay(0, h, m) : onDay(1, h, m));
-/** The latest past `dow` (0 is Sunday) at h:m, `weeks` weeks further back. */
-function lastDow(dow: number, h: number, m = 0, weeks = 0): string {
+/** The latest past `dow` (0 is Sunday) at h:m. */
+function lastDow(dow: number, h: number, m = 0): string {
   for (let i = 0; i < 8; i++) {
-    const t = onDay(-i - weeks * 7, h, m);
-    if (new Date(t).getDay() === dow && Date.parse(t) <= NOW - weeks * 7 * DAY) return t;
+    const t = onDay(-i, h, m);
+    if (new Date(t).getDay() === dow && Date.parse(t) <= NOW) return t;
   }
   return onDay(-7, h, m);
 }
@@ -117,7 +116,7 @@ const CATALOG: SkillInfo[] = [
   { id: "plugin:chart-kit", name: "chart-kit", description: "Small, clean charts for reports.", source: "plugin", skills: ["bar-chart", "line-chart"] },
 ];
 
-export function emptyUsage(): UsageLimits {
+function emptyUsage(): UsageLimits {
   return {
     fiveHour: { percent: 4, resetsAt: ahead(287), resetsText: null },
     sevenDay: { percent: 9, resetsAt: nextDow(2, 10), resetsText: null },
@@ -132,14 +131,13 @@ function backupStatus(): BackupStatus {
   };
 }
 
-const COMPANY_PAGE_EMPTY = "# Fernbrook\n\n## What we sell\n\n## What we use\n\n## How things work here\n\n## Voice and style\n";
+export const emptyCompanyPage = (name: string) => `# ${name}\n\n## What we sell\n\n## What we use\n\n## How things work here\n\n## Voice and style\n`;
 
 /** No company yet: onboarding. `claude` and `signedIn` choose how far setup has got. */
 export function firstRunOffice(claude = true, signedIn = true): World {
   const w = emptyOffice();
   w.company = null;
   w.setup = setupStatus(null, claude, signedIn);
-  w.setup.background = false;
   w.companyPage = "";
   return w;
 }
@@ -150,7 +148,7 @@ export function emptyOffice(): World {
   return {
     setup: setupStatus(company), company, employees: [], people: [], status: {}, schedules: [], runs: [], events: {},
     open: [], inbox: [], archive: [], related: {}, requests: [], proposals: [], catalog: CATALOG, skills: {}, files: {},
-    revisions: {}, health: {}, checks: [], staged: {}, originals: {}, cardFiles: {}, companyPage: COMPANY_PAGE_EMPTY,
+    revisions: {}, health: {}, checks: [], staged: {}, originals: {}, cardFiles: {}, companyPage: emptyCompanyPage(company.name),
     settings: structuredClone(SETTINGS), usage: emptyUsage(), backup: backupStatus(), update: null,
   };
 }
@@ -189,7 +187,7 @@ function card(message: string, ask: CardAsk, extra: Partial<Card> = {}): Card {
 
 const sched = (s: Schedule, slot: string): RunKind => ({ type: "scheduled", scheduleId: s.id, slot, label: s.label, quiet: s.quiet, ...(s.review ? { review: true } : {}) });
 export const init = (n: number): RunEvent => ({ type: "init", model: "claude-sonnet-4-5", skills: Array.from({ length: n }, (_, i) => `skill-${i}`) });
-const tool = (id: string, name: string, brief: string, result: string, ok = true): RunEvent[] =>
+export const tool = (id: string, name: string, brief: string, result: string, ok = true): RunEvent[] =>
   [{ type: "toolCall", id, tool: name, brief }, { type: "toolResult", id, ok, brief: result }];
 const said = (text: string): RunEvent => ({ type: "text", text });
 const done = (r: Run): RunEvent => ({ type: "result", ok: r.state === "succeeded", text: r.summary ?? r.error ?? "", turns: r.turns ?? 1, durationMs: r.durationMs ?? 0 });
@@ -496,11 +494,10 @@ export function fullOffice(): World {
     end: ago(410), mins: 2, summary: "I need you to sign in first; the analytics session ran out.",
     cards: [card("Sign in to the analytics dashboard so I can pull October's numbers", { type: "chore", subject: "sign-in:analytics.fernbrook.app", url: "https://analytics.fernbrook.app/login" }, { key: "chore:sign-in:analytics.fernbrook.app" })],
   }));
-  const parked = mk("referral-1", "theo", { type: "manual" }, "Ideas to grow signups without discounting.", {
+  add(mk("referral-1", "theo", { type: "manual" }, "Ideas to grow signups without discounting.", {
     end: onDay(-9, 11, 10), mins: 9, summary: "Five ideas. The referral one needs your call.",
     cards: [card("Try a free month for studios that bring another studio?", { type: "choices", choices: ["Try it for a month", "Wait until after March"], recommended: 0 }, { parked: true, timesBack: 1, backAt: onDay(-2, 9) })],
-  });
-  add(parked);
+  }));
 
   // ---- Ines: three failures in a row, a task only you can do, a reply she's waiting on
   const reconError = "Couldn't find yesterday's payouts export in ~/Fernbrook/finance/exports. The bank's nightly export may not have run.";
@@ -531,7 +528,7 @@ export function fullOffice(): World {
     cards: [card("Put the churn numbers in the update, or keep them for the meeting?", { type: "choices", choices: ["Put them in", "Keep them for the meeting"], recommended: 1 }, { why: "Churn rose in October for a reason we've fixed; it reads better with the story." })],
   }));
   add(mk("monday-1", "juniper", sched(S.monday, lastDow(1, 8)), S.monday.instruction, {
-    end: lastDow(1, 8, 9), mins: 9, archivedAt: null,
+    end: lastDow(1, 8, 9), mins: 9,
     summary: "**On track.** One open item: the staging database upgrade (Otto).\n\n- Moved: waitlists shipped to every studio; 9 fewer support tickets than the week before\n- Stuck: the bank's payouts export (Ines is on it)\n- Needs Maren: nothing this week",
   }));
   add(mk("hired-ines", "juniper", { type: "hireDecided", proposalId: "prop-ines", approved: true }, "Maren approved your proposal to hire Ines Duarte.", {
@@ -659,14 +656,13 @@ export function fullOffice(): World {
     ],
   };
 
-  const priceBefore = null;
   const priceAfter = skillDoc("price-changes", "Price changes: the notice period, who to tell, and the email.",
     "# Price changes\n\n## Rules\n\n- Studios always get 30 days' notice of a price change. Count back from the change date; the email goes on that day.\n- Annual plans keep their price until renewal. Say so in the first paragraph.\n\n## Who hears, in order\n\n1. Harriet, in the board update before the email\n2. Mae, with the help-centre changes, three days before\n3. Every studio on the plan, by email\n\n## The email\n\nSubject line names the plan and the date. Lead with what changes and when; then what it pays for; then how to ask.");
   const weeklyBefore = skillDoc("weekly-report", "The Monday report.", "# Monday report\n\nEvery Monday at 8 am.\n\n- What moved last week\n- What's stuck, and who it's waiting on\n- What needs Maren\n\nKeep it to one page.");
   const weeklyAfter = skillDoc("weekly-report", "The Monday report: status line first, then what moved, what's stuck, what needs Maren.", "# Monday report\n\nEvery Monday at 8 am.\n\nStart with one status line: **On track**, **At risk** or **Off track**, and why in a few words.\n\n- What moved last week\n- What's stuck, and who it's waiting on\n- What needs Maren\n\nKeep it to one page. Evidence after the status, never before.");
   w.revisions = {
     juniper: [
-      { id: "rev-price", runId: "plan-1", at: ago(31), skill: "price-changes", file: "SKILL.md", change: "added", before: priceBefore, after: priceAfter },
+      { id: "rev-price", runId: "plan-1", at: ago(31), skill: "price-changes", file: "SKILL.md", change: "added", before: null, after: priceAfter },
       { id: "rev-weekly", runId: "tidy-1", at: ago(205), skill: "weekly-report", file: "SKILL.md", change: "modified", before: weeklyBefore, after: weeklyAfter },
       { id: "rev-plan", runId: null, at: onDay(-6, 14), skill: "planning", file: "checklists.md", change: "modified", before: "# Checklists\n\n- Owner\n- Date\n", after: "# Checklists\n\n- Owner\n- Date\n- Who hears, and when\n- What could go wrong\n" },
     ],
@@ -685,7 +681,7 @@ export function fullOffice(): World {
   }
   w.files["juniper/@own/what-you-own.md"] = "# What Juniper owns\n\n- The Monday report, and its format\n- Every plan that touches more than one person\n- Following up on anything Maren asks for in a conversation\n\nJuniper decides alone: when to chase, who to ask, how to word a reminder.\nJuniper asks first: anything sent to every studio, anything about money.";
   w.health = {
-    juniper: { skills: 5, descriptionChars: 1180, findings: [
+    juniper: { findings: [
       { kind: "looseNotes", skill: null, file: "notes/scratch.md", detail: "3 notes sit outside any skill." },
       { kind: "unused", skill: "old-launch-checklist", file: null, detail: "old-launch-checklist hasn't been used in 60 days." },
     ] },
@@ -708,14 +704,14 @@ export function cannedAnswer(prompt: string): string {
   return "Got it. I've written that into my skills so it sticks, and I'll report back here when it's done.";
 }
 
-// ---------------------------------------------------------------- variations the areas design against
+// ---------------------------------------------------------------- variations on the busy office
 
-/** Adds `r` to the world as an open Inbox row (or, `inbox: false`, an open conversation), newest first. */
-function addOpen(w: World, r: Run, events: RunEvent[] = [init(9), ...(r.summary ? [said(r.summary)] : []), done(r)], inbox = true) {
+/** Adds `r` to the world as an open Inbox row, newest first. */
+function addOpen(w: World, r: Run, events: RunEvent[] = [init(9), ...(r.summary ? [said(r.summary)] : []), done(r)]) {
   w.runs.unshift(r);
   w.events[r.id] = events;
   w.open.unshift(r.id);
-  if (inbox) w.inbox.unshift(r.id);
+  w.inbox.unshift(r.id);
 }
 
 /** The busy office after everything has finished and nothing needs a look: nobody working, waiting or failing. */
@@ -761,8 +757,8 @@ export function largeOffice(): World {
     { id: "ada", name: "Ada Quist", title: "Lawyer", hue: 230, addedAt: onDay(-30, 10), description: "Reviews Fernbrook's contracts and terms.", strengths: "Contracts, privacy", responsibilities: "Terms of service and studio contracts", channels: [{ id: "a-mail", kind: "email", address: "ada@quist.law", whenToUse: "Anything contractual" }], notes: "", manager: { type: "you" } },
     { id: "hugo", name: "Hugo Brandt", title: "Investor", hue: 70, addedAt: onDay(-58, 10), description: "Fernbrook's first investor; sits beside Harriet on the board.", strengths: "Growth, hiring", responsibilities: "Board meetings", channels: [{ id: "u-mail", kind: "email", address: "hugo@brandtventures.vc", whenToUse: "Board papers" }], notes: "", manager: { type: "member", id: "harriet" } },
   );
-  const first = w.requests.find((r) => r.id === "req-kofi");
-  if (first) w.requests.push({ ...first, id: "req-kofi-2", employeeId: "theo", runId: null, message: "Could you mock up the pricing page's hero for the new $34 price?", dueAt: onDay(2, 17), createdAt: ago(55), delivery: first.delivery ? { ...first.delivery, sentAt: ago(55) } : null });
+  const first = w.requests.find((r) => r.id === "req-kofi")!;
+  w.requests.push({ ...first, id: "req-kofi-2", employeeId: "theo", runId: null, message: "Could you mock up the pricing page's hero for the new $34 price?", dueAt: onDay(2, 17), createdAt: ago(55), delivery: { ...first.delivery!, sentAt: ago(55) } });
   return w;
 }
 
@@ -810,17 +806,14 @@ export function liveMoreOffice(): World {
   const help = mk("help-1", "mae", { type: "delegated", parentRunId: "plan-2" }, "Update the three help-centre articles that quote $29 so they say $34 from 1 March.", { state: "running", end: ago(1) });
   w.runs.unshift(help);
   w.events[help.id] = [init(9), said("Three articles quote the Studio price. Starting with choose-a-plan."), ...tool("h1", "Read", "help-centre/billing/choose-a-plan.md", "48 lines"), { type: "toolCall", id: "h2", tool: "Edit", brief: "help-centre/billing/choose-a-plan.md" }];
-  const plan = w.events["plan-2"];
-  if (plan) plan.splice(5, 0, ...tool("q1b", "mcp__omega__delegate", "Mae: update the help-centre articles that quote $29", "Delegated to Mae"), { type: "delegated", childRunId: "help-1", employeeId: "mae", task: help.prompt });
-  const slow = w.runs.find((r) => r.id === "slow-1");
-  if (slow) {
-    const steps: RunEvent[] = [];
-    const reads = ["traces/tuesday-18.json", "traces/tuesday-19.json", "web/src/pages/book.tsx", "web/src/api/bookings.ts", "infra/db/indexes.sql", "infra/db/slow-queries.log"];
-    for (let i = 0; i < 22; i++) {
-      const [name, brief, result] = i % 3 === 0 ? ["Bash", `kubectl logs deploy/web --since=48h | grep -c slow # pass ${i / 3 + 1}`, `${200 + i} lines`] : i % 3 === 1 ? ["Read", reads[i % reads.length], `${40 + i * 3} lines`] : ["Grep", `"bookings" in web/src (${i})`, `${i} matches`];
-      steps.push(...tool(`s${i}`, name, brief, result));
-    }
-    w.events[slow.id] = [init(8), said("Looking at Tuesday evening's traces."), ...steps, said(slow.summary ?? ""), done(slow)];
+  w.events["plan-2"].splice(5, 0, ...tool("q1b", "mcp__omega__delegate", "Mae: update the help-centre articles that quote $29", "Delegated to Mae"), { type: "delegated", childRunId: "help-1", employeeId: "mae", task: help.prompt });
+  const slow = w.runs.find((r) => r.id === "slow-1")!;
+  const steps: RunEvent[] = [];
+  const reads = ["traces/tuesday-18.json", "traces/tuesday-19.json", "web/src/pages/book.tsx", "web/src/api/bookings.ts", "infra/db/indexes.sql", "infra/db/slow-queries.log"];
+  for (let i = 0; i < 22; i++) {
+    const [name, brief, result] = i % 3 === 0 ? ["Bash", `kubectl logs deploy/web --since=48h | grep -c slow # pass ${i / 3 + 1}`, `${200 + i} lines`] : i % 3 === 1 ? ["Read", reads[i % reads.length], `${40 + i * 3} lines`] : ["Grep", `"bookings" in web/src (${i})`, `${i} matches`];
+    steps.push(...tool(`s${i}`, name, brief, result));
   }
+  w.events[slow.id] = [init(8), said("Looking at Tuesday evening's traces."), ...steps, said(slow.summary ?? ""), done(slow)];
   return w;
 }

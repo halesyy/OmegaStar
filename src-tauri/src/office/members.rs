@@ -80,7 +80,6 @@ impl Office {
             presence,
             live,
             working,
-            waiting,
             next_fire,
             last_run: recent.first().cloned(),
             last_worked_at,
@@ -126,7 +125,7 @@ impl Office {
             own_skills::scaffold_role_skill(&skills_dir, &e, &granted)?;
             own_skills::install_craft(&skills_dir)?;
             Self::save_org(&db, &before, &after)?;
-            self.seed_review(&db, &e, &ceo_of(&db)?, db.employees()?.len().saturating_sub(1))?;
+            Self::seed_review(&db, &e, &ceo_of(&db)?, db.employees()?.len().saturating_sub(1))?;
             e
         };
         if !picked.is_empty() {
@@ -215,22 +214,17 @@ impl Office {
         Ok(())
     }
 
-    pub fn allow_rule(&self, employee_id: &str, rule: &str) -> Result<Employee> {
-        let rule = rule.trim();
-        if rule.is_empty() {
-            return Err(AppError::invalid("rule is empty"));
-        }
-        let e = {
+    pub(super) fn allow_rule(&self, employee_id: &str, rule: &str) -> Result<()> {
+        {
             let db = self.db();
             let mut e = db.employee(employee_id)?.ok_or_else(|| AppError::not_found("employee not found"))?;
             if !e.allow_rules.iter().any(|r| r == rule) {
                 e.allow_rules.push(rule.to_string());
                 db.save_employee(&e)?;
             }
-            e
-        };
+        }
         self.sink().org_changed();
-        Ok(e)
+        Ok(())
     }
 
     // ------------------------------------------------------------------ people
@@ -293,9 +287,8 @@ impl Office {
 
     // ------------------------------------------------------------------ hire proposals
 
-    pub fn proposals(&self, state: Option<String>) -> Result<Vec<HireProposal>> {
-        let state = state.as_deref().map(ProposalState::parse).transpose()?;
-        self.db().proposals(None, state)
+    pub fn proposals(&self) -> Result<Vec<HireProposal>> {
+        self.db().proposals(None, None)
     }
 
     /// Takes an open proposal out of the queue, so a second approve or decline is refused.
@@ -453,29 +446,10 @@ fn headline(report: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, NoSink};
 
     fn employee(name: &str) -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: name.to_lowercase(),
-            name: name.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: true,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: format!("chat-{name}"),
-            hired_at: now(),
-        }
+        Employee { slug: name.to_lowercase(), name: name.into(), auto_tidy: true, chat_session: format!("chat-{name}"), ..fixtures::employee() }
     }
 
     /// Saves a run of `e` in `state`, created `ago` minutes back.
@@ -510,11 +484,13 @@ mod tests {
         let v = Office::presence(&db, &ada, now(), false).unwrap();
         let ids: Vec<&str> = v.live.iter().map(|r| r.id.as_str()).collect();
         assert_eq!(ids, [&running_old.id, &running_new.id, &queued_old.id, &queued_new.id]);
-        assert_eq!((v.presence, v.working, v.waiting), (Presence::Working, 2, 2));
+        assert_eq!((v.presence, v.working), (Presence::Working, 2));
 
         let idle = Office::presence(&db, &bo, now(), false).unwrap();
         assert!(idle.live.is_empty());
         assert_eq!(idle.presence, Presence::Idle);
+        run(&db, &bo, RunKind::Manual, RunState::Queued, 1);
+        assert_eq!(Office::presence(&db, &bo, now(), false).unwrap().presence, Presence::Queued);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -534,33 +510,12 @@ mod tests {
         assert!(!mentions("Ask Sam.", " "), "no name, no mention");
     }
 
-    struct NoSink;
-    impl EventSink for NoSink {
-        fn org_changed(&self) {}
-        fn run_updated(&self, _run: &Run) {}
-        fn run_events(&self, _run_id: &str, _events: &[RunEvent]) {}
-        fn request_updated(&self, _request: &HumanRequest) {}
-    }
-
     #[tokio::test]
     async fn someone_who_leaves_is_cleaned_out_of_whoever_still_names_them() {
         let dir = std::env::temp_dir().join(format!("omegastar-left-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         let (ada, bo, cy, dee) = (employee("Ada"), employee("Bo"), employee("Cy"), employee("Dee"));
-        let sam = Person {
-            id: uuid::Uuid::new_v4().to_string(),
-            name: "Sam Lee".into(),
-            title: "Designer".into(),
-            description: String::new(),
-            strengths: String::new(),
-            responsibilities: String::new(),
-            channels: vec![],
-            notes: String::new(),
-            manager: PersonManager::You,
-            hue: 0,
-            image: None,
-            added_at: now(),
-        };
+        let sam = Person { name: "Sam Lee".into(), title: "Designer".into(), ..fixtures::person() };
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();

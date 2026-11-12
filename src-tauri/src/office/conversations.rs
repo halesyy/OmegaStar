@@ -5,7 +5,7 @@ use super::*;
 use std::cmp::Reverse;
 
 impl Office {
-    /// Every conversation, for the Inbox, its badge and each employee's chips.
+    /// Every conversation, for the Inbox, its badge and the sidebar.
     pub fn conversations(&self) -> Result<Conversations> {
         Self::conversations_in(&self.db())
     }
@@ -51,30 +51,11 @@ impl Office {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures;
 
     /// An employee reporting to `manager_id`, or to you.
     fn employee(name: &str, manager_id: Option<&str>) -> Employee {
-        Employee {
-            id: uuid::Uuid::new_v4().to_string(),
-            slug: name.to_lowercase(),
-            name: name.into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: manager_id.map(String::from),
-            skills: SkillGrant { builtins: false, keys: vec![] },
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: format!("chat-{name}"),
-            hired_at: now(),
-        }
+        Employee { slug: name.to_lowercase(), name: name.into(), manager_id: manager_id.map(String::from), chat_session: format!("chat-{name}"), ..fixtures::employee() }
     }
 
     /// Saves a run in `state`; a finished one ended `ago` minutes back. Returns it as saved.
@@ -116,7 +97,8 @@ mod tests {
         let sub_report = run(&db, &bo, RunKind::Manual, RunState::Succeeded, 40, None);
         let sub_reply = Run::new(&bo.id, RunKind::Reply { to_run_id: sub_report.id.clone(), label: "Manual run".into(), task: false, card: false }, "and?".into(), now());
         db.insert_run(&sub_reply, &sub_report.id).unwrap();
-        // A reply typed into a report while it worked is no later turn: once it needs nothing, it is in the Archive.
+        // A reply an older build let you type into a report while it worked is no later turn: once it needs nothing,
+        // it is in the Archive.
         let mut steered = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 45, None);
         steered.replied_at = Some(now());
         db.save_run(&steered).unwrap();

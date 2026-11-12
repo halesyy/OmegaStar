@@ -2,7 +2,7 @@
 // run asks are one entry, since it hears your answers together. A question several employees asked is one entry,
 // and answering it answers them all; where one of them offers other choices, their card shows in it too. Runs that
 // didn't finish on the same error close together are one entry. Pure.
-import type { Card, CardReply, Run, Thread } from "../api/types";
+import type { Card, Run, Thread } from "../api/types";
 import { activityAt, blockedNow, broken, flags, latestFinished, rowThreads, STREAK, topic, type OpenCard } from "./threads";
 
 /** Something waiting on you in a row (`item`). `thread`: the row's thread it is in; `run`: the run it is about. */
@@ -19,7 +19,7 @@ export type CardDecision<T> = Extract<Decision<T>, { type: "card" }>;
 type BrokenDecision<T> = Extract<Decision<T>, { type: "broken" }>;
 
 /** One employee's choice cards about the same thing (`about`, from keys `ask:<about>:...`), oldest first. */
-export type Group<T> = { type: "group"; id: string; employeeId: string; about: string; decisions: CardDecision<T>[] };
+export type Group<T> = { type: "group"; about: string; decisions: CardDecision<T>[] };
 
 /** How far apart runs may break on the same error and still be one entry. */
 const FAILURES_WITHIN_MS = 2 * 3_600_000;
@@ -60,11 +60,6 @@ function rowDecisions<T extends { thread: Thread }>(item: T): Decision<T>[] {
 
 /** Two cards on the same thing ask it differently: other choices, or another one recommended. */
 const differs = (a: Card, b: Card): boolean => JSON.stringify(a.ask) !== JSON.stringify(b.ask);
-
-/** What a card's employee recommends, for answering several cards at once: the choice they marked. Null for any other
- *  card: a list is gone through item by item, and a chore is yours to do. */
-export const recommended = (c: Card): CardReply | null =>
-  c.ask.type === "choices" ? { type: "choice", index: c.ask.recommended } : null;
 
 /** Every decision in `items`, in their order. A lone question also in another decision joins it, the first with it:
  *  as `also` when it offers the same choices, else in `differ`, so you see each recommendation. A run's several
@@ -171,7 +166,7 @@ export function inboxLists<T>(ds: Decision<T>[]): { decisions: (Decision<T> | Gr
     const g = groups.get(k);
     if (g) g.decisions.push(d);
     else {
-      const ng: Group<T> = { type: "group", id: `group:${k}`, employeeId: d.run.employeeId, about: about(d)!, decisions: [d] };
+      const ng: Group<T> = { type: "group", about: about(d)!, decisions: [d] };
       groups.set(k, ng);
       out.push(ng);
     }

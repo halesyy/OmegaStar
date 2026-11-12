@@ -6,7 +6,6 @@
 
 /** Whether the macOS overlay title bar is in use. Set once, before the first render. */
 export const macChrome = (() => {
-  if (typeof window === "undefined") return false;
   if (import.meta.env.DEV && new URLSearchParams(location.search).get("chrome") === "mac") return true;
   return "__TAURI_INTERNALS__" in window && /Mac/.test(navigator.platform || navigator.userAgent);
 })();

@@ -43,11 +43,8 @@ Give the verdict and a one-line note of what {person} said about the ask.",
 }
 
 /// One bare model turn: no employee, no tools, no MCP servers, no saved session.
-fn judge_args() -> Vec<String> {
-    ["-p", "--model", "haiku", "--effort", "low", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--output-format", "json", "--json-schema", JUDGE_SCHEMA]
-        .map(String::from)
-        .to_vec()
-}
+const JUDGE_ARGS: &[&str] =
+    &["-p", "--model", "haiku", "--effort", "low", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--output-format", "json", "--json-schema", JUDGE_SCHEMA];
 
 /// The verdict in a judge's stdout: one JSON result whose `structured_output` holds it.
 fn parse_judge(stdout: &str) -> Result<(Verdict, String)> {
@@ -70,7 +67,7 @@ fn parse_judge(stdout: &str) -> Result<(Verdict, String)> {
 /// handbook or skills load. Never gated by usage room: one small call, and replies are time-sensitive.
 pub async fn judge(program: &Path, env: &[(String, String)], cwd: &Path, prompt: &str) -> Result<(Verdict, String)> {
     let mut c = command(program);
-    c.args(judge_args()).envs(env.iter().cloned()).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    c.args(JUDGE_ARGS).envs(env.iter().cloned()).current_dir(cwd).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
     c.process_group(0);
     let mut child = c.spawn().map_err(|e| AppError::internal(format!("could not start Claude Code: {e}")))?;

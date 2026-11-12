@@ -31,7 +31,6 @@ export type EmployeeView = Employee & {
   presence: Presence;
   live: Run[];                        // what they are working on: queued and running runs, running first, oldest first within each
   working: number;                    // runs they have going at once
-  waiting: number;                    // runs of theirs waiting to start
   nextFire: string | null;
   lastRun: Run | null;                // their latest work-lane run; "attention" is decided from it
   lastWorkedAt: string | null;        // when they last finished anything, in either lane
@@ -121,7 +120,7 @@ export type SkillInfo = {
 };
 /** Where the catalog is read from, and what the last scan could not read. */
 export type SkillSources = {
-  configDir: string; skillsDir: string;
+  skillsDir: string;
   found: number;              // catalog entries
   unreadable: number;         // skill folders that exist but could not be read
   error: string | null;       // the first I/O error, with its path
@@ -223,7 +222,7 @@ export type Run = {
   archivedAt: string | null;   // archived reports leave the Inbox for the Archive
   title: string | null;        // a thread's first run: the name the employee gave the thread with name_thread
   repliedAt: string | null;    // when you last replied to this report
-  steered: boolean;            // you wrote into it while it worked or waited to start, so its report waits for you in the Inbox
+  steered: boolean;            // you wrote into it while it worked, so its report waits for you in the Inbox
   aboutCard?: boolean;         // a question you asked from a card: it does not make the thread a conversation you are in
   deliveredAt: string | null;  // asked and delegated runs: when the answer or report reached whoever handed it over
   check: string | null;        // a due check that came back into the conversation it was set in: the check's id
@@ -238,16 +237,13 @@ export type Run = {
   costUsd: number | null;      // what it cost in US dollars as Claude Code reckons it, over all its attempts; null when unknown
 };
 export type NewAttachment = { name: string; data: string /* base64 */ };
-/** Where your words to a run you watch went: into it as it works, into what it starts with, or into its thread as your
- *  reply (it had finished, or could not take a message just then). */
-export type SteerHow = "steered" | "added" | "replied";
 
 /** A report and the replies you exchanged on it, oldest first. A conversation you started is one too, and an answer
  *  a colleague brought back into it is one of its replies. In the Inbox and the Archive a thread leads a row,
  *  and `related` holds the row's other threads, oldest first: the rest of a hand-off, or a schedule's earlier
  *  failures in a row. Empty elsewhere. */
 export type Thread = { root: Run; replies: Run[]; related: Thread[] };
-/** Every conversation across the office, for the Inbox and each employee's chips. */
+/** Every conversation across the office, for the Inbox and the sidebar. */
 export type Conversations = {
   threads: Thread[];           // open threads of every employee, one per root, most recently active first
   inbox: string[];             // root ids of the threads that lead an Inbox row: what needs you
@@ -261,7 +257,7 @@ export type HealthKind =
   | "overdueCheck" | "dangling" | "unreachable" | "looseNotes" | "churn" | "repeatedEntries"
   | "tooLong" | "unused" | "datedLines" | "descriptionsHeavy" | "description" | "junk" | "nameMismatch";
 export type HealthFinding = { kind: HealthKind; skill: string | null; file: string | null; detail: string };
-export type SkillHealth = { skills: number; descriptionChars: number; findings: HealthFinding[] };
+export type SkillHealth = { findings: HealthFinding[] };
 /** The page every employee reads at the start of every run. */
 export type CompanyPage = { text: string; findings: HealthFinding[] };
 /** Something an employee said they would look at again; open ones come back when they are due. */
@@ -289,15 +285,14 @@ export type RunEvent =
   | { type: "proposedHire"; proposalId: string; name: string; title: string }
   | { type: "skillChanged"; skill: string; file: string; change: SkillChangeKind }
   | { type: "visual"; id: string; title: string }   // a page the employee showed (show), served on omega-visual
-  // A sub-agent's lifecycle. These never reach a transcript list: they update a task by taskId (see foldEvent).
+  // A sub-agent's lifecycle. These never reach a transcript list: they update a task by taskId (see foldTask).
   | { type: "taskStarted"; taskId: string; toolUseId: string; name: string }
   | { type: "taskProgress"; taskId: string; activity: string; lastTool: string | null; toolUses: number; tokens: number; durationMs: number }
   | { type: "taskEnded"; taskId: string; outcome: TaskOutcome; toolUses: number; tokens: number; durationMs: number }
   | { type: "result"; ok: boolean; text: string; turns: number; durationMs: number }
   | { type: "stderr"; text: string };
 export type TaskOutcome = "done" | "failed" | "stopped";
-/** transcriptGone: the run's folder was deleted after Settings' transcript retention, so there are no events. */
-export type RunDetail = { run: Run; events: RunEvent[]; children: Run[]; transcriptGone: boolean };
+export type RunDetail = { run: Run; events: RunEvent[]; children: Run[] };
 
 /** What runs did and used since a time. Usage (costUsd) is what runs cost at API list price, as Claude Code reckons it. */
 export type RunUsage = { employees: EmployeeUsage[]; routines: RoutineUsage[] };
@@ -310,6 +305,8 @@ export type RoutineUsage = {
   runs: number; reached: number; failed: number; useful: number; costUsd: number;
 };
 
+/** A model Claude Code offers: the exact ID `claude --model` takes, and the name its own picker shows. */
+export type ModelOption = { id: string; name: string };
 export type Account = { loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null };
 /** How this copy of Omega Star was built: a published release, a test build, or a developer's own. */
 export type BuildChannel = "release" | "dogfood" | "dev";
@@ -375,6 +372,8 @@ export type Commands = {
   complete_setup: { args: { companyName: string; ceoName: string; title: string | null }; ret: Company };
   update_company: { args: { name: string; ceoName: string; title: string; reportsTo: string | null; image: string | null }; ret: Company };
   set_background: { args: { enabled: boolean }; ret: SetupStatus };
+  /** Claude Code's own model list for the signed-in account. */
+  models: { args: Record<string, never>; ret: ModelOption[] };
   org: { args: Record<string, never>; ret: OrgSnapshot };
   skill_catalog: { args: Record<string, never>; ret: SkillInfo[] };
   skill_sources: { args: Record<string, never>; ret: SkillSources };
@@ -416,10 +415,7 @@ export type Commands = {
    *  else carries on in its thread. Returns the new run. */
   retry_run: { args: { runId: string }; ret: Run };
   /** Your reply in a report's thread (`runId`: any run in it). `archive` means "don't bring the answer back unless it needs me". */
-  reply_to_run: { args: { runId: string; text: string; archive: boolean; attachments?: NewAttachment[] }; ret: Run };
-  /** Your words to a run you are watching: into it while it works, into its instructions while it waits to start for
-   *  the first time, else your reply in its thread. Its report then waits for you in the Inbox. */
-  steer_run: { args: { runId: string; text: string }; ret: SteerHow };
+  reply_to_run: { args: { runId: string; text: string; archive: boolean; attachments: NewAttachment[] }; ret: Run };
   /** Allow what a finished run was blocked on and send it back to retry. `rules` must come from its denials
    *  (a denial's suggestedRule, or `mcp__<server>__*` for an MCP tool). `always` saves them to the employee;
    *  otherwise they apply to the retry only. Archives the blocked report. Returns the retry run. */
@@ -457,14 +453,13 @@ export type Commands = {
   import_originals: { args: { runId: string }; ret: OriginalSkill[] };
   remove_originals: { args: { runId: string; names: string[] }; ret: string[] };
   settle_originals: { args: { runId: string }; ret: Run };
-  allow_rule: { args: { employeeId: string; rule: string }; ret: Employee };
   add_person: { args: { draft: PersonDraft }; ret: Person };
   update_person: { args: { person: Person }; ret: Person };
   remove_person: { args: { personId: string }; ret: null };
   requests: { args: { personId: string | null; employeeId: string | null; state: string | null }; ret: HumanRequest[] };
   resolve_request: { args: { requestId: string; state: Exclude<RequestState, "open">; response: string | null }; ret: HumanRequest };
   watch_request: { args: { requestId: string; action: WatchAction }; ret: HumanRequest };
-  proposals: { args: { state: ProposalState | null }; ret: HireProposal[] };
+  proposals: { args: Record<string, never>; ret: HireProposal[] };
   approve_proposal: { args: { proposalId: string; draft: EmployeeDraft; imports: string[]; note: string | null }; ret: Employee };
   decline_proposal: { args: { proposalId: string; note: string | null }; ret: HireProposal };
   settings: { args: Record<string, never>; ret: AppSettings };

@@ -18,13 +18,6 @@ enum Node<'a> {
     Member(&'a str),
 }
 
-/// Where a member's reports go when it leaves.
-#[derive(Debug, Clone, PartialEq)]
-enum Heir {
-    You,
-    Member(String),
-}
-
 impl Org {
     fn employee(&self, id: &str) -> Option<&Employee> {
         self.employees.iter().find(|e| e.id == id)
@@ -192,9 +185,10 @@ impl Org {
     /// Takes a member out, moving their reports (agents, people, and you) up to their manager. When
     /// they were the top of the company, the next one down your line takes the top instead.
     pub fn remove_member(&mut self, id: &str) {
+        // Where their reports go, as a manager id: `None` is you.
         let heir = match self.up(Node::Member(id)) {
-            Some(Node::You) => Heir::You,
-            Some(Node::Member(m)) => Heir::Member(m.to_string()),
+            Some(Node::You) => None,
+            Some(Node::Member(m)) => Some(m.to_string()),
             None => {
                 let line = self.line_above_you();
                 match line.iter().position(|p| p == id) {
@@ -203,32 +197,23 @@ impl Org {
                         if let Some(p) = self.person_mut(&next) {
                             p.manager = PersonManager::Top;
                         }
-                        Heir::Member(next)
+                        Some(next)
                     }
                     _ => {
                         self.company.reports_to = None;
-                        Heir::You
+                        None
                     }
                 }
             }
         };
         for e in self.employees.iter_mut().filter(|e| e.manager_id.as_deref() == Some(id)) {
-            e.manager_id = match &heir {
-                Heir::You => None,
-                Heir::Member(m) => Some(m.clone()),
-            };
+            e.manager_id = heir.clone();
         }
         for p in self.people.iter_mut().filter(|p| p.manager.member_id() == Some(id)) {
-            p.manager = match &heir {
-                Heir::You => PersonManager::You,
-                Heir::Member(m) => PersonManager::Member { id: m.clone() },
-            };
+            p.manager = heir.clone().map_or(PersonManager::You, |m| PersonManager::Member { id: m });
         }
         if self.company.reports_to.as_deref() == Some(id) {
-            self.company.reports_to = match heir {
-                Heir::You => None,
-                Heir::Member(m) => Some(m),
-            };
+            self.company.reports_to = heir;
         }
         self.employees.retain(|e| e.id != id);
         self.people.retain(|p| p.id != id);

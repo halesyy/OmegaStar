@@ -22,7 +22,7 @@ export type Route =
   | { page: "inbox"; view?: InboxView; item?: string | null }
   | { page: "activity"; view: ActivityView }
   | { page: "settings" }
-  /** An old link to a run's own page: it opens the run's conversation. */
+  /** A run (from `openRun`, or an old link to a run's own page): it opens the run's conversation. */
   | { page: "run"; runId: string };
 
 const TABS: PanelTab[] = ["work", "skills", "profile"];

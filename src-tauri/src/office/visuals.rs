@@ -100,14 +100,14 @@ src: url(data:font/woff2;base64,{inter}) format(\"woff2\"); }}\n{BASE}"
 fn inline_images(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut rest = html;
-    while let Some(i) = rest.find(|c| matches!(c, '"' | '\'' | '(')) {
+    while let Some(i) = rest.find(['"', '\'', '(']) {
         let close = match rest.as_bytes()[i] {
             b'(' => ')',
             q => q as char,
         };
         out.push_str(&rest[..=i]);
         rest = &rest[i + 1..];
-        let end = rest.find(|c| c == close || c == '\n').filter(|&e| rest[e..].starts_with(close));
+        let end = rest.find([close, '\n']).filter(|&e| rest[e..].starts_with(close));
         if let Some((end, data)) = end.and_then(|e| embedded(&rest[..e]).map(|d| (e, d))) {
             out.push_str(&data);
             out.push(close);

@@ -15,9 +15,9 @@ import { Avatar, ErrorNote, SlideOver } from "./ui";
 import "./Sheet.css";
 import "./AddPersonSheet.css";
 
-const empty = (managerId: string | null): PersonDraft => ({
+const empty = (): PersonDraft => ({
   name: "", title: "", description: "", strengths: "", responsibilities: "", channels: [], notes: "",
-  manager: managerId === null ? { type: "you" } : { type: "member", id: managerId }, hue: 180,
+  manager: { type: "you" }, hue: 180,
 });
 
 /** "Maya", "you", or "nobody (top of the company)". */
@@ -78,9 +78,9 @@ export function PersonFields({ draft, set, selfId }: { draft: PersonDraft; set: 
   );
 }
 
-export function AddPersonSheet({ open, managerId, onClose }: { open: boolean; managerId: string | null; onClose: () => void }) {
+export function AddPersonSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { snap } = useOrg();
-  const [draft, setD] = useState<PersonDraft>(() => empty(managerId));
+  const [draft, setD] = useState<PersonDraft>(() => empty());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,7 +105,7 @@ export function AddPersonSheet({ open, managerId, onClose }: { open: boolean; ma
   };
 
   return (
-    <SlideOver open={open} onClose={onClose} width={760} label="Add a person" modal>
+    <SlideOver open={open} onClose={onClose} width={760} label="Add a person">
       <header className="sheet-head">
         <div className="stack">
           <h2 className="h-lg">Add a person</h2>

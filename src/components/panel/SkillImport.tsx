@@ -32,7 +32,7 @@ export function ImportSheet({ e, preselect, onClose }: { e: EmployeeView; presel
     }
   };
   return (
-    <SlideOver open={open} onClose={onClose} width={620} label={`Import skills into ${name}'s family`} modal>
+    <SlideOver open={open} onClose={onClose} width={620} label={`Import skills into ${name}'s family`}>
       <header className="sheet-head">
         <div className="stack">
           <h2 className="h-lg">Import skills</h2>
@@ -94,7 +94,7 @@ export function OriginalsSheet({ e, run, onClose }: { e: EmployeeView; run: Orga
   };
   const toggle = (n: string) => setPicked((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]));
   return (
-    <SlideOver open={run !== null} onClose={onClose} width={560} label="Your original skills" modal>
+    <SlideOver open={run !== null} onClose={onClose} width={560} label="Your original skills">
       <header className="sheet-head">
         <div className="stack">
           <h2 className="h-lg">{name} now has their own copies of these skills</h2>

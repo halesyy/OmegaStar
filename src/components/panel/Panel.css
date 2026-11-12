@@ -19,8 +19,8 @@
 .mpage-short .mpage-role { font-size: var(--t-base); }
 .mpage-short .mpage-acts { align-self: center; padding-top: 0; }
 
-/* The band: what they are doing now, full width. Nothing in it is ever cut: the task wraps to a second line rather
-   than end in an ellipsis, and the right side (a number, a short report) gives way first on a narrow page. */
+/* The band: what they are doing now, full width, on one line. Nothing in it is ever cut: the task is its short name,
+   and the right side (a number, a short report) gives way first on a narrow page. */
 .band {
   flex: none; display: flex; align-items: flex-start; gap: 16px; min-height: 40px; padding: 10px 24px; font-size: var(--t-base); line-height: 20px;
   background: var(--raised); color: var(--ink-2); box-shadow: inset 0 1px 0 var(--line), inset 0 -1px 0 var(--line);
@@ -47,24 +47,18 @@
 .band-attn::before, .band-fail::before { background: var(--err); }
 .band-warn::before { background: var(--warn); }
 .band-plain::before { display: none; }
-/* A person's band: who is waiting on them, and the one action. */
-.band-person .band-right { align-self: center; margin: -4px 0; }
 /* No room for the number beside the work: the work keeps the band. */
 @container (max-width: 760px) { .band-employee .band-right { display: none; } }
 
-/* Tabs, then the slot at the row's right end (the conversation switcher on Chat). */
-.mpage-tabs { flex: none; display: flex; align-items: flex-end; gap: 12px; padding: 0 16px 0 24px; box-shadow: inset 0 -1px 0 var(--line); }
+.mpage-tabs { flex: none; display: flex; align-items: flex-end; padding: 0 16px 0 24px; box-shadow: inset 0 -1px 0 var(--line); }
 .mpage-tabs .tabs { border-bottom: 0; flex: none; padding: 0; }
-.mpage-slot { flex: 1; min-width: 0; display: flex; justify-content: flex-end; align-items: center; align-self: center; }
-.mpage-slot:empty { display: none; }
 
-/* The body box: full height, full width, no padding. On Chat the conversation fills it. */
+/* The body box: full height, full width, no padding. */
 .mpage-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.mpage-ruled { box-shadow: inset 0 1px 0 var(--line); }
 
 /* Inside a tab: a scrolling column with the page's 24px inset. */
 .tab-scroll { flex: 1; min-height: 0; overflow: auto; padding: 20px 24px 32px; }
-.tab-scroll > .psec + .psec, .tab-scroll .psec + .psec { margin-top: 32px; }
+.tab-scroll .psec + .psec { margin-top: 32px; }
 .psec.tab-form { gap: 16px; }
 .section-note { font-size: var(--t-sm); color: var(--muted); }
 button.section-note { color: var(--muted); font-weight: 500; }

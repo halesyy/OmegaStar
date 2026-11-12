@@ -8,7 +8,7 @@ import { createStore, useStore } from "../../lib/store";
 import { isLive, isOpen } from "../../lib/threads";
 import { toast } from "../../lib/toasts";
 import { Icon } from "../Icon";
-import { Markdown } from "../Markdown";
+import { ID_PATTERN, Markdown } from "../Markdown";
 import { CardImages } from "./CardImages";
 import { CardLink, openWeb, webUrl } from "./CardLink";
 import { LaterMenu } from "./LaterMenu";
@@ -21,8 +21,8 @@ export type AimTarget = { key: string; label: string; name: string; send: (text:
 export const CardAim = createContext<{ aim: (target: AimTarget | null) => void; aimed: string | null } | null>(null);
 
 /** Ids like INV-2291 or PR-88 kept whole, never broken at their hyphen. */
-export function keepIds(text: string): ReactNode {
-  const parts = text.split(/\b([A-Z][A-Z0-9]*-\d+)\b/);
+function keepIds(text: string): ReactNode {
+  const parts = text.split(ID_PATTERN);
   return parts.length === 1 ? text : parts.map((p, i) => (i % 2 ? <span key={i} className="nowrap">{p}</span> : p));
 }
 

@@ -8,7 +8,7 @@ export type Transport = {
   listen<E extends EventName>(name: E, handler: (payload: Events[E]) => void): Promise<() => void>;
 };
 
-const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const inTauri = "__TAURI_INTERNALS__" in window;
 
 const tauriTransport: Transport = {
   invoke,

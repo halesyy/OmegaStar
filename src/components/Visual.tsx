@@ -29,10 +29,11 @@ export function Visual({ runId, id, title, from }: { runId: string; id: string; 
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
+  const heading = <span className="visual-title"><span className="trunc">{title}</span>{from ? <span className="visual-from">from {from}</span> : null}</span>;
   return (
     <figure className="visual">
       <figcaption className="visual-head">
-        <span className="visual-title"><span className="trunc">{title}</span>{from ? <span className="visual-from">from {from}</span> : null}</span>
+        {heading}
         <button className="btn btn-ghost btn-icon btn-sm" aria-label={`Expand ${title}`} data-tip="Expand" onClick={() => setOpen(true)}><Icon name="expand" size={14} /></button>
       </figcaption>
       <div className="visual-body">
@@ -41,7 +42,7 @@ export function Visual({ runId, id, title, from }: { runId: string; id: string; 
       {open ? (
         <Overlay label={title} onClose={() => setOpen(false)}>
           <div className="visual-sheet">
-            <div className="visual-head"><span className="visual-title"><span className="trunc">{title}</span>{from ? <span className="visual-from">from {from}</span> : null}</span></div>
+            <div className="visual-head">{heading}</div>
             <div className="visual-body"><iframe className="visual-frame" src={src} sandbox="allow-scripts" title={title} /></div>
           </div>
         </Overlay>

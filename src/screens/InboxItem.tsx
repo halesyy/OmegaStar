@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { call, errorMessage } from "../api/client";
 import type { Card, CardReply, EmployeeView, HireProposal, NewAttachment, OrgSnapshot, PersonView, Run, SkillInfo, Thread } from "../api/types";
 import type { CardDecision, Decision, Group } from "../lib/decisions";
-import { dateLong, firstName, runKindLabel, shortAge, taskLabel, threadTitle, whenInline } from "../lib/format";
+import { dateLong, firstName, listNames, runKindLabel, shortAge, taskLabel, threadTitle, whenInline } from "../lib/format";
 import { useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
 import { openChat } from "../lib/router";
@@ -14,14 +14,14 @@ import { BlockedCard } from "../components/BlockedCard";
 import { Icon, type IconName } from "../components/Icon";
 import { Markdown } from "../components/Markdown";
 import { ProposalActions, ProposalRecord, hireTitle } from "../components/ProposalCard";
-import { TidyProposal } from "../components/TidyProposal";
+import { TidyProposal, tidyAsks } from "../components/TidyProposal";
 import { Avatar } from "../components/ui";
 import { kindNames } from "../components/RunRow";
 import { CardImages } from "../components/conversation/CardImages";
 import { CardLink, webUrl } from "../components/conversation/CardLink";
 import { askAboutCard, CardFile, CardList, CardText, CardView, usePendingAnswers } from "../components/conversation/CardView";
 import { lines } from "../components/conversation/RowHistory";
-import { ThreadView } from "../components/conversation/ThreadView";
+import { ThreadView, useRetry } from "../components/conversation/ThreadView";
 import type { Item } from "../components/conversation/useStatuses";
 
 // ---------------------------------------------------------------- the model: what each row is and needs
@@ -64,7 +64,7 @@ function ownName(r: Run, employees: EmployeeView[], people: PersonView[]): strin
 
 /** What an entry is about rather than how it came: the thread's own name, and on a hand-off who it is for (or, for an
  *  answer that came back, who it is from), as "Pricing page for Bo". */
-export function topic(t: Thread, employees: EmployeeView[], people: PersonView[]): string {
+function topic(t: Thread, employees: EmployeeView[], people: PersonView[]): string {
   const r = t.root;
   const names = kindNames(r, employees, people);
   const them = handOff(r) ? names.asker ?? names.manager : undefined;
@@ -78,18 +78,15 @@ const firstLine = (r: Run): string => lines(r.summary)[0] ?? (didNotFinish(r) ? 
 /** A list of first names, as "Ada, Bo and Cy". */
 function names(ids: string[], employees: EmployeeView[]): string {
   const ns = [...new Set(ids)].flatMap((id) => employees.find((x) => x.id === id) ?? []).map((x) => firstName(x.name));
-  return ns.length > 1 ? `${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}` : ns[0] ?? "";
+  return listNames(ns);
 }
 
 const NUMS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"];
 /** A count at the start of a sentence: "Two", and "12" past nine. */
 const Count = (n: number) => NUMS[n] ?? String(n);
 
-/** A tidy's bigger changes, waiting for your OK. */
-const tidyAsks = (r: Run): boolean => r.kind.type === "tidy" && !!r.proposed && !r.approvedAt && !r.archivedAt;
-
 /** The word for what a decision needs. */
-export function wordOf(d: Decision<Item>): Word {
+function wordOf(d: Decision<Item>): Word {
   switch (d.type) {
     case "card": {
       if (d.cards.length > 1) return "Answer";
@@ -126,13 +123,13 @@ function ask(d: Decision<Item>, who: string, employees: EmployeeView[], people: 
     case "blocked":
       return {
         title: r.denials.length === 1 ? `Allow ${who} to use ${toolName(r.denials[0].tool)}?` : `Allow ${r.denials.length} actions ${who} was blocked on?`,
-        why: r.denials.length === 1 ? r.denials[0]?.brief ?? null : null,
+        why: r.denials.length === 1 ? r.denials[0].brief : null,
       };
     case "broken": {
       const name = ownName(d.thread.root, employees, people);
       return {
         title: d.times >= STREAK ? `${name ?? "A routine"} failed ${d.times} times in a row` : name ? `${name} didn't finish` : "Didn't finish",
-        why: r.error ? lines(r.error)[0] ?? null : null,
+        why: lines(r.error)[0] ?? null,
       };
     }
     case "failures": return { title: `${Count(d.failures.length)} runs didn't finish`, why: lines(r.error)[0] ?? null };
@@ -156,7 +153,7 @@ function verbOf(d: Decision<Item>): string {
 }
 
 /** When a decision started waiting on you. */
-export const since = (d: Decision<Item>) => d.run.endedAt ?? activityAt(d.item.thread);
+const since = (d: Decision<Item>) => d.run.endedAt ?? activityAt(d.item.thread);
 
 /** "just now", "5 minutes ago", "3 hours ago", "2 days ago", else the date. */
 function ageLong(iso: string | null): string {
@@ -426,7 +423,7 @@ function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; gro
       foot = <><RetryAllMain d={d} />{archive(false, "Archive all")}</>;
       break;
     case "answered":
-      body = <ItemThread item={d.item} thread={d.thread} e={e} onSendDone={act.sendDone} />;
+      body = <ItemThread item={d.item} e={e} onSendDone={act.sendDone} />;
       foot = archive(true);
       break;
   }
@@ -447,17 +444,7 @@ function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; gro
 
 /** Retry a run that didn't finish, from where it stopped. It stays in the Inbox until the retry is through. */
 function RetryMain({ run, who, disabled }: { run: Run; who: string; disabled: boolean }) {
-  const [busy, setBusy] = useState(false);
-  const retry = async () => {
-    setBusy(true);
-    try {
-      await call("retry_run", { runId: run.id });
-      toast(`${who} is trying again`, "ok");
-    } catch (err) {
-      toast(errorMessage(err), "err");
-      setBusy(false);
-    }
-  };
+  const { busy, retry } = useRetry(run, who);
   return <Main label={busy ? "Trying again" : "Retry"} icon="refresh" disabled={disabled || busy} title="Try it again from where it stopped" onClick={() => void retry()} />;
 }
 
@@ -699,26 +686,25 @@ function ArchivedBody({ row, ctx, actions }: { row: Extract<Row, { kind: "archiv
   return (
     <>
       {team
-        ? <From e={null} verb={<><b>{view.title}</b></>} about={null} at={activityAt(t)} />
+        ? <From e={null} verb={<b>{view.title}</b>} about={null} at={activityAt(t)} />
         : <From e={e} verb="reported" about={null} at={activityAt(t)} />}
       {/* Named by what it was about; the report under it says what it said, once. */}
       <Title text={team ? "Your team's week" : topic(t, ctx.employees, ctx.people)} />
-      <ItemThread item={row.item} thread={t} e={e} onSendDone={null} />
+      <ItemThread item={row.item} e={e} onSendDone={null} />
       {wasArchived(t) ? actions(<Main label="Reopen" icon="undo" title="Bring it back to the Inbox (E)" onClick={() => ctx.reopen(t.root.id)} />) : null}
     </>
   );
 }
 
-/** An open entry's thread, live: the same conversation the employee's panel shows, seen once it is in front of you.
- *  The row's other runs head it when the thread leads the row. */
-function ItemThread({ item, thread, e, onSendDone }: { item: Item; thread: Thread; e: EmployeeView; onSendDone: ItemActions["sendDone"] | null }) {
-  const id = thread.root.id;
-  const lead = id === item.thread.root.id;
+/** An open entry's thread, live: the same conversation the conversation screen shows, seen once it is in front of you.
+ *  The row's other runs head it. */
+function ItemThread({ item, e, onSendDone }: { item: Item; e: EmployeeView; onSendDone: ItemActions["sendDone"] | null }) {
+  const id = item.thread.root.id;
   const live = useThread(id);
-  useMarkSeen(item.status.state === "done" ? null : item.thread.root.id, lastMoved(live.turns?.map((t) => t.run) ?? []));
+  useMarkSeen(item.status.state === "done" ? null : id, lastMoved(live.turns?.map((t) => t.run) ?? []));
   return (
     <div className="d-thread">
-      <ThreadView e={e} rootId={id} thread={live} row={lead ? item.thread : null} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent />
+      <ThreadView e={e} rootId={id} thread={live} row={item.thread} onSendDone={item.status.state === "done" ? null : onSendDone} autoFocus={false} recent />
     </div>
   );
 }

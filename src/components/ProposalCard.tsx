@@ -29,7 +29,7 @@ const skillName = (key: string, catalog: SkillInfo[] | undefined) => catalog?.fi
 /**
  * A hire an employee proposed, as the record of the person they would hire: who, the role and who they report to,
  * their objective, what they do, their skills (a skill not installed is flagged), and how they start. Under it the
- * reason in the proposer's own words, with the way to the run that asked.
+ * reason in the proposer's own words, with the way to the conversation that asked.
  */
 export function ProposalRecord({ p, proposer, snap, catalog }: {
   p: HireProposal; proposer: EmployeeView | undefined; snap: OrgSnapshot | null; catalog: SkillInfo[] | undefined;

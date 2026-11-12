@@ -79,10 +79,7 @@ When this list and your role skill disagree, this list is right: fix your role s
         h += "None.\n\n";
     } else {
         for g in &s.granted {
-            match &g.skills {
-                Some(list) => h += &format!("- Plugin `{}` ({}): {}\n", g.name, list.join(", "), clip(&one_line(&g.description), 200)),
-                None => h += &format!("- `{}`: {}\n", g.name, clip(&one_line(&g.description), 200)),
-            }
+            h += &format!("{}\n", granted_line(g));
         }
         h += "\n";
     }
@@ -321,6 +318,14 @@ once you have aggregated them. Never weaken browser protections without asking.\
     h
 }
 
+/// A granted skill as the handbook and the role skill list it: its name, a plugin's skills, and its description.
+pub fn granted_line(g: &SkillInfo) -> String {
+    match &g.skills {
+        Some(list) => format!("- Plugin `{}` ({}): {}", g.name, list.join(", "), clip(&one_line(&g.description), 200)),
+        None => format!("- `{}`: {}", g.name, clip(&one_line(&g.description), 200)),
+    }
+}
+
 /// How a request the employee is waiting on stands, as their opening note says it.
 fn watch_status(r: &HumanRequest) -> &'static str {
     let Some(d) = &r.delivery else { return "**not recorded as sent**: call `sent` once you have sent it" };
@@ -333,7 +338,7 @@ fn watch_status(r: &HumanRequest) -> &'static str {
 }
 
 /// A moment on your local clock, the way a person writes it: "Tue 6 Oct 1:15 pm".
-fn local_time(t: Ts) -> String {
+pub fn local_time(t: Ts) -> String {
     t.with_timezone(&chrono::Local).format("%a %-d %b %-I:%M %P").to_string()
 }
 
@@ -352,7 +357,7 @@ fn locator_text(d: &Delivery) -> String {
 
 /// The frame of a reply check, nudge or give-up.
 fn watch_frame(s: &Snapshot, run: &Run, autonomous: &str) -> String {
-    let person = s.watched.as_ref().map(|w| w.person.as_str()).or(s.replier.as_deref()).unwrap_or("The person");
+    let person = s.replier.as_deref().unwrap_or("The person");
     let request = s.watched.as_ref().map(|w| &w.request);
     let delivery = request.and_then(|r| r.delivery.as_ref());
     let kind = request.map(|r| r.kind.as_str()).unwrap_or("request");
@@ -420,7 +425,7 @@ fn frame_in_note(s: &Snapshot, run: &Run) -> bool {
 
 /// What this run is and how to do it, by its kind: in the system prompt, or at the top of the first message
 /// when `frame_in_note`.
-pub fn frame(s: &Snapshot, run: &Run) -> String {
+fn frame(s: &Snapshot, run: &Run) -> String {
     let ceo = &s.company.ceo_name;
     let autonomous = format!(
         "Nobody is watching: work autonomously, do not ask questions you could answer yourself, and finish with a report as \
@@ -523,7 +528,7 @@ it to them on a card (`notify`). If nothing is left to do, say so in one line. {
             format!("{p} replied to a request you made.{session} Resume the work that was waiting on it. {autonomous}")
         }
         RunKind::Organize { .. } => organize_frame(s),
-        RunKind::Tidy { reason, .. } => tidy_frame(s, *reason),
+        RunKind::Tidy { reason, plan, .. } => tidy_frame(s, *reason, plan.as_deref()),
         RunKind::Reply { task, .. } if run.check.is_some() => {
             let place = if *task { "conversation" } else { "thread" };
             format!(
@@ -694,7 +699,7 @@ fn run_lines<'a>(runs: impl Iterator<Item = &'a Run>, lead: &str, parents: &Hash
 
 /// Lines newest first, at most `max`, then how many were left out.
 fn newest_first(mut lines: Vec<(Ts, String)>, max: usize) -> Vec<String> {
-    lines.sort_by(|a, b| b.0.cmp(&a.0));
+    lines.sort_by_key(|line| std::cmp::Reverse(line.0));
     let left = lines.len().saturating_sub(max);
     let mut v: Vec<String> = lines.into_iter().take(max).map(|(_, l)| l).collect();
     if left > 0 {
@@ -739,7 +744,7 @@ fn opening_note(s: &Snapshot, run: &Run) -> Option<String> {
     let o = s.opening.as_ref()?;
     let ceo = &s.company.ceo_name;
     let since = o.since.is_some();
-    let new = |t: Ts| o.since.map_or(true, |since| t > since);
+    let new = |t: Ts| o.since.is_none_or(|since| t > since);
     let mut sections: Vec<(String, Vec<String>)> = vec![];
 
     // In your words, so a session that has not heard them works within them: Claude Code's checks look for
@@ -950,12 +955,11 @@ still uses an old name.",
 /// The procedure for a Tidy run: bring the employee's skills and notes back to the shape
 /// `omega-skill-craft` describes, closing loose ends first. Small changes are theirs to make now;
 /// changes that could lose something you taught them are proposed, and made in a second, approved run.
-fn tidy_frame(s: &Snapshot, reason: TidyReason) -> String {
+fn tidy_frame(s: &Snapshot, reason: TidyReason, plan: Option<&str>) -> String {
     let ceo = &s.company.ceo_name;
-    let brief = s.tidy.as_ref();
+    let none = TidyBrief { findings: vec![], taught: vec![] };
+    let brief = s.tidy.as_ref().unwrap_or(&none);
     let mut b = String::new();
-    let none = TidyBrief { findings: vec![], taught: vec![], plan: None };
-    let brief = brief.unwrap_or(&none);
 
     b += "## What Omega Star measured\n\n";
     if brief.findings.is_empty() {
@@ -990,7 +994,7 @@ fn tidy_frame(s: &Snapshot, reason: TidyReason) -> String {
 renames, splits, merges, retirements (`move_skill`, `retire_skill`), and pruning the rules they name. Keep every other rule \
 you were taught. Done when each approved change is made, every reference to a renamed or retired skill is updated, and your \
 role skill still reaches every skill.\n\n## The approved plan\n\n{}\n",
-            brief.plan.as_deref().unwrap_or("(no plan was recorded)").trim()
+            plan.unwrap_or("(no plan was recorded)").trim()
         )
     } else {
         format!(
@@ -1042,40 +1046,17 @@ is not needed is churn.\n\n{b}{steps}"
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, scheduled};
 
     /// Ada, an analyst at Acme who works for Pat, with nothing else around her.
     fn snap() -> Snapshot {
-        let employee = Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Analyst".into(),
-            description: String::new(),
-            objective: "Keep the numbers right.".into(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: chrono::Utc::now(),
-        };
+        let employee = Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() };
         let company = Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() };
         test_snapshot(company, employee, None, false)
     }
 
     fn run(kind: RunKind) -> Run {
         Run::new("e1", kind, "Go.".into(), chrono::Utc::now())
-    }
-
-    fn scheduled(id: &str, quiet: bool) -> RunKind {
-        RunKind::Scheduled { schedule_id: id.into(), slot: chrono::Utc::now(), label: "Inbox sweep".into(), quiet, model: None, effort: None, review: false }
     }
 
     #[test]
@@ -1274,20 +1255,7 @@ it in your report.\n";
         let h = handbook(&s);
         assert!(h.contains("A task handed over in a conversation Pat started comes back as that conversation's next turn. Any other report waits for your next run"), "{h}");
         assert!(h.contains("Outside a conversation with Pat, a report takes at most 4 tasks a day from you"), "{h}");
-        s.people = vec![Person {
-            id: "p1".into(),
-            name: "Sam".into(),
-            title: "Bookkeeper".into(),
-            description: String::new(),
-            strengths: "Fast replies.".into(),
-            responsibilities: "Payroll.".into(),
-            channels: vec![],
-            notes: String::new(),
-            manager: PersonManager::You,
-            hue: 0,
-            image: None,
-            added_at: chrono::Utc::now(),
-        }];
+        s.people = vec![Person { id: "p1".into(), strengths: "Fast replies.".into(), responsibilities: "Payroll.".into(), ..fixtures::person() }];
         let h = handbook(&s);
         assert!(h.contains("Strengths: Fast replies. Responsible for: Payroll (person id `p1`)"), "{h}");
         assert!(h.contains("starts a follow-up run for you when they reply (it resumes this session). If they never reply"), "{h}");
@@ -1419,20 +1387,7 @@ it in your report.\n";
         s.source = Some("This began with Pat's own message to Mo.".into());
         s.colleagues = vec![Colleague { name: "Bo".into(), slug: "bo".into(), title: "Ops".into(), objective: "Ship.".into(), description: "Knows the warehouse.".into() }];
         s.reports = vec![Report { name: "Cy".into(), slug: "cy".into(), title: "Clerk".into(), objective: "File.".into() }];
-        s.people = vec![Person {
-            id: "p1".into(),
-            name: "Sam".into(),
-            title: "Bookkeeper".into(),
-            description: String::new(),
-            strengths: String::new(),
-            responsibilities: String::new(),
-            channels: vec![],
-            notes: String::new(),
-            manager: PersonManager::You,
-            hue: 0,
-            image: None,
-            added_at: chrono::Utc::now(),
-        }];
+        s.people = vec![Person { id: "p1".into(), ..fixtures::person() }];
         let request = |kind: fn(String, String) -> RunKind| kind("q1".into(), "p1".into());
         let kinds = vec![
             RunKind::Manual,

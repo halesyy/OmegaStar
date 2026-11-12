@@ -1,24 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, NewAttachment, Run, Thread } from "../../api/types";
-import { firstName, relTime, whenShort } from "../../lib/format";
+import { firstName, relTime } from "../../lib/format";
 import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
 import { snoozePresets } from "../../lib/status";
 import { toast } from "../../lib/toasts";
 import { didNotFinish, flags, isLive, isOpen, isStreak, startedByYou } from "../../lib/threads";
-import { CardAim, RunCards } from "./CardView";
+import { CardAim, RunCards, type AimTarget } from "./CardView";
+import { LaterPreset } from "./LaterMenu";
 import { RowHistory } from "./RowHistory";
 import { BlockedCard } from "../BlockedCard";
-import { TidyProposal } from "../TidyProposal";
+import { TidyProposal, tidyAsks } from "../TidyProposal";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
 import { Visual } from "../Visual";
 import { ErrorNote, Popover, Skeleton } from "../ui";
-import { ChatSurface, type ChatSurfaceHandle } from "../panel/ChatSurface";
-import { Turn, Waiting, WhoLine } from "../panel/ChatTurn";
+import { ChatSurface, type ChatSurfaceHandle } from "./ChatSurface";
+import { Turn, Waiting, WhoLine } from "./ChatTurn";
 import { WorkLine } from "./WorkLine";
 import type { LiveRun } from "../../lib/runs";
-import "../panel/ChatTab.css";
+import "./Chat.css";
 
 /** What "Where are we?" sends as your message. */
 export const WHERE_ARE_WE = "Where are we? In three short lines: what is done, what is next, and what is waiting on whom.";
@@ -49,7 +50,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const surface = useRef<ChatSurfaceHandle>(null);
   const [all, setAll] = useState(false);
   const [aimed, setAimed] = useState<string | null>(null);
-  const aimer = useMemo(() => ({ aim: (t: Parameters<ChatSurfaceHandle["aim"]>[0]) => surface.current?.aim(t), aimed }), [aimed]);
+  const aimer = useMemo(() => ({ aim: (t: AimTarget | null) => surface.current?.aim(t), aimed }), [aimed]);
   const root = turns?.[0]?.run;
   const replies = turns?.slice(1) ?? [];
   const live = turns?.find((t) => t.run.state === "running") ?? turns?.find((t) => isLive(t.run));
@@ -115,7 +116,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
     <div className="thread">
       <CardAim.Provider value={aimer}>
       <ChatSurface
-        ref={surface} e={e} busy={!!live} live={live} draftKey={`thread:${rootId}`} scrollKey={liveKey} onAim={setAimed}
+        ref={surface} e={e} live={live} draftKey={`thread:${rootId}`} scrollKey={liveKey} onAim={setAimed}
         placeholder={placeholder} cardNote={carded ? "This won't answer the card above." : null} onSend={send} onSendDone={carded ? undefined : onSendDone ?? undefined} onStop={stop} autoFocus={autoFocus}
       >
         <div className="chat-inner">
@@ -124,7 +125,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
           {earlier ? <button className="btn btn-ghost btn-sm thread-earlier" onClick={() => setAll(true)}>Show {earlier} earlier</button> : null}
           {showReport && !folded ? <ReportTurn turn={turns[0]} e={e} blocked={tail.id === root.id && !archived} archived={archived} retry={retry && tail.id === root.id && !streak} streak={streak} earlier={visible.length > 0 && !waiting(root)} /> : null}
           {visible.map((t, i) => (
-            <Turn key={t.run.id} turn={t} e={e} withReport earlier={quiet(t.run, i)} latestMine={i === latestMine} footer={(
+            <Turn key={t.run.id} turn={t} e={e} earlier={quiet(t.run, i)} latestMine={i === latestMine} footer={(
               <>
                 <Flags run={t.run} />
                 <RunCards run={t.run} e={e} />
@@ -153,8 +154,7 @@ const waiting = (run: Run) => run.cards.some(isOpen);
 /** What Omega Star flagged on a run, apart from its cards. */
 function Flags({ run }: { run: Run }) {
   // A tidy's bigger changes ask for themselves (TidyProposal), so their flag is not said again.
-  const proposing = run.kind.type === "tidy" && !!run.proposed && !run.approvedAt && !run.archivedAt;
-  const fs = proposing ? [] : flags(run);
+  const fs = tidyAsks(run) ? [] : flags(run);
   if (!fs.length) return null;
   return (
     <ul className="flags" aria-label="Needs you">
@@ -242,9 +242,8 @@ export async function markDone(...rootIds: string[]): Promise<boolean> {
   return ok;
 }
 
-/** Tries a run that did not finish again: it carries on from where it stopped, or a hand-off runs again for whoever
- *  handed it over. It stays disabled once it went, while the retry takes over. */
-export function RetryButton({ run, name, disabled = false }: { run: Run; name: string; disabled?: boolean }) {
+/** Retries a run that did not finish and says `name` is trying again; `busy` holds from the click until it fails. */
+export function useRetry(run: Run, name: string) {
   const [busy, setBusy] = useState(false);
   const retry = async () => {
     setBusy(true);
@@ -256,8 +255,15 @@ export function RetryButton({ run, name, disabled = false }: { run: Run; name: s
       setBusy(false);
     }
   };
+  return { busy, retry };
+}
+
+/** Tries a run that did not finish again: it carries on from where it stopped, or a hand-off runs again for whoever
+ *  handed it over. It stays disabled once it went, while the retry takes over. */
+function RetryButton({ run, name }: { run: Run; name: string }) {
+  const { busy, retry } = useRetry(run, name);
   return (
-    <button className="btn btn-sm" disabled={disabled || busy} title="Try it again from where it stopped" onClick={() => void retry()}>
+    <button className="btn btn-sm" disabled={busy} title="Try it again from where it stopped" onClick={() => void retry()}>
       <Icon name="refresh" size={13} /> Retry
     </button>
   );
@@ -281,32 +287,9 @@ export async function sendAndDone(rootId: string, name: string, text: string, at
   toast(`Sent to ${name}. It comes back only if the answer needs you.`, "ok");
 }
 
-/** Archive files the thread away: it leaves the Inbox and the employee's chips, and comes back if the employee raises
- *  something new. */
-export function DoneButton({ name, label = "Archive", disabled, onDone, ghost = false }: {
-  /** Quiet, like Later beside it (the conversation's header). */
-  ghost?: boolean;
-  /** The employee's first name. */
-  name: string;
-  label?: string;
-  /** The thread is still working, so it cannot be archived yet. */
-  disabled: boolean;
-  onDone: () => Promise<void>;
-}) {
-  const [busy, setBusy] = useState(false);
-  return (
-    <button
-      className={`btn btn-sm ${ghost ? "btn-ghost" : ""}`} disabled={disabled || busy} title={disabled ? `${name} is still working on it` : "Move it to the Archive (E)"}
-      onClick={async () => { setBusy(true); try { await onDone(); } finally { setBusy(false); } }}
-    >
-      <Icon name="archive" size={13} /> {label} <kbd className="kbd">E</kbd>
-    </button>
-  );
-}
-
 /** Later puts the thread away until a time, then brings it back to the Inbox as unread. While it is away
  *  (`snoozedUntil`), Wake now. Its menu takes focus as it opens, so keys work in it. */
-export function SnoozeButton({ snoozedUntil, onSnooze, onWake, icon = false }: { snoozedUntil: string | null; onSnooze: (until: Date) => void; onWake: () => void; icon?: boolean }) {
+export function SnoozeButton({ snoozedUntil, onSnooze, onWake }: { snoozedUntil: string | null; onSnooze: (until: Date) => void; onWake: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -314,9 +297,7 @@ export function SnoozeButton({ snoozedUntil, onSnooze, onWake, icon = false }: {
     if (open) requestAnimationFrame(() => menu.current?.querySelector<HTMLButtonElement>("button")?.focus());
   }, [open]);
   if (snoozedUntil) {
-    return icon ? (
-      <button className="btn btn-ghost btn-icon btn-sm" aria-label="Wake now" data-tip="Wake now" onClick={onWake}><Icon name="clock" size={14} /></button>
-    ) : (
+    return (
       <button className="btn btn-ghost btn-sm" onClick={onWake}>
         <Icon name="clock" size={13} /> Wake now
       </button>
@@ -325,23 +306,12 @@ export function SnoozeButton({ snoozedUntil, onSnooze, onWake, icon = false }: {
   const presets = open ? snoozePresets(new Date()) : [];
   return (
     <>
-      {icon ? (
-        <button ref={ref} className="btn btn-ghost btn-icon btn-sm" data-later aria-label="Later" data-tip="Later" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-          <Icon name="clock" size={14} />
-        </button>
-      ) : (
-        <button ref={ref} className="btn btn-ghost btn-sm" data-later aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-          <Icon name="clock" size={13} /> Later
-        </button>
-      )}
+      <button ref={ref} className="btn btn-ghost btn-sm" data-later aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Icon name="clock" size={13} /> Later
+      </button>
       <Popover anchor={ref} open={open} onClose={() => setOpen(false)} width={232} align="end">
         <div ref={menu} className="menu" role="menu" aria-label="Bring it back" data-esc-stop>
-          {presets.map((s) => (
-            <button key={s.label} type="button" role="menuitem" className="menu-item" onClick={() => { setOpen(false); onSnooze(s.until); }}>
-              <span className="grow">{s.label}</span>
-              <span className="faint">{whenShort(s.until.toISOString()).replace(s.label === "Tomorrow" ? /^Tomorrow / : /^Today /, "")}</span>
-            </button>
-          ))}
+          {presets.map((s) => <LaterPreset key={s.label} preset={s} onPick={() => { setOpen(false); onSnooze(s.until); }} />)}
         </div>
       </Popover>
     </>

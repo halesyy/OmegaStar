@@ -104,15 +104,13 @@ fn scrubbed_vars<'a>(names: impl Iterator<Item = &'a OsStr>) -> Vec<OsString> {
 
 async fn capture(program: &Path, env: &[(String, String)], args: &[&str]) -> Option<String> {
     let fut = command(program).args(args).envs(env.iter().cloned()).stdin(Stdio::null()).output();
-    let out = tokio::time::timeout(std::time::Duration::from_secs(20), fut).await.ok()?.ok()?;
+    let out = tokio::time::timeout(Duration::from_secs(20), fut).await.ok()?.ok()?;
     // `auth status` exits non-zero when logged out but still prints JSON.
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 pub async fn version(program: &Path) -> Option<String> {
-    let s = capture(program, &[], &["--version"]).await?;
-    let v = s.split_whitespace().next()?.to_string();
-    (!v.is_empty()).then_some(v)
+    capture(program, &[], &["--version"]).await?.split_whitespace().next().map(String::from)
 }
 
 fn parse_auth(stdout: &str) -> Option<Account> {
@@ -129,6 +127,42 @@ fn parse_auth(stdout: &str) -> Option<Account> {
 /// The claude.ai account Claude Code is signed in to. The CLI proxy (`env`) leaves the sign-in alone.
 pub async fn auth_status(program: &Path, env: &[(String, String)]) -> Option<Account> {
     parse_auth(&capture(program, env, &["auth", "status"]).await?)
+}
+
+/// A session that is only asked what it offers: no tools, no MCP servers, nothing saved.
+const MODELS_ARGS: [&str; 10] =
+    ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--tools", "", "--strict-mcp-config", "--no-session-persistence"];
+const MODELS_REQUEST: &str = "{\"type\":\"control_request\",\"request_id\":\"models\",\"request\":{\"subtype\":\"initialize\"}}\n";
+
+/// The models in the answer to `MODELS_REQUEST`, each once, by the exact ID its entry resolves to.
+/// "default" is left out: it is whichever of the others the account starts on.
+fn parse_models(stdout: &str) -> Option<Vec<ModelOption>> {
+    let answer = stdout.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).find(|v| v["type"] == "control_response")?;
+    let mut models: Vec<ModelOption> = vec![];
+    for m in answer["response"]["response"]["models"].as_array()? {
+        let Some(id) = m["resolvedModel"].as_str().or(m["value"].as_str()) else { continue };
+        if m["value"] == "default" || models.iter().any(|x| x.id == id) {
+            continue;
+        }
+        models.push(ModelOption { id: id.into(), name: m["displayName"].as_str().unwrap_or(id).into() });
+    }
+    (!models.is_empty()).then_some(models)
+}
+
+/// The models Claude Code offers the signed-in account, as its own `/model` picker lists them. It
+/// is the opening request of the stream-json mode, which the Agent SDK asks too; no model is called.
+/// Asked without the CLI proxy: behind another base URL Claude Code lists only a few of them.
+pub async fn models(program: &Path) -> Result<Vec<ModelOption>> {
+    let mut c = command(program);
+    c.args(MODELS_ARGS).current_dir(std::env::temp_dir()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+    let mut child = c.spawn().map_err(|e| AppError::internal(format!("could not start Claude Code: {e}")))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(MODELS_REQUEST.as_bytes()).await;
+        // Dropped here: with its input closed, Claude Code answers and exits.
+    }
+    let out = tokio::time::timeout(Duration::from_secs(20), child.wait_with_output()).await;
+    let stdout = out.ok().and_then(|o| o.ok()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    parse_models(&stdout).ok_or_else(|| AppError::internal("Claude Code did not list its models"))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -234,20 +268,18 @@ pub struct Opening {
 /// The request a reply check, nudge or give-up is about.
 pub struct Watched {
     pub request: HumanRequest,
-    pub person: String,
     /// The channel it went out on, as the handbook names it ("Teams jordan@example.com").
     pub channel: Option<String>,
     /// How many business days the watch waited before giving up.
     pub days: u32,
 }
 
-/// What a Tidy run works from: what the health check found, what the person taught the employee
-/// since the last tidy, and for an approved tidy the plan they approved.
+/// What a Tidy run works from: what the health check found, and what the person taught the employee
+/// since the last tidy.
 pub struct TidyBrief {
     pub findings: Vec<HealthFinding>,
     /// (when, what they said) in conversations and in Inbox replies.
     pub taught: Vec<(Ts, String)>,
-    pub plan: Option<String>,
 }
 
 pub struct Invocation {
@@ -296,7 +328,7 @@ pub fn clip(s: &str, n: usize) -> String {
 
 /// The start and the end of a long text, so a report's closing lines survive: one line, and when it is
 /// longer than `2n + 5` characters, its first and last `n` around " ... ".
-pub(crate) fn ends(s: &str, n: usize) -> String {
+fn ends(s: &str, n: usize) -> String {
     let s = one_line(s);
     let chars: Vec<char> = s.chars().collect();
     if chars.len() <= 2 * n + 5 {
@@ -332,7 +364,7 @@ pub fn channel_name(c: &Channel) -> String {
 }
 
 pub fn channel_line(c: &Channel) -> String {
-    format!("{} {}: use for {} (channel id `{}`)", channel_kind(c.kind), c.address.trim(), one_line(&c.when_to_use), c.id)
+    format!("{}: use for {} (channel id `{}`)", channel_name(c), one_line(&c.when_to_use), c.id)
 }
 
 fn path_arg(p: &Path) -> String {
@@ -345,7 +377,7 @@ pub fn attachments_dir(employee_dir: &Path, run_id: &str) -> PathBuf {
 }
 
 /// The prompt, followed by the absolute path of each attached file.
-pub(super) fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
+fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
     if names.is_empty() {
         return prompt.to_string();
     }
@@ -378,11 +410,11 @@ fn model_args(kind: &RunKind, e: &Employee) -> Vec<String> {
 
 /// The first message of a run that goes again after the usage limit or a rate limit stopped it: the
 /// conversation it resumes already holds the message it was answering.
-pub const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
+const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
 
 /// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
 /// went with it, so it is told to raise again any it still needs.
-pub const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
+const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
 
 pub fn prepare(s: &Snapshot, run: &Run) -> Invocation {
     let e = &s.employee;
@@ -577,30 +609,31 @@ pub async fn probe_usage(program: &Path, cwd: &Path) -> Option<UsageSample> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::{self, scheduled};
+
+    #[test]
+    fn the_model_list_is_each_model_once_by_its_exact_id() {
+        let answer = json!({ "type": "control_response", "response": { "subtype": "success", "request_id": "models", "response": { "models": [
+            { "value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)" },
+            { "value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5" },
+            { "value": "claude-opus-5", "resolvedModel": "claude-opus-5", "displayName": "Opus 5" },
+            { "value": "claude-sonnet-5[1m]", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet 5" },
+            { "value": "claude-sonnet-5", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet 5" },
+            { "value": "claude-haiku-5-5" },
+        ] } } });
+        let stdout = format!("{}\n{answer}\n", r#"{"type":"system","subtype":"hook_started"}"#);
+        let m = |id: &str, name: &str| ModelOption { id: id.into(), name: name.into() };
+        assert_eq!(
+            parse_models(&stdout),
+            Some(vec![m("claude-opus-5-5", "Opus 5.5"), m("claude-opus-5", "Opus 5"), m("claude-sonnet-5", "Sonnet 5"), m("claude-haiku-5-5", "claude-haiku-5-5")])
+        );
+        assert_eq!(parse_models(r#"{"type":"control_response","response":{"response":{"models":[]}}}"#), None);
+        assert_eq!(parse_models("Not logged in"), None);
+    }
 
     #[test]
     fn a_schedule_can_run_on_its_own_model_and_effort() {
-        let e = Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Tester".into(),
-            description: String::new(),
-            objective: String::new(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: Some("opus".into()),
-            effort: Some(Effort::High),
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: chrono::Utc::now(),
-        };
+        let e = Employee { id: "e1".into(), model: Some("opus".into()), effort: Some(Effort::High), ..fixtures::employee() };
         let scheduled = |model: Option<&str>, effort| RunKind::Scheduled {
             schedule_id: "s1".into(),
             slot: chrono::Utc::now(),
@@ -616,27 +649,7 @@ mod tests {
     }
 
     fn ada() -> Employee {
-        Employee {
-            id: "e1".into(),
-            slug: "ada".into(),
-            name: "Ada".into(),
-            title: "Analyst".into(),
-            description: String::new(),
-            objective: "Keep the numbers right.".into(),
-            manager_id: None,
-            skills: SkillGrant::default(),
-            clearance: Clearance::Supervised,
-            allow_rules: vec![],
-            model: None,
-            effort: None,
-            browser: false,
-            auto_tidy: false,
-            workspaces: vec![],
-            hue: 0,
-            image: None,
-            chat_session: "chat-ada".into(),
-            hired_at: chrono::Utc::now(),
-        }
+        Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() }
     }
 
     fn acme() -> Company {
@@ -653,10 +666,6 @@ mod tests {
 
     fn file<'a>(inv: &'a Invocation, name: &str) -> &'a str {
         &inv.files.iter().find(|(p, _)| p.ends_with(name)).unwrap().1
-    }
-
-    fn scheduled(id: &str, quiet: bool) -> RunKind {
-        RunKind::Scheduled { schedule_id: id.into(), slot: chrono::Utc::now(), label: "Inbox sweep".into(), quiet, model: None, effort: None, review: false }
     }
 
     /// A finished run of Ada's, `mins` minutes ago.

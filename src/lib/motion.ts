@@ -1,5 +1,5 @@
 // Shared motion: the moves that need measuring. The ones that don't are classes in src/design/base.css (enter-rise,
-// enter-drop, enter-pop, leave-fade, collapse). Durations and curves are read from the tokens, so reduced motion and any
+// enter-drop, leave-fade, collapse). Durations and curves are read from the tokens, so reduced motion and any
 // retuning reach every screen at once. Nothing here loops: every move has a cause, and a value that holds holds still.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 

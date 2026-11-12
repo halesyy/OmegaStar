@@ -128,6 +128,7 @@ export function CommandPalette({ onClose, api, leaving = false }: { onClose: () 
             (r) => toast(`${e.name} is on it`, "ok", { label: "View", run: () => openRun(r.id) }),
             (err) => toast(errorMessage(err), "err"),
           ),
+          when: "query",
         },
       );
     }
@@ -170,7 +171,7 @@ export function CommandPalette({ onClose, api, leaving = false }: { onClose: () 
 
   const results = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return items.filter((it) => it.group !== "Run now" && it.when !== "query");
+    if (!needle) return items.filter((it) => it.when !== "query");
     // Fuzzy letter matching over long prompts is noise: secondary text must contain the query outright.
     const scored = items
       .filter((it) => it.when !== "recent")

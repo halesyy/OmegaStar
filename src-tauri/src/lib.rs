@@ -1,12 +1,11 @@
-// The office tools' schemas (`mcp::tools`) are one `json!` literal, deeper than the default limit.
-#![recursion_limit = "256"]
-
 mod backup;
 mod cards;
 mod catalog;
 mod claude;
 mod commands;
 mod error;
+#[cfg(test)]
+mod fixtures;
 mod health;
 mod log;
 mod mcp;
@@ -112,17 +111,11 @@ impl EventSink for TauriSink {
         }
     }
     fn open(&self, target: &str) -> std::result::Result<(), String> {
-        let opener = self.app.opener();
         let done = if target.starts_with("https://") {
-            opener.open_url(target, None::<&str>)
+            self.app.opener().open_url(target, None::<&str>)
         } else {
-            // As a click on a path in a report opens it: one that could run a program is shown in its folder instead.
-            let path = std::path::Path::new(target);
-            if commands::opens_directly(path, path.is_dir()) {
-                opener.open_path(target, None::<&str>)
-            } else {
-                opener.reveal_item_in_dir(path)
-            }
+            // As a click on a path in a report opens it.
+            commands::open_or_reveal(&self.app, std::path::Path::new(target))
         };
         done.map_err(|e| e.to_string())
     }
@@ -338,6 +331,7 @@ pub fn run() {
             commands::complete_setup,
             commands::update_company,
             commands::set_background,
+            commands::models,
             commands::org,
             commands::skill_catalog,
             commands::skill_sources,
@@ -366,7 +360,6 @@ pub fn run() {
             commands::unarchive_runs,
             commands::retry_run,
             commands::reply_to_run,
-            commands::steer_run,
             commands::approve_blocked,
             commands::answer_card,
             commands::card_file,
@@ -394,7 +387,6 @@ pub fn run() {
             commands::import_originals,
             commands::remove_originals,
             commands::settle_originals,
-            commands::allow_rule,
             commands::add_person,
             commands::update_person,
             commands::remove_person,

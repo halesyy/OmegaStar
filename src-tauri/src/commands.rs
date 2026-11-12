@@ -43,6 +43,11 @@ pub async fn set_background(app: AppHandle, office: O<'_>, enabled: bool) -> Res
 }
 
 #[tauri::command]
+pub async fn models(office: O<'_>) -> Result<Vec<ModelOption>> {
+    office.models().await
+}
+
+#[tauri::command]
 pub async fn org(office: O<'_>) -> Result<OrgSnapshot> {
     office.org()
 }
@@ -58,8 +63,8 @@ pub async fn skill_sources(office: O<'_>) -> Result<SkillSources> {
 }
 
 #[tauri::command]
-pub async fn hire(office: O<'_>, draft: EmployeeDraft, imports: Option<Vec<String>>) -> Result<Employee> {
-    office.hire(draft, imports.unwrap_or_default())
+pub async fn hire(office: O<'_>, draft: EmployeeDraft, imports: Vec<String>) -> Result<Employee> {
+    office.hire(draft, imports)
 }
 
 #[tauri::command]
@@ -138,10 +143,19 @@ const OPENS: &[&str] = &[
 
 /// Whether a report path opens in its app, so a click never runs a program
 /// (an .app bundle is a folder, a .command or .sh is a file).
-pub(crate) fn opens_directly(path: &Path, is_dir: bool) -> bool {
+fn opens_directly(path: &Path, is_dir: bool) -> bool {
     match path.extension().and_then(|e| e.to_str()) {
         Some(ext) => OPENS.contains(&ext.to_ascii_lowercase().as_str()),
         None => is_dir,
+    }
+}
+
+/// Opens a full path in its app, or shows it in its folder when it could run a program (`opens_directly`).
+pub(crate) fn open_or_reveal(app: &AppHandle, path: &Path) -> std::result::Result<(), tauri_plugin_opener::Error> {
+    if opens_directly(path, path.is_dir()) {
+        app.opener().open_path(path.to_string_lossy(), None::<&str>)
+    } else {
+        app.opener().reveal_item_in_dir(path)
     }
 }
 
@@ -188,12 +202,7 @@ pub async fn open_report_path(app: AppHandle, path: String) -> Result<()> {
         std::io::ErrorKind::NotFound => AppError::not_found(format!("Nothing is at {path} any more")),
         _ => AppError::internal(format!("Could not open {path}: {e}")),
     })?;
-    let done = if opens_directly(&full, full.is_dir()) {
-        app.opener().open_path(full.to_string_lossy(), None::<&str>)
-    } else {
-        app.opener().reveal_item_in_dir(&full)
-    };
-    done.map_err(|e| AppError::internal(format!("Could not open {path}: {e}")))
+    open_or_reveal(&app, &full).map_err(|e| AppError::internal(format!("Could not open {path}: {e}")))
 }
 
 #[tauri::command]
@@ -247,13 +256,8 @@ pub async fn retry_run(office: O<'_>, run_id: String) -> Result<Run> {
 }
 
 #[tauri::command]
-pub async fn reply_to_run(office: O<'_>, run_id: String, text: String, archive: bool, attachments: Option<Vec<NewAttachment>>) -> Result<Run> {
-    office.reply_to_run(&run_id, &text, archive, attachments.unwrap_or_default())
-}
-
-#[tauri::command]
-pub async fn steer_run(office: O<'_>, run_id: String, text: String) -> Result<SteerHow> {
-    office.steer_run(&run_id, &text)
+pub async fn reply_to_run(office: O<'_>, run_id: String, text: String, archive: bool, attachments: Vec<NewAttachment>) -> Result<Run> {
+    office.reply_to_run(&run_id, &text, archive, attachments)
 }
 
 #[tauri::command]
@@ -392,11 +396,6 @@ pub async fn settle_originals(office: O<'_>, run_id: String) -> Result<Run> {
 }
 
 #[tauri::command]
-pub async fn allow_rule(office: O<'_>, employee_id: String, rule: String) -> Result<Employee> {
-    office.allow_rule(&employee_id, &rule)
-}
-
-#[tauri::command]
 pub async fn add_person(office: O<'_>, draft: PersonDraft) -> Result<Person> {
     office.add_person(draft)
 }
@@ -418,7 +417,7 @@ pub async fn requests(office: O<'_>, person_id: Option<String>, employee_id: Opt
 
 #[tauri::command]
 pub async fn resolve_request(office: O<'_>, request_id: String, state: String, response: Option<String>) -> Result<HumanRequest> {
-    office.resolve_request(&request_id, &state, response, None)
+    office.resolve_request(&request_id, RequestState::parse(&state)?, response, None)
 }
 
 #[tauri::command]
@@ -427,8 +426,8 @@ pub async fn watch_request(office: O<'_>, request_id: String, action: WatchActio
 }
 
 #[tauri::command]
-pub async fn proposals(office: O<'_>, state: Option<String>) -> Result<Vec<HireProposal>> {
-    office.proposals(state)
+pub async fn proposals(office: O<'_>) -> Result<Vec<HireProposal>> {
+    office.proposals()
 }
 
 #[tauri::command]
@@ -436,10 +435,10 @@ pub async fn approve_proposal(
     office: O<'_>,
     proposal_id: String,
     draft: EmployeeDraft,
-    imports: Option<Vec<String>>,
+    imports: Vec<String>,
     note: Option<String>,
 ) -> Result<Employee> {
-    office.approve_proposal(&proposal_id, draft, imports.unwrap_or_default(), note)
+    office.approve_proposal(&proposal_id, draft, imports, note)
 }
 
 #[tauri::command]

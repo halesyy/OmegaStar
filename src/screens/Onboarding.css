@@ -12,7 +12,6 @@
 /* ------------------------------------------------ the band: the same box as the shell's sidebar (.side), so the brand and
    your row sit exactly where the office will draw them, as the rail now and as the full sidebar once it opens */
 .ob-side {
-  --av-ring: var(--side);
   display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: calc(12px + var(--chrome-top)) 10px 10px;
   background: var(--side); color: var(--side-ink);
 }

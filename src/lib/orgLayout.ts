@@ -14,14 +14,14 @@ export const COMPACT: ChartMetrics = { w: 208, gapX: 28, gapY: 28, stackGap: 10,
 
 /** Every node, you (YOU_ID) included. `parentId` null: the top of the company. `h`: the card's height. */
 type LayoutInput = { id: string; parentId: string | null; h: number }[];
-export type Box = { id: string; x: number; y: number; w: number; h: number; depth: number };
-export type Edge = { id: string; from: string; to: string; d: string };
+type Box = { id: string; x: number; y: number; w: number; h: number; depth: number };
+type Edge = { id: string; d: string };
 export type Layout = { boxes: Map<string, Box>; edges: Edge[]; width: number; height: number };
 
 type Node = { id: string; h: number; children: Node[] };
 type Pt = [number, number];
 /** A laid-out subtree, relative to its own top-left. `attach` is where a line from above meets it. */
-type Sub = { width: number; height: number; attach: number; boxes: Box[]; edges: { id: string; from: string; to: string; pts: Pt[] }[] };
+type Sub = { width: number; height: number; attach: number; boxes: Box[]; edges: { id: string; pts: Pt[] }[] };
 
 const shift = (s: Sub, dx: number, dy: number): Sub => ({
   ...s,
@@ -48,10 +48,9 @@ function rounded(pts: Pt[], r = 6): string {
   return `${d} L${last[0]} ${last[1]}`;
 }
 
-/** `stackMin`: how many reports, none with reports of their own, a manager has before they stack in a column under
- *  them rather than sit in a row. */
-export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { stackMin = 3 }: { stackMin?: number } = {}): Layout {
-  const heights = new Map(nodes.map((n) => [n.id, n.h]));
+/** One tree, rooted at the top of your line: each node's parent and children. Anything that can't reach it hangs off
+ *  you. */
+function tree(nodes: { id: string; parentId: string | null }[]): { root: string; parent: Map<string, string | null>; kids: Map<string, string[]> } {
   const ids = new Set([YOU_ID, ...nodes.map((n) => n.id)]);
   const parent = new Map<string, string | null>([[YOU_ID, null]]);
   for (const n of nodes) parent.set(n.id, n.parentId !== null && ids.has(n.parentId) && n.parentId !== n.id ? n.parentId : null);
@@ -65,16 +64,23 @@ export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { stackMin = 3 }:
     }
     return cur;
   };
-  // One tree, rooted at the top of your line. Anything that can't reach it hangs off you.
   const root = topOf(YOU_ID) ?? YOU_ID;
   if (root === YOU_ID) parent.set(YOU_ID, null);
   for (const id of ids) if (id !== root && topOf(id) !== root) parent.set(id, YOU_ID);
-  const byParent = new Map<string, string[]>();
+  const kids = new Map<string, string[]>();
   for (const n of [{ id: YOU_ID }, ...nodes]) {
     const p = parent.get(n.id) ?? null;
-    if (p !== null && !(byParent.get(p) ?? []).includes(n.id)) byParent.set(p, [...(byParent.get(p) ?? []), n.id]);
+    if (p !== null && !(kids.get(p) ?? []).includes(n.id)) kids.set(p, [...(kids.get(p) ?? []), n.id]);
   }
-  const build = (id: string): Node => ({ id, h: heights.get(id) ?? 60, children: (byParent.get(id) ?? []).map(build) });
+  return { root, parent, kids };
+}
+
+/** `stackMin`: how many reports, none with reports of their own, a manager has before they stack in a column under
+ *  them rather than sit in a row. */
+export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { stackMin }: { stackMin: number }): Layout {
+  const heights = new Map(nodes.map((n) => [n.id, n.h]));
+  const { root, kids } = tree(nodes);
+  const build = (id: string): Node => ({ id, h: heights.get(id) ?? 60, children: (kids.get(id) ?? []).map(build) });
 
   const lay = (n: Node, depth: number): Sub => {
     const self: Box = { id: n.id, x: 0, y: 0, w: m.w, h: n.h, depth };
@@ -89,7 +95,7 @@ export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { stackMin = 3 }:
       for (const c of n.children) {
         boxes.push({ id: c.id, x: m.indent, y, w: m.w, h: c.h, depth: depth + 1 });
         const mid = y + Math.min(c.h / 2, 24);
-        edges.push({ id: `${n.id}>${c.id}`, from: n.id, to: c.id, pts: [[spine, n.h], [spine, mid], [m.indent, mid]] });
+        edges.push({ id: `${n.id}>${c.id}`, pts: [[spine, n.h], [spine, mid], [m.indent, mid]] });
         y += c.h + m.stackGap;
       }
       return { width: m.indent + m.w, height: y - m.stackGap, attach: m.w / 2, boxes, edges };
@@ -124,7 +130,7 @@ export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { stackMin = 3 }:
       const s = shift(it.sub, it.left + dx, top);
       boxes.push(...s.boxes);
       edges.push(...s.edges);
-      edges.push({ id: `${n.id}>${it.id}`, from: n.id, to: it.id, pts: [[px, n.h], [px, bus], [s.attach, bus], [s.attach, top]] });
+      edges.push({ id: `${n.id}>${it.id}`, pts: [[px, n.h], [px, bus], [s.attach, bus], [s.attach, top]] });
       height = Math.max(height, top + s.height);
     }
     return { width, height, attach: px, boxes, edges };
@@ -133,7 +139,7 @@ export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { stackMin = 3 }:
   const sub = lay(build(root), 0);
   return {
     boxes: new Map(sub.boxes.map((b) => [b.id, b])),
-    edges: sub.edges.map((e) => ({ id: e.id, from: e.from, to: e.to, d: rounded(e.pts) })),
+    edges: sub.edges.map((e) => ({ id: e.id, d: rounded(e.pts) })),
     width: sub.width,
     height: sub.height,
   };
@@ -141,27 +147,7 @@ export function layoutOrg(nodes: LayoutInput, m: ChartMetrics, { stackMin = 3 }:
 
 /** The members in tree order, each with its depth: the outline's rows. Same tree as `layoutOrg`. */
 export function treeOrder(nodes: { id: string; parentId: string | null }[]): { id: string; depth: number; parentId: string | null }[] {
-  const ids = new Set([YOU_ID, ...nodes.map((n) => n.id)]);
-  const parent = new Map<string, string | null>([[YOU_ID, null]]);
-  for (const n of nodes) parent.set(n.id, n.parentId !== null && ids.has(n.parentId) && n.parentId !== n.id ? n.parentId : null);
-  const topOf = (id: string): string | null => {
-    const seen = new Set<string>();
-    let cur = id;
-    for (let p = parent.get(cur) ?? null; p !== null; p = parent.get(cur) ?? null) {
-      if (seen.has(p)) return null;
-      seen.add(p);
-      cur = p;
-    }
-    return cur;
-  };
-  const root = topOf(YOU_ID) ?? YOU_ID;
-  if (root === YOU_ID) parent.set(YOU_ID, null);
-  for (const id of ids) if (id !== root && topOf(id) !== root) parent.set(id, YOU_ID);
-  const kids = new Map<string, string[]>();
-  for (const n of [{ id: YOU_ID }, ...nodes]) {
-    const p = parent.get(n.id) ?? null;
-    if (p !== null && !(kids.get(p) ?? []).includes(n.id)) kids.set(p, [...(kids.get(p) ?? []), n.id]);
-  }
+  const { root, parent, kids } = tree(nodes);
   const out: { id: string; depth: number; parentId: string | null }[] = [];
   const walk = (id: string, depth: number) => {
     out.push({ id, depth, parentId: parent.get(id) ?? null });
