@@ -1,15 +1,17 @@
 //! Everything that knows the Claude Code CLI: locating it, account status, turning a run into an
-//! invocation (argv, files), spawning and killing it, and probing usage. The handbook and framing
-//! live in `prompt`, the per-run settings in `settings`, stream-json parsing in `stream`, and the
-//! reply judge in `judge`.
+//! invocation (argv, files), spawning and killing it, and probing usage. The handbook lives
+//! in `handbook`, framing in `prompt`, the per-run settings in `settings`, stream-json parsing in
+//! `stream`, and the reply judge in `judge`.
 
 #[cfg(test)]
 mod fixtures;
+mod handbook;
 mod judge;
 mod prompt;
 mod settings;
 mod stream;
 
+pub use handbook::*;
 pub use judge::*;
 pub use prompt::*;
 pub use settings::*;
@@ -349,30 +351,6 @@ pub(crate) fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn channel_kind(k: ChannelKind) -> &'static str {
-    match k {
-        ChannelKind::Teams => "Teams",
-        ChannelKind::Slack => "Slack",
-        ChannelKind::Email => "Email",
-        ChannelKind::Jira => "Jira",
-        ChannelKind::Asana => "Asana",
-        ChannelKind::AzureDevOps => "Azure DevOps",
-        ChannelKind::Github => "GitHub",
-        ChannelKind::Linear => "Linear",
-        ChannelKind::Phone => "Phone",
-        ChannelKind::Other => "Other",
-    }
-}
-
-/// A channel as a run names it: "Teams nina@example.com".
-pub fn channel_name(c: &Channel) -> String {
-    format!("{} {}", channel_kind(c.kind), c.address.trim())
-}
-
-pub fn channel_line(c: &Channel) -> String {
-    format!("{}: use for {} (channel id `{}`)", channel_name(c), one_line(&c.when_to_use), c.id)
-}
-
 fn path_arg(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
@@ -697,15 +675,6 @@ mod tests {
         assert!(inv.stdin.ends_with(&format!("</omega-star>\n\n{RESTART_NOTE}")), "the latest cause, the restart: {}", inv.stdin);
         let inv = prepare(&snapshot(None, false), &restarted);
         assert!(inv.stdin.ends_with("Archive it."), "a session that never started hears the message itself");
-    }
-
-    #[test]
-    fn the_handbook_stays_the_same_whatever_happened_lately() {
-        let mut busy = now_opening(None);
-        busy.work = vec![done(RunKind::Manual, 30, "Paid the invoice.")];
-        busy.notes = vec![("brief.md".into(), chrono::Utc::now())];
-        assert_eq!(handbook(&snapshot(Some(busy), false)), handbook(&snapshot(Some(now_opening(None)), false)));
-        assert_eq!(handbook(&snapshot(None, false)), handbook(&snapshot(Some(now_opening(Some(chrono::Utc::now()))), true)));
     }
 
     #[test]
