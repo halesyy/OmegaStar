@@ -5,6 +5,7 @@
 use crate::model::*;
 use crate::office::RUNNING_MARKER;
 use crate::own_skills;
+use crate::store::{BACKUP_STATUS, DB_FILE};
 use chrono::{DateTime, Datelike, Duration, Local, NaiveDateTime, Timelike};
 use rusqlite::{Connection, OpenFlags};
 use std::collections::hash_map::DefaultHasher;
@@ -247,7 +248,7 @@ fn walk<W: Write + std::io::Seek>(root: &Path, dir: &Path, zip: &mut ZipWriter<W
 pub fn fingerprint(data_dir: &Path) -> String {
     let mut h = DefaultHasher::new();
     hash_files(data_dir, data_dir, &mut h);
-    if let Err(e) = hash_db(&data_dir.join("office.db"), &mut h) {
+    if let Err(e) = hash_db(&data_dir.join(DB_FILE), &mut h) {
         e.to_string().hash(&mut h);
     }
     format!("{:016x}", h.finish())
@@ -279,7 +280,7 @@ fn hash_db(path: &Path, h: &mut DefaultHasher) -> rusqlite::Result<()> {
         let sql = format!("SELECT CAST(rowid AS TEXT), data FROM \"{name}\" ORDER BY rowid");
         (name, sql)
     });
-    let meta = ("meta".to_string(), "SELECT key, value FROM meta WHERE key <> 'backup_status' ORDER BY key".to_string());
+    let meta = ("meta".to_string(), format!("SELECT key, value FROM meta WHERE key <> '{BACKUP_STATUS}' ORDER BY key"));
     for (name, sql) in tables.chain([meta]) {
         name.hash(h);
         if let Err(e) = hash_rows(&conn, &sql, h) {
@@ -305,7 +306,7 @@ pub fn write_archive(data_dir: &Path, db_snapshot: &Path, dest: &Path, mut manif
     let mut zip = ZipWriter::new(BufWriter::new(File::create_new(dest)?));
     let mut s = Summary::default();
     let mut db = File::open(db_snapshot)?;
-    zip.start_file("office.db", options(db.metadata().ok().as_ref()))?;
+    zip.start_file(DB_FILE, options(db.metadata().ok().as_ref()))?;
     if !copy_into(&mut db, &mut zip)? {
         return Err(AppError::internal("could not read the database snapshot"));
     }
@@ -625,5 +626,12 @@ mod tests {
         let st = BackupStatus { last_at: Some(t), checked_at: Some(t + Duration::minutes(30)), ..Default::default() };
         let next = next_at(BackupFrequency::Hourly, &st, t + Duration::minutes(50));
         assert_eq!(next, Some(t + Duration::minutes(90)));
+    }
+
+    #[test]
+    fn storage_names_agree_with_the_store() {
+        assert_eq!(DB_FILES[0], DB_FILE);
+        assert!(DB_FILES.iter().all(|f| f.starts_with(DB_FILE)));
+        assert!(LEFT_OUT_NOTE.starts_with(&format!("Files over {} MB ", MAX_FILE_BYTES / (1024 * 1024))));
     }
 }

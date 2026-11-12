@@ -63,6 +63,41 @@ CREATE INDEX IF NOT EXISTS news_by_employee ON news(employee_id, read_at, create
 CREATE TABLE IF NOT EXISTS skill_use(employee_id TEXT NOT NULL, skill TEXT NOT NULL, used_at INTEGER NOT NULL, PRIMARY KEY(employee_id, skill));
 "#;
 
+/// The file the office database lives in, inside the data folder.
+pub const DB_FILE: &str = "office.db";
+
+/// The meta key of the last backup's outcome, which the backup's own hash leaves out.
+pub const BACKUP_STATUS: &str = "backup_status";
+
+/// The states of a run not finished yet (`RunState::is_finished`), as an SQL list.
+macro_rules! active {
+    () => {
+        "('queued', 'running')"
+    };
+}
+
+/// Each card of a run's row, as `c`.
+macro_rules! cards {
+    () => {
+        "json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c"
+    };
+}
+
+/// A card `c` still waiting on you (`Card::waiting`): no answer yet, or put off with Later.
+macro_rules! card_waiting {
+    () => {
+        "(json_extract(c.value, '$.answer') IS NULL
+                             OR json_extract(c.value, '$.backAt') IS NOT NULL OR json_extract(c.value, '$.parked') = 1)"
+    };
+}
+
+/// The schedule ids of due checks (`CHECK_PREFIX`), as a LIKE pattern.
+macro_rules! check_run {
+    () => {
+        "'check:%'"
+    };
+}
+
 fn ms(t: Ts) -> i64 {
     t.timestamp_millis()
 }
@@ -78,6 +113,10 @@ fn from_row<T: DeserializeOwned>(row: &Row, idx: usize) -> rusqlite::Result<T> {
         let head: String = s.chars().take(60).collect();
         rusqlite::Error::FromSqlConversionFailure(idx, rusqlite::types::Type::Text, Box::new(AppError::internal(format!("{e} in {head}"))))
     })
+}
+
+fn record(r: &Row) -> rusqlite::Result<RunRecord> {
+    Ok(RunRecord { run: from_row(r, 0)?, session: r.get(1)? })
 }
 
 /// The rows this build can read. A row it cannot (written by a newer build, or damaged) is left out
@@ -246,10 +285,10 @@ impl Store {
         self.set_meta("settings", s)
     }
     pub fn backup_status(&self) -> Result<Option<BackupStatus>> {
-        self.meta("backup_status")
+        self.meta(BACKUP_STATUS)
     }
     pub fn set_backup_status(&self, s: &BackupStatus) -> Result<()> {
-        self.set_meta("backup_status", s)
+        self.set_meta(BACKUP_STATUS, s)
     }
     /// When the usage limit that holds the office resets; `None` when nothing holds it.
     pub fn held_until(&self) -> Result<Option<Ts>> {
@@ -479,17 +518,19 @@ impl Store {
     }
 
     pub fn run(&self, id: &str) -> Result<Option<RunRecord>> {
-        Ok(self
-            .conn
-            .query_row("SELECT data, session FROM runs WHERE id = ?", [id], |r| {
-                Ok(RunRecord { run: from_row(r, 0)?, session: r.get(1)? })
-            })
-            .optional()?)
+        Ok(self.conn.query_row("SELECT data, session FROM runs WHERE id = ?", [id], record).optional()?)
     }
 
     fn runs_where(&self, clause: &str, p: &[&dyn rusqlite::ToSql]) -> Result<Vec<Run>> {
         let mut st = self.conn.prepare(&format!("SELECT data FROM runs {clause}"))?;
         let v = readable("runs", st.query_map(p, |r| from_row(r, 0))?)?;
+        Ok(v)
+    }
+
+    /// `runs_where` with each run's session.
+    fn records_where(&self, clause: &str, p: &[&dyn rusqlite::ToSql]) -> Result<Vec<RunRecord>> {
+        let mut st = self.conn.prepare(&format!("SELECT data, session FROM runs {clause}"))?;
+        let v = readable("runs", st.query_map(p, record)?)?;
         Ok(v)
     }
 
@@ -499,9 +540,7 @@ impl Store {
 
     /// The same runs with their sessions.
     pub fn records_in_state(&self, state: RunState) -> Result<Vec<RunRecord>> {
-        let mut st = self.conn.prepare("SELECT data, session FROM runs WHERE state = ? ORDER BY created_at, rowid")?;
-        let v = readable("runs", st.query_map([state.as_str()], |r| Ok(RunRecord { run: from_row(r, 0)?, session: r.get(1)? }))?)?;
-        Ok(v)
+        self.records_where("WHERE state = ? ORDER BY created_at, rowid", &[&state.as_str()])
     }
 
     pub fn recent_runs(&self, employee_id: Option<&str>, limit: u32) -> Result<Vec<Run>> {
@@ -529,19 +568,18 @@ impl Store {
 
     /// An employee's finished runs created since `since`, both lanes, with their sessions, newest first.
     pub fn finished_since(&self, employee_id: &str, since: Ts) -> Result<Vec<RunRecord>> {
-        let mut st = self.conn.prepare(
-            "SELECT data, session FROM runs WHERE employee_id = ?1 AND created_at >= ?2 AND state NOT IN ('queued', 'running')
-             ORDER BY created_at DESC, rowid DESC",
-        )?;
-        let v = readable("runs", st.query_map(params![employee_id, ms(since)], |r| Ok(RunRecord { run: from_row(r, 0)?, session: r.get(1)? }))?)?;
-        Ok(v)
+        self.records_where(
+            concat!("WHERE employee_id = ?1 AND created_at >= ?2 AND state NOT IN ", active!(), "
+             ORDER BY created_at DESC, rowid DESC"),
+            &[&employee_id, &ms(since)],
+        )
     }
 
     /// When the last turn of a conversation ended: its newest finished run other than `except`.
     pub fn last_turn_ended(&self, session: &str, except: &str) -> Result<Option<Ts>> {
         Ok(self
             .runs_where(
-                "WHERE session = ? AND id != ? AND state NOT IN ('queued', 'running') ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                concat!("WHERE session = ? AND id != ? AND state NOT IN ", active!(), " ORDER BY created_at DESC, rowid DESC LIMIT 1"),
                 &[&session, &except],
             )?
             .pop()
@@ -550,16 +588,16 @@ impl Store {
 
     /// The finished runs of a session other than `except`, newest first.
     pub fn turns_of_session(&self, session: &str, except: &str) -> Result<Vec<Run>> {
-        self.runs_where("WHERE session = ? AND id != ? AND state NOT IN ('queued', 'running') ORDER BY created_at DESC, rowid DESC", &[&session, &except])
+        self.runs_where(concat!("WHERE session = ? AND id != ? AND state NOT IN ", active!(), " ORDER BY created_at DESC, rowid DESC"), &[&session, &except])
     }
 
     /// An employee's finished runs with a card you have not answered yet, oldest first.
     pub fn open_cards(&self, employee_id: &str) -> Result<Vec<Run>> {
         self.runs_where(
-            "WHERE employee_id = ? AND json_valid(data)
-               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c WHERE json_extract(c.value, '$.answer') IS NULL)
-               AND state NOT IN ('queued', 'running')
-             ORDER BY created_at, rowid",
+            concat!("WHERE employee_id = ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM ", cards!(), " WHERE json_extract(c.value, '$.answer') IS NULL)
+               AND state NOT IN ", active!(), "
+             ORDER BY created_at, rowid"),
             &[&employee_id],
         )
     }
@@ -573,7 +611,7 @@ impl Store {
 
     pub fn active_runs_of(&self, employee_id: &str) -> Result<Vec<Run>> {
         self.runs_where(
-            "WHERE employee_id = ? AND state IN ('queued', 'running') ORDER BY created_at, rowid",
+            concat!("WHERE employee_id = ? AND state IN ", active!(), " ORDER BY created_at, rowid"),
             &[&employee_id],
         )
     }
@@ -614,9 +652,9 @@ impl Store {
     /// Finished weekly reviews created since `since`, oldest first: the runs one team week's row gathers.
     pub fn review_runs(&self, since: Ts) -> Result<Vec<Run>> {
         self.runs_where(
-            "WHERE schedule_id IS NOT NULL AND json_valid(data) AND json_extract(data, '$.kind.review') = 1
-               AND created_at >= ? AND state NOT IN ('queued', 'running')
-             ORDER BY created_at, rowid",
+            concat!("WHERE schedule_id IS NOT NULL AND json_valid(data) AND json_extract(data, '$.kind.review') = 1
+               AND created_at >= ? AND state NOT IN ", active!(), "
+             ORDER BY created_at, rowid"),
             &[&ms(since)],
         )
     }
@@ -625,17 +663,17 @@ impl Store {
     /// busiest first. Reviews and due checks are not routines. A run reached someone when it notified you or handed
     /// work to a colleague, and did something when it reached someone, changed a skill or failed.
     pub fn routine_counts(&self, employee_id: Option<&str>, since: Ts) -> Result<Vec<RoutineUsage>> {
-        let mut st = self.conn.prepare(
+        let mut st = self.conn.prepare(concat!(
             "SELECT schedule_id, MAX(employee_id), MAX(json_extract(data, '$.kind.label')), MAX(COALESCE(json_extract(data, '$.kind.quiet'), 0)), COUNT(*),
                SUM(reached), SUM(failed), SUM(reached OR failed OR COALESCE(json_array_length(data, '$.skillChanges'), 0) > 0), TOTAL(json_extract(data, '$.costUsd'))
              FROM (SELECT r.*, r.state IN ('failed', 'lost') AS failed,
                      COALESCE(json_array_length(r.data, '$.needsYou'), 0) > 0 OR EXISTS (SELECT 1 FROM runs c WHERE c.parent_run_id = r.id) AS reached
                    FROM runs r
-                   WHERE (?1 IS NULL OR r.employee_id = ?1) AND r.schedule_id IS NOT NULL AND r.schedule_id NOT LIKE 'check:%' AND r.created_at >= ?2
-                     AND r.state NOT IN ('queued', 'running') AND json_valid(r.data)
+                   WHERE (?1 IS NULL OR r.employee_id = ?1) AND r.schedule_id IS NOT NULL AND r.schedule_id NOT LIKE ", check_run!(), " AND r.created_at >= ?2
+                     AND r.state NOT IN ", active!(), " AND json_valid(r.data)
                      AND COALESCE(json_extract(r.data, '$.kind.review'), 0) = 0)
              GROUP BY schedule_id ORDER BY 5 DESC",
-        )?;
+        ))?;
         let rows = st.query_map(params![employee_id, ms(since)], |r| {
             Ok(RoutineUsage {
                 schedule_id: r.get(0)?,
@@ -655,15 +693,15 @@ impl Store {
     /// Each employee's finished runs since `since`: how many, the cards they raised, the work they handed to
     /// colleagues since then, how many failed, and what they cost.
     pub fn employee_usage(&self, since: Ts) -> Result<Vec<EmployeeUsage>> {
-        let mut st = self.conn.prepare(
+        let mut st = self.conn.prepare(concat!(
             "SELECT r.employee_id, COUNT(*), SUM(COALESCE(json_array_length(r.data, '$.cards'), 0)), MAX(COALESCE(h.n, 0)),
                SUM(r.state IN ('failed', 'lost')), TOTAL(json_extract(r.data, '$.costUsd'))
              FROM runs r
              LEFT JOIN (SELECT p.employee_id, COUNT(*) AS n FROM runs c JOIN runs p ON p.id = c.parent_run_id
                         WHERE c.created_at >= ?1 GROUP BY p.employee_id) h ON h.employee_id = r.employee_id
-             WHERE r.created_at >= ?1 AND r.state NOT IN ('queued', 'running') AND json_valid(r.data)
+             WHERE r.created_at >= ?1 AND r.state NOT IN ", active!(), " AND json_valid(r.data)
              GROUP BY r.employee_id",
-        )?;
+        ))?;
         let rows = st.query_map([ms(since)], |r| {
             Ok(EmployeeUsage { employee_id: r.get(0)?, runs: r.get(1)?, decisions: r.get(2)?, handoffs: r.get(3)?, failed: r.get(4)?, cost_usd: r.get(5)? })
         })?;
@@ -771,16 +809,18 @@ impl Store {
                                OR (parent_run_id IS NOT NULL AND state IN ('failed', 'lost'))
                                OR json_extract(data, '$.kind.review') = 1
                                OR json_extract(data, '$.steered') = 1)))
-                 AND state NOT IN ('queued', 'running')
+                 AND state NOT IN {active}
                  AND NOT (json_extract(data, '$.kind.type') = 'nudge' AND state = 'cancelled')
                  AND NOT ((COALESCE(json_extract(data, '$.kind.quiet'), 0) = 1 OR json_extract(data, '$.kind.type') IN ('tidy', 'nudge'))
-                          AND NOT (schedule_id LIKE 'check:%' AND COALESCE(json_extract(data, '$.durationMs'), 0) > {long})
+                          AND NOT (schedule_id LIKE {check} AND COALESCE(json_extract(data, '$.durationMs'), 0) > {long})
                           AND state = 'succeeded'
                           AND COALESCE(json_array_length(data, '$.needsYou'), 0) = 0
                           AND (COALESCE(json_array_length(data, '$.denials'), 0) = 0 OR json_extract(data, '$.kind.type') = 'tidy')
                           AND COALESCE(json_extract(data, '$.steered'), 0) = 0)
                  AND {archived}
                  ORDER BY {order} LIMIT ?",
+                active = active!(),
+                check = check_run!(),
                 long = crate::threads::CHECK_QUIET_MS
             ),
             &[&roots, &flagged, &limit.map_or(-1, i64::from)],
@@ -791,12 +831,12 @@ impl Store {
     /// still going and has not collected the answer yet. Oldest first.
     pub fn open_asks(&self) -> Result<Vec<Run>> {
         self.runs_where(
-            "WHERE json_valid(data)
+            concat!("WHERE json_valid(data)
                AND json_extract(data, '$.kind.type') = 'asked'
-               AND (state IN ('queued', 'running')
+               AND (state IN ", active!(), "
                     OR (json_valid(data) AND json_extract(data, '$.deliveredAt') IS NULL
-                        AND parent_run_id IN (SELECT id FROM runs WHERE state IN ('queued', 'running'))))
-             ORDER BY created_at, rowid",
+                        AND parent_run_id IN (SELECT id FROM runs WHERE state IN ", active!(), ")))
+             ORDER BY created_at, rowid"),
             &[],
         )
     }
@@ -806,12 +846,11 @@ impl Store {
     /// they raised.
     pub fn open_topic_runs(&self, topic: &str) -> Result<Vec<Run>> {
         self.runs_where(
-            "WHERE json_valid(data)
-               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
-                           WHERE json_extract(c.value, '$.key') = ? AND (json_extract(c.value, '$.answer') IS NULL
-                             OR json_extract(c.value, '$.backAt') IS NOT NULL OR json_extract(c.value, '$.parked') = 1))
+            concat!("WHERE json_valid(data)
+               AND EXISTS (SELECT 1 FROM ", cards!(), "
+                           WHERE json_extract(c.value, '$.key') = ? AND ", card_waiting!(), ")
                AND state != 'running' AND lane = 'work'
-             ORDER BY created_at, rowid",
+             ORDER BY created_at, rowid"),
             &[&topic],
         )
     }
@@ -878,9 +917,9 @@ impl Store {
         let context: Option<i64> = self
             .conn
             .query_row(
-                "SELECT json_extract(data, '$.contextTokens') FROM runs
-                 WHERE session = ? AND state NOT IN ('queued', 'running') AND json_valid(data) AND json_extract(data, '$.contextTokens') IS NOT NULL
-                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                concat!("SELECT json_extract(data, '$.contextTokens') FROM runs
+                 WHERE session = ? AND state NOT IN ", active!(), " AND json_valid(data) AND json_extract(data, '$.contextTokens') IS NOT NULL
+                 ORDER BY created_at DESC, rowid DESC LIMIT 1"),
                 [session],
                 |r| r.get(0),
             )
@@ -893,9 +932,9 @@ impl Store {
         // The stored times compare as text: a second's leeway keeps every later one, and the exact test is below.
         let after = serde_json::to_value(since - chrono::Duration::seconds(1))?;
         let runs = self.runs_where(
-            "WHERE employee_id = ? AND json_valid(data)
-               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
-                           WHERE json_extract(c.value, '$.answer.how') = 'replaced' AND json_extract(c.value, '$.answer.at') > ?)",
+            concat!("WHERE employee_id = ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM ", cards!(), "
+                           WHERE json_extract(c.value, '$.answer.how') = 'replaced' AND json_extract(c.value, '$.answer.at') > ?)"),
             &[&employee_id, &after.as_str()],
         )?;
         let mut v: Vec<(Ts, Card)> = runs
@@ -916,9 +955,9 @@ impl Store {
         // The stored times compare as text: a second's leeway keeps every later one, and the exact test is below.
         let after = serde_json::to_value(since - chrono::Duration::seconds(1))?;
         let runs = self.runs_where(
-            "WHERE employee_id = ? AND session != ? AND json_valid(data)
-               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
-                           WHERE json_extract(c.value, '$.answer.how') IN ('tapped', 'typed', 'rejected') AND json_extract(c.value, '$.answer.at') > ?)",
+            concat!("WHERE employee_id = ? AND session != ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM ", cards!(), "
+                           WHERE json_extract(c.value, '$.answer.how') IN ('tapped', 'typed', 'rejected') AND json_extract(c.value, '$.answer.at') > ?)"),
             &[&employee_id, &session, &after.as_str()],
         )?;
         let mut v: Vec<Card> = runs
@@ -937,10 +976,10 @@ impl Store {
         // The stored times compare as text: a second's leeway keeps every earlier one, and the exact test is below.
         let by = serde_json::to_value(at + chrono::Duration::seconds(1))?;
         let runs = self.runs_where(
-            "WHERE json_valid(data) AND state != 'running'
-               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+            concat!("WHERE json_valid(data) AND state != 'running'
+               AND EXISTS (SELECT 1 FROM ", cards!(), "
                            WHERE json_extract(c.value, '$.backAt') IS NOT NULL AND json_extract(c.value, '$.backAt') <= ?)
-             ORDER BY created_at, rowid",
+             ORDER BY created_at, rowid"),
             &[&by.as_str()],
         )?;
         Ok(runs.into_iter().filter(|r| r.cards.iter().any(|c| c.back_at.is_some_and(|t| t <= at))).collect())
@@ -949,10 +988,10 @@ impl Store {
     /// Current employees' runs holding a card you parked, newest first.
     pub fn parked_runs(&self) -> Result<Vec<Run>> {
         self.runs_where(
-            "WHERE employee_id IN (SELECT id FROM employees WHERE departed_at IS NULL) AND json_valid(data)
-               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+            concat!("WHERE employee_id IN (SELECT id FROM employees WHERE departed_at IS NULL) AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM ", cards!(), "
                            WHERE json_extract(c.value, '$.parked') = 1)
-             ORDER BY created_at DESC, rowid DESC",
+             ORDER BY created_at DESC, rowid DESC"),
             &[],
         )
     }
@@ -961,10 +1000,10 @@ impl Store {
     pub fn withdrew_since(&self, employee_id: &str, topic: &str, since: Ts) -> Result<bool> {
         let after = serde_json::to_value(since - chrono::Duration::seconds(1))?;
         let runs = self.runs_where(
-            "WHERE employee_id = ? AND json_valid(data)
-               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
+            concat!("WHERE employee_id = ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM ", cards!(), "
                            WHERE json_extract(c.value, '$.key') = ? AND json_extract(c.value, '$.answer.how') = 'withdrawn'
-                             AND json_extract(c.value, '$.answer.at') > ?)",
+                             AND json_extract(c.value, '$.answer.at') > ?)"),
             &[&employee_id, &topic, &after.as_str()],
         )?;
         let withdrawn = |c: &Card| c.key.as_deref() == Some(topic) && c.answer.as_ref().is_some_and(|a| a.how == AnswerHow::Withdrawn && a.at > since);
@@ -975,11 +1014,10 @@ impl Store {
     /// oldest first.
     pub fn open_cards_of_schedule(&self, schedule_id: &str, before: Ts) -> Result<Vec<Run>> {
         self.runs_where(
-            "WHERE schedule_id = ? AND created_at < ? AND json_valid(data)
-               AND EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid(data) THEN data ELSE '{}' END, '$.cards') c
-                           WHERE json_extract(c.value, '$.ask.type') IN ('choices', 'items') AND (json_extract(c.value, '$.answer') IS NULL
-                             OR json_extract(c.value, '$.backAt') IS NOT NULL OR json_extract(c.value, '$.parked') = 1))
-             ORDER BY created_at, rowid",
+            concat!("WHERE schedule_id = ? AND created_at < ? AND json_valid(data)
+               AND EXISTS (SELECT 1 FROM ", cards!(), "
+                           WHERE json_extract(c.value, '$.ask.type') IN ('choices', 'items') AND ", card_waiting!(), ")
+             ORDER BY created_at, rowid"),
             &[&schedule_id, &ms(before)],
         )
     }
@@ -1166,7 +1204,7 @@ impl Store {
     pub fn previous_finished(&self, schedule_id: &str, before: Ts) -> Result<Option<Run>> {
         Ok(self
             .runs_where(
-                "WHERE schedule_id = ? AND created_at < ? AND state NOT IN ('queued', 'running') ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                concat!("WHERE schedule_id = ? AND created_at < ? AND state NOT IN ", active!(), " ORDER BY created_at DESC, rowid DESC LIMIT 1"),
                 &[&schedule_id, &ms(before)],
             )?
             .pop())
@@ -2374,5 +2412,13 @@ CREATE INDEX IF NOT EXISTS briefs_by_session ON briefs(employee_id, session, cre
         ] {
             assert_eq!(serde_json::to_value(kind).unwrap()["type"], run.tag());
         }
+    }
+
+    #[test]
+    fn sql_fragments_match_the_rules_they_mirror() {
+        for state in [RunState::Queued, RunState::Running, RunState::Succeeded, RunState::Failed, RunState::Cancelled, RunState::Lost] {
+            assert_eq!(active!().contains(&format!("'{}'", state.as_str())), !state.is_finished(), "{state:?}");
+        }
+        assert_eq!(check_run!(), format!("'{CHECK_PREFIX}%'"));
     }
 }
