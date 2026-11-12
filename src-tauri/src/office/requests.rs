@@ -684,11 +684,11 @@ fn fail_check(w: &mut Watch, person: &str, error: String) -> Option<(String, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::temp_dir;
 
     #[test]
     fn only_your_own_chat_turn_is_quoted_for_a_request() {
-        let dir = std::env::temp_dir().join(format!("omegastar-requests-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("requests");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let turn = Run::new("e1", RunKind::Chat, "Ask the supplier for a date.".into(), now());
         db.insert_run(&turn, "chat-e1").unwrap();

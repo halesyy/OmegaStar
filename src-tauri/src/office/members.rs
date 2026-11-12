@@ -442,40 +442,24 @@ fn headline(report: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, NoSink};
-
-    fn employee(name: &str) -> Employee {
-        Employee { slug: name.to_lowercase(), name: name.into(), auto_tidy: true, chat_session: format!("chat-{name}"), ..fixtures::employee() }
-    }
-
-    /// Saves a run of `e` in `state`, created `ago` minutes back.
-    fn run(db: &Store, e: &Employee, kind: RunKind, state: RunState, ago: i64) -> Run {
-        let mut r = Run::new(&e.id, kind, "go".into(), now() - chrono::Duration::minutes(ago));
-        r.state = state;
-        if state.is_finished() {
-            r.ended_at = Some(r.created_at);
-        }
-        assert!(db.insert_run(&r, &r.id).unwrap());
-        r
-    }
+    use crate::fixtures::{self, acme, employee_named, open_office, saved_run, task, temp_dir};
 
     #[test]
     fn presence_lists_live_work_running_first_then_oldest_first() {
-        let dir = std::env::temp_dir().join(format!("omegastar-presence-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("presence");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let ada = employee("Ada");
-        let bo = employee("Bo");
+        let ada = employee_named("Ada");
+        let bo = employee_named("Bo");
         db.save_employee(&ada).unwrap();
         db.save_employee(&bo).unwrap();
 
-        let task = RunKind::Task { label: "Draft the plan".into(), from: None, context: String::new() };
-        let queued_old = run(&db, &ada, RunKind::Manual, RunState::Queued, 30);
-        let running_new = run(&db, &ada, RunKind::Manual, RunState::Running, 5);
-        let running_old = run(&db, &ada, task, RunState::Running, 20);
-        let queued_new = run(&db, &ada, RunKind::Manual, RunState::Queued, 1);
-        run(&db, &ada, RunKind::Manual, RunState::Succeeded, 60);
-        run(&db, &bo, RunKind::Manual, RunState::Succeeded, 10);
+        let task = task("Draft the plan");
+        let queued_old = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Queued, 30, None);
+        let running_new = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Running, 5, None);
+        let running_old = saved_run(&db, &ada, task, "go", RunState::Running, 20, None);
+        let queued_new = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Queued, 1, None);
+        saved_run(&db, &ada, RunKind::Manual, "go", RunState::Succeeded, 60, None);
+        saved_run(&db, &bo, RunKind::Manual, "go", RunState::Succeeded, 10, None);
 
         let v = Office::presence(&db, &ada, now(), false).unwrap();
         let ids: Vec<&str> = v.live.iter().map(|r| r.id.as_str()).collect();
@@ -485,7 +469,7 @@ mod tests {
         let idle = Office::presence(&db, &bo, now(), false).unwrap();
         assert!(idle.live.is_empty());
         assert_eq!(idle.presence, Presence::Idle);
-        run(&db, &bo, RunKind::Manual, RunState::Queued, 1);
+        saved_run(&db, &bo, RunKind::Manual, "go", RunState::Queued, 1, None);
         assert_eq!(Office::presence(&db, &bo, now(), false).unwrap().presence, Presence::Queued);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -508,13 +492,12 @@ mod tests {
 
     #[tokio::test]
     async fn someone_who_leaves_is_cleaned_out_of_whoever_still_names_them() {
-        let dir = std::env::temp_dir().join(format!("omegastar-left-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        let (ada, bo, cy, dee) = (employee("Ada"), employee("Bo"), employee("Cy"), employee("Dee"));
+        let dir = temp_dir("left");
+        let (ada, bo, cy, dee) = (employee_named("Ada"), employee_named("Bo"), employee_named("Cy"), employee_named("Dee"));
         let sam = Person { name: "Sam Lee".into(), title: "Designer".into(), ..fixtures::person() };
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
-            db.set_company(&Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }).unwrap();
+            db.set_company(&acme()).unwrap();
             for e in [&ada, &bo, &cy, &dee] {
                 db.save_employee(e).unwrap();
             }
@@ -522,7 +505,7 @@ mod tests {
             // Held, so the runs it starts wait.
             db.set_held_until(Some(now() + chrono::Duration::days(1))).unwrap();
         }
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let write = |e: &Employee, file: &str, text: &str| {
             let path = office.employee_dir(&e.id).join(file);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -548,16 +531,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_hire_decision_resumes_the_started_work_session_it_was_proposed_in_and_starts_fresh_otherwise() {
-        let dir = std::env::temp_dir().join(format!("omegastar-decision-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        let ada = employee("Ada");
+        let dir = temp_dir("decision");
+        let ada = employee_named("Ada");
         let (started, unstarted, chat) = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.save_employee(&ada).unwrap();
             db.set_held_until(Some(now() + chrono::Duration::days(1))).unwrap();
-            let started = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 30);
+            let started = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Succeeded, 30, None);
             db.mark_inited(&started.id).unwrap();
-            let unstarted = run(&db, &ada, RunKind::Manual, RunState::Failed, 20);
+            let unstarted = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Failed, 20, None);
             let mut chat = Run::new(&ada.id, RunKind::Chat, "Find us a designer.".into(), now() - chrono::Duration::minutes(10));
             chat.state = RunState::Succeeded;
             chat.ended_at = Some(chat.created_at);
@@ -565,14 +547,14 @@ mod tests {
             db.mark_inited(&chat.id).unwrap();
             (started, unstarted, chat)
         };
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let decided = |from: Option<&Run>| {
             let p = HireProposal {
                 id: uuid::Uuid::new_v4().to_string(),
                 employee_id: ada.id.clone(),
                 run_id: from.map(|r| r.id.clone()),
                 reason: "Design work piles up.".into(),
-                draft: employee("Cy").draft(),
+                draft: employee_named("Cy").draft(),
                 missing_skills: vec![],
                 state: ProposalState::Open,
                 note: None,
@@ -599,10 +581,9 @@ mod tests {
 
     #[test]
     fn the_status_says_their_number_their_last_report_and_what_is_next() {
-        let dir = std::env::temp_dir().join(format!("omegastar-status-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("status");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let ada = employee("Ada");
+        let ada = employee_named("Ada");
         db.save_employee(&ada).unwrap();
         use chrono::TimeZone;
         // On this computer's clock, away from Monday's weekly review. 4 November 2026 is a Wednesday.

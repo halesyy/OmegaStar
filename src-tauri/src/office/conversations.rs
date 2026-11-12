@@ -51,61 +51,37 @@ impl Office {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures;
-
-    /// An employee reporting to `manager_id`, or to you.
-    fn employee(name: &str, manager_id: Option<&str>) -> Employee {
-        Employee { slug: name.to_lowercase(), name: name.into(), manager_id: manager_id.map(String::from), chat_session: format!("chat-{name}"), ..fixtures::employee() }
-    }
-
-    /// Saves a run in `state`; a finished one ended `ago` minutes back. Returns it as saved.
-    fn run(db: &Store, e: &Employee, kind: RunKind, state: RunState, ago: i64, session: Option<&str>) -> Run {
-        let at = now() - chrono::Duration::minutes(ago);
-        let mut r = Run::new(&e.id, kind, "go".into(), at);
-        r.state = state;
-        if state.is_finished() {
-            r.ended_at = Some(at);
-        }
-        let session = session.map(String::from).unwrap_or_else(|| r.id.clone());
-        assert!(db.insert_run(&r, &session).unwrap());
-        r
-    }
-
-    /// A task's kind.
-    fn task(label: &str) -> RunKind {
-        RunKind::Task { label: label.into(), from: None, context: String::new() }
-    }
+    use crate::fixtures::{employee_named, saved_run, task, temp_dir};
 
     #[test]
     fn conversations_gather_every_open_thread_once() {
-        let dir = std::env::temp_dir().join(format!("omegastar-conversations-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("conversations");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let ada = employee("Ada", None);
-        let bo = employee("Bo", Some(&ada.id));
+        let ada = employee_named("Ada");
+        let bo = Employee { manager_id: Some(ada.id.clone()), ..employee_named("Bo") };
         db.save_employee(&ada).unwrap();
         db.save_employee(&bo).unwrap();
 
-        let mut report = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 60, None);
+        let mut report = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Succeeded, 60, None);
         report.needs_you = vec!["Look at this.".into()];
         db.save_run(&report).unwrap();
-        let plain = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 55, None);
-        let replied = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 50, None);
+        let plain = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Succeeded, 55, None);
+        let replied = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Succeeded, 50, None);
         let reply = Run::new(&ada.id, RunKind::Reply { to_run_id: replied.id.clone(), label: "Manual run".into(), task: false, card: false }, "ok".into(), now());
         db.insert_run(&reply, &replied.id).unwrap();
-        let open_task = run(&db, &ada, task("Draft it"), RunState::Running, 0, None);
-        let sub_report = run(&db, &bo, RunKind::Manual, RunState::Succeeded, 40, None);
+        let open_task = saved_run(&db, &ada, task("Draft it"), "go", RunState::Running, 0, None);
+        let sub_report = saved_run(&db, &bo, RunKind::Manual, "go", RunState::Succeeded, 40, None);
         let sub_reply = Run::new(&bo.id, RunKind::Reply { to_run_id: sub_report.id.clone(), label: "Manual run".into(), task: false, card: false }, "and?".into(), now());
         db.insert_run(&sub_reply, &sub_report.id).unwrap();
         // A reply an older build let you type into a report while it worked is no later turn: once it needs nothing,
         // it is in the Archive.
-        let mut steered = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 45, None);
+        let mut steered = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Succeeded, 45, None);
         steered.replied_at = Some(now());
         db.save_run(&steered).unwrap();
-        let live = run(&db, &ada, RunKind::Manual, RunState::Running, 0, None);
+        let live = saved_run(&db, &ada, RunKind::Manual, "go", RunState::Running, 0, None);
         let quiet = RunKind::Scheduled { schedule_id: "s".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
-        let live_quiet = run(&db, &ada, quiet, RunState::Running, 0, None);
-        let live_sub = run(&db, &bo, RunKind::Manual, RunState::Queued, 0, None);
+        let live_quiet = saved_run(&db, &ada, quiet, "go", RunState::Running, 0, None);
+        let live_sub = saved_run(&db, &bo, RunKind::Manual, "go", RunState::Queued, 0, None);
 
         let mut done = Run::new(&ada.id, task("Ship it"), "go".into(), now());
         done.state = RunState::Succeeded;
@@ -114,10 +90,10 @@ mod tests {
         db.insert_run(&done, &done.id).unwrap();
 
         // A turn of an older build's chat is in no thread; it is a run of its own.
-        let chat = run(&db, &ada, RunKind::Chat, RunState::Succeeded, 5, Some(&ada.chat_session));
+        let chat = saved_run(&db, &ada, RunKind::Chat, "go", RunState::Succeeded, 5, Some(&ada.chat_session));
         // A colleague's answer that came back into the open task is its next turn.
         let came = RunKind::Answered { asked_run_id: "r1".into(), from: bo.id.clone(), task: false, chat: false, thread: Some(open_task.id.clone()) };
-        let answer = run(&db, &ada, came, RunState::Succeeded, 1, Some(&open_task.id));
+        let answer = saved_run(&db, &ada, came, "go", RunState::Succeeded, 1, Some(&open_task.id));
 
         let c = Office::conversations_in(&db).unwrap();
         let ids: Vec<&str> = c.threads.iter().map(|t| t.root.id.as_str()).collect();

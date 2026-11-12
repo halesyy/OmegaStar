@@ -593,7 +593,7 @@ fn account_issue(recorded: Option<&str>, now: Option<&Account>) -> Option<Accoun
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::NoSink;
+    use crate::fixtures::{open_office, temp_dir};
 
     fn window(percent: f64) -> Option<UsageWindow> {
         Some(UsageWindow { percent, resets_at: None, resets_text: None })
@@ -622,10 +622,9 @@ mod tests {
 
     #[tokio::test]
     async fn turning_on_a_proxy_drops_the_old_hold_and_a_refused_key_stops_the_monitor() {
-        let dir = std::env::temp_dir().join(format!("omegastar-proxy-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = temp_dir("proxy");
         Store::open(&dir.join("office.db")).unwrap().set_held_until(Some(Utc::now() + chrono::Duration::hours(3))).unwrap();
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let office = open_office(&dir).await;
         let url = proxy::fake_proxy().await;
         let with = |api_key: &str, management_key: &str| AppSettings {
             proxy: ProxySettings { url: url.clone(), api_key: api_key.into(), management_key: management_key.into() },
@@ -650,9 +649,8 @@ mod tests {
 
     #[tokio::test]
     async fn quiet_hours_start_and_end_at_different_times() {
-        let dir = std::env::temp_dir().join(format!("omegastar-quiet-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let dir = temp_dir("quiet");
+        let office = open_office(&dir).await;
         let with = |start_minute: u16, end_minute: u16| AppSettings {
             notifications: NotificationSettings { mode: NotifyMode::All, quiet: Some(QuietHours { start_minute, end_minute }) },
             ..office.settings().unwrap()
@@ -685,9 +683,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_sweep_deletes_old_transcripts_and_keeps_their_rows() {
-        let dir = std::env::temp_dir().join(format!("omegastar-sweep-{}", uuid::Uuid::new_v4()));
-        fs::create_dir_all(&dir).unwrap();
-        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let dir = temp_dir("sweep");
+        let office = open_office(&dir).await;
         let at = Utc::now();
         let finished = |days: i64| {
             let mut r = Run::new("e1", RunKind::Manual, "go".into(), at - chrono::Duration::days(days));

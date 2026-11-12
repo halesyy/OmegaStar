@@ -673,6 +673,7 @@ fn find_employee<'a>(items: &'a [Employee], key: &str) -> Option<&'a Employee> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fixtures::temp_path;
 
     const LOST: &str = "Omega Star stopped while this run was in progress.";
 
@@ -788,7 +789,7 @@ mod tests {
 
     #[test]
     fn a_kept_snapshot_records_the_edits() {
-        let dir = std::env::temp_dir().join(format!("omegastar-recover-{}", uuid::Uuid::new_v4()));
+        let dir = temp_path("recover");
         let skill = dir.join("skills").join("tester-notes");
         fs::create_dir_all(&skill).unwrap();
         fs::write(skill.join("SKILL.md"), "Check the inbox every morning.\n").unwrap();
