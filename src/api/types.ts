@@ -456,7 +456,7 @@ export type Commands = {
   add_person: { args: { draft: PersonDraft }; ret: Person };
   update_person: { args: { person: Person }; ret: Person };
   remove_person: { args: { personId: string }; ret: null };
-  requests: { args: { personId: string | null; employeeId: string | null; state: string | null }; ret: HumanRequest[] };
+  requests: { args: { personId: string | null; employeeId: string | null; state: RequestState | null }; ret: HumanRequest[] };
   resolve_request: { args: { requestId: string; state: Exclude<RequestState, "open">; response: string | null }; ret: HumanRequest };
   watch_request: { args: { requestId: string; action: WatchAction }; ret: HumanRequest };
   proposals: { args: Record<string, never>; ret: HireProposal[] };

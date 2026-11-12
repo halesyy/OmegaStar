@@ -1,13 +1,13 @@
 //! Requests to real people, and watching their channels for the reply.
 
 use super::*;
+use crate::store::RequestRun;
 
 /// The failed check in a row that sends you one desktop notification.
 const FAILURES_TO_NOTIFY: u32 = 3;
 
 impl Office {
-    pub fn requests(&self, person_id: Option<String>, employee_id: Option<String>, state: Option<String>) -> Result<Vec<HumanRequest>> {
-        let state = state.as_deref().map(RequestState::parse).transpose()?;
+    pub fn requests(&self, person_id: Option<String>, employee_id: Option<String>, state: Option<RequestState>) -> Result<Vec<HumanRequest>> {
         let watch = self.settings()?.watch;
         let mut v = self.db().requests(&RequestFilter { person_id, employee_id, state })?;
         for r in &mut v {
@@ -218,7 +218,7 @@ has to start that work, hand it back with what they need to start it instead of 
     /// employee to go on without it.
     fn give_up(db: &Store, r: &mut HumanRequest, at: Ts) -> Result<(Option<Run>, (String, String))> {
         let (employee, person) = (Self::employee_name(db, &r.employee_id)?, Self::person_name(db, &r.person_id)?);
-        let run = if db.has_run_for(&r.id, "unanswered")? || db.employee(&r.employee_id)?.is_none() {
+        let run = if db.has_run_for(&r.id, RequestRun::Unanswered)? || db.employee(&r.employee_id)?.is_none() {
             None
         } else {
             let kind = RunKind::Unanswered { request_id: r.id.clone(), person_id: r.person_id.clone() };
@@ -277,7 +277,7 @@ has to start that work, hand it back with what they need to start it instead of 
                 }
                 let plan = watch::plan(&f, &s, &Local);
                 let due = plan.due(at);
-                let may_nudge = due == watch::Due::Nudge && model_may_run && !db.has_run_for(&r.id, "nudge")?;
+                let may_nudge = due == watch::Due::Nudge && model_may_run && !db.has_run_for(&r.id, RequestRun::Nudge)?;
                 let backing_off = f.failures > 0 && at < plan.next_check_at;
                 match due {
                     watch::Due::Nothing => {}
@@ -298,7 +298,7 @@ has to start that work, hand it back with what they need to start it instead of 
                     _ if at < plan.next_check_at => {}
                     _ if f.native => reads.push((r.id.clone(), After::Nothing)),
                     _ => {
-                        if model_may_run && db.active_run_for(&r.id, "replyCheck")?.is_none() {
+                        if model_may_run && db.active_run_for(&r.id, RequestRun::ReplyCheck)?.is_none() {
                             runs.push(Self::queue_watch_run(&db, &r, false, at)?);
                             if let Some(w) = watch_of(&mut r) {
                                 w.last_checked_at = Some(at);
@@ -516,7 +516,7 @@ has to start that work, hand it back with what they need to start it instead of 
                 }
                 // What was just read (an acknowledgement, say) can move the nudge and the give-up.
                 match (it.after, watch::plan(&f, &settings.watch, &Local).due(at)) {
-                    (After::Nudge, watch::Due::Nudge) if !db.has_run_for(&r.id, "nudge")? => {
+                    (After::Nudge, watch::Due::Nudge) if !db.has_run_for(&r.id, RequestRun::Nudge)? => {
                         notices.push(Self::nudge_notice(&db, &r)?);
                         runs.push(Self::nudge(&db, &mut r, at)?);
                     }
@@ -562,7 +562,7 @@ has to start that work, hand it back with what they need to start it instead of 
                 }
                 WatchAction::Check if native => {}
                 WatchAction::Check => {
-                    if db.active_run_for(&r.id, "replyCheck")?.is_some() {
+                    if db.active_run_for(&r.id, RequestRun::ReplyCheck)?.is_some() {
                         return Err(AppError::conflict("a check for this request is already waiting or running"));
                     }
                     run = Some(Self::queue_watch_run(&db, &r, false, at)?);
@@ -571,7 +571,7 @@ has to start that work, hand it back with what they need to start it instead of 
                     }
                 }
                 WatchAction::Nudge => {
-                    if db.active_run_for(&r.id, "nudge")?.is_some() {
+                    if db.active_run_for(&r.id, RequestRun::Nudge)?.is_some() {
                         return Err(AppError::conflict("a nudge for this request is already waiting or running"));
                     }
                     run = Some(Self::nudge(&db, &mut r, at)?);

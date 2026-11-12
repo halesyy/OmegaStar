@@ -411,13 +411,13 @@ pub async fn remove_person(office: O<'_>, person_id: String) -> Result<()> {
 }
 
 #[tauri::command]
-pub async fn requests(office: O<'_>, person_id: Option<String>, employee_id: Option<String>, state: Option<String>) -> Result<Vec<HumanRequest>> {
+pub async fn requests(office: O<'_>, person_id: Option<String>, employee_id: Option<String>, state: Option<RequestState>) -> Result<Vec<HumanRequest>> {
     office.requests(person_id, employee_id, state)
 }
 
 #[tauri::command]
-pub async fn resolve_request(office: O<'_>, request_id: String, state: String, response: Option<String>) -> Result<HumanRequest> {
-    office.resolve_request(&request_id, RequestState::parse(&state)?, response, None)
+pub async fn resolve_request(office: O<'_>, request_id: String, state: RequestState, response: Option<String>) -> Result<HumanRequest> {
+    office.resolve_request(&request_id, state, response, None)
 }
 
 #[tauri::command]
