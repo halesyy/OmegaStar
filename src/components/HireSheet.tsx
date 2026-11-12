@@ -10,7 +10,7 @@ import { AdvancedFields, ClearancePicker, EmployeeManagerSelect } from "./Employ
 import { Markdown } from "./Markdown";
 import { SkillPicker } from "./SkillPicker";
 import { Icon } from "./Icon";
-import { Avatar, ErrorNote, SlideOver } from "./ui";
+import { Avatar, ErrorNote, SheetHead, SlideOver } from "./ui";
 import { newConversationDraft } from "./conversation/NewConversation";
 import "./Sheet.css";
 
@@ -158,15 +158,13 @@ export function HireSheet({ open, template, proposal, onClose, returnFocus = nul
 
   return (
     <SlideOver open={open} onClose={onClose} width={760} label={proposal ? "Review a hire proposal" : "Hire an employee"} returnFocus={returnFocus}>
-      <header className="sheet-head">
-        <div className="stack">
-          <h2 className="h-lg">{proposal ? `${proposerName}'s hire proposal` : "Hire an employee"}</h2>
-          <p className="muted">{proposal
-            ? `${proposerName} proposed this hire. Change anything you like, then hire. To say no, close this and press Decline.`
-            : "An agent on your Claude Code who works on their own and grows skills as you teach them."}</p>
-        </div>
-        <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
-      </header>
+      <SheetHead
+        title={proposal ? `${proposerName}'s hire proposal` : "Hire an employee"}
+        lede={proposal
+          ? `${proposerName} proposed this hire. Change anything you like, then hire. To say no, close this and press Decline.`
+          : "An agent on your Claude Code who works on their own and grows skills as you teach them."}
+        onClose={onClose}
+      />
       <div className="sheet-body">
         <form className="sheet-form" onSubmit={(e) => { e.preventDefault(); void submit(); }} noValidate>
           {proposal ? (

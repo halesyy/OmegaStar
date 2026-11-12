@@ -7,7 +7,7 @@ import { toast } from "../../lib/toasts";
 import { openRun } from "../../lib/router";
 import { Diff, lineStats } from "../Diff";
 import { Icon } from "../Icon";
-import { Markdown, splitFrontmatter } from "../Markdown";
+import { Markdown } from "../Markdown";
 import { ConfirmButton, ErrorNote, Section, Skeleton } from "../ui";
 import { changeSource, TimelineItem } from "./SkillsOverview";
 
@@ -15,6 +15,18 @@ const folder = (name: string): OwnSkill => ({ name, description: "", role: false
 /** Files recorded like skills that are not skills: a tidy's notes in workspace/, the company page, and what the employee owns. */
 const PSEUDO_FOLDERS: Record<string, OwnSkill> = { "@workspace": folder("@workspace"), "@company": folder("@company"), "@own": folder("@own") };
 export const pseudoFolder = (name: string): OwnSkill | undefined => (name.startsWith("@") ? PSEUDO_FOLDERS[name] : undefined);
+
+/** Split YAML frontmatter from a SKILL.md body. */
+function splitFrontmatter(src: string): { meta: Record<string, string>; body: string } {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(src);
+  if (!m) return { meta: {}, body: src };
+  const meta: Record<string, string> = {};
+  for (const line of m[1].split(/\r?\n/)) {
+    const i = line.indexOf(":");
+    if (i > 0) meta[line.slice(0, i).trim()] = line.slice(i + 1).trim().replace(/^["']|["']$/g, "");
+  }
+  return { meta, body: src.slice(m[0].length) };
+}
 
 export function FileView({ e, skill, file, history, onBack, onOpenRev, onChanged }: {
   e: EmployeeView; skill: OwnSkill | undefined; file: string; history: SkillRevision[];

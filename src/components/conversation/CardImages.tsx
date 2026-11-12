@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "../../lib/hooks";
 import { Icon } from "../Icon";
-import { Lightbox, loadImage } from "../Markdown";
+import { Lightbox, loadImage } from "../Lightbox";
 
 /** Up to three images a card is about, such as a before and an after, as thumbnails: one opens them all full-window.
  *  One that can no longer be read says so. `captions`: one per image when each stands for one of the card's options. */

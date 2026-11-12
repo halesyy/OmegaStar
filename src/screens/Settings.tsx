@@ -8,7 +8,7 @@ import type {
   ProxySettings, QuietHours, SetupStatus, WatchSettings,
 } from "../api/types";
 import { refreshOrg, rescanSkills, useQuery, useSkillScan, type Query, type SkillScan } from "../lib/hooks";
-import { clockHM, relTime, whenShort } from "../lib/format";
+import { capitalize, clockHM, plural, relTime, whenInline, whenShort } from "../lib/format";
 import { curve, ms, reducedMotion, usePresence } from "../lib/motion";
 import { setTheme, useTheme, type ThemePref } from "../lib/theme";
 import { CopyCommand } from "../components/CopyCommand";
@@ -47,7 +47,7 @@ const useRowSave = (row: string): RowSave | undefined => useContext(SaveRows)[ro
 function sentence(text: string): string {
   const t = text.trim();
   if (!t) return t;
-  const s = t[0].toUpperCase() + t.slice(1);
+  const s = capitalize(t);
   return /[.!?…]$/.test(s) ? s : `${s}.`;
 }
 
@@ -476,7 +476,7 @@ export function SettingsScreen() {
                 </Row>
               )}
               <Row title="Skills" desc={<SkillsDesc scan={scan} />}>
-                {scan.sources ? <span className={`set-count num ${scan.sources.found === 0 ? "set-count-warn" : ""}`}>{scan.sources.found === 1 ? "1 skill" : `${scan.sources.found} skills`}</span> : null}
+                {scan.sources ? <span className={`set-count num ${scan.sources.found === 0 ? "set-count-warn" : ""}`}>{plural(scan.sources.found, "skill")}</span> : null}
                 <button className="btn" onClick={rescanSkills} disabled={scan.scanning}>
                   <States at={scan.scanning ? 1 : 0} labels={[<><Icon name="refresh" size={13} />Rescan</>, "Scanning…"]} />
                 </button>
@@ -507,7 +507,7 @@ export function SettingsScreen() {
                 <div className="seg" role="group" aria-label="Theme">
                   {(["system", "light", "dark"] as ThemePref[]).map((t) => (
                     <button key={t} aria-pressed={theme === t} onClick={() => setTheme(t)}>
-                      <Icon name={t === "system" ? "monitor" : t === "light" ? "sun" : "moon"} size={14} /> {t[0].toUpperCase() + t.slice(1)}
+                      <Icon name={t === "system" ? "monitor" : t === "light" ? "sun" : "moon"} size={14} /> {capitalize(t)}
                     </button>
                   ))}
                 </div>
@@ -542,7 +542,7 @@ export function SettingsScreen() {
 function SkillsDesc({ scan }: { scan: SkillScan }) {
   const src = scan.sources;
   if (!src) return scan.error ? <span className="set-err">{sentence(scan.error)}</span> : <>Looking for your Claude Code skills…</>;
-  const note = src.unreadable > 0 ? `${src.unreadable === 1 ? "1 skill" : `${src.unreadable} skills`} couldn't be read.` : null;
+  const note = src.unreadable > 0 ? `${plural(src.unreadable, "skill")} couldn't be read.` : null;
   return (
     <>
       <span className="mono">{src.skillsDir}</span>
@@ -745,8 +745,7 @@ function size(bytes: number): string {
 
 /** "Today at 3:00 am", "Fri at 8:00 am"; `inline` lowers Today, Tomorrow and Yesterday for the middle of a sentence. */
 function whenAt(iso: string, inline = false): string {
-  const w = whenShort(iso).replace(/ (\d{1,2}:\d{2} [ap]m)$/, " at $1");
-  return inline ? w.replace(/^(Today|Tomorrow|Yesterday)/, (m) => m.toLowerCase()) : w;
+  return (inline ? whenInline : whenShort)(iso).replace(/ (\d{1,2}:\d{2} [ap]m)$/, " at $1");
 }
 
 /** The last backup's lines. They stay as they are while a backup runs (the button says so), and change in place when
@@ -756,7 +755,7 @@ function LastBackup({ st, frequency, hideFailure }: { st: BackupStatus; frequenc
   return (
     <>
       {st.lastAt ? <>{whenAt(st.lastAt)}{st.lastBytes != null ? `, ${size(st.lastBytes)}` : null}</> : "No backups yet."}
-      {st.skipped > 0 ? <span className="set-note">{st.skipped === 1 ? "1 file" : `${st.skipped} files`} couldn't be read and {st.skipped === 1 ? "was" : "were"} left out.</span> : null}
+      {st.skipped > 0 ? <span className="set-note">{plural(st.skipped, "file")} couldn't be read and {st.skipped === 1 ? "was" : "were"} left out.</span> : null}
       {st.leftOut > 0 ? <span className="set-note">{st.leftOut} large files and build folders were left out.</span> : null}
       {st.lastAt && st.checkedAt && Date.parse(st.checkedAt) > Date.parse(st.lastAt) ? <span className="set-note">Nothing has changed since. Checked {relTime(st.checkedAt)}.</span> : null}
       {failed ? <span className="set-note set-err">Last attempt {relTime(st.lastAttemptAt)} failed: {sentence(st.lastError ?? "")}</span> : null}
@@ -876,7 +875,7 @@ const NUDGE_DAYS = [0, 1, 2, 3, 4, 5];
 const GIVE_UP_DAYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
 const minuteLabel = (minute: number) => clockHM(Math.floor(minute / 60) % 24, minute % 60);
-const businessDays = (n: number) => `${n} business ${n === 1 ? "day" : "days"}`;
+const businessDays = (n: number) => plural(n, "business day");
 const withCurrent = (options: number[], current: number) => (options.includes(current) ? options : [...options, current].sort((a, b) => a - b));
 
 const NOTIFY_MODES: { value: NotifyMode; label: string; desc: string }[] = [

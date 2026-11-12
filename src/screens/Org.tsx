@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Company, EmployeeView, OrgSnapshot, PersonView } from "../api/types";
 import { useShell } from "../Shell";
-import { OrgChart, YouCard, type OrgChartHandle, type OrgView } from "../components/OrgChart";
+import { OrgChart, YouCard, type OrgChartHandle } from "../components/OrgChart";
 import { OrgOutline } from "../components/OrgChartOutline";
 import { startFold, type Fold, type FoldTarget } from "../components/OrgChartFold";
 import { EmployeePanel } from "../components/panel/EmployeePanel";
@@ -10,7 +10,7 @@ import { YouPanel } from "../components/panel/YouPanel";
 import { TEMPLATES } from "../components/HireSheet";
 import { Icon } from "../components/Icon";
 import { ErrorNote, Skeleton } from "../components/ui";
-import { YOU_ID } from "../lib/org";
+import { YOU_ID, type OrgView } from "../lib/org";
 import { refreshOrg, useOrg } from "../lib/hooks";
 import { navigate, openMember, type PanelTab, type Route } from "../lib/router";
 import "./Org.css";

@@ -6,7 +6,7 @@ import { refreshOrg, useCatalog } from "../../lib/hooks";
 import { toast } from "../../lib/toasts";
 import { Icon } from "../Icon";
 import { SkillPicker } from "../SkillPicker";
-import { ErrorNote, Skeleton, SlideOver } from "../ui";
+import { ErrorNote, SheetHead, Skeleton, SlideOver } from "../ui";
 
 export type OrganizeRun = Run & { kind: Extract<Run["kind"], { type: "organize" }> };
 export const isOrganize = (r: Run): r is OrganizeRun => r.kind.type === "organize";
@@ -33,13 +33,11 @@ export function ImportSheet({ e, preselect, onClose }: { e: EmployeeView; presel
   };
   return (
     <SlideOver open={open} onClose={onClose} width={620} label={`Import skills into ${name}'s family`}>
-      <header className="sheet-head">
-        <div className="stack">
-          <h2 className="h-lg">Import skills</h2>
-          <p className="muted">{name} gets their own copy of each skill, then organizes them into one family: grouped, merged where they overlap, and written the way {name} writes skills.</p>
-        </div>
-        <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
-      </header>
+      <SheetHead
+        title="Import skills"
+        lede={<>{name} gets their own copy of each skill, then organizes them into one family: grouped, merged where they overlap, and written the way {name} writes skills.</>}
+        onClose={onClose}
+      />
       <div className="sheet-body import-body">
         <div className="stack" style={{ gap: 12 }}>
           <SkillPicker mode="import" catalog={catalog.data} keys={keys} builtins={false} onChange={(v) => setKeys(v.keys)} />
@@ -95,16 +93,14 @@ export function OriginalsSheet({ e, run, onClose }: { e: EmployeeView; run: Orga
   const toggle = (n: string) => setPicked((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]));
   return (
     <SlideOver open={run !== null} onClose={onClose} width={560} label="Your original skills">
-      <header className="sheet-head">
-        <div className="stack">
-          <h2 className="h-lg">{name} now has their own copies of these skills</h2>
-          <p className="muted">
-            {name} will manage, change and improve them. They aren't connected to your originals: nothing {name} changes reaches yours, and nothing you change reaches theirs.
-            Your originals stay in Claude Code, unchanged. If you no longer need them, you can remove them here.
-          </p>
-        </div>
-        <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
-      </header>
+      <SheetHead
+        title={<>{name} now has their own copies of these skills</>}
+        lede={<>
+          {name} will manage, change and improve them. They aren't connected to your originals: nothing {name} changes reaches yours, and nothing you change reaches theirs.
+          Your originals stay in Claude Code, unchanged. If you no longer need them, you can remove them here.
+        </>}
+        onClose={onClose}
+      />
       <div className="sheet-body import-body">
         {!list && !err ? <div className="stack" style={{ gap: 8 }}><Skeleton /><Skeleton w="80%" /><Skeleton w="60%" /></div> : null}
         {list ? (

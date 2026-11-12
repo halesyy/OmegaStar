@@ -7,7 +7,7 @@ import { refreshConversations, useConversations, useOrg } from "../../lib/hooks"
 import { pruneMarks, seenSince, useMarks, type Marks } from "../../lib/marks";
 import { nextWake, threadStatus, type Status, type StatusContext } from "../../lib/status";
 import { conversationOf, threadFocus } from "../../lib/threads";
-import { kindNames } from "../RunRow";
+import { kindNames } from "../../lib/workTitle";
 
 /** A thread with what the Inbox and the conversation header show about it. `title` names it as the rest of the app
  *  does. */

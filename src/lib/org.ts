@@ -151,3 +151,23 @@ export function reportsToEffect(o: OrgShape, to: string | null): { error: string
   const moved = t.employees.filter((e) => e.managerId === null && o.employees.find((x) => x.id === e.id)?.managerId !== null);
   return { error, agentsToYou: moved.map((e) => e.name) };
 }
+
+export type OrgView = "everyone" | "employees" | "people";
+
+/** Nearest node above `id` that is visible under the current view (you always are), so filtering never orphans a subtree. */
+function visibleParent(org: OrgShape, id: string, visible: Set<string>): string | null {
+  const seen = new Set<string>();
+  let cur = up(org, id);
+  while (cur !== null && cur !== YOU_ID && !visible.has(cur) && !seen.has(cur)) {
+    seen.add(cur);
+    cur = up(org, cur);
+  }
+  return cur !== null && (cur === YOU_ID || visible.has(cur)) ? cur : null;
+}
+
+/** Everyone the view shows, you first, each with the visible member they hang from. */
+export function visibleMembers(org: OrgShape, view: OrgView): { id: string; parentId: string | null }[] {
+  const shown = [...(view === "people" ? [] : org.employees), ...(view === "employees" ? [] : org.people)];
+  const visible = new Set(shown.map((m) => m.id));
+  return [YOU_ID, ...visible].map((id) => ({ id, parentId: visibleParent(org, id, visible) }));
+}

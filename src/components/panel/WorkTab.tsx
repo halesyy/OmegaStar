@@ -3,11 +3,12 @@ import { call } from "../../api/client";
 import type { EmployeeView, Run, ScheduleDraft } from "../../api/types";
 import { dayHeading, firstName } from "../../lib/format";
 import { refreshOrg, useOrg, useQuery } from "../../lib/hooks";
+import { isLive } from "../../lib/threads";
+import { workTitle } from "../../lib/workTitle";
 import { RunRow } from "../RunRow";
 import { ErrorNote, Section, Skeleton } from "../ui";
 import { blankSchedule, ScheduleEditor, Schedules } from "./Schedules";
 import { Icon } from "../Icon";
-import { workTitle } from "../OrgChart";
 import { openChat, openRun } from "../../lib/router";
 
 export function groupByDay(runs: Run[]): { day: string; runs: Run[] }[] {
@@ -32,7 +33,7 @@ export function WorkTab({ e }: { e: EmployeeView }) {
   const failed = e.presence === "attention" && e.lastRun ? e.lastRun : null;
   // Anything going right now, conversations included: asking for work in one is how most of it starts.
   // Everything else is history.
-  const live = useMemo(() => (q.data ?? []).filter((r) => r.state === "running" || r.state === "queued"), [q.data]);
+  const live = useMemo(() => (q.data ?? []).filter(isLive), [q.data]);
   const groups = useMemo(() => groupByDay((q.data ?? []).filter((r) => !live.includes(r) && r.id !== failed?.id)), [q.data, live, failed]);
 
   if (editing) return <ScheduleEditor e={e} initial={editing} onDone={() => { setEditing(null); refreshOrg(); }} />;

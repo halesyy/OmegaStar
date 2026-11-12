@@ -1,9 +1,10 @@
 import { useLayoutEffect, useMemo, useRef } from "react";
 import type { Company, EmployeeView, PersonView } from "../api/types";
-import { YOU_ID } from "../lib/org";
+import { employeeState, liveLines, personLine, type StateTone } from "../lib/memberState";
+import { YOU_ID, visibleMembers, type OrgView } from "../lib/org";
 import { treeOrder } from "../lib/orgLayout";
 import { useScrollFade } from "../lib/scrollFade";
-import { NameParts, employeeState, liveLines, personLine, textWidth, visibleMembers, type OrgView, type StateTone } from "./OrgChart";
+import { NameParts, textWidth } from "./OrgChart";
 import { Avatar } from "./ui";
 
 // Row geometry: the tree lines are drawn from it, so it is fixed (Org.css keeps the same numbers).

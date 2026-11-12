@@ -91,6 +91,19 @@ export function SlideOver({ open, onClose, width = 760, children, label, returnF
   );
 }
 
+/** A slide-over's title, a line under it, and its close button. */
+export function SheetHead({ title, lede, onClose }: { title: ReactNode; lede: ReactNode; onClose: () => void }) {
+  return (
+    <header className="sheet-head">
+      <div className="stack">
+        <h2 className="h-lg">{title}</h2>
+        <p className="muted">{lede}</p>
+      </div>
+      <button className="btn btn-ghost btn-icon" aria-label="Close" onClick={onClose}><Icon name="close" /></button>
+    </header>
+  );
+}
+
 // ---------------------------------------------------------------- Inline confirm
 
 export function ConfirmButton({ label, confirmLabel, question, onConfirm, icon, className, size = "", ariaLabel, tip }: {

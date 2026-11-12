@@ -7,7 +7,7 @@ import { toast } from "../../lib/toasts";
 import type { LiveRun } from "../../lib/runs";
 import { navigate, openRun } from "../../lib/router";
 import { didNotFinish, isLive } from "../../lib/threads";
-import { kindNames } from "../RunRow";
+import { kindNames } from "../../lib/workTitle";
 import { Icon } from "../Icon";
 import { Markdown } from "../Markdown";
 import { ProposedRow, RequestedRow, toItems, type TranscriptItem } from "../Transcript";

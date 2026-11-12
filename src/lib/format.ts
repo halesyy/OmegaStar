@@ -22,6 +22,12 @@ export function firstName(name: string): string {
 /** "Kofi, Lena and Rafi". */
 export const listNames = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
+/** A count and its noun: "1 run", "3 runs", "2 people". */
+export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** The text with its first letter a capital: "due today" reads "Due today". */
+export const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 export function relTime(isoStr: string | null, now = Date.now()): string {
   if (!isoStr) return "";
   const t = Date.parse(isoStr);
@@ -171,7 +177,7 @@ export function taskLabel(text: string, files: string[]): string {
     if (cut.includes(" ")) cut = cut.slice(0, cut.lastIndexOf(" "));
     label = `${cut.replace(LABEL_ENDS, "")}…`;
   }
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  return capitalize(label);
 }
 
 /** An age in the short form list rows line up on: "now", "4m", "3h", "2d", "5w"; past a year, the year. */

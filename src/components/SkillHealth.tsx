@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { call, errorMessage } from "../api/client";
 import type { Check, EmployeeView, HealthFinding, HealthKind, SkillHealth as Health } from "../api/types";
-import { firstName, relTime } from "../lib/format";
+import { capitalize, firstName, relTime } from "../lib/format";
 import { useQuery } from "../lib/hooks";
 import { toast } from "../lib/toasts";
 import { openMember, openRun } from "../lib/router";
+import { isLive } from "../lib/threads";
 import { Icon } from "./Icon";
 import { ConfirmButton, Section } from "./ui";
 import "./SkillHealth.css";
@@ -88,8 +89,8 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
   const [busy, setBusy] = useState(false);
   const open = (checks.data ?? []).filter((c) => c.state === "open");
   const overdue = open.filter((c) => dueLabel(c).late).length;
-  const active = (runs.data ?? []).find((r) => r.state === "queued" || r.state === "running");
-  const last = (runs.data ?? []).find((r) => r.state !== "queued" && r.state !== "running");
+  const active = (runs.data ?? []).find(isLive);
+  const last = (runs.data ?? []).find((r) => !isLive(r));
   const waiting = last && last.proposed && !last.approvedAt && !last.archivedAt ? last : undefined;
   // Overdue checks are listed with their dates, so they are not repeated in the findings.
   const findings = health.findings.filter((f) => f.kind !== "overdueCheck");
@@ -142,7 +143,7 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
                 <li key={c.id} className="hf-row chk-row">
                   <div className="hf-body">
                     <span className="chk-what">{c.what}</span>
-                    <span className="hf-detail"><span className={due.late ? "upkeep-late" : ""}>{due.text[0].toUpperCase() + due.text.slice(1)}</span> · {c.how}</span>
+                    <span className="hf-detail"><span className={due.late ? "upkeep-late" : ""}>{capitalize(due.text)}</span> · {c.how}</span>
                   </div>
                   <ConfirmButton label="Drop" className="btn btn-ghost" size="btn-sm" question="Stop tracking it?" confirmLabel="Drop it" onConfirm={() => drop(c.id)} />
                 </li>
