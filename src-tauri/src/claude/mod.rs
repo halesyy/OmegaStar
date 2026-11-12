@@ -1,13 +1,16 @@
 //! Everything that knows the Claude Code CLI: locating it, account status, turning a run into an
 //! invocation (argv, files), spawning and killing it, and probing usage. The handbook and framing
-//! live in `prompt`, stream-json parsing in `stream`, and the reply judge in `judge`.
+//! live in `prompt`, the per-run settings in `settings`, stream-json parsing in `stream`, and the
+//! reply judge in `judge`.
 
 mod judge;
 mod prompt;
+mod settings;
 mod stream;
 
 pub use judge::*;
 pub use prompt::*;
+pub use settings::*;
 pub use stream::*;
 
 use crate::model::*;
