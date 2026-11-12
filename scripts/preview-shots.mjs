@@ -8,15 +8,15 @@
 // --only keeps the shots whose file name contains the text ("inbox--", "--dark--", "org--panel"); it replaces just
 // those in the folder and in its manifest.
 // It reuses a dev server already serving this folder (on 1420), else starts one. It drives Google Chrome with
-// playwright-core from the Stageshow skill's install (cd ~/.claude/skills/stageshow && npm install), or from
-// $PLAYWRIGHT_CORE; it adds nothing to this project's dependencies.
+// playwright-core from $PLAYWRIGHT_CORE, or wherever Node finds it (npm install --no-save playwright-core); it adds
+// nothing to this project's dependencies.
 //
 // The browser's clock stands still at one moment (CLOCK, Sydney time, en-AU), so "2h ago", "Today" and the day
 // headings come out the same whenever the shots are taken. Timers still run, so live work still streams.
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -206,11 +206,11 @@ function options(argv) {
 
 function playwright() {
   const require = createRequire(import.meta.url);
-  const places = [process.env.PLAYWRIGHT_CORE, join(homedir(), ".claude/skills/stageshow/node_modules/playwright-core")].filter(Boolean);
+  const places = [process.env.PLAYWRIGHT_CORE, "playwright-core"].filter(Boolean);
   for (const place of places) {
     try { return require(place); } catch { /* next */ }
   }
-  fail("playwright-core not found. Install the Stageshow skill's own dependencies:\n  cd ~/.claude/skills/stageshow && npm install\nor set PLAYWRIGHT_CORE to a playwright-core folder.");
+  fail("playwright-core not found. Set PLAYWRIGHT_CORE to a playwright-core folder, or install it here without saving:\n  npm install --no-save playwright-core");
 }
 
 /** The dev server serves this folder: Vite only serves files under its own root through /@fs/. */

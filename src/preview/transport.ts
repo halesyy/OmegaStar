@@ -1,6 +1,7 @@
 // The browser preview's Office: every command and event of src/api/types.ts, answered from the invented office in
 // office.ts. Loaded by src/api/client.ts only under `npm run dev` outside Tauri, so production never contains it.
 // The URL picks what it shows; README.md beside this file lists every option.
+import type { Transport } from "../api/client";
 import type {
   AnswerHow, Card, CardReply, CommandName, Commands, Employee, EmployeeView, EventName, Events, HumanRequest, OrgSnapshot,
   Run, RunEvent, RunKind, Thread,
@@ -26,11 +27,6 @@ const STATES = [
   "live-more", "thread-error", "live-arrives", "live-ends",
 ] as const;
 type State = (typeof STATES)[number];
-
-type PreviewTransport = {
-  invoke<K extends CommandName>(name: K, args: Commands[K]["args"]): Promise<Commands[K]["ret"]>;
-  listen<E extends EventName>(name: E, handler: (payload: Events[E]) => void): Promise<() => void>;
-};
 
 type Handlers = { [K in CommandName]: (args: Commands[K]["args"]) => Commands[K]["ret"] | Promise<Commands[K]["ret"]> };
 
@@ -103,7 +99,7 @@ function nextFires([min, hour, dom, , dow]: string[]): string[] {
   return out;
 }
 
-export function previewTransport(): PreviewTransport {
+export function previewTransport(): Transport {
   const params = new URLSearchParams(location.search);
   const state: State = STATES.find((s) => s === params.get("preview")) ?? "full";
   const w = worldFor(state);

@@ -111,5 +111,5 @@ states; the sidebar expanded at every size and with the macOS title bar's room; 
 armed button; the palette finding nothing.
 
 It reuses a dev server already serving this folder on port 1420, or starts one. It needs Google Chrome and
-`playwright-core` from the Stageshow skill (`cd ~/.claude/skills/stageshow && npm install`), or `PLAYWRIGHT_CORE` set to
-a `playwright-core` folder. Nothing is added to this project's dependencies.
+`playwright-core`: set `PLAYWRIGHT_CORE` to a `playwright-core` folder, or install it here with
+`npm install --no-save playwright-core`. Nothing is added to this project's dependencies.

@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square"></a>
-  <img alt="Platforms: macOS and Windows" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey?style=flat-square">
+  <img alt="Platforms: macOS, Windows and Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square">
   <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-orange?style=flat-square">
   <img alt="Requires Claude Code" src="https://img.shields.io/badge/requires-Claude%20Code-555555?style=flat-square">
 </p>
