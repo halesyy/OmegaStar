@@ -51,12 +51,7 @@ impl Office {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, task, temp_dir};
-
-    /// An employee reporting to `manager_id`, or to you.
-    fn employee(name: &str, manager_id: Option<&str>) -> Employee {
-        Employee { slug: name.to_lowercase(), name: name.into(), manager_id: manager_id.map(String::from), chat_session: format!("chat-{name}"), ..fixtures::employee() }
-    }
+    use crate::fixtures::{employee_named, task, temp_dir};
 
     /// Saves a run in `state`; a finished one ended `ago` minutes back. Returns it as saved.
     fn run(db: &Store, e: &Employee, kind: RunKind, state: RunState, ago: i64, session: Option<&str>) -> Run {
@@ -75,8 +70,8 @@ mod tests {
     fn conversations_gather_every_open_thread_once() {
         let dir = temp_dir("conversations");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let ada = employee("Ada", None);
-        let bo = employee("Bo", Some(&ada.id));
+        let ada = employee_named("Ada");
+        let bo = Employee { manager_id: Some(ada.id.clone()), ..employee_named("Bo") };
         db.save_employee(&ada).unwrap();
         db.save_employee(&bo).unwrap();
 

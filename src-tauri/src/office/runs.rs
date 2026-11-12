@@ -1569,11 +1569,7 @@ pub(super) fn stderr_tail(stderr: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, acme, open_office, task, temp_dir, temp_path};
-
-    fn employee(clearance: Clearance) -> Employee {
-        Employee { clearance, ..fixtures::employee() }
-    }
+    use crate::fixtures::{self, acme, employee_named, open_office, task, temp_dir, temp_path};
 
     fn outcome(ok: bool, subtype: &str, text: &str, limit: Option<Limit>) -> Outcome {
         Outcome { ok, text: text.into(), subtype: subtype.into(), turns: 2, duration_ms: 10, denials: vec![], limit, notice: false }
@@ -1610,7 +1606,7 @@ mod tests {
     #[tokio::test]
     async fn a_newer_card_sends_the_answers_its_run_held() {
         let dir = temp_dir("replace-held");
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         let card = |q: &str, key: &str| Card::new(q, None, Some(key.into()), CardAsk::Choices { choices: vec!["Go".into(), "Not now".into()], recommended: 0 });
         let (root, newer) = {
             let db = Store::open(&dir.join("office.db")).unwrap();
@@ -1683,7 +1679,7 @@ mod tests {
     #[tokio::test]
     async fn your_reply_reaches_a_run_as_it_works() {
         let dir = temp_path("steer");
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         let mut run = Run::new(&ada.id, RunKind::Manual, "Count the stock.".into(), now());
         run.state = RunState::Running;
         let office = held_office(&dir, &[&ada], &[&run]).await;
@@ -1711,7 +1707,7 @@ mod tests {
     #[tokio::test]
     async fn a_routine_run_you_wrote_into_waits_for_you_when_a_later_one_moves_on() {
         let dir = temp_path("steered-routine");
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         let routine = |mins: i64, state: RunState, steered: bool| {
             // To the millisecond, as the store keeps when a run was made.
             let at = Ts::from_timestamp_millis((now() - chrono::Duration::minutes(mins)).timestamp_millis()).unwrap();
@@ -1742,7 +1738,7 @@ mod tests {
     #[tokio::test]
     async fn a_turn_held_by_the_cap_keeps_its_place_in_its_session() {
         let dir = temp_dir("cap-order");
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.save_employee(&ada).unwrap();
@@ -1812,7 +1808,7 @@ mod tests {
     #[tokio::test]
     async fn a_colleagues_question_never_waits_for_a_lane() {
         let dir = temp_path("fast-lane");
-        let (ada, bo) = (employee(Clearance::Supervised), Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), ..employee(Clearance::Supervised) });
+        let (ada, bo) = (fixtures::employee(), Employee { slug: "bo".into(), ..fixtures::employee() });
         let office = claiming_office(&dir, &[&ada, &bo]).await;
         set_cap(&office, 1);
         // Bo waits on what they handed Ada, so it skips the cap, but it fills Ada's one lane.
@@ -1833,9 +1829,8 @@ mod tests {
     #[tokio::test]
     async fn a_paused_handoff_waits_for_its_time() {
         let dir = temp_dir("not-before");
-        let ada = employee(Clearance::Supervised);
-        let named = |name: &str| Employee { name: name.into(), slug: name.to_lowercase(), chat_session: format!("chat-{name}"), ..employee(Clearance::Supervised) };
-        let (bo, cy) = (named("Bo"), named("Cy"));
+        let ada = fixtures::employee();
+        let (bo, cy) = (employee_named("Bo"), employee_named("Cy"));
         let (paused, due) = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             for e in [&ada, &bo, &cy] {
@@ -1864,7 +1859,7 @@ mod tests {
     #[tokio::test]
     async fn an_employee_does_as_much_background_work_at_once_as_the_cap_allows() {
         let dir = temp_path("lanes");
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         let office = claiming_office(&dir, &[&ada]).await;
         set_cap(&office, 3);
         queue(&office, &ada, RunKind::Manual, None, RunState::Running);
@@ -1882,8 +1877,8 @@ mod tests {
     #[tokio::test]
     async fn a_routine_never_runs_twice_at_once_and_a_tidy_waits_for_quiet() {
         let dir = temp_path("one-routine");
-        let ada = employee(Clearance::Supervised);
-        let bo = Employee { id: uuid::Uuid::new_v4().to_string(), slug: "bo".into(), chat_session: "chat-bo".into(), ..employee(Clearance::Supervised) };
+        let ada = fixtures::employee();
+        let bo = Employee { slug: "bo".into(), chat_session: "chat-bo".into(), ..fixtures::employee() };
         let office = claiming_office(&dir, &[&ada, &bo]).await;
         let tidy = || RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
         let routine = |id: &str, slot: i64| RunKind::Scheduled { schedule_id: id.into(), slot: now() + chrono::Duration::minutes(slot), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
@@ -1918,7 +1913,7 @@ mod tests {
     #[tokio::test]
     async fn finished_transcripts_lose_their_images_once() {
         let dir = temp_path("compact");
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         let office = claiming_office(&dir, &[&ada]).await;
         let done = queue(&office, &ada, RunKind::Manual, None, RunState::Succeeded);
         let working = queue(&office, &ada, RunKind::Manual, None, RunState::Running);
@@ -1986,7 +1981,7 @@ mod tests {
     #[test]
     fn a_skill_edit_is_recorded_once_and_credited_to_the_run_that_wrote_it() {
         let (dir, db) = opening_store();
-        let e = employee(Clearance::Supervised);
+        let e = fixtures::employee();
         db.save_employee(&e).unwrap();
         let since = now() - chrono::Duration::minutes(1);
         let edit = |before: &str, after: &str| own_skills::FileChange {
@@ -2019,7 +2014,7 @@ mod tests {
     #[test]
     fn a_new_conversation_knows_the_last_one() {
         let (dir, db) = opening_store();
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         db.save_employee(&ada).unwrap();
         finished(&db, &ada, task("Book the venue"), 90, "t1", "Booked the venue for Thursday.");
         let turn = Run::new(&ada.id, task("The offsite"), "Where are we on the offsite?".into(), now());
@@ -2033,7 +2028,7 @@ mod tests {
     #[test]
     fn a_routine_hears_your_answers_to_cards_raised_elsewhere() {
         let (dir, db) = opening_store();
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         db.save_employee(&ada).unwrap();
         let mut asked = finished(&db, &ada, task("Tidy the shop"), 90, "t1", "One question.");
         let mut card = Card::new("Repaint the sign?", None, Some("ask:sign".into()), CardAsk::Choices { choices: vec!["Repaint".into()], recommended: 0 });
@@ -2053,7 +2048,7 @@ mod tests {
     #[test]
     fn a_resumed_turn_hears_only_what_is_new_elsewhere() {
         let (dir, db) = opening_store();
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         db.save_employee(&ada).unwrap();
         let sweep = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: false, model: None, effort: None, review: false };
         let first = finished(&db, &ada, task("Plan the offsite"), 180, "t1", "Earlier turn.");
@@ -2074,8 +2069,8 @@ mod tests {
     #[test]
     fn a_manager_hears_what_her_reports_did_on_their_own() {
         let (dir, db) = opening_store();
-        let ada = employee(Clearance::Supervised);
-        let mut bo = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
+        let mut bo = fixtures::employee();
         bo.name = "Bo".into();
         bo.slug = "bo".into();
         bo.chat_session = "chat-bo".into();
@@ -2101,7 +2096,7 @@ mod tests {
     #[tokio::test]
     async fn a_routine_that_works_again_files_its_failures() {
         let dir = temp_path("streak");
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         let office = claiming_office(&dir, &[&ada]).await;
         let run = |mins: i64, state: RunState| {
             let at = now() - chrono::Duration::minutes(mins);
@@ -2248,7 +2243,7 @@ mod tests {
     fn a_requeued_run_is_queued_with_its_changes() {
         let dir = temp_dir("requeue");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let e = employee(Clearance::Supervised);
+        let e = fixtures::employee();
         db.save_employee(&e).unwrap();
         let mut run = Run::new(&e.id, RunKind::Manual, "go".into(), now());
         assert!(db.insert_run(&run, &run.id).unwrap());
@@ -2287,7 +2282,7 @@ mod tests {
     #[tokio::test]
     async fn a_run_cut_off_by_a_restart_carries_on_without_reporting_back() {
         let dir = temp_dir("restart");
-        let ada = employee(Clearance::Supervised);
+        let ada = fixtures::employee();
         let child = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.save_employee(&ada).unwrap();
@@ -2313,7 +2308,7 @@ mod tests {
     fn a_newer_routine_card_replaces_the_older_ones() {
         let dir = temp_dir("cards");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let e = employee(Clearance::Supervised);
+        let e = fixtures::employee();
         db.save_employee(&e).unwrap();
         let items = || CardAsk::Items { verb: "Post".into(), items: vec![CardItem { id: "d1".into(), text: "Draft one".into(), about: None, recommended: true }] };
         let card = |r: &mut Run, ask: CardAsk| r.cards = vec![Card::new("Post these?", None, Some("ask:drafts".into()), ask)];
@@ -2382,7 +2377,7 @@ mod tests {
     #[test]
     fn a_newer_card_replaces_ones_put_off_and_files_only_what_needs_nothing() {
         let (dir, db) = opening_store();
-        let e = employee(Clearance::Supervised);
+        let e = fixtures::employee();
         db.save_employee(&e).unwrap();
         let choices = || CardAsk::Choices { choices: vec!["Post".into()], recommended: 0 };
         let routine = |ago: i64, state: RunState| {
@@ -2435,7 +2430,7 @@ mod tests {
     #[test]
     fn answers_that_come_back_into_a_conversation_keep_each_others_cards() {
         let (dir, db) = opening_store();
-        let e = employee(Clearance::Supervised);
+        let e = fixtures::employee();
         db.save_employee(&e).unwrap();
         let talk = finished(&db, &e, task("Plan the launch"), 60, "s1", "Asking Bo and Cy.");
         // Each colleague's answer comes back as a turn of the conversation, with a card about its own thing.
@@ -2466,8 +2461,8 @@ mod tests {
     #[test]
     fn only_a_matching_rule_covers_a_supervised_denial() {
         let d = Denial { tool: "mcp__claude-in-chrome__get_page_text".into(), brief: String::new(), suggested_rule: "mcp__claude-in-chrome__get_page_text".into() };
-        assert!(covered(&employee(Clearance::Autonomous), &[], &d));
-        let supervised = employee(Clearance::Supervised);
+        assert!(covered(&Employee { clearance: Clearance::Autonomous, ..fixtures::employee() }, &[], &d));
+        let supervised = fixtures::employee();
         assert!(!covered(&supervised, &["Bash(git:*)".into()], &d));
         assert!(covered(&supervised, &[claude::CHROME_RULE.into()], &d));
         assert!(covered(&supervised, std::slice::from_ref(&d.tool), &d));

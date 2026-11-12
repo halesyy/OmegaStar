@@ -577,7 +577,7 @@ fn dated(l: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, acme, open_office, task, temp_dir};
+    use crate::fixtures::{acme, employee_named, open_office, task, temp_dir};
 
     fn check(employee_id: &str, what: &str, due_at: Ts) -> Check {
         Check {
@@ -678,7 +678,7 @@ mod tests {
         let db = Store::open(&dir.join("office.db")).unwrap();
         db.set_company(&acme()).unwrap();
         let hire = |slug: &str| {
-            let e = employee(slug);
+            let e = employee_named(slug);
             db.save_employee(&e).unwrap();
             e
         };
@@ -780,10 +780,6 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    fn employee(slug: &str) -> Employee {
-        Employee { slug: slug.into(), name: slug.into(), chat_session: format!("chat-{slug}"), ..fixtures::employee() }
-    }
-
     /// An office of Pat's at Acme with `e` on it, and its folder.
     async fn office_with(e: &Employee) -> (Office, PathBuf) {
         let dir = temp_dir("schedules");
@@ -815,7 +811,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_employee_gets_one_review_once() {
-        let ada = employee("ada");
+        let ada = employee_named("ada");
         let (office, dir) = office_with(&ada).await;
         let reviews = office.schedules(&ada.id).unwrap();
         assert_eq!(reviews.len(), 1);
@@ -852,7 +848,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_review_saved_without_its_flag_is_the_review_again() {
-        let ada = employee("ada");
+        let ada = employee_named("ada");
         let (office, dir) = office_with(&ada).await;
         let seeded = Schedule { next_fire: None, ..office.schedules(&ada.id).unwrap().remove(0) };
         // As an older build left it: no flag and the first wording, moved to another day, off, on a model of its own.
@@ -888,7 +884,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_check_comes_due_six_hours_out_at_the_soonest() {
-        let ada = employee("ada");
+        let ada = employee_named("ada");
         let (office, dir) = office_with(&ada).await;
         let set = |days: f64| office.check_later_tool("run-1", &ada, &json!({ "what": format!("Is the build green after {days} days?"), "how": "Open the CI page", "inDays": days })).unwrap();
 
@@ -907,7 +903,7 @@ mod tests {
 
     #[tokio::test]
     async fn setting_a_check_again_moves_the_open_one() {
-        let ada = employee("ada");
+        let ada = employee_named("ada");
         let (office, dir) = office_with(&ada).await;
         let set = |what: &str, days: f64, run_id: &str| office.check_later_tool(run_id, &ada, &json!({ "what": what, "how": "Open the store listing", "inDays": days }));
         let first: Check = serde_json::from_value(set("Did the listing go live?", 1.0, "run-1").unwrap()["check"].clone()).unwrap();
@@ -939,7 +935,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_check_set_in_a_conversation_you_are_in_comes_back_into_it() {
-        let (ada, bo, cy) = (employee("ada"), employee("bo"), employee("cy"));
+        let (ada, bo, cy) = (employee_named("ada"), employee_named("bo"), employee_named("cy"));
         let dir = temp_dir("check-back");
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
@@ -1003,7 +999,7 @@ mod tests {
     #[tokio::test]
     async fn a_schedule_kept_to_business_hours_skips_slots_outside_them() {
         use chrono::TimeZone;
-        let ada = employee("ada");
+        let ada = employee_named("ada");
         let (office, dir) = office_with(&ada).await;
         // 9 to 5, Monday to Friday, on this computer's clock. 8 November 2026 is a Sunday.
         let slot = |day: u32, hour: u32| Local.with_ymd_and_hms(2026, 11, day, hour, 0, 0).unwrap().with_timezone(&Utc);
@@ -1033,7 +1029,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_tick_brings_back_a_card_whose_day_has_come_even_while_paused() {
-        let ada = employee("ada");
+        let ada = employee_named("ada");
         let (office, dir) = office_with(&ada).await;
         office.set_paused(true).unwrap();
         let until = now() + chrono::Duration::hours(3);

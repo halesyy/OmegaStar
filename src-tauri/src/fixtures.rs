@@ -40,6 +40,11 @@ pub fn employee() -> Employee {
     }
 }
 
+/// A tester like Ada, called `name`.
+pub fn employee_named(name: &str) -> Employee {
+    Employee { slug: name.to_lowercase(), name: name.into(), chat_session: format!("chat-{name}"), ..employee() }
+}
+
 /// Sam, a bookkeeper who reports to you, with a fresh id.
 pub fn person() -> Person {
     Person {

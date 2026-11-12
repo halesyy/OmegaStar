@@ -442,11 +442,7 @@ fn headline(report: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, acme, open_office, task, temp_dir};
-
-    fn employee(name: &str) -> Employee {
-        Employee { slug: name.to_lowercase(), name: name.into(), auto_tidy: true, chat_session: format!("chat-{name}"), ..fixtures::employee() }
-    }
+    use crate::fixtures::{self, acme, employee_named, open_office, task, temp_dir};
 
     /// Saves a run of `e` in `state`, created `ago` minutes back.
     fn run(db: &Store, e: &Employee, kind: RunKind, state: RunState, ago: i64) -> Run {
@@ -463,8 +459,8 @@ mod tests {
     fn presence_lists_live_work_running_first_then_oldest_first() {
         let dir = temp_dir("presence");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let ada = employee("Ada");
-        let bo = employee("Bo");
+        let ada = employee_named("Ada");
+        let bo = employee_named("Bo");
         db.save_employee(&ada).unwrap();
         db.save_employee(&bo).unwrap();
 
@@ -508,7 +504,7 @@ mod tests {
     #[tokio::test]
     async fn someone_who_leaves_is_cleaned_out_of_whoever_still_names_them() {
         let dir = temp_dir("left");
-        let (ada, bo, cy, dee) = (employee("Ada"), employee("Bo"), employee("Cy"), employee("Dee"));
+        let (ada, bo, cy, dee) = (employee_named("Ada"), employee_named("Bo"), employee_named("Cy"), employee_named("Dee"));
         let sam = Person { name: "Sam Lee".into(), title: "Designer".into(), ..fixtures::person() };
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
@@ -547,7 +543,7 @@ mod tests {
     #[tokio::test]
     async fn a_hire_decision_resumes_the_started_work_session_it_was_proposed_in_and_starts_fresh_otherwise() {
         let dir = temp_dir("decision");
-        let ada = employee("Ada");
+        let ada = employee_named("Ada");
         let (started, unstarted, chat) = {
             let db = Store::open(&dir.join("office.db")).unwrap();
             db.save_employee(&ada).unwrap();
@@ -569,7 +565,7 @@ mod tests {
                 employee_id: ada.id.clone(),
                 run_id: from.map(|r| r.id.clone()),
                 reason: "Design work piles up.".into(),
-                draft: employee("Cy").draft(),
+                draft: employee_named("Cy").draft(),
                 missing_skills: vec![],
                 state: ProposalState::Open,
                 note: None,
@@ -598,7 +594,7 @@ mod tests {
     fn the_status_says_their_number_their_last_report_and_what_is_next() {
         let dir = temp_dir("status");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let ada = employee("Ada");
+        let ada = employee_named("Ada");
         db.save_employee(&ada).unwrap();
         use chrono::TimeZone;
         // On this computer's clock, away from Monday's weekly review. 4 November 2026 is a Wednesday.

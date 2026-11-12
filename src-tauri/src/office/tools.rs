@@ -1578,7 +1578,7 @@ fn effort_arg(v: &str) -> Result<Option<Effort>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, acme, open_office, task, temp_path};
+    use crate::fixtures::{acme, employee_named, open_office, task, temp_path};
 
     struct Office0 {
         dir: PathBuf,
@@ -1602,7 +1602,7 @@ mod tests {
 
     /// An employee reporting to `manager_id`, or to you.
     fn employee(db: &Store, name: &str, manager_id: Option<&str>) -> Employee {
-        let e = Employee { slug: name.to_lowercase(), name: name.into(), manager_id: manager_id.map(String::from), chat_session: format!("chat-{name}"), ..fixtures::employee() };
+        let e = Employee { manager_id: manager_id.map(String::from), ..employee_named(name) };
         db.save_employee(&e).unwrap();
         e
     }

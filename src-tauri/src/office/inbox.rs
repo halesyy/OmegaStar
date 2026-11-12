@@ -793,11 +793,7 @@ pub(super) fn run_of(db: &Store, id: &str) -> Option<Run> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::{self, open_office, task, temp_dir, temp_path};
-
-    fn tester() -> Employee {
-        Employee { slug: "cy".into(), name: "Cy".into(), chat_session: "chat-cy".into(), ..fixtures::employee() }
-    }
+    use crate::fixtures::{employee_named, open_office, task, temp_dir, temp_path};
 
     /// A finished report of `e` asking a decision with a card.
     fn carded(e: &Employee) -> Run {
@@ -813,7 +809,7 @@ mod tests {
     fn a_reply_you_type_sends_what_was_held_and_answers_no_card() {
         let dir = temp_dir("typed");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let e = tester();
+        let e = employee_named("Cy");
         db.save_employee(&e).unwrap();
         let mut report = two_cards(&e);
         report.cards[1].answer = Some(CardAnswer { at: now(), how: AnswerHow::Tapped, text: "Chose: Post.".into(), held: true });
@@ -839,7 +835,7 @@ mod tests {
         let dir = temp_dir("team-week");
         let db = Store::open(&dir.join("office.db")).unwrap();
         let hire = |slug: &str, manager: Option<&Employee>| {
-            let e = Employee { slug: slug.into(), name: slug.into(), chat_session: format!("chat-{slug}"), manager_id: manager.map(|m| m.id.clone()), ..tester() };
+            let e = Employee { manager_id: manager.map(|m| m.id.clone()), ..employee_named(slug) };
             db.save_employee(&e).unwrap();
             e
         };
@@ -902,7 +898,7 @@ mod tests {
         let db = Store::open(&dir.join("office.db")).unwrap();
         let slot = "2026-10-07T12:00:00Z".parse::<Ts>().unwrap();
         let review = |slug: &str, flag: bool| {
-            let e = Employee { slug: slug.into(), name: slug.into(), chat_session: format!("chat-{slug}"), ..tester() };
+            let e = employee_named(slug);
             db.save_employee(&e).unwrap();
             let kind = RunKind::Scheduled { schedule_id: format!("review-{slug}"), slot, label: "Weekly review".into(), quiet: false, model: None, effort: None, review: true };
             let mut r = Run::new(&e.id, kind, "Review your week.".into(), slot);
@@ -931,7 +927,7 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, slug)| {
-                let e = Employee { slug: (*slug).into(), name: (*slug).into(), chat_session: format!("chat-{slug}"), ..tester() };
+                let e = employee_named(slug);
                 db.save_employee(&e).unwrap();
                 let at = slot + chrono::Duration::hours(i as i64);
                 let kind = RunKind::Scheduled { schedule_id: format!("review-{slug}"), slot: at, label: "Weekly review".into(), quiet: false, model: None, effort: None, review: true };
@@ -1011,7 +1007,7 @@ mod tests {
     #[tokio::test]
     async fn done_on_a_routine_that_keeps_failing_files_its_failures_together() {
         let dir = temp_dir("done-streak");
-        let e = tester();
+        let e = employee_named("Cy");
         let failed = |mins: i64| {
             let at = now() - chrono::Duration::minutes(mins);
             let kind = RunKind::Scheduled { schedule_id: "sweep".into(), slot: at, label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
@@ -1059,7 +1055,7 @@ mod tests {
     #[tokio::test]
     async fn retry_carries_a_failed_report_on_in_its_thread() {
         let dir = temp_dir("retry");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = |state: RunState| {
             let mut r = Run::new(&e.id, RunKind::Manual, "Count the stock.".into(), now());
             r.state = state;
@@ -1088,8 +1084,8 @@ mod tests {
     #[tokio::test]
     async fn retry_runs_a_lost_hand_off_again_so_its_report_still_goes_back() {
         let dir = temp_dir("retry-handoff");
-        let ada = tester();
-        let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let ada = employee_named("Cy");
+        let bo = employee_named("Bo");
         let mut plan = Run::new(&ada.id, RunKind::Manual, "Plan the week.".into(), now());
         plan.state = RunState::Succeeded;
         plan.ended_at = Some(now());
@@ -1125,7 +1121,7 @@ mod tests {
     fn a_check_that_worked_for_long_reports_to_the_archive() {
         let dir = temp_dir("long-check");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let e = tester();
+        let e = employee_named("Cy");
         db.save_employee(&e).unwrap();
         let check = |id: &str, mins: u64| {
             let kind = RunKind::Scheduled { schedule_id: format!("{CHECK_PREFIX}{id}"), slot: now(), label: "Check: Did it ship".into(), quiet: true, model: None, effort: None, review: false };
@@ -1197,7 +1193,7 @@ mod tests {
     #[tokio::test]
     async fn a_card_in_an_answer_that_came_back_into_a_conversation_holds_up_done() {
         let dir = temp_dir("answer-card");
-        let e = tester();
+        let e = employee_named("Cy");
         let mut task = Run::new(&e.id, task("Draft it"), "Draft it.".into(), now());
         task.state = RunState::Succeeded;
         task.ended_at = Some(now());
@@ -1216,7 +1212,7 @@ mod tests {
     #[tokio::test]
     async fn a_tap_or_an_approval_in_a_conversation_you_started_keeps_it_going() {
         let dir = temp_dir("task-tap");
-        let e = tester();
+        let e = employee_named("Cy");
         let start = |label: &str| {
             let mut r = Run::new(&e.id, task(label), format!("{label}."), now());
             r.state = RunState::Succeeded;
@@ -1239,7 +1235,7 @@ mod tests {
     #[tokio::test]
     async fn a_reply_in_an_older_chat_message_is_a_turn_of_your_conversation() {
         let dir = temp_dir("old-chat-reply");
-        let e = tester();
+        let e = employee_named("Cy");
         let mut message = Run::new(&e.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
         message.state = RunState::Succeeded;
         message.ended_at = Some(now());
@@ -1259,7 +1255,7 @@ mod tests {
     #[tokio::test]
     async fn a_tap_on_an_answer_in_an_older_chat_message_keeps_its_conversation_going() {
         let dir = temp_dir("old-chat-tap");
-        let e = tester();
+        let e = employee_named("Cy");
         let mut message = Run::new(&e.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
         message.state = RunState::Succeeded;
         message.ended_at = Some(now());
@@ -1279,7 +1275,7 @@ mod tests {
     #[tokio::test]
     async fn turns_an_older_chat_left_waiting_move_to_the_work_lane() {
         let dir = temp_dir("old-chat");
-        let e = tester();
+        let e = employee_named("Cy");
         let message = Run::new(&e.id, RunKind::Chat, "Can you draft the launch note?".into(), now());
         let came = RunKind::Answered { asked_run_id: "asked-1".into(), from: e.id.clone(), task: false, chat: true, thread: None };
         let answer = Run::new(&e.id, came, "Bo answered your question.".into(), now());
@@ -1300,9 +1296,9 @@ mod tests {
     #[tokio::test]
     async fn an_older_chat_answer_comes_back_into_the_chat_message_that_asked() {
         let dir = temp_dir("old-chat-answer");
-        let ana = Employee { slug: "ana".into(), name: "Ana".into(), chat_session: "chat-ana".into(), ..tester() };
-        let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
-        let cy = Employee { manager_id: Some(ana.id.clone()), ..tester() };
+        let ana = employee_named("Ana");
+        let bo = employee_named("Bo");
+        let cy = Employee { manager_id: Some(ana.id.clone()), ..employee_named("Cy") };
         let mut message = Run::new(&cy.id, RunKind::Chat, "Can you check the rota with Bo?".into(), now());
         message.state = RunState::Succeeded;
         message.ended_at = Some(now());
@@ -1365,7 +1361,7 @@ mod tests {
     fn the_archive_holds_what_reached_you_and_needs_nothing_and_the_inbox_what_does() {
         let dir = temp_dir("archive");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let e = tester();
+        let e = employee_named("Cy");
         db.save_employee(&e).unwrap();
         let ago = |hours: f64| now() - chrono::Duration::minutes((hours * 60.0) as i64);
         let report = |hours: f64, f: &dyn Fn(&mut Run)| {
@@ -1428,7 +1424,7 @@ mod tests {
     fn a_quiet_routine_you_wrote_into_waits_in_the_inbox_until_you_mark_it_done() {
         let dir = temp_dir("steered-row");
         let db = Store::open(&dir.join("office.db")).unwrap();
-        let e = tester();
+        let e = employee_named("Cy");
         db.save_employee(&e).unwrap();
         let sweep = |mins: i64, steered: bool| {
             let at = now() - chrono::Duration::minutes(mins);
@@ -1457,7 +1453,7 @@ mod tests {
     #[tokio::test]
     async fn typing_into_a_working_report_keeps_it_for_you_unless_you_send_it_away() {
         let dir = temp_dir("steered-report");
-        let e = tester();
+        let e = employee_named("Cy");
         let mut broke = Run::new(&e.id, RunKind::Manual, "Count the stock.".into(), now());
         broke.state = RunState::Failed;
         broke.ended_at = Some(now());
@@ -1489,7 +1485,7 @@ mod tests {
     #[tokio::test]
     async fn an_open_card_keeps_its_row_in_the_inbox() {
         let dir = temp_dir("card-row");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = carded(&e);
         {
             let db = Store::open(&dir.join("office.db")).unwrap();
@@ -1533,8 +1529,8 @@ mod tests {
     #[tokio::test]
     async fn one_answer_reaches_everyone_asked_the_same_thing_and_close_ask_withdraws_one() {
         let dir = temp_dir("same-ask");
-        let ada = tester();
-        let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let ada = employee_named("Cy");
+        let bo = employee_named("Bo");
         let ask = |e: &Employee, message: &str, key: &str| {
             let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), now());
             r.state = RunState::Succeeded;
@@ -1583,7 +1579,7 @@ mod tests {
     #[tokio::test]
     async fn a_runs_answers_go_together_once_its_last_card_is_answered() {
         let dir = temp_dir("card-set");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = two_cards(&e);
         let office = held_office(&dir, &e, &[&report]).await;
         let stored = || office.db().run(&report.id).unwrap().unwrap().run;
@@ -1604,7 +1600,7 @@ mod tests {
     #[tokio::test]
     async fn a_reply_you_type_carries_the_answers_held_for_it_and_leaves_the_rest_open() {
         let dir = temp_dir("card-typed");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = two_cards(&e);
         let office = held_office(&dir, &e, &[&report]).await;
         office.answer_card(&report.id, 1, CardReply::Choice { index: 0 }).unwrap();
@@ -1625,7 +1621,7 @@ mod tests {
     #[tokio::test]
     async fn your_own_words_on_a_card_answer_it_and_wait_for_the_rest_like_a_tap() {
         let dir = temp_dir("card-text");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = two_cards(&e);
         // Someone else asking the same thing hears the same answer.
         let mut same = two_cards(&e);
@@ -1649,7 +1645,7 @@ mod tests {
     #[tokio::test]
     async fn a_question_about_a_card_goes_now_and_keeps_it_open() {
         let dir = temp_dir("card-ask");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = two_cards(&e);
         let office = held_office(&dir, &e, &[&report]).await;
         office.answer_card(&report.id, 1, CardReply::Choice { index: 0 }).unwrap();
@@ -1670,7 +1666,7 @@ mod tests {
     #[tokio::test]
     async fn a_question_about_a_card_leaves_a_later_tap_to_file_the_row() {
         let dir = temp_dir("card-ask-tap");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = carded(&e);
         let office = held_office(&dir, &e, &[&report]).await;
         office.answer_card(&report.id, 0, CardReply::Ask { text: "What does a boost cost?".into() }).unwrap();
@@ -1684,7 +1680,7 @@ mod tests {
     #[tokio::test]
     async fn a_card_put_off_still_waits_until_it_is_settled() {
         let dir = temp_dir("put-off");
-        let e = tester();
+        let e = employee_named("Cy");
         let keyed = |key: &str| {
             let mut r = carded(&e);
             r.cards[0].key = Some(key.into());
@@ -1720,7 +1716,7 @@ mod tests {
     #[tokio::test]
     async fn approving_a_block_keeps_news_you_have_not_seen() {
         let dir = temp_dir("approve-news");
-        let e = tester();
+        let e = employee_named("Cy");
         let mut blocked = with_news(&e, false);
         blocked.denials = vec![Denial { tool: "Bash".into(), brief: "git push".into(), suggested_rule: "Bash(git push:*)".into() }];
         let office = held_office(&dir, &e, &[&blocked]).await;
@@ -1734,7 +1730,7 @@ mod tests {
     #[tokio::test]
     async fn retry_sends_an_answer_once_whatever_omega_star_queued_again() {
         let dir = temp_dir("retry-answer");
-        let ada = tester();
+        let ada = employee_named("Cy");
         let answer = |asked: &str, mins: i64, state: RunState| {
             let came = RunKind::Answered { asked_run_id: asked.into(), from: "e-bo".into(), task: false, chat: false, thread: None };
             let mut r = Run::new(&ada.id, came, format!("Bo answered your question {asked}."), now() - chrono::Duration::minutes(mins));
@@ -1769,7 +1765,7 @@ mod tests {
     #[tokio::test]
     async fn closing_the_last_open_card_sends_the_answers_held_for_it() {
         let dir = temp_dir("card-closed");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = two_cards(&e);
         let office = held_office(&dir, &e, &[&report]).await;
         office.answer_card(&report.id, 1, CardReply::Choice { index: 0 }).unwrap();
@@ -1785,7 +1781,7 @@ mod tests {
     #[tokio::test]
     async fn later_brings_a_card_back_by_itself_once_then_parks_it() {
         let dir = temp_dir("later");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = carded(&e);
         let office = held_office(&dir, &e, &[&report]).await;
         let stored = || office.db().run(&report.id).unwrap().unwrap().run;
@@ -1823,7 +1819,7 @@ mod tests {
     #[tokio::test]
     async fn not_now_from_an_older_inbox_is_later_until_tomorrow_and_no_drops_it() {
         let dir = temp_dir("not-now");
-        let e = tester();
+        let e = employee_named("Cy");
         let later = carded(&e);
         let mut no = carded(&e);
         no.cards[0].key = Some("ask:recap".into());
@@ -1855,7 +1851,7 @@ mod tests {
     #[tokio::test]
     async fn news_keeps_its_row_until_seen_and_holds_up_no_answer() {
         let dir = temp_dir("news");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = with_news(&e, true);
         let office = held_office(&dir, &e, &[&report]).await;
         let stored = || office.db().run(&report.id).unwrap().unwrap().run;
@@ -1874,7 +1870,7 @@ mod tests {
     #[tokio::test]
     async fn your_words_on_news_follow_it_up_and_count_as_seeing_it() {
         let dir = temp_dir("news-words");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = with_news(&e, false);
         let office = held_office(&dir, &e, &[&report]).await;
         let told = office.answer_card(&report.id, 0, CardReply::Text { text: " Does it cover the outlet store? ".into() }).unwrap();
@@ -1887,7 +1883,7 @@ mod tests {
     #[tokio::test]
     async fn done_counts_as_seeing_news_and_undo_unsees_it() {
         let dir = temp_dir("news-done");
-        let e = tester();
+        let e = employee_named("Cy");
         let report = with_news(&e, false);
         let office = held_office(&dir, &e, &[&report]).await;
         let stored = || office.db().run(&report.id).unwrap().unwrap().run;
@@ -1906,8 +1902,8 @@ mod tests {
     #[tokio::test]
     async fn a_shared_key_hears_a_choice_only_where_it_is_offered() {
         let dir = temp_dir("shared-key");
-        let ada = tester();
-        let bo = Employee { slug: "bo".into(), name: "Bo".into(), chat_session: "chat-bo".into(), ..tester() };
+        let ada = employee_named("Cy");
+        let bo = employee_named("Bo");
         let ask = |e: &Employee, choices: &[&str]| {
             let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), now());
             r.state = RunState::Succeeded;
@@ -1935,7 +1931,7 @@ mod tests {
     #[tokio::test]
     async fn going_ahead_with_a_company_line_adds_it_to_the_page() {
         let dir = temp_dir("company-line");
-        let e = tester();
+        let e = employee_named("Cy");
         let proposed = |line: &str| {
             let mut r = Run::new(&e.id, RunKind::Manual, "go".into(), now());
             r.state = RunState::Succeeded;
@@ -1961,7 +1957,7 @@ mod tests {
     #[tokio::test]
     async fn chrome_dropping_in_a_chat_raises_no_card() {
         let dir = temp_dir("chrome-chat");
-        let e = tester();
+        let e = employee_named("Cy");
         let mut chat = Run::new(&e.id, RunKind::Chat, "hi".into(), now());
         chat.state = RunState::Succeeded;
         chat.ended_at = Some(now());
@@ -1977,7 +1973,7 @@ mod tests {
     #[tokio::test]
     async fn done_reaches_a_run_held_for_the_usage_limit_without_a_reply() {
         let dir = temp_dir("chore-held");
-        let e = tester();
+        let e = employee_named("Cy");
         let done = chrome_wait(&e, RunState::Succeeded);
         let held = chrome_wait(&e, RunState::Queued);
         let office = held_office(&dir, &e, &[&done, &held]).await;
@@ -1995,7 +1991,7 @@ mod tests {
     #[tokio::test]
     async fn done_on_a_working_run_clears_its_chore_headline() {
         let dir = temp_dir("chore-live");
-        let e = tester();
+        let e = employee_named("Cy");
         let done = chrome_wait(&e, RunState::Succeeded);
         let office = held_office(&dir, &e, &[&done]).await;
         let (input, _heard) = tokio::sync::mpsc::unbounded_channel();
@@ -2052,7 +2048,7 @@ mod tests {
         let dir = temp_path("inbox");
         let path = dir.join("office.db");
         fs::create_dir_all(&dir).unwrap();
-        let ada = Employee { slug: "ada".into(), name: "Ada".into(), chat_session: "chat-ada".into(), ..tester() };
+        let ada = employee_named("Ada");
         let mut report = Run::new(&ada.id, RunKind::Manual, "go".into(), now());
         report.state = RunState::Succeeded;
         report.ended_at = Some(now());
