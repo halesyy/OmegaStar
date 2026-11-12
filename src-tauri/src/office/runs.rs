@@ -111,7 +111,7 @@ impl Office {
 
     pub fn run_detail(&self, run_id: &str) -> Result<RunDetail> {
         let run = self.run(run_id)?;
-        let transcript = fs::read_to_string(self.run_dir(run_id).join(TRANSCRIPT)).unwrap_or_default();
+        let transcript = fs::read_to_string(self.transcript_path(run_id)).unwrap_or_default();
         let children = self.db().children(run_id)?;
         let events = claude::replay(&transcript, &self.employee_dir(&run.employee_id));
         Ok(RunDetail { events, run, children })
@@ -248,7 +248,7 @@ impl Office {
                 if r.not_before.is_some_and(|t| t > at) {
                     continue;
                 }
-                if gate(&r, held, account_ok, busy.contains(&r.employee_id), awake) == Gate::Skip {
+                if holds(&r, held, account_ok, busy.contains(&r.employee_id), awake) {
                     continue;
                 }
                 let lane = takes_a_lane(&r.kind);
@@ -292,22 +292,7 @@ impl Office {
             }
             active.insert(
                 r.id.clone(),
-                Active {
-                    token,
-                    employee_id: r.employee_id.clone(),
-                    beside,
-                    pid: None,
-                    cancelled: false,
-                    needs_you: vec![],
-                    cards: r.cards.clone(),
-                    score: r.score.clone(),
-                    proposed: None,
-                    verdict: false,
-                    title: None,
-                    transcript: None,
-                    input: None,
-                    waiting: vec![],
-                },
+                Active { token, employee_id: r.employee_id.clone(), beside, cards: r.cards.clone(), score: r.score.clone(), ..Default::default() },
             );
         }
         Ok(claimed)
@@ -319,10 +304,10 @@ impl Office {
         let full = too_full(free_bytes(&self.0.data_dir));
         if self.0.disk_full.swap(full, Ordering::SeqCst) != full {
             if full {
-                log!("paused work: less than 2 GB is free on the office's disk");
-                self.sink().notify("Omega Star paused work: your disk is nearly full", "Work starts again by itself once more than 2 GB is free.");
+                log!("paused work: less than {MIN_FREE_GB} GB is free on the office's disk");
+                self.sink().notify("Omega Star paused work: your disk is nearly full", &format!("Work starts again by itself once more than {MIN_FREE_GB} GB is free."));
             } else {
-                log!("resumed work: more than 2 GB is free on the office's disk again");
+                log!("resumed work: more than {MIN_FREE_GB} GB is free on the office's disk again");
             }
         }
         full
@@ -387,7 +372,7 @@ impl Office {
         // Locating claude can start a login shell, so it happens before the store is locked.
         let settings = self.db().settings()?;
         let claude_path = claude::locate(settings.as_ref().and_then(|s| s.claude_path.as_deref()))
-            .ok_or_else(|| AppError::invalid("Claude Code was not found. Install it, or set its path in Settings."))?;
+            .ok_or_else(|| AppError::invalid(format!("{NOT_FOUND}. Install it, or set its path in Settings.")))?;
         let db = self.db();
         let e = db.employee(&run.employee_id)?.ok_or_else(|| AppError::not_found("This employee has left the company."))?;
         let company = db
@@ -407,7 +392,7 @@ impl Office {
         let boss = company.reports_to.as_ref().and_then(|b| people.iter().find(|p| &p.id == b)).map(|p| (p.name.clone(), p.title.clone()));
         let reports = employees
             .iter()
-            .filter(|x| x.manager_id.as_deref() == Some(&e.id))
+            .filter(|x| x.reports_to(&e.id))
             .map(|x| claude::Report { name: x.name.clone(), slug: x.slug.clone(), title: x.title.clone(), objective: x.objective.clone() })
             .collect();
         let colleagues = employees
@@ -517,8 +502,7 @@ impl Office {
         if self.0.closing.load(Ordering::SeqCst) {
             return;
         }
-        let (cancelled, needs_you, cards, score, proposed, verdict, title) =
-            lock(&self.0.active).remove(&run.id).map(|a| (a.cancelled, a.needs_you, a.cards, a.score, a.proposed, a.verdict, a.title)).unwrap_or_default();
+        let Active { cancelled, needs_you, cards, score, proposed, verdict, title, .. } = lock(&self.0.active).remove(&run.id).unwrap_or_default();
         if let Some(stored) = self.db().run(&run.id).ok().flatten() {
             keep_yours(&mut run, &stored.run);
         }
@@ -673,7 +657,7 @@ impl Office {
         let since = run.started_at.unwrap_or(run.created_at);
         reset_for_requeue(&mut run, &own_changes(&e.changes).collect::<Vec<_>>(), limit);
         // The next attempt's lines follow this one's, which ended in the limit.
-        run.attempt_from = fs::metadata(self.run_dir(&run.id).join(TRANSCRIPT)).map_or(0, |m| m.len());
+        run.attempt_from = fs::metadata(self.transcript_path(&run.id)).map_or(0, |m| m.len());
         let saved = {
             let db = self.db();
             db.tx(|| {
@@ -770,10 +754,11 @@ impl Office {
     async fn drive(&self, run: &Run) -> Result<Ended> {
         let run_dir = self.run_dir(&run.id);
         fs::create_dir_all(&run_dir)?;
+        let transcript_path = run_dir.join(TRANSCRIPT);
         let transcript = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(run_dir.join(TRANSCRIPT))?;
+            .open(&transcript_path)?;
         // A run requeued after the usage limit appends to the same transcript; this attempt's lines start here.
         let attempt_start = transcript.metadata().map(|m| m.len()).unwrap_or(0);
         let transcript = Arc::new(Mutex::new(transcript));
@@ -820,7 +805,7 @@ impl Office {
         if lock(&self.0.active).get(&run.id).is_some_and(|a| a.cancelled) {
             return Err(AppError::conflict("cancelled before it started"));
         }
-        let mut child = claude::spawn(&inv).map_err(|e| AppError::internal(format!("could not start Claude Code: {e}")))?;
+        let mut child = claude::spawn(&inv).map_err(|e| AppError::internal(format!("{NOT_STARTED}: {e}")))?;
         let pid = child.id();
         if let Some(pid) = pid {
             crate::power::stay_awake_while(pid);
@@ -841,7 +826,7 @@ impl Office {
         });
         let _ = input.send(claude::user_line(&inv.stdin));
         // Your messages an earlier attempt never took, as Omega Star stopped before its next step, go in again now.
-        let unheard = if attempt_start > 0 { claude::unheard(&fs::read_to_string(run_dir.join(TRANSCRIPT)).unwrap_or_default()) } else { vec![] };
+        let unheard = if attempt_start > 0 { claude::unheard(&fs::read_to_string(&transcript_path).unwrap_or_default()) } else { vec![] };
         for (id, text) in &unheard {
             let _ = input.send(claude::steer_line(&steer_words(run, &snap.company.ceo_name, text), id));
         }
@@ -939,7 +924,7 @@ impl Office {
         // reports no cost of its own.
         let before_cost = match spent.first() {
             _ if !snap.resume => Some(0.0),
-            Some(s) if s.own.is_none() => self.session_total_before(run, &snap.session, &run_dir.join(TRANSCRIPT), attempt_start),
+            Some(s) if s.own.is_none() => self.session_total_before(run, &snap.session, &transcript_path, attempt_start),
             _ => None,
         };
         let cost = claude::run_cost(&spent, before_cost);
@@ -984,7 +969,7 @@ impl Office {
             if was == is {
                 continue;
             }
-            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
+            let text = transcript_text.get_or_insert_with(|| attempt_text(&transcript_path, attempt_start));
             let wrote = skills::wrote_file(text, &path, &snap.employee_dir);
             if !skills::ceo_present(run) {
                 let who = (skill == own_skills::OWN).then_some(snap.employee.id.as_str());
@@ -1024,7 +1009,7 @@ impl Office {
             .into_iter()
             .map(|c| {
                 let wrote = !alone && {
-                    let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
+                    let text = transcript_text.get_or_insert_with(|| attempt_text(&transcript_path, attempt_start));
                     moved.get_or_insert_with(|| moved_skills(text)).contains(&c.change.skill)
                         || own_skills::recorded_path(&snap.employee_dir, &c.change.skill, &c.change.file).is_ok_and(|path| skills::wrote_file(text, &path, &snap.employee_dir))
                 };
@@ -1039,7 +1024,7 @@ impl Office {
         );
         // Which of its skills it used, so a skill no run uses shows up (`health`). Looking after them is not using them.
         if !matches!(run.kind, RunKind::Tidy { .. } | RunKind::Organize { .. }) {
-            let text = transcript_text.get_or_insert_with(|| attempt_text(&run_dir.join(TRANSCRIPT), attempt_start));
+            let text = transcript_text.get_or_insert_with(|| attempt_text(&transcript_path, attempt_start));
             let own = own_skills::own_skill_names(&skills_dir);
             let used: HashSet<String> = skills_used(text).into_iter().filter(|s| own.contains(s)).collect();
             if let Err(e) = self.db().record_skill_use(&run.employee_id, &used, now()) {
@@ -1077,7 +1062,7 @@ impl Office {
             return Some(total);
         }
         let turns = self.db().turns_of_session(session, &run.id).ok()?;
-        turns.iter().find_map(|r| claude::last_total(&fs::read_to_string(self.run_dir(&r.id).join(TRANSCRIPT)).ok()?))
+        turns.iter().find_map(|r| claude::last_total(&fs::read_to_string(self.transcript_path(&r.id)).ok()?))
     }
 
     /// Takes the image data out of finished runs' transcripts, which older builds saved whole: one file at a time,
@@ -1262,13 +1247,6 @@ fn routine_of(kind: &RunKind) -> Option<String> {
     }
 }
 
-/// Whether a queued run may start now, by what holds it back.
-#[derive(Debug, PartialEq)]
-enum Gate {
-    Claim,
-    Skip,
-}
-
 /// Off until omega.log shows its "dark wake" lines only during real dark wakes (`pmset -g log`), never
 /// while the display merely sleeps in a full wake: a wrong reading would hold every routine overnight.
 const GATE_DARK_WAKE: bool = false;
@@ -1278,13 +1256,9 @@ const GATE_DARK_WAKE: bool = false;
 /// employee's runs (`busy`), so it never tidies a skill a conversation, an answer or another lane is still using
 /// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
 /// you: nobody may be watching when it lands. Pure.
-fn gate(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> Gate {
+fn holds(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> bool {
     let background = !skills::ceo_present(run);
-    if held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake) {
-        Gate::Skip
-    } else {
-        Gate::Claim
-    }
+    held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake)
 }
 
 /// The limit that stopped the run, unless you did. A limit with a known reset time is the usage limit, however
@@ -1340,6 +1314,11 @@ pub(super) fn log_failed(run: &Run, slug: &str, limit: Option<Limit>) {
     log!("run {} {} ({slug}, {kind}): {}", run.id, run.state.as_str(), error_class(run, limit));
 }
 
+const NOT_FOUND: &str = "Claude Code was not found";
+const NOT_STARTED: &str = "could not start Claude Code";
+const TURN_LIMIT: &str = "Stopped: the run reached its turn limit";
+const NO_RESULT: &str = "Claude Code exited without a result";
+
 /// What broke a failed or lost run, in a few words. Pure.
 fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
     let error = run.error.as_deref().unwrap_or("");
@@ -1351,11 +1330,11 @@ fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
         "rate limit"
     } else if error.contains("No space left on device") {
         "disk full"
-    } else if error.starts_with("could not start Claude Code") || error.starts_with("Claude Code was not found") {
+    } else if error.starts_with(NOT_STARTED) || error.starts_with(NOT_FOUND) {
         "could not start"
-    } else if error.starts_with("Stopped: the run reached its turn limit") {
+    } else if error.starts_with(TURN_LIMIT) {
         "turn limit"
-    } else if error.starts_with("Claude Code exited without a result") {
+    } else if error.starts_with(NO_RESULT) {
         "no result"
     } else {
         "error"
@@ -1464,11 +1443,16 @@ fn allowed_rules(e: &Employee, once: &[String]) -> Vec<String> {
     rules
 }
 
-/// What a run's opening note is made from, read under the store lock: `waiting_on` and `notes` are
-/// left for the caller. `None` for reply checks, nudges and Organize runs. A resumed conversation, and a
+/// A run of this kind starts with an opening note.
+pub(super) fn takes_opening(kind: &RunKind) -> bool {
+    !matches!(kind, RunKind::ReplyCheck { .. } | RunKind::Nudge { .. } | RunKind::Organize { .. })
+}
+
+/// What a run's opening note is made from, read under the store lock: `waiting_on`, `notes`, and what
+/// `tools::catch_up` adds are left for the caller. `None` unless `takes_opening`. A resumed conversation, and a
 /// quiet routine, get only what is new since their last turn.
 fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session: &str, resume: bool, now: Ts) -> Result<Option<claude::Opening>> {
-    if matches!(run.kind, RunKind::ReplyCheck { .. } | RunKind::Nudge { .. } | RunKind::Organize { .. }) {
+    if !takes_opening(&run.kind) {
         return Ok(None);
     }
     let (day, week) = (chrono::Duration::days(1), chrono::Duration::days(7));
@@ -1494,7 +1478,7 @@ fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session:
 
     let mut team = vec![];
     let mut team_since = window_start;
-    let reports: Vec<&Employee> = employees.iter().filter(|x| x.manager_id.as_deref() == Some(e.id.as_str())).collect();
+    let reports: Vec<&Employee> = employees.iter().filter(|x| x.reports_to(&e.id)).collect();
     if !reports.is_empty() {
         // From the last run that was not a quiet routine, so a frequent routine does not swallow the lines.
         team_since = since
@@ -1558,7 +1542,7 @@ fn final_state(cancelled: bool, ended: &Result<Ended>) -> (RunState, Option<Stri
         Some(o) => state_of(o, stderr_tail(&e.stderr)),
         None => (
             RunState::Failed,
-            Some(stderr_tail(&e.stderr).unwrap_or_else(|| format!("Claude Code exited without a result (exit code {:?}).", e.exit))),
+            Some(stderr_tail(&e.stderr).unwrap_or_else(|| format!("{NO_RESULT} (exit code {:?}).", e.exit))),
         ),
     }
 }
@@ -1569,7 +1553,7 @@ pub(super) fn state_of(o: &Outcome, stderr_tail: Option<String>) -> (RunState, O
         return (RunState::Succeeded, None);
     }
     let msg = match o.subtype.as_str() {
-        "error_max_turns" => "Stopped: the run reached its turn limit.".to_string(),
+        "error_max_turns" => format!("{TURN_LIMIT}."),
         _ if !o.text.trim().is_empty() => o.text.trim().to_string(),
         _ => stderr_tail.unwrap_or_else(|| format!("Claude Code reported {}", o.subtype)),
     };
@@ -2151,23 +2135,23 @@ mod tests {
         let scheduled = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
         let tidy = RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None };
         let talk = task("Draft it");
-        let gate = |kind: &RunKind, held, account_ok, busy, awake| gate(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, busy, awake);
-        assert_eq!(gate(&talk, true, true, false, true), Gate::Skip);
-        assert_eq!(gate(&talk, false, false, false, true), Gate::Claim);
-        assert_eq!(gate(&scheduled, false, false, false, true), Gate::Skip);
-        assert_eq!(gate(&scheduled, false, true, false, false), Gate::Skip);
-        assert_eq!(gate(&scheduled, false, true, false, true), Gate::Claim);
-        assert_eq!(gate(&talk, false, true, false, false), Gate::Claim);
-        assert_eq!(gate(&tidy, false, true, true, true), Gate::Skip);
-        assert_eq!(gate(&tidy, false, true, false, true), Gate::Claim);
+        let holds = |kind: &RunKind, held, account_ok, busy, awake| holds(&Run::new("e1", kind.clone(), "Go.".into(), now()), held, account_ok, busy, awake);
+        assert!(holds(&talk, true, true, false, true));
+        assert!(!holds(&talk, false, false, false, true));
+        assert!(holds(&scheduled, false, false, false, true));
+        assert!(holds(&scheduled, false, true, false, false));
+        assert!(!holds(&scheduled, false, true, false, true));
+        assert!(!holds(&talk, false, true, false, false));
+        assert!(holds(&tidy, false, true, true, true));
+        assert!(!holds(&tidy, false, true, false, true));
         let came = RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: false, thread: Some("t1".into()) };
-        assert_eq!(gate(&came, false, false, false, true), Gate::Skip);
-        assert_eq!(gate(&came, false, true, false, false), Gate::Skip);
-        assert_eq!(gate(&came, false, true, false, true), Gate::Claim);
+        assert!(holds(&came, false, false, false, true));
+        assert!(holds(&came, false, true, false, false));
+        assert!(!holds(&came, false, true, false, true));
         // A due check back in a conversation is a turn of it, but nobody is watching: it waits for the account.
         let check = Run { check: Some("c1".into()), ..Run::new("e1", RunKind::Reply { to_run_id: "t1".into(), label: "Draft it".into(), task: true, card: false }, "Check.".into(), now()) };
-        assert_eq!(super::gate(&check, false, false, false, true), Gate::Skip);
-        assert_eq!(super::gate(&check, false, true, false, true), Gate::Claim);
+        assert!(super::holds(&check, false, false, false, true));
+        assert!(!super::holds(&check, false, true, false, true));
     }
 
     #[test]

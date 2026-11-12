@@ -100,6 +100,7 @@ fn data_folder(channel: BuildChannel) -> &'static str {
 
 /// A run claimed to start: registered as soon as it is marked running, so it can be cancelled
 /// before its process exists.
+#[derive(Default)]
 struct Active {
     token: String,
     employee_id: String,
@@ -423,6 +424,10 @@ impl Office {
         self.0.data_dir.join("runs").join(id)
     }
 
+    fn transcript_path(&self, id: &str) -> PathBuf {
+        self.run_dir(id).join(TRANSCRIPT)
+    }
+
     fn skills_dir(&self, employee_id: &str) -> PathBuf {
         own_skills::skills_dir(&self.employee_dir(employee_id))
     }
@@ -612,7 +617,8 @@ fn long_path(p: &Path) -> PathBuf {
 }
 
 /// Below this much free space on the office's disk no run starts.
-const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MIN_FREE_GB: u64 = 2;
+const MIN_FREE_BYTES: u64 = MIN_FREE_GB * 1024 * 1024 * 1024;
 
 /// Too little space to start runs. Unknown free space never stops them. Pure.
 fn too_full(free: Option<u64>) -> bool {
@@ -658,6 +664,10 @@ fn find_member<'a, T>(items: &'a [T], key: &str, f: impl Fn(&T) -> (&String, Opt
         let (id, slug, name) = f(x);
         id.to_lowercase() == k || slug.is_some_and(|s| s.to_lowercase() == k) || name.to_lowercase() == k
     })
+}
+
+fn find_employee<'a>(items: &'a [Employee], key: &str) -> Option<&'a Employee> {
+    find_member(items, key, |e| (&e.id, Some(&e.slug), &e.name))
 }
 
 #[cfg(test)]

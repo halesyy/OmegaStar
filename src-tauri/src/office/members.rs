@@ -385,11 +385,7 @@ something changes. Adjust your plan for the gap, and say in a line or two how yo
                 ),
             };
             let run = Run::new(&p.employee_id, RunKind::HireDecided { proposal_id: p.id.clone(), approved: hired.is_some() }, prompt, now());
-            let from = p.run_id.as_deref().map(|id| db.run(id)).transpose()?.flatten();
-            let session = match from {
-                Some(rec) if rec.run.kind.lane() == Lane::Work && db.session_started(&rec.session)? => rec.session,
-                _ => run.id.clone(),
-            };
+            let (session, _) = Self::origin_session(&db, p.run_id.as_deref(), &run.id)?;
             (run, session)
         };
         self.enqueue(run, session)?;
@@ -546,6 +542,57 @@ mod tests {
         }
         assert!(cleanup(&dee).is_empty());
         assert!(office.org().unwrap().people.is_empty());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_hire_decision_resumes_the_started_work_session_it_was_proposed_in_and_starts_fresh_otherwise() {
+        let dir = std::env::temp_dir().join(format!("omegastar-decision-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let ada = employee("Ada");
+        let (started, unstarted, chat) = {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.save_employee(&ada).unwrap();
+            db.set_held_until(Some(now() + chrono::Duration::days(1))).unwrap();
+            let started = run(&db, &ada, RunKind::Manual, RunState::Succeeded, 30);
+            db.mark_inited(&started.id).unwrap();
+            let unstarted = run(&db, &ada, RunKind::Manual, RunState::Failed, 20);
+            let mut chat = Run::new(&ada.id, RunKind::Chat, "Find us a designer.".into(), now() - chrono::Duration::minutes(10));
+            chat.state = RunState::Succeeded;
+            chat.ended_at = Some(chat.created_at);
+            assert!(db.insert_run(&chat, &ada.chat_session).unwrap());
+            db.mark_inited(&chat.id).unwrap();
+            (started, unstarted, chat)
+        };
+        let office = Office::open(dir.clone(), Arc::new(NoSink), Build::new("0.0.0".into())).await.unwrap();
+        let decided = |from: Option<&Run>| {
+            let p = HireProposal {
+                id: uuid::Uuid::new_v4().to_string(),
+                employee_id: ada.id.clone(),
+                run_id: from.map(|r| r.id.clone()),
+                reason: "Design work piles up.".into(),
+                draft: employee("Cy").draft(),
+                missing_skills: vec![],
+                state: ProposalState::Open,
+                note: None,
+                hired_id: None,
+                created_at: now(),
+                resolved_at: None,
+            };
+            office.db().save_proposal(&p).unwrap();
+            office.decline_proposal(&p.id, None).unwrap();
+            let db = office.db();
+            let told = db.active_runs_of(&ada.id).unwrap().into_iter().find(|r| matches!(&r.kind, RunKind::HireDecided { proposal_id, .. } if *proposal_id == p.id)).unwrap();
+            let session = db.run(&told.id).unwrap().unwrap().session;
+            (told.id, session)
+        };
+        let (_, session) = decided(Some(&started));
+        assert_eq!(session, started.id, "a started work session carries on");
+        for from in [Some(&unstarted), Some(&chat), None] {
+            let (id, session) = decided(from);
+            assert_eq!(session, id, "starts fresh: {:?}", from.map(|r| &r.kind));
+        }
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

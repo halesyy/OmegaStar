@@ -57,7 +57,7 @@ impl Office {
         let reports: Vec<Value> = db
             .employees()?
             .iter()
-            .filter(|e| e.manager_id.as_deref() == Some(&caller.id))
+            .filter(|e| e.reports_to(&caller.id))
             .map(|e| {
                 let v = Self::presence(&db, e, now, false)?;
                 Ok(json!({
@@ -80,8 +80,8 @@ impl Office {
         let at = now();
         let (report, run, ahead, conversation) = {
             let db = self.db();
-            let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.manager_id.as_deref() == Some(&caller.id)).collect();
-            let report = find_member(&reports, to, |e| (&e.id, Some(&e.slug), &e.name))
+            let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.reports_to(&caller.id)).collect();
+            let report = find_employee(&reports, to)
                 .ok_or_else(|| AppError::invalid(format!("'{to}' is not one of your direct reports. Call team() for the list.")))?
                 .clone();
             let (up, chain) = chain_up(&db, caller_run)?;
@@ -492,21 +492,7 @@ impl Office {
     pub fn schedule_tool(&self, caller: &Employee, args: &Value) -> Result<Value> {
         let id = args.get("id").and_then(|v| v.as_str()).filter(|s| !s.trim().is_empty());
         let mut d = match id {
-            Some(id) => {
-                let s = self.own_schedule(caller, id)?;
-                ScheduleDraft {
-                    id: Some(s.id),
-                    employee_id: s.employee_id,
-                    label: s.label,
-                    cron: s.cron,
-                    instruction: s.instruction,
-                    enabled: s.enabled,
-                    quiet: s.quiet,
-                    model: s.model,
-                    effort: s.effort,
-                    active_hours: s.active_hours,
-                }
-            }
+            Some(id) => self.own_schedule(caller, id)?.draft(),
             None => ScheduleDraft {
                 id: None,
                 employee_id: caller.id.clone(),
@@ -874,11 +860,11 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
         let (proposal, lane, ceo) = {
             let db = self.db();
             let to = s("reportsTo");
-            let manager_id = if to.is_empty() || find_member(std::slice::from_ref(caller), &to, |e| (&e.id, Some(&e.slug), &e.name)).is_some() {
+            let manager_id = if to.is_empty() || find_employee(std::slice::from_ref(caller), &to).is_some() {
                 caller.id.clone()
             } else {
-                let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.manager_id.as_deref() == Some(&caller.id)).collect();
-                find_member(&reports, &to, |e| (&e.id, Some(&e.slug), &e.name)).map(|e| e.id.clone()).ok_or_else(|| {
+                let reports: Vec<Employee> = db.employees()?.into_iter().filter(|e| e.reports_to(&caller.id)).collect();
+                find_employee(&reports, &to).map(|e| e.id.clone()).ok_or_else(|| {
                     AppError::invalid(format!("'{to}' is neither you nor one of your direct reports. Leave reportsTo out and the hire reports to you."))
                 })?
             };
@@ -1178,7 +1164,7 @@ fn untouched(r: &Run) -> bool {
 fn colleague_in(others: &[Employee], to: &str) -> Result<Employee> {
     let key = to.trim().to_lowercase();
     let by_first: Vec<&Employee> = others.iter().filter(|e| e.name.split_whitespace().next().map(str::to_lowercase) == Some(key.clone())).collect();
-    find_member(others, to, |e| (&e.id, Some(&e.slug), &e.name))
+    find_employee(others, to)
         .or(if by_first.len() == 1 { Some(by_first[0]) } else { None })
         .cloned()
         .ok_or_else(|| AppError::invalid(format!("'{to}' is not a colleague. Call colleagues() for the list.")))
@@ -1206,7 +1192,7 @@ fn own_work(kind: &RunKind) -> bool {
 /// it brings in place of their queued run (`Run::noted_in`); and their cards a newer card replaced. A tidy takes in
 /// none of it.
 pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut claude::Opening) -> Result<()> {
-    if matches!(run.kind, RunKind::Tidy { .. }) {
+    if !catches_up(&run.kind) {
         return Ok(());
     }
     let name = |id: &str| employees.iter().find(|e| e.id == id).map(|e| e.name.clone()).unwrap_or_else(|| "A former colleague".into());
@@ -1231,7 +1217,7 @@ pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut cl
         let last = db
             .work_runs(&run.employee_id, 50)?
             .into_iter()
-            .filter(|r| r.id != run.id && !matches!(r.kind, RunKind::Tidy { .. } | RunKind::ReplyCheck { .. } | RunKind::Nudge { .. } | RunKind::Organize { .. }))
+            .filter(|r| r.id != run.id && catches_up(&r.kind))
             .filter_map(|r| r.started_at)
             .max();
         if let Some(since) = last {
@@ -1239,6 +1225,11 @@ pub(super) fn catch_up(db: &Store, employees: &[Employee], run: &Run, o: &mut cl
         }
         Ok(())
     })
+}
+
+/// A run of this kind hears what came in since the last such run.
+fn catches_up(kind: &RunKind) -> bool {
+    runs::takes_opening(kind) && !matches!(kind, RunKind::Tidy { .. })
 }
 
 /// The answers and reports `ended` lets through: its finished Asked and Delegated children, and itself
@@ -2629,7 +2620,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
 
         // A report still being written names its own thread, and its end keeps the name.
         let report = run(&o.db, &ada, standup("s1"), "Stand-up.", RunState::Running, 5, None);
-        let live = Active { token: "t".into(), employee_id: ada.id.clone(), beside: false, pid: None, cancelled: false, needs_you: vec![], cards: vec![], score: None, proposed: None, verdict: false, title: None, transcript: None, input: None, waiting: vec![] };
+        let live = Active { token: "t".into(), employee_id: ada.id.clone(), ..Default::default() };
         lock(&office.0.active).insert(report.id.clone(), live);
         office.name_thread_tool(&report.id, "Weekly numbers").unwrap();
         assert_eq!(saved(&o.db, &report.id).title.as_deref(), Some("Weekly numbers"));

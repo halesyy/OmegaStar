@@ -58,7 +58,7 @@ impl Office {
             return Err(AppError::invalid(format!("title is at most {MAX_TITLE_CHARS} characters.")));
         }
         if html.len() > MAX_PAGE_BYTES {
-            return Err(AppError::invalid("The page is larger than 2 MB. Show less, or split it into two pages."));
+            return Err(AppError::invalid(format!("The page is larger than {} MB. Show less, or split it into two pages.", MAX_PAGE_BYTES / (1024 * 1024))));
         }
         let id = uuid::Uuid::new_v4().to_string();
         let dir = self.run_dir(caller_run).join("visuals");
