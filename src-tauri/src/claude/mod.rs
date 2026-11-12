@@ -129,6 +129,42 @@ pub async fn auth_status(program: &Path, env: &[(String, String)]) -> Option<Acc
     parse_auth(&capture(program, env, &["auth", "status"]).await?)
 }
 
+/// A session that is only asked what it offers: no tools, no MCP servers, nothing saved.
+const MODELS_ARGS: [&str; 10] =
+    ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--tools", "", "--strict-mcp-config", "--no-session-persistence"];
+const MODELS_REQUEST: &str = "{\"type\":\"control_request\",\"request_id\":\"models\",\"request\":{\"subtype\":\"initialize\"}}\n";
+
+/// The models in the answer to `MODELS_REQUEST`, each once, by the exact ID its entry resolves to.
+/// "default" is left out: it is whichever of the others the account starts on.
+fn parse_models(stdout: &str) -> Option<Vec<ModelOption>> {
+    let answer = stdout.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).find(|v| v["type"] == "control_response")?;
+    let mut models: Vec<ModelOption> = vec![];
+    for m in answer["response"]["response"]["models"].as_array()? {
+        let Some(id) = m["resolvedModel"].as_str().or(m["value"].as_str()) else { continue };
+        if m["value"] == "default" || models.iter().any(|x| x.id == id) {
+            continue;
+        }
+        models.push(ModelOption { id: id.into(), name: m["displayName"].as_str().unwrap_or(id).into() });
+    }
+    (!models.is_empty()).then_some(models)
+}
+
+/// The models Claude Code offers the signed-in account, as its own `/model` picker lists them. It
+/// is the opening request of the stream-json mode, which the Agent SDK asks too; no model is called.
+/// Asked without the CLI proxy: behind another base URL Claude Code lists only a few of them.
+pub async fn models(program: &Path) -> Result<Vec<ModelOption>> {
+    let mut c = command(program);
+    c.args(MODELS_ARGS).current_dir(std::env::temp_dir()).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+    let mut child = c.spawn().map_err(|e| AppError::internal(format!("could not start Claude Code: {e}")))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(MODELS_REQUEST.as_bytes()).await;
+        // Dropped here: with its input closed, Claude Code answers and exits.
+    }
+    let out = tokio::time::timeout(Duration::from_secs(20), child.wait_with_output()).await;
+    let stdout = out.ok().and_then(|o| o.ok()).map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    parse_models(&stdout).ok_or_else(|| AppError::internal("Claude Code did not list its models"))
+}
+
 // ---------------------------------------------------------------------------------------------
 // Preparing a run
 
@@ -574,6 +610,26 @@ pub async fn probe_usage(program: &Path, cwd: &Path) -> Option<UsageSample> {
 mod tests {
     use super::*;
     use crate::fixtures::{self, scheduled};
+
+    #[test]
+    fn the_model_list_is_each_model_once_by_its_exact_id() {
+        let answer = json!({ "type": "control_response", "response": { "subtype": "success", "request_id": "models", "response": { "models": [
+            { "value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)" },
+            { "value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5" },
+            { "value": "claude-opus-5", "resolvedModel": "claude-opus-5", "displayName": "Opus 5" },
+            { "value": "claude-sonnet-5[1m]", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet 5" },
+            { "value": "claude-sonnet-5", "resolvedModel": "claude-sonnet-5", "displayName": "Sonnet 5" },
+            { "value": "claude-haiku-5-5" },
+        ] } } });
+        let stdout = format!("{}\n{answer}\n", r#"{"type":"system","subtype":"hook_started"}"#);
+        let m = |id: &str, name: &str| ModelOption { id: id.into(), name: name.into() };
+        assert_eq!(
+            parse_models(&stdout),
+            Some(vec![m("claude-opus-5-5", "Opus 5.5"), m("claude-opus-5", "Opus 5"), m("claude-sonnet-5", "Sonnet 5"), m("claude-haiku-5-5", "claude-haiku-5-5")])
+        );
+        assert_eq!(parse_models(r#"{"type":"control_response","response":{"response":{"models":[]}}}"#), None);
+        assert_eq!(parse_models("Not logged in"), None);
+    }
 
     #[test]
     fn a_schedule_can_run_on_its_own_model_and_effort() {

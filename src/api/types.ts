@@ -305,6 +305,8 @@ export type RoutineUsage = {
   runs: number; reached: number; failed: number; useful: number; costUsd: number;
 };
 
+/** A model Claude Code offers: the exact ID `claude --model` takes, and the name its own picker shows. */
+export type ModelOption = { id: string; name: string };
 export type Account = { loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null };
 /** How this copy of Omega Star was built: a published release, a test build, or a developer's own. */
 export type BuildChannel = "release" | "dogfood" | "dev";
@@ -370,6 +372,8 @@ export type Commands = {
   complete_setup: { args: { companyName: string; ceoName: string; title: string | null }; ret: Company };
   update_company: { args: { name: string; ceoName: string; title: string; reportsTo: string | null; image: string | null }; ret: Company };
   set_background: { args: { enabled: boolean }; ret: SetupStatus };
+  /** Claude Code's own model list for the signed-in account. */
+  models: { args: Record<string, never>; ret: ModelOption[] };
   org: { args: Record<string, never>; ret: OrgSnapshot };
   skill_catalog: { args: Record<string, never>; ret: SkillInfo[] };
   skill_sources: { args: Record<string, never>; ret: SkillSources };

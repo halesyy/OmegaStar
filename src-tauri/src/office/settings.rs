@@ -28,6 +28,12 @@ impl Office {
         })
     }
 
+    /// The models an employee can be given: Claude Code's own list.
+    pub async fn models(&self) -> Result<Vec<ModelOption>> {
+        let program = claude::locate(self.settings()?.claude_path.as_deref()).ok_or_else(|| AppError::invalid("Claude Code was not found"))?;
+        claude::models(&program).await
+    }
+
     pub async fn complete_setup(&self, company_name: String, ceo_name: String, title: Option<String>) -> Result<Company> {
         if company_name.trim().is_empty() || ceo_name.trim().is_empty() {
             return Err(AppError::invalid("company name and your name are required"));

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { Clearance, Company, Effort, OrgSnapshot, PersonManager, PersonView } from "../api/types";
+import type { Clearance, Company, Effort, ModelOption, OrgSnapshot, PersonManager, PersonView } from "../api/types";
+import { useModels } from "../lib/hooks";
 import { aboveYou, employeeManagerOptions, personManagerOptions } from "../lib/org";
 import { Icon } from "./Icon";
 import { Switch } from "./ui";
@@ -86,22 +87,6 @@ export function ClearancePicker({ value, onChange }: { value: Clearance; onChang
   );
 }
 
-/** Exact model IDs, passed to `claude --model` as they are. Newest first within a family. */
-const MODEL_GROUPS: { label: string; models: { value: string; label: string }[] }[] = [
-  { label: "Fable", models: [{ value: "claude-fable-5-1", label: "Fable 5.1" }, { value: "claude-fable-5", label: "Fable 5" }] },
-  {
-    label: "Opus",
-    models: [
-      { value: "claude-opus-5-5", label: "Opus 5.5" }, { value: "claude-opus-5", label: "Opus 5" }, { value: "claude-opus-4-8", label: "Opus 4.8" },
-      { value: "claude-opus-4-7", label: "Opus 4.7" }, { value: "claude-opus-4-6", label: "Opus 4.6" },
-    ],
-  },
-  {
-    label: "Sonnet",
-    models: [{ value: "claude-sonnet-5-5", label: "Sonnet 5.5" }, { value: "claude-sonnet-5", label: "Sonnet 5" }, { value: "claude-sonnet-4-6", label: "Sonnet 4.6" }],
-  },
-  { label: "Haiku", models: [{ value: "claude-haiku-4-5", label: "Haiku 4.5" }] },
-];
 /** What earlier versions of Omega Star saved. Claude Code resolves these to whatever is newest, so they
  *  are only offered while an employee still has one; picking a specific version replaces it. */
 const MODEL_ALIASES: { value: string; label: string }[] = [
@@ -110,7 +95,6 @@ const MODEL_ALIASES: { value: string; label: string }[] = [
 ];
 const MODEL_DEFAULT = "";
 const MODEL_OTHER = "__other__";
-const KNOWN_MODELS = new Set(MODEL_GROUPS.flatMap((g) => g.models.map((m) => m.value)));
 const EFFORTS: { value: Effort | null; label: string }[] = [
   { value: null, label: "Default" }, { value: "low", label: "Low" }, { value: "medium", label: "Medium" },
   { value: "high", label: "High" }, { value: "xhigh", label: "Extra" }, { value: "max", label: "Max" },
@@ -118,12 +102,64 @@ const EFFORTS: { value: Effort | null; label: string }[] = [
 
 type Advanced = { model: string | null; effort: Effort | null; browser: boolean; autoTidy: boolean; workspaces: string[] };
 
+/** Claude Code's models by family ("Opus 5.5" is an Opus), families and models in the order it lists them. */
+function byFamily(models: ModelOption[]): [string, ModelOption[]][] {
+  const families = new Map<string, ModelOption[]>();
+  for (const m of models) {
+    const family = m.name.split(" ")[0];
+    families.set(family, [...(families.get(family) ?? []), m]);
+  }
+  return [...families];
+}
+
+/** The model an employee runs on: one from Claude Code's own list, saved as its exact ID, which goes to
+ *  `claude --model` as it is. */
+function ModelField({ value, onChange }: { value: string | null; onChange: (model: string | null) => void }) {
+  const { models, failed } = useModels();
+  const alias = MODEL_ALIASES.find((a) => a.value === value);
+  // "Other" stays chosen while its ID is being typed, even if that text happens to match a listed model.
+  const [typing, setTyping] = useState(false);
+  const unlisted = value !== null && !alias && !models?.some((m) => m.id === value);
+  // A saved model the list lacks is an "Other" one. Until the list is in, it is shown as its ID alone.
+  const other = typing || (unlisted && (models !== undefined || failed));
+  return (
+    <label className="field">
+      <span className="field-label">Model</span>
+      <select
+        className="select" value={other ? MODEL_OTHER : value ?? MODEL_DEFAULT}
+        onChange={(e) => {
+          const v = e.target.value;
+          setTyping(v === MODEL_OTHER);
+          // "Other" starts from an empty ID rather than the model it replaces, which would be typed onto.
+          onChange(v === MODEL_DEFAULT || v === MODEL_OTHER ? null : v);
+        }}
+      >
+        <option value={MODEL_DEFAULT}>Default (your Claude Code setting)</option>
+        {byFamily(models ?? []).map(([family, list]) => (
+          <optgroup key={family} label={family}>
+            {list.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </optgroup>
+        ))}
+        {unlisted && !other ? <option value={value}>{value}</option> : null}
+        {alias ? <optgroup label="Saved earlier"><option value={alias.value}>{alias.label}</option></optgroup> : null}
+        <option value={MODEL_OTHER}>Other model ID…</option>
+      </select>
+      {other ? (
+        <input
+          className="input mono" placeholder="claude-opus-4-1" aria-label="Model ID" value={value ?? ""} spellCheck={false} autoFocus={typing}
+          onChange={(e) => {
+            setTyping(true);
+            onChange(e.target.value.trim() === "" ? null : e.target.value.trim());
+          }}
+        />
+      ) : null}
+      {failed ? <span className="field-help">Couldn't get the model list from Claude Code. Choose "Other model ID…" to type one.</span> : null}
+    </label>
+  );
+}
+
 export function AdvancedFields({ value, onChange }: { value: Advanced; onChange: (v: Advanced) => void }) {
   const [open, setOpen] = useState(false);
-  const alias = MODEL_ALIASES.find((a) => a.value === value.model);
-  // "Other" stays chosen while its ID is being typed, even if that text happens to match a listed model.
-  const [other, setOther] = useState(() => value.model !== null && !alias && !KNOWN_MODELS.has(value.model));
-  const modelChoice = other ? MODEL_OTHER : value.model ?? MODEL_DEFAULT;
   return (
     <div className={`advanced ${open ? "advanced-open" : ""}`}>
       <button type="button" className="advanced-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -134,33 +170,7 @@ export function AdvancedFields({ value, onChange }: { value: Advanced; onChange:
       {open ? (
         <div className="advanced-body">
           <div className="form-2">
-            <label className="field">
-              <span className="field-label">Model</span>
-              <select
-                className="select" value={modelChoice}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setOther(v === MODEL_OTHER);
-                  // "Other" starts from an empty ID rather than the model it replaces, which would be typed onto.
-                  onChange({ ...value, model: v === MODEL_DEFAULT || v === MODEL_OTHER ? null : v });
-                }}
-              >
-                <option value={MODEL_DEFAULT}>Default (your Claude Code setting)</option>
-                {MODEL_GROUPS.map((g) => (
-                  <optgroup key={g.label} label={g.label}>
-                    {g.models.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                  </optgroup>
-                ))}
-                {alias ? <optgroup label="Saved earlier"><option value={alias.value}>{alias.label}</option></optgroup> : null}
-                <option value={MODEL_OTHER}>Other model ID…</option>
-              </select>
-              {other ? (
-                <input
-                  className="input mono" placeholder="claude-opus-4-1" aria-label="Model ID" value={value.model ?? ""} spellCheck={false} autoFocus
-                  onChange={(e) => onChange({ ...value, model: e.target.value.trim() === "" ? null : e.target.value.trim() })}
-                />
-              ) : null}
-            </label>
+            <ModelField value={value.model} onChange={(model) => onChange({ ...value, model })} />
             <div className="field">
               <span className="field-label">Browser control</span>
               <span className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>

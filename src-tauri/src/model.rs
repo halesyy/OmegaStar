@@ -1813,6 +1813,14 @@ pub struct ClaudeStatus {
     pub version: Option<String>,
 }
 
+/// A model Claude Code offers: the exact ID `--model` takes, and the name its own picker shows.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelOption {
+    pub id: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {

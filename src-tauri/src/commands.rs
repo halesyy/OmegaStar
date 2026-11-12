@@ -43,6 +43,11 @@ pub async fn set_background(app: AppHandle, office: O<'_>, enabled: bool) -> Res
 }
 
 #[tauri::command]
+pub async fn models(office: O<'_>) -> Result<Vec<ModelOption>> {
+    office.models().await
+}
+
+#[tauri::command]
 pub async fn org(office: O<'_>) -> Result<OrgSnapshot> {
     office.org()
 }

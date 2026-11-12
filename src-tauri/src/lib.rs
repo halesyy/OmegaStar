@@ -331,6 +331,7 @@ pub fn run() {
             commands::complete_setup,
             commands::update_company,
             commands::set_background,
+            commands::models,
             commands::org,
             commands::skill_catalog,
             commands::skill_sources,
