@@ -156,13 +156,18 @@ const CHROME_TOOLS: &str = "mcp__claude-in-chrome__";
 /// status with it.
 const TURNED_AWAY: [&str; 2] = ["temporarily limiting requests", "cooling down"];
 
+/// The line carries the HTTP status of a request turned away for now: 429 rate limited or 529 overloaded.
+fn turned_away_status(v: &Value) -> bool {
+    matches!(v["api_error_status"].as_u64(), Some(429 | 529))
+}
+
 /// The limit a result line says stopped the run. Pure.
 fn limit_of(v: &Value, ok: bool) -> Option<Limit> {
     if v["api_error"] == "usage_limit_reached" {
         return Some(Limit::Usage);
     }
     let text = v["result"].as_str().unwrap_or("");
-    let turned_away = matches!(v["api_error_status"].as_u64(), Some(429 | 529)) || TURNED_AWAY.iter().any(|t| text.contains(t));
+    let turned_away = turned_away_status(v) || TURNED_AWAY.iter().any(|t| text.contains(t));
     (!ok && turned_away).then_some(Limit::Transient)
 }
 
@@ -254,7 +259,7 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
             if m["model"] != "<synthetic>" && size > 0 {
                 p.context = Some(size);
             }
-            p.throttled = v["error"] == "rate_limit" || matches!(v["api_error_status"].as_u64(), Some(429 | 529));
+            p.throttled = v["error"] == "rate_limit" || turned_away_status(&v);
             for b in v["message"]["content"].as_array().into_iter().flatten() {
                 match b["type"].as_str() {
                     Some("text") if !str_at(b, "text").trim().is_empty() => p.events.push(RunEvent::Text { text: str_at(b, "text") }),
@@ -390,7 +395,7 @@ pub fn replay(transcript: &str, home: &Path) -> Vec<RunEvent> {
 }
 
 /// The transcript's lines that parse as JSON: a crash or power loss can leave a half-written last line.
-fn json_lines(transcript: &str) -> impl Iterator<Item = Value> + '_ {
+pub(super) fn json_lines(transcript: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
     transcript.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok())
 }
 

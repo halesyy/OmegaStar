@@ -606,12 +606,14 @@ fn ended(r: &Run) -> Ts {
     r.ended_at.unwrap_or(r.created_at)
 }
 
-/// The schedule and label of a quiet routine's run that succeeded without flagging anything.
-fn quiet_success(r: &Run) -> Option<(&str, &str)> {
-    match &r.kind {
-        RunKind::Scheduled { schedule_id, label, quiet: true, .. } if r.state == RunState::Succeeded && r.needs_you.is_empty() => {
-            Some((schedule_id, label))
-        }
+/// The schedule and label of a quiet routine's run that ended without flagging anything, with its error
+/// when it failed.
+fn quiet_run(r: &Run) -> Option<(&str, &str, Option<&str>)> {
+    let RunKind::Scheduled { schedule_id, label, quiet: true, .. } = &r.kind else { return None };
+    match r.state {
+        _ if !r.needs_you.is_empty() => None,
+        RunState::Succeeded => Some((schedule_id, label, None)),
+        RunState::Failed => Some((schedule_id, label, Some(r.error.as_deref().unwrap_or("no details")))),
         _ => None,
     }
 }
@@ -629,14 +631,11 @@ fn result(r: &Run) -> String {
     t
 }
 
-/// The schedule, label and error of a quiet routine's run that failed without flagging anything.
-fn quiet_failure(r: &Run) -> Option<(&str, &str, &str)> {
-    match &r.kind {
-        RunKind::Scheduled { schedule_id, label, quiet: true, .. } if r.state == RunState::Failed && r.needs_you.is_empty() => {
-            Some((schedule_id, label, r.error.as_deref().unwrap_or("no details")))
-        }
-        _ => None,
-    }
+struct Fold<'a> {
+    schedule: &'a str,
+    label: &'a str,
+    error: Option<&'a str>,
+    runs: Vec<&'a Run>,
 }
 
 /// One line per run with its time, `line` writing each; a quiet routine's successful unflagged runs
@@ -644,55 +643,36 @@ fn quiet_failure(r: &Run) -> Option<(&str, &str, &str)> {
 /// the same error. A run is said to reach someone when it is one of `parents`: it asked or delegated something.
 fn run_lines<'a>(runs: impl Iterator<Item = &'a Run>, lead: &str, parents: &HashSet<String>, line: impl Fn(&Run) -> String) -> Vec<(Ts, String)> {
     let mut lines = vec![];
-    let mut folds: Vec<(&str, &str, Vec<&Run>)> = vec![];
-    let mut failures: Vec<(&str, &str, &str, Vec<&Run>)> = vec![];
+    let mut folds: Vec<Fold> = vec![];
     for r in runs {
-        if let Some((id, label)) = quiet_success(r) {
-            match folds.iter_mut().find(|f| f.0 == id) {
-                Some(f) => f.2.push(r),
-                None => folds.push((id, label, vec![r])),
-            }
-        } else if let Some((id, label, error)) = quiet_failure(r) {
-            match failures.iter_mut().find(|f| f.0 == id && f.2 == error) {
-                Some(f) => f.3.push(r),
-                None => failures.push((id, label, error, vec![r])),
-            }
-        } else {
+        let Some((schedule, label, error)) = quiet_run(r) else {
             lines.push((ended(r), line(r)));
+            continue;
+        };
+        match folds.iter_mut().find(|f| f.schedule == schedule && f.error == error) {
+            Some(f) => f.runs.push(r),
+            None => folds.push(Fold { schedule, label, error, runs: vec![r] }),
         }
     }
-    for (_, label, error, runs) in failures {
+    folds.sort_by_key(|f| f.error.is_none());
+    for Fold { label, error, runs, .. } in folds {
         let newest = *runs.iter().max_by_key(|r| ended(r)).expect("a fold has a run");
         if runs.len() == 1 {
             lines.push((ended(newest), line(newest)));
             continue;
         }
         let oldest = runs.iter().map(|r| ended(r)).min().expect("a fold has a run");
-        lines.push((
-            ended(newest),
-            format!(
-                "{lead}{label}: {} quiet runs since {} did not finish, the latest at {}: {}",
-                runs.len(),
-                local_day(oldest),
-                local_time(ended(newest)),
-                clip(&one_line(error), 150)
-            ),
-        ));
-    }
-    for (_, label, runs) in folds {
-        let newest = *runs.iter().max_by_key(|r| ended(r)).expect("a fold has a run");
-        if runs.len() == 1 {
-            lines.push((ended(newest), line(newest)));
-            continue;
-        }
-        let oldest = runs.iter().map(|r| ended(r)).min().expect("a fold has a run");
-        let reached = runs.iter().filter(|r| parents.contains(&r.id)).count();
-        let reach = if reached == 0 { "none reached anyone".to_string() } else { format!("{reached} reached someone") };
-        let latest = clip(&one_line(newest.summary.as_deref().unwrap_or("no report")), 140);
-        lines.push((
-            ended(newest),
-            format!("{lead}{label}: {} quiet runs since {}, {reach}. Latest ({}): {latest}", runs.len(), local_day(oldest), local_time(ended(newest))),
-        ));
+        let (n, since, at) = (runs.len(), local_day(oldest), local_time(ended(newest)));
+        let text = match error {
+            Some(error) => format!("{lead}{label}: {n} quiet runs since {since} did not finish, the latest at {at}: {}", clip(&one_line(error), 150)),
+            None => {
+                let reached = runs.iter().filter(|r| parents.contains(&r.id)).count();
+                let reach = if reached == 0 { "none reached anyone".to_string() } else { format!("{reached} reached someone") };
+                let latest = clip(&one_line(newest.summary.as_deref().unwrap_or("no report")), 140);
+                format!("{lead}{label}: {n} quiet runs since {since}, {reach}. Latest ({at}): {latest}")
+            }
+        };
+        lines.push((ended(newest), text));
     }
     lines
 }
@@ -957,7 +937,7 @@ still uses an old name.",
 /// changes that could lose something you taught them are proposed, and made in a second, approved run.
 fn tidy_frame(s: &Snapshot, reason: TidyReason, plan: Option<&str>) -> String {
     let ceo = &s.company.ceo_name;
-    let none = TidyBrief { findings: vec![], taught: vec![] };
+    let none = TidyBrief::default();
     let brief = s.tidy.as_ref().unwrap_or(&none);
     let mut b = String::new();
 

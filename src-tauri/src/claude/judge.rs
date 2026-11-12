@@ -104,3 +104,26 @@ pub async fn judge(program: &Path, env: &[(String, String)], cwd: &Path, prompt:
     };
     parse_judge(&out).map_err(|e| if errors.trim().is_empty() { e } else { AppError::internal(format!("{} ({})", e.message, clip(&one_line(&errors), 300))) })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn every_verdict() -> Vec<Verdict> {
+        use Verdict::*;
+        let all = vec![Answered, Done, AskedBack, Acknowledged, NoReply];
+        for v in &all {
+            match v {
+                Answered | Done | AskedBack | Acknowledged | NoReply => {}
+            }
+        }
+        all
+    }
+
+    #[test]
+    fn the_schema_lists_every_verdict() {
+        let schema: Value = serde_json::from_str(JUDGE_SCHEMA).unwrap();
+        let listed: Vec<Verdict> = schema["properties"]["verdict"]["enum"].as_array().unwrap().iter().map(|s| serde_json::from_value(s.clone()).unwrap()).collect();
+        assert_eq!(listed, every_verdict());
+    }
+}

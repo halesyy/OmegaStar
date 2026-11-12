@@ -388,6 +388,7 @@ fn tools() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     /// Every string in `v`: the tools' names, descriptions and choices.
     fn strings(v: &Value, out: &mut Vec<String>) {
@@ -416,5 +417,17 @@ mod tests {
         }
         assert!(description("check_later").contains("Do what you can now: use it only for what must wait for time to pass"));
         assert!(description("open").contains("It works only in a conversation they are in; anywhere else, put the link on your card instead, such as a sign-in page in the chore's url."));
+    }
+
+    #[test]
+    fn every_listed_tool_is_dispatched() {
+        let tools = tools();
+        let names: Vec<&str> = tools.as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        let listed: BTreeSet<&str> = names.iter().copied().collect();
+        assert_eq!(listed.len(), names.len(), "a tool is listed twice: {names:?}");
+        let source = include_str!("mcp.rs");
+        let call = &source[source.find("async fn call(").unwrap()..source.find("fn tools()").unwrap()];
+        let dispatched: BTreeSet<&str> = call.lines().filter_map(|l| l.trim().strip_prefix('"')?.split_once("\" =>").map(|(name, _)| name)).collect();
+        assert_eq!(listed, dispatched);
     }
 }

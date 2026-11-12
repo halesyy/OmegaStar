@@ -276,6 +276,7 @@ pub struct Watched {
 
 /// What a Tidy run works from: what the health check found, and what the person taught the employee
 /// since the last tidy.
+#[derive(Default)]
 pub struct TidyBrief {
     pub findings: Vec<HealthFinding>,
     /// (when, what they said) in conversations and in Inbox replies.
@@ -571,10 +572,7 @@ fn parse_usage_text(text: &str) -> UsageSample {
 
 /// The `/usage` report from a probe's stream-json stdout; `None` when there was no result line.
 fn parse_usage_output(stdout: &str) -> Option<UsageSample> {
-    let result = stdout
-        .lines()
-        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .rfind(|v| v["type"] == "result")?;
+    let result = stream::json_lines(stdout).rfind(|v| v["type"] == "result")?;
     Some(parse_usage_text(result["result"].as_str().unwrap_or("")))
 }
 
@@ -789,5 +787,20 @@ mod tests {
         ];
         let scrubbed = scrubbed_vars(names.iter().map(OsStr::new));
         assert_eq!(scrubbed, ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK"]);
+    }
+
+    #[test]
+    fn the_usage_probe_reads_its_last_result() {
+        let stdout = [
+            r#"{"type":"system","subtype":"init"}"#,
+            r#"{"type":"result","result":"Current session: 90% used"}"#,
+            r#"{"type":"result","result":"Current session: 34% used · resets 2:59pm (Europe/London)\nCurrent week (all models): 12.5% used"}"#,
+            r#"{"type":"result","res"#,
+        ]
+        .join("\n");
+        let usage = parse_usage_output(&stdout).unwrap();
+        assert_eq!(usage.five_hour.map(|w| (w.percent, w.resets_text)), Some((34.0, Some("2:59pm (Europe/London)".into()))));
+        assert_eq!(usage.seven_day.map(|w| w.percent), Some(12.5));
+        assert_eq!(parse_usage_output(r#"{"type":"system","subtype":"init"}"#), None);
     }
 }
