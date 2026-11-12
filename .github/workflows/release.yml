@@ -73,7 +73,7 @@ jobs:
 
             - **macOS:** the `.dmg`, for Apple Silicon Macs only.
             - **Windows:** the `-setup.exe`. If SmartScreen appears, click **More info**, then **Run anyway**.
-            - **Linux:** the `.AppImage` (untested).
+            - **Linux:** the `.AppImage` (tested on Ubuntu 24.04).
           releaseDraft: true
           args: ${{ matrix.args }}
 
