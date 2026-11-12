@@ -226,6 +226,24 @@ words quoted above show {ceo} saying it."
     )
 }
 
+/// The first message of a run that goes again after the usage limit or a rate limit stopped it: the
+/// conversation it resumes already holds the message it was answering.
+pub(super) const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
+
+/// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
+/// went with it, so it is told to raise again any it still needs.
+pub(super) const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
+
+/// The prompt, followed by the absolute path of each attached file.
+fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
+    if names.is_empty() {
+        return prompt.to_string();
+    }
+    let list: Vec<String> = names.iter().map(|n| format!("- {}", path_arg(&dir.join(n)))).collect();
+    let note = format!("Attached files (read each one before you reply; the Read tool opens images and PDFs too):\n{}", list.join("\n"));
+    if prompt.trim().is_empty() { note } else { format!("{prompt}\n\n{note}") }
+}
+
 /// A run's first message: its prompt, under a note Omega Star wrote when there is one, which carries the run's
 /// frame too when `frame_in_note`. Quoted text loses the note's tags, so only Omega Star's own note has them.
 /// The note is never stored in `run.prompt`, which holds only what the run was asked.

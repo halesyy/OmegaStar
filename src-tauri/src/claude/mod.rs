@@ -1,21 +1,21 @@
 //! Everything that knows the Claude Code CLI: locating it, account status, turning a run into an
 //! invocation (argv, files), spawning and killing it, and probing usage. The handbook lives
-//! in `handbook`, framing in `prompt`, the opening note in `note`, the per-run settings in
+//! in `handbook`, framing in `frame`, the opening note in `note`, the per-run settings in
 //! `settings`, stream-json parsing in `stream`, and the reply judge in `judge`.
 
 #[cfg(test)]
 mod fixtures;
+mod frame;
 mod handbook;
 mod judge;
 mod note;
-mod prompt;
 mod settings;
 mod stream;
 
+pub use frame::*;
 pub use handbook::*;
 pub use judge::*;
 pub use note::*;
-pub use prompt::*;
 pub use settings::*;
 pub use stream::*;
 
@@ -338,16 +338,6 @@ pub fn attachments_dir(employee_dir: &Path, run_id: &str) -> PathBuf {
     employee_dir.join("attachments").join(run_id)
 }
 
-/// The prompt, followed by the absolute path of each attached file.
-fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
-    if names.is_empty() {
-        return prompt.to_string();
-    }
-    let list: Vec<String> = names.iter().map(|n| format!("- {}", path_arg(&dir.join(n)))).collect();
-    let note = format!("Attached files (read each one before you reply; the Read tool opens images and PDFs too):\n{}", list.join("\n"));
-    if prompt.trim().is_empty() { note } else { format!("{prompt}\n\n{note}") }
-}
-
 /// Claude Code tools whose effect dies with the `claude -p` process or bypasses Omega Star. The
 /// `omega` MCP tools `schedule` and `notify` replace them.
 const SESSION_ONLY_TOOLS: [&str; 6] = ["CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger", "PushNotification"];
@@ -369,14 +359,6 @@ fn model_args(kind: &RunKind, e: &Employee) -> Vec<String> {
     }
     args
 }
-
-/// The first message of a run that goes again after the usage limit or a rate limit stopped it: the
-/// conversation it resumes already holds the message it was answering.
-const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
-
-/// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
-/// went with it, so it is told to raise again any it still needs.
-const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
 
 pub fn prepare(s: &Snapshot, run: &Run) -> Invocation {
     let e = &s.employee;
