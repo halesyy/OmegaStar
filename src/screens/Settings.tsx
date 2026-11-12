@@ -14,6 +14,7 @@ import { setTheme, useTheme, type ThemePref } from "../lib/theme";
 import { CopyCommand } from "../components/CopyCommand";
 import { Icon } from "../components/Icon";
 import { ErrorNote, PageColumn, Roll, Section, Skeleton, Switch } from "../components/ui";
+import { SHELL, signInCommand } from "../lib/claudeCode";
 import { openHelp } from "../lib/help";
 import { checkForUpdate, useUpdateCheck } from "../lib/update";
 import "./Settings.css";
@@ -470,8 +471,8 @@ export function SettingsScreen() {
                   <span className="tag">CLI proxy</span>
                 </Row>
               ) : (
-                <Row title="Account" desc={st.account?.loggedIn ? <>{st.account.email} · {st.account.orgName}{st.account.plan ? ` · ${st.account.plan}` : null}</> : "Not signed in. Run this in a terminal, then come back."}>
-                  {st.account?.loggedIn ? <span className="pill pill-ok"><Icon name="check" size={11} /> Signed in</span> : <CopyCommand command="claude auth login" />}
+                <Row title="Account" desc={st.account?.loggedIn ? <>{st.account.email} · {st.account.orgName}{st.account.plan ? ` · ${st.account.plan}` : null}</> : `Not signed in. Run this in ${SHELL}, then come back.`}>
+                  {st.account?.loggedIn ? <span className="pill pill-ok"><Icon name="check" size={11} /> Signed in</span> : <CopyCommand command={signInCommand(st.claude.path)} />}
                 </Row>
               )}
               <Row title="Skills" desc={<SkillsDesc scan={scan} />}>
