@@ -1026,18 +1026,8 @@ is not needed is churn.\n\n{b}{steps}"
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claude::fixtures::*;
     use crate::fixtures::{self, scheduled};
-
-    /// Ada, an analyst at Acme who works for Pat, with nothing else around her.
-    fn snap() -> Snapshot {
-        let employee = Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() };
-        let company = Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() };
-        test_snapshot(company, employee, None, false)
-    }
-
-    fn run(kind: RunKind) -> Run {
-        Run::new("e1", kind, "Go.".into(), chrono::Utc::now())
-    }
 
     #[test]
     fn the_handbook_names_the_homes_and_the_house_rules() {
@@ -1358,47 +1348,6 @@ it in your report.\n";
         s.owns = String::new();
         s.opening.as_mut().unwrap().answers.clear();
         assert_eq!(first_message(&s, &run(scheduled("s1", true))), "Go.");
-    }
-
-    /// The handbook and the system prompt of every kind of run, with someone in every section.
-    fn every_text() -> Vec<String> {
-        let mut s = snap();
-        s.counterpart = Some(("Bo".into(), "Ops".into()));
-        s.source = Some("This began with Pat's own message to Mo.".into());
-        s.colleagues = vec![Colleague { name: "Bo".into(), slug: "bo".into(), title: "Ops".into(), objective: "Ship.".into(), description: "Knows the warehouse.".into() }];
-        s.reports = vec![Report { name: "Cy".into(), slug: "cy".into(), title: "Clerk".into(), objective: "File.".into() }];
-        s.people = vec![Person { id: "p1".into(), ..fixtures::person() }];
-        let request = |kind: fn(String, String) -> RunKind| kind("q1".into(), "p1".into());
-        let kinds = vec![
-            RunKind::Manual,
-            RunKind::Chat,
-            scheduled("s1", true),
-            scheduled("s1", false),
-            scheduled("check:c1", true),
-            RunKind::Delegated { parent_run_id: "r0".into() },
-            RunKind::Asked { parent_run_id: "r0".into(), asked_by: "e2".into(), task: true },
-            RunKind::Asked { parent_run_id: "r0".into(), asked_by: "e2".into(), task: false },
-            RunKind::Answered { asked_run_id: "r0".into(), from: "e2".into(), task: true, chat: false, thread: None },
-            RunKind::Answered { asked_run_id: "r0".into(), from: "e2".into(), task: false, chat: true, thread: None },
-            RunKind::Answered { asked_run_id: "r0".into(), from: "e2".into(), task: false, chat: false, thread: Some("t1".into()) },
-            request(|request_id, person_id| RunKind::FollowUp { request_id, person_id }),
-            RunKind::Organize { imported: vec![], settled: false },
-            RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None },
-            RunKind::Tidy { reason: TidyReason::Approved, signature: vec![], plan: Some("Merge two skills.".into()) },
-            RunKind::Reply { to_run_id: "r0".into(), label: "Sweep".into(), task: false, card: true },
-            RunKind::Reply { to_run_id: "r0".into(), label: "Sweep".into(), task: true, card: false },
-            RunKind::Task { label: "Draft it".into(), from: None, context: String::new() },
-            RunKind::Task { label: "Draft it".into(), from: Some("your chat".into()), context: "- 2:15 pm, Pat: Hi.\n".into() },
-            RunKind::HireDecided { proposal_id: "h1".into(), approved: true },
-            request(|request_id, person_id| RunKind::ReplyCheck { request_id, person_id }),
-            request(|request_id, person_id| RunKind::Nudge { request_id, person_id }),
-            request(|request_id, person_id| RunKind::Unanswered { request_id, person_id }),
-        ];
-        let mut texts = vec![handbook(&s)];
-        texts.extend(kinds.into_iter().map(|k| system_prompt(&s, &run(k))));
-        let check_back = Run { check: Some("c1".into()), ..run(RunKind::Reply { to_run_id: "r0".into(), label: "Sweep".into(), task: true, card: false }) };
-        texts.push(system_prompt(&s, &check_back));
-        texts
     }
 
     #[test]

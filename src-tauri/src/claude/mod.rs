@@ -3,6 +3,8 @@
 //! live in `prompt`, the per-run settings in `settings`, stream-json parsing in `stream`, and the
 //! reply judge in `judge`.
 
+#[cfg(test)]
+mod fixtures;
 mod judge;
 mod prompt;
 mod settings;
@@ -610,6 +612,7 @@ pub async fn probe_usage(program: &Path, cwd: &Path) -> Option<UsageSample> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::claude::fixtures::*;
     use crate::fixtures::{self, scheduled};
 
     #[test]
@@ -649,35 +652,8 @@ mod tests {
         assert_eq!(model_args(&RunKind::Reply { to_run_id: "r1".into(), label: "Inbox watch".into(), task: false, card: false }, &e), ["--model", "opus", "--effort", "high"]);
     }
 
-    fn ada() -> Employee {
-        Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() }
-    }
-
-    fn acme() -> Company {
-        Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }
-    }
-
-    fn snapshot(opening: Option<Opening>, resume: bool) -> Snapshot {
-        test_snapshot(acme(), ada(), opening, resume)
-    }
-
-    fn now_opening(since: Option<Ts>) -> Opening {
-        Opening { now: chrono::Utc::now(), since, ..Opening::default() }
-    }
-
     fn file<'a>(inv: &'a Invocation, name: &str) -> &'a str {
         &inv.files.iter().find(|(p, _)| p.ends_with(name)).unwrap().1
-    }
-
-    /// A finished run of Ada's, `mins` minutes ago.
-    fn done(kind: RunKind, mins: i64, summary: &str) -> Run {
-        let at = chrono::Utc::now() - chrono::Duration::minutes(mins);
-        let mut r = Run::new("e1", kind, "Go.".into(), at);
-        r.state = RunState::Succeeded;
-        r.started_at = Some(at);
-        r.ended_at = Some(at);
-        r.summary = Some(summary.into());
-        r
     }
 
     #[test]
