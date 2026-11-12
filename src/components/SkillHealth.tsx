@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { call, errorMessage } from "../api/client";
 import type { Check, EmployeeView, HealthFinding, HealthKind, SkillHealth as Health } from "../api/types";
-import { firstName, relTime } from "../lib/format";
+import { capitalize, firstName, relTime } from "../lib/format";
 import { useQuery } from "../lib/hooks";
 import { toast } from "../lib/toasts";
 import { openMember, openRun } from "../lib/router";
@@ -142,7 +142,7 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
                 <li key={c.id} className="hf-row chk-row">
                   <div className="hf-body">
                     <span className="chk-what">{c.what}</span>
-                    <span className="hf-detail"><span className={due.late ? "upkeep-late" : ""}>{due.text[0].toUpperCase() + due.text.slice(1)}</span> · {c.how}</span>
+                    <span className="hf-detail"><span className={due.late ? "upkeep-late" : ""}>{capitalize(due.text)}</span> · {c.how}</span>
                   </div>
                   <ConfirmButton label="Drop" className="btn btn-ghost" size="btn-sm" question="Stop tracking it?" confirmLabel="Drop it" onConfirm={() => drop(c.id)} />
                 </li>

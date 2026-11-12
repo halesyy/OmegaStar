@@ -1,5 +1,5 @@
 import type { EmployeeView, PersonView, Run } from "../api/types";
-import { firstName, runKindLabel } from "./format";
+import { capitalize, firstName, runKindLabel } from "./format";
 
 export function kindNames(run: Run, employees: EmployeeView[], people: PersonView[]): { manager?: string; person?: string; asker?: string } {
   if (run.kind.type === "asked" || run.kind.type === "answered") {
@@ -49,7 +49,7 @@ function firstSentence(text: string): string {
   const s = line.replace(/^(please|can you|could you|would you)[, ]+/i, "");
   const ends = [". ", "? ", "! "].map((e) => s.indexOf(e)).filter((i) => i >= 0);
   const out = (ends.length ? s.slice(0, Math.min(...ends)) : s).replace(/[?.!,:;]+$/, "").trim();
-  return out.charAt(0).toUpperCase() + out.slice(1);
+  return capitalize(out);
 }
 
 /** What a piece of work is called where a person's state is shown: the conversation's name without "Re:", the task a

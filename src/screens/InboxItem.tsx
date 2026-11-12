@@ -4,7 +4,7 @@ import { call, errorMessage } from "../api/client";
 import type { Card, CardReply, EmployeeView, HireProposal, NewAttachment, OrgSnapshot, PersonView, Run, SkillInfo, Thread } from "../api/types";
 import { askAboutCard, usePendingAnswers } from "../lib/cardAnswers";
 import type { CardDecision, Decision, Group } from "../lib/decisions";
-import { dateLong, firstName, listNames, runKindLabel, shortAge, taskLabel, threadTitle, whenInline } from "../lib/format";
+import { dateLong, firstName, listNames, plural, runKindLabel, shortAge, taskLabel, threadTitle, whenInline } from "../lib/format";
 import { useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
 import { openChat } from "../lib/router";
@@ -459,7 +459,7 @@ function RetryAllMain({ d }: { d: Extract<Decision<Item>, { type: "failures" }> 
     const again = (t: PromiseSettledResult<unknown>) => t.status === "rejected" && /already went again/.test(errorMessage(t.reason));
     const went = tries.filter((t) => t.status === "fulfilled" || again(t)).length;
     const failed = tries.find((t) => t.status === "rejected" && !again(t));
-    if (went) toast(`Trying ${went === 1 ? "1 run" : `${went} runs`} again`, "ok");
+    if (went) toast(`Trying ${plural(went, "run")} again`, "ok");
     if (failed?.status === "rejected") toast(errorMessage(failed.reason), "err");
     if (!went) setTrying(false);
   };

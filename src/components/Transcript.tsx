@@ -1,5 +1,5 @@
 import type { HireProposal, PersonView, RequestKind, RunEvent, SkillChangeKind } from "../api/types";
-import { firstName } from "../lib/format";
+import { capitalize, firstName } from "../lib/format";
 import { navigate } from "../lib/router";
 import { Icon, type IconName } from "./Icon";
 import { Avatar } from "./ui";
@@ -96,7 +96,7 @@ const STEPS: Record<string, StepMeta> = {
 /** "list_tickets" or "listTickets" -> "List tickets": a tool with no words of its own, said as words. */
 const humanize = (name: string) => {
   const words = name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
-  return words ? words[0].toUpperCase() + words.slice(1) : name;
+  return words ? capitalize(words) : name;
 };
 const stepMeta = (tool: string): StepMeta => STEPS[tool] ?? { done: humanize(toolName(tool)), now: humanize(toolName(tool)), icon: "tool" };
 /** Words that start a phrase rather than name something, so an object continuing the verb takes them in lower case

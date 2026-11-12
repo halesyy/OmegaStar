@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, NewAttachment, Run, Thread } from "../../api/types";
-import { firstName, relTime } from "../../lib/format";
+import { capitalize, firstName, relTime } from "../../lib/format";
 import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
 import { snoozePresets } from "../../lib/status";
 import { toast } from "../../lib/toasts";
@@ -145,7 +145,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
  *  conversation" reads "It is locked". */
 const reason = (error: string) => {
   const r = error.replace(/^couldn'?t (?:load|open|read) (?:this|the) conversation:?\s*/i, "").trim();
-  return r ? r[0].toUpperCase() + r.slice(1) : error;
+  return r ? capitalize(r) : error;
 };
 
 /** The run has a card still waiting on your answer. News waits on nothing. */

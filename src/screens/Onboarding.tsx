@@ -9,7 +9,7 @@ import { Icon } from "../components/Icon";
 import { Avatar, ErrorNote, PageHeader, Roll, Section, Switch } from "../components/ui";
 import { INSTALL_CLAUDE, SHELL, signInCommand } from "../lib/claudeCode";
 import { dragRegion, macChrome } from "../lib/chrome";
-import { initials } from "../lib/format";
+import { capitalize, initials } from "../lib/format";
 import { curve, ms, reducedMotion, usePresence } from "../lib/motion";
 import { useScrollFade } from "../lib/scrollFade";
 import { useOrg, refreshOrg } from "../lib/hooks";
@@ -126,7 +126,7 @@ function Held({ value, longest, icon }: { value: string; longest: string; icon?:
 /** The cause in an error, without a leading "Couldn't …:" that the note's own title already says. */
 function causeOf(message: string): string {
   const cause = message.replace(/^Couldn't [^:]*:\s*/, "");
-  return cause.charAt(0).toUpperCase() + cause.slice(1);
+  return capitalize(cause);
 }
 
 /** The page as it stands, left behind for its exit: a still copy laid exactly over it that rises 8px and fades on the

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call } from "../api/client";
 import type { EmployeeUsage, EmployeeView, PersonView, RoutineUsage, Run, RunUsage, SkillRevision } from "../api/types";
-import { dayHeading, firstName, listNames, MOD, runKindLabel, shortAge, timeOrDay } from "../lib/format";
+import { dayHeading, firstName, listNames, MOD, plural, runKindLabel, shortAge, timeOrDay } from "../lib/format";
 import { refreshOrg, useNow, useOrg, useQuery, useRunDetail, type Query } from "../lib/hooks";
 import { curve, ms, reducedMotion } from "../lib/motion";
 import { navigate, openChat, openMember, openRun, type ActivityView } from "../lib/router";
@@ -558,8 +558,6 @@ function dayStart(now: number, daysBack = 0): string {
   return d.toISOString();
 }
 
-const plural = (n: number, noun: string) => `${n} ${noun}${n === 1 ? "" : "s"}`;
-
 /** Usage in US dollars at API list price, without its sign: "12.40", "<0.01", or "0" when no run recorded a cost. */
 const dollars = (n: number) => (n <= 0 ? "0" : n < 0.01 ? "<0.01" : n.toFixed(2));
 
@@ -682,7 +680,7 @@ function Numbers({ data, who, employees }: { data: NumbersData; who: string | nu
           })}
         </div>
         <p className="act-foot">
-          <Roll value={people === 0 ? `Nobody has run anything ${span === "today" ? "today" : "this week"} yet.` : `${people === 1 ? "1 person" : `${people} people`} ran ${plural(runsTotal, "run")} ${span === "today" ? "today" : "this week"}.`} />
+          <Roll value={people === 0 ? `Nobody has run anything ${span === "today" ? "today" : "this week"} yet.` : `${plural(people, "person", "people")} ran ${plural(runsTotal, "run")} ${span === "today" ? "today" : "this week"}.`} />
         </p>
       </>
     );

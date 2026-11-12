@@ -10,7 +10,7 @@ import { UsageCard } from "./components/UsageCard";
 import { Avatar, Roll } from "./components/ui";
 import { conversationFor, usePruneMarks, useStatuses } from "./components/conversation/useStatuses";
 import { decisions } from "./lib/decisions";
-import { firstName, initials, MOD } from "./lib/format";
+import { capitalize, firstName, initials, MOD } from "./lib/format";
 import { openChat, openYou, useRoute } from "./lib/router";
 import { YOU_ID } from "./lib/org";
 import { useOrg, useProposals } from "./lib/hooks";
@@ -139,7 +139,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
     return {
       e, first, tone,
       label: said ? `${e.name}, ${said}` : e.name,
-      tip: said ? `${collapsed ? `${first}: ` : ""}${said.charAt(0).toUpperCase() + said.slice(1)}` : collapsed ? first : undefined,
+      tip: said ? `${collapsed ? `${first}: ` : ""}${capitalize(said)}` : collapsed ? first : undefined,
     };
   });
   return (
