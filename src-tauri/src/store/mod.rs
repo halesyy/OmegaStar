@@ -1,5 +1,5 @@
 //! SQLite persistence. Each domain object is stored as its JSON form in `data`, with the columns
-//! the Office queries on derived from it in exactly one place (the save functions below).
+//! the Office queries on derived from it in exactly one place (each domain's save functions).
 
 use crate::log::log;
 use crate::model::*;
@@ -202,7 +202,7 @@ impl Store {
     }
 
     /// Once: a run's one `card` becomes its list of `cards`, and a chore card gets the key every card now
-    /// has, so the queries below read one shape.
+    /// has, so every card query reads one shape.
     fn migrate_cards(&self) -> Result<()> {
         if self.meta::<bool>("cards_listed")?.unwrap_or(false) {
             return Ok(());
