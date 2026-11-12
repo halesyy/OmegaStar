@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <sub>Proudly sponsored by <a href="https://vibetyper.com"><img src="https://vibetyper.com/images/vibe-typer-logo.png" alt="" width="16" height="16" align="absmiddle"> <strong>Vibe Typer</strong></a></sub>
+  <sub>Proudly sponsored by <a href="https://vibetyper.com/?utm_source=omegastar&utm_medium=readme&utm_campaign=sponsor"><img src="https://vibetyper.com/images/vibe-typer-logo.png" alt="" width="16" height="16" align="absmiddle"> <strong>Vibe Typer</strong></a></sub>
 </p>
 
 **Keep the agent you trust. Omega Star adds the company around it.**
@@ -136,6 +136,13 @@ npm run tauri dev
 <summary><b>How is this different from OpenClaw or Hermes Agent?</b></summary>
 
 They are personal agents with their own runtime, tools and chat-app gateways, built for many models, which you set up and maintain. Omega Star builds none of that: each employee is your own Claude Code. Hermes Agent also learns skills; here, what you teach lands in named skills you can diff and undo. For a model-agnostic assistant you chat with from your phone, they are the better fit.
+
+</details>
+
+<details>
+<summary><b>How is this different from Paperclip?</b></summary>
+
+Paperclip is a server and dashboard for running autonomous agent organisations across many agent harnesses. Omega Star is a desktop app for a company with people in it: your colleagues sit on the same org chart without an account, and employees reach them on the channels they already use. Employees learn by being talked to and bring you only what needs you. There's nothing to host, and each employee is just your own Claude Code.
 
 </details>
 
