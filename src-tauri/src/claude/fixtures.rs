@@ -32,9 +32,7 @@ pub(super) fn done(kind: RunKind, mins: i64, summary: &str) -> Run {
 
 /// Ada, an analyst at Acme who works for Pat, with nothing else around her.
 pub(super) fn snap() -> Snapshot {
-    let employee = Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() };
-    let company = Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() };
-    test_snapshot(company, employee, None, false)
+    snapshot(None, false)
 }
 
 pub(super) fn run(kind: RunKind) -> Run {
