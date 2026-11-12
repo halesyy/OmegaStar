@@ -122,14 +122,17 @@ pub fn install_craft(skills_dir: &Path) -> Result<()> {
 /// Text files under the employee's skills, keyed by (skill, relative file), excluding the managed skill.
 pub type Snapshot = BTreeMap<(String, String), String>;
 
-fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) {
+/// Every file under `dir`, keyed by its path from there, going into only the folders `enter` accepts by name.
+fn walk(dir: &Path, rel: &str, enter: &dyn Fn(&str) -> bool, out: &mut Vec<(String, PathBuf)>) {
     let Ok(rd) = fs::read_dir(dir) else { return };
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
         let r = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
         let p = e.path();
         if p.is_dir() {
-            walk(&p, &r, out);
+            if enter(&name) {
+                walk(&p, &r, enter, out);
+            }
         } else {
             out.push((r, p));
         }
@@ -138,7 +141,7 @@ fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) {
 
 pub(crate) fn skill_files(skill_dir: &Path) -> Vec<(String, PathBuf)> {
     let mut v = vec![];
-    walk(skill_dir, "", &mut v);
+    walk(skill_dir, "", &|_| true, &mut v);
     v.sort();
     v
 }
@@ -162,22 +165,9 @@ const UNRECORDED_EXTS: [&str; 3] = ["json", "jsonl", "csv"];
 
 /// The files of a skill worth recording: `skill_files` without UNRECORDED_DIRS and data files.
 fn recorded_files(skill_dir: &Path) -> Vec<(String, PathBuf)> {
-    fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) {
-        for e in fs::read_dir(dir).into_iter().flatten().flatten() {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let r = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
-            let p = e.path();
-            if p.is_dir() {
-                if !UNRECORDED_DIRS.contains(&name.as_str()) {
-                    walk(&p, &r, out);
-                }
-            } else if !Path::new(&name).extension().map(|x| UNRECORDED_EXTS.iter().any(|u| x.eq_ignore_ascii_case(u))).unwrap_or(false) {
-                out.push((r, p));
-            }
-        }
-    }
     let mut v = vec![];
-    walk(skill_dir, "", &mut v);
+    walk(skill_dir, "", &|name| !UNRECORDED_DIRS.contains(&name), &mut v);
+    v.retain(|(_, p)| !p.extension().is_some_and(|x| UNRECORDED_EXTS.iter().any(|u| x.eq_ignore_ascii_case(u))));
     v.sort();
     v
 }
