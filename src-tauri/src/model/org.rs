@@ -151,16 +151,20 @@ pub fn check_image(image: Option<&str>) -> Result<()> {
     }
 }
 
+fn check_face(name: &str, hue: u16, image: Option<&str>) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(AppError::invalid("name is required"));
+    }
+    if hue > 359 {
+        return Err(AppError::invalid("hue must be 0-359"));
+    }
+    check_image(image)
+}
+
 impl EmployeeDraft {
     /// Boundary validation shared by hire and update.
     pub fn validate(&self) -> Result<()> {
-        if self.name.trim().is_empty() {
-            return Err(AppError::invalid("name is required"));
-        }
-        if self.hue > 359 {
-            return Err(AppError::invalid("hue must be 0-359"));
-        }
-        check_image(self.image.as_deref())
+        check_face(&self.name, self.hue, self.image.as_deref())
     }
 
     pub fn into_employee(self, id: String, slug: String, chat_session: String, hired_at: Ts) -> Employee {
@@ -346,13 +350,7 @@ pub struct Person {
 
 impl PersonDraft {
     pub fn validate(&self) -> Result<()> {
-        if self.name.trim().is_empty() {
-            return Err(AppError::invalid("name is required"));
-        }
-        if self.hue > 359 {
-            return Err(AppError::invalid("hue must be 0-359"));
-        }
-        check_image(self.image.as_deref())
+        check_face(&self.name, self.hue, self.image.as_deref())
     }
 
     pub fn into_person(self, id: String, added_at: Ts) -> Person {
