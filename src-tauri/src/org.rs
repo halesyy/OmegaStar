@@ -206,7 +206,7 @@ impl Org {
                 }
             }
         };
-        for e in self.employees.iter_mut().filter(|e| e.manager_id.as_deref() == Some(id)) {
+        for e in self.employees.iter_mut().filter(|e| e.reports_to(id)) {
             e.manager_id = heir.clone();
         }
         for p in self.people.iter_mut().filter(|p| p.manager.member_id() == Some(id)) {

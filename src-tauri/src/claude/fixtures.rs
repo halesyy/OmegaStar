@@ -3,16 +3,12 @@
 use super::*;
 use crate::fixtures::{self, scheduled};
 
-pub(super) fn ada() -> Employee {
+fn ada() -> Employee {
     Employee { id: "e1".into(), title: "Analyst".into(), objective: "Keep the numbers right.".into(), ..fixtures::employee() }
 }
 
-pub(super) fn acme() -> Company {
-    Company { name: "Acme".into(), ceo_name: "Pat".into(), ..Company::unset() }
-}
-
 pub(super) fn snapshot(opening: Option<Opening>, resume: bool) -> Snapshot {
-    test_snapshot(acme(), ada(), opening, resume)
+    test_snapshot(fixtures::acme(), ada(), opening, resume)
 }
 
 pub(super) fn now_opening(since: Option<Ts>) -> Opening {
