@@ -688,7 +688,7 @@ pub(super) fn yours(t: &Thread) -> bool {
 }
 
 /// For an answer brought back (`RunKind::Answered`) that did not finish: the copy Omega Star queued again by itself
-/// (`tools::redeliver`), made due now, so a retry sends that rather than a second copy. Err once a copy is running or
+/// (`handoffs::redeliver`), made due now, so a retry sends that rather than a second copy. Err once a copy is running or
 /// brought it, as a retry would bring the same answer twice. None for anything else. Save the run it returns.
 fn queued_again(db: &Store, failed: &Run) -> Result<Option<Run>> {
     let RunKind::Answered { asked_run_id, .. } = &failed.kind else { return Ok(None) };
@@ -1111,7 +1111,7 @@ mod tests {
         done.ended_at = Some(now());
         done.summary = Some("Booked for Friday.".into());
         office.db().save_run(&done).unwrap();
-        let due = super::super::tools::due_answers(&office.db(), &done).unwrap();
+        let due = super::super::handoffs::due_answers(&office.db(), &done).unwrap();
         assert!(matches!(&due[..], [(r, _)] if r.employee_id == ada.id && matches!(&r.kind, RunKind::Answered { asked_run_id, .. } if *asked_run_id == again.id)), "{due:?}");
         drop(office);
         let _ = fs::remove_dir_all(&dir);

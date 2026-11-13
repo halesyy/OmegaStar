@@ -2,6 +2,9 @@
 //! conversations, delegation and people requests. It talks to the UI only through an `EventSink`.
 
 mod conversations;
+#[cfg(test)]
+mod fixtures;
+mod handoffs;
 mod inbox;
 mod members;
 mod requests;

@@ -444,10 +444,10 @@ impl Office {
                     (r, n)
                 })
                 .collect();
-            tools::catch_up(&db, &employees, run, o)?;
+            handoffs::catch_up(&db, &employees, run, o)?;
         }
         let chain = match (&run.kind, run.upstream()) {
-            (RunKind::Delegated { .. } | RunKind::Asked { .. } | RunKind::Answered { .. }, Some(up)) => Some(tools::source_chain(&db, &company.ceo_name, up)?),
+            (RunKind::Delegated { .. } | RunKind::Asked { .. } | RunKind::Answered { .. }, Some(up)) => Some(handoffs::source_chain(&db, &company.ceo_name, up)?),
             _ => None,
         };
         drop(db);
@@ -455,7 +455,7 @@ impl Office {
         if let Some(o) = opening.as_mut() {
             o.notes = own_skills::changed_notes(&employee_dir.join("workspace"), o.since.unwrap_or(o.now - chrono::Duration::days(7)));
         }
-        let source = chain.map(|c| tools::source_text(&c, &self.0.data_dir.join("runs")));
+        let source = chain.map(|c| handoffs::source_text(&c, &self.0.data_dir.join("runs")));
         let owns = fs::read_to_string(employee_dir.join(own_skills::OWN_FILE)).map(|t| t.trim().to_string()).unwrap_or_default();
         let tidy = self.tidy_brief(run, &e)?;
         let catalog = self.skill_catalog();
@@ -1449,7 +1449,7 @@ pub(super) fn takes_opening(kind: &RunKind) -> bool {
 }
 
 /// What a run's opening note is made from, read under the store lock: `waiting_on`, `notes`, and what
-/// `tools::catch_up` adds are left for the caller. `None` unless `takes_opening`. A resumed conversation, and a
+/// `handoffs::catch_up` adds are left for the caller. `None` unless `takes_opening`. A resumed conversation, and a
 /// quiet routine, get only what is new since their last turn.
 fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session: &str, resume: bool, now: Ts) -> Result<Option<claude::Opening>> {
     if !takes_opening(&run.kind) {
