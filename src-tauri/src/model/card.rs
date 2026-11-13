@@ -3,6 +3,15 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+/// What a key an employee names is stored under, so it never meets a chore's.
+pub(crate) const ASK: &str = "ask:";
+/// What a chore's key is stored under, so every run waiting on the same chore shares it.
+const CHORE: &str = "chore:";
+
+fn chore_key(subject: &str) -> String {
+    format!("{CHORE}{subject}")
+}
+
 /// One thing a run asks you with the answer built in: a choice, a list to approve, a chore or a task only you can
 /// do, a question only you can answer, or news to read (`notify`). A run can ask several.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -48,7 +57,7 @@ pub struct Card {
 impl Card {
     pub fn new(message: &str, why: Option<String>, key: Option<String>, ask: CardAsk) -> Card {
         let key = match &ask {
-            CardAsk::Chore { subject, .. } => Some(format!("chore:{subject}")),
+            CardAsk::Chore { subject, .. } => Some(chore_key(subject)),
             _ => key,
         };
         Card {
@@ -92,7 +101,7 @@ impl Card {
     pub fn topic(&self) -> Option<String> {
         match (&self.key, &self.ask) {
             (Some(k), _) => Some(k.clone()),
-            (None, CardAsk::Chore { subject, .. }) => Some(format!("chore:{subject}")),
+            (None, CardAsk::Chore { subject, .. }) => Some(chore_key(subject)),
             _ => None,
         }
     }

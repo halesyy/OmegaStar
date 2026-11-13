@@ -17,8 +17,6 @@ const QUESTION_CHARS: usize = 80;
 /// The one line under the question.
 pub const WHY_CHARS: usize = 140;
 const KEY_CHARS: usize = 60;
-/// What a key an employee names is stored under, so it never meets a chore's.
-const ASK: &str = "ask:";
 const MAX_CHOICES: usize = 4;
 /// The buttons every decision card has already, so never one of its choices.
 const BUILT_IN: [&str; 3] = ["later", "not now", "no"];
