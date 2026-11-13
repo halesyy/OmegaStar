@@ -631,7 +631,7 @@ fn answer_text(ceo: &str, from: &str, handed: &Run, parent: &Run, quote: bool, r
         prompt += &format!("\n\n{n}");
     }
     if quote {
-        let origin = if skills::ceo_in(&parent.kind) && !parent.omega_wrote {
+        let origin = if ceo_in(&parent.kind) && !parent.omega_wrote {
             format!("You were talking with {ceo}, whose message was:")
         } else {
             "Your run had started from:".to_string()

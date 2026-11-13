@@ -734,13 +734,13 @@ you as a new run. Never create the hire any other way."
     }
 
     /// Opens a file, a folder or a page on your screen for the caller (`open_target` says what they may open), and
-    /// says whether it worked. Only in a conversation you are in (`skills::ceo_present`): from a run nobody watches,
+    /// says whether it worked. Only in a conversation you are in (`ceo_present`): from a run nobody watches,
     /// a tab or a window would appear out of nowhere.
     pub fn open_tool(&self, caller_run: &str, caller: &Employee, target: &str) -> Result<Value> {
         let ceo = {
             let db = self.db();
             let ceo = ceo_of(&db)?;
-            if !db.run(caller_run)?.is_some_and(|r| skills::ceo_present(&r.run)) {
+            if !db.run(caller_run)?.is_some_and(|r| ceo_present(&r.run)) {
                 return Err(AppError::invalid(format!(
                     "{ceo} is not in this run, so nothing opens on their screen. Put the link on your card instead: a sign-in page goes in the chore's url."
                 )));

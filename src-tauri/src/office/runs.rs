@@ -971,7 +971,7 @@ impl Office {
             }
             let text = transcript_text.get_or_insert_with(|| attempt_text(&transcript_path, attempt_start));
             let wrote = skills::wrote_file(text, &path, &snap.employee_dir);
-            if !skills::ceo_present(run) {
+            if !ceo_present(run) {
                 let who = (skill == own_skills::OWN).then_some(snap.employee.id.as_str());
                 let since = run.started_at.unwrap_or(run.created_at);
                 let seen = {
@@ -985,8 +985,8 @@ impl Office {
                 });
                 // Saving the page in You writes no revision, so it is asked about here.
                 let saved = skill == own_skills::COMPANY && self.company_saved_since(since);
-                let action = skills::guarded_action(wrote, talking, revised || saved);
-                let putting_back = action == skills::GuardedAction::PutBack;
+                let action = guarded::guarded_action(wrote, talking, revised || saved);
+                let putting_back = action == guarded::GuardedAction::PutBack;
                 match self.put_back_guarded(run, &snap.employee, &key, was, is, action) {
                     Ok(()) => put_back |= putting_back,
                     Err(err) => log!("run {}: putting back {skill}/{file} failed: {err}", run.id),
@@ -1257,7 +1257,7 @@ const GATE_DARK_WAKE: bool = false;
 /// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
 /// you: nobody may be watching when it lands. Pure.
 fn holds(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> bool {
-    let background = !skills::ceo_present(run);
+    let background = !ceo_present(run);
     held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake)
 }
 
