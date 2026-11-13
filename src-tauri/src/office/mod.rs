@@ -2,6 +2,10 @@
 //! conversations, delegation and people requests. It talks to the UI only through an `EventSink`.
 
 mod conversations;
+mod guarded;
+#[cfg(test)]
+mod fixtures;
+mod handoffs;
 mod inbox;
 mod members;
 mod requests;
@@ -9,6 +13,7 @@ mod runs;
 mod schedules;
 mod settings;
 mod skills;
+mod tidying;
 mod tools;
 mod visuals;
 
@@ -202,6 +207,18 @@ fn conversation_of(db: &Store, run: &Run) -> Result<Option<String>> {
         at = next.run;
     }
     Ok(None)
+}
+
+/// The CEO is in this conversation: one they started, a reply, or a turn of an older build's chat. Not
+/// is_conversation(): an answer that came back into a conversation starts from a colleague's report.
+fn ceo_in(kind: &RunKind) -> bool {
+    matches!(kind, RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. })
+}
+
+/// You are in this run (`ceo_in`), unless it is a due check Omega Star brought back into a conversation: that turn
+/// runs with nobody watching, as a check run does.
+fn ceo_present(run: &Run) -> bool {
+    ceo_in(&run.kind) && run.check.is_none()
 }
 
 impl Office {
@@ -673,7 +690,7 @@ fn find_employee<'a>(items: &'a [Employee], key: &str) -> Option<&'a Employee> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixtures::temp_path;
+    use crate::fixtures::{task, temp_path};
 
     const LOST: &str = "Omega Star stopped while this run was in progress.";
 
@@ -823,5 +840,17 @@ mod tests {
         let dir = std::env::temp_dir();
         assert!(free_bytes(&dir).is_some_and(|b| b > 0), "the temp folder's disk has room");
         assert_eq!(free_bytes(&dir.join(format!("omegastar-missing-{}", uuid::Uuid::new_v4()))), None);
+    }
+
+    #[test]
+    fn only_conversations_and_replies_have_you_in_them() {
+        let scheduled = RunKind::Scheduled { schedule_id: "s1".into(), slot: now(), label: "Sweep".into(), quiet: true, model: None, effort: None, review: false };
+        assert!(!ceo_in(&RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: true, thread: None }));
+        assert!(!ceo_in(&RunKind::Answered { asked_run_id: "r1".into(), from: "e2".into(), task: false, chat: false, thread: Some("t1".into()) }));
+        assert!(!ceo_in(&scheduled));
+        assert!(!ceo_in(&RunKind::Delegated { parent_run_id: "r1".into() }));
+        assert!(ceo_in(&RunKind::Chat));
+        assert!(ceo_in(&task("Draft it")));
+        assert!(ceo_in(&RunKind::Reply { to_run_id: "r1".into(), label: "Sweep".into(), task: false, card: false }));
     }
 }

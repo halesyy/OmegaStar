@@ -444,10 +444,10 @@ impl Office {
                     (r, n)
                 })
                 .collect();
-            tools::catch_up(&db, &employees, run, o)?;
+            handoffs::catch_up(&db, &employees, run, o)?;
         }
         let chain = match (&run.kind, run.upstream()) {
-            (RunKind::Delegated { .. } | RunKind::Asked { .. } | RunKind::Answered { .. }, Some(up)) => Some(tools::source_chain(&db, &company.ceo_name, up)?),
+            (RunKind::Delegated { .. } | RunKind::Asked { .. } | RunKind::Answered { .. }, Some(up)) => Some(handoffs::source_chain(&db, &company.ceo_name, up)?),
             _ => None,
         };
         drop(db);
@@ -455,7 +455,7 @@ impl Office {
         if let Some(o) = opening.as_mut() {
             o.notes = own_skills::changed_notes(&employee_dir.join("workspace"), o.since.unwrap_or(o.now - chrono::Duration::days(7)));
         }
-        let source = chain.map(|c| tools::source_text(&c, &self.0.data_dir.join("runs")));
+        let source = chain.map(|c| handoffs::source_text(&c, &self.0.data_dir.join("runs")));
         let owns = fs::read_to_string(employee_dir.join(own_skills::OWN_FILE)).map(|t| t.trim().to_string()).unwrap_or_default();
         let tidy = self.tidy_brief(run, &e)?;
         let catalog = self.skill_catalog();
@@ -971,7 +971,7 @@ impl Office {
             }
             let text = transcript_text.get_or_insert_with(|| attempt_text(&transcript_path, attempt_start));
             let wrote = skills::wrote_file(text, &path, &snap.employee_dir);
-            if !skills::ceo_present(run) {
+            if !ceo_present(run) {
                 let who = (skill == own_skills::OWN).then_some(snap.employee.id.as_str());
                 let since = run.started_at.unwrap_or(run.created_at);
                 let seen = {
@@ -985,8 +985,8 @@ impl Office {
                 });
                 // Saving the page in You writes no revision, so it is asked about here.
                 let saved = skill == own_skills::COMPANY && self.company_saved_since(since);
-                let action = skills::guarded_action(wrote, talking, revised || saved);
-                let putting_back = action == skills::GuardedAction::PutBack;
+                let action = guarded::guarded_action(wrote, talking, revised || saved);
+                let putting_back = action == guarded::GuardedAction::PutBack;
                 match self.put_back_guarded(run, &snap.employee, &key, was, is, action) {
                     Ok(()) => put_back |= putting_back,
                     Err(err) => log!("run {}: putting back {skill}/{file} failed: {err}", run.id),
@@ -1257,7 +1257,7 @@ const GATE_DARK_WAKE: bool = false;
 /// or changing; and a dark wake starts no work you are not in. An answer coming back into a conversation is not
 /// you: nobody may be watching when it lands. Pure.
 fn holds(run: &Run, held: bool, account_ok: bool, busy: bool, awake: bool) -> bool {
-    let background = !skills::ceo_present(run);
+    let background = !ceo_present(run);
     held || (background && !account_ok) || (matches!(run.kind, RunKind::Tidy { .. }) && busy) || (background && !awake)
 }
 
@@ -1449,7 +1449,7 @@ pub(super) fn takes_opening(kind: &RunKind) -> bool {
 }
 
 /// What a run's opening note is made from, read under the store lock: `waiting_on`, `notes`, and what
-/// `tools::catch_up` adds are left for the caller. `None` unless `takes_opening`. A resumed conversation, and a
+/// `handoffs::catch_up` adds are left for the caller. `None` unless `takes_opening`. A resumed conversation, and a
 /// quiet routine, get only what is new since their last turn.
 fn opening(db: &Store, e: &Employee, employees: &[Employee], run: &Run, session: &str, resume: bool, now: Ts) -> Result<Option<claude::Opening>> {
     if !takes_opening(&run.kind) {
