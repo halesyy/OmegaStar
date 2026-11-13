@@ -12,6 +12,7 @@ mod runs;
 mod schedules;
 mod settings;
 mod skills;
+mod tidying;
 mod tools;
 mod visuals;
 
