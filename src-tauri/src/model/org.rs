@@ -490,6 +490,27 @@ mod tests {
     }
 
     #[test]
+    fn a_face_needs_a_name_and_a_hue_under_360() {
+        let bo = PersonDraft { name: "Bo".into(), title: String::new(), description: String::new(), strengths: String::new(), responsibilities: String::new(), channels: vec![], notes: String::new(), manager: PersonManager::You, hue: 0, image: None };
+        let cases = [
+            ("Ada", 359, None, None),
+            (" ", 0, None, Some("name is required")),
+            (" ", 360, None, Some("name is required")),
+            ("Ada", 360, None, Some("hue must be 0-359")),
+            ("Ada", 360, Some("https://example.com/face.png"), Some("hue must be 0-359")),
+            ("Ada", 0, Some("https://example.com/face.png"), Some("the display image must be a picture under 256 KB")),
+        ];
+        for (name, hue, image, want) in cases {
+            let image = image.map(String::from);
+            let employee = EmployeeDraft { name: name.into(), hue, image: image.clone(), ..ada_draft() }.validate();
+            let person = PersonDraft { name: name.into(), hue, image, ..bo.clone() }.validate();
+            for got in [employee, person] {
+                assert_eq!(got.err(), want.map(AppError::invalid), "{name:?} {hue}");
+            }
+        }
+    }
+
+    #[test]
     fn tidy_on_its_own_is_on_unless_turned_off() {
         let draft = ada_draft();
         let employee = draft.clone().into_employee("e1".into(), "ada".into(), "chat-ada".into(), Utc::now());
