@@ -94,6 +94,7 @@ function setupStatus(company: Company | null, claude = true, signedIn = true): S
     company,
     background: !!company,
     build: { version: BUILD.version, commit: BUILD.commit, channel: BUILD.channel },
+    sandbox: false,
   };
 }
 

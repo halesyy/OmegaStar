@@ -69,7 +69,7 @@ pub fn is_due(freq: BackupFrequency, st: &BackupStatus, now: Ts) -> bool {
 }
 
 /// The existing part of `p` resolved (symlinks, case, 8.3 names), with the rest appended as given.
-fn resolved(p: &Path) -> PathBuf {
+pub(crate) fn resolved(p: &Path) -> PathBuf {
     let mut rest = Vec::new();
     let mut cur = p;
     loop {

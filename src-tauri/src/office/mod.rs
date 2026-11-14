@@ -174,6 +174,8 @@ struct Inner {
     transient_hold: AtomicBool,
     /// The office's disk was too full to start runs when last checked.
     disk_full: AtomicBool,
+    /// A test copy (`sandbox`): it never starts Claude Code, backs up or watches anyone.
+    sandbox: bool,
 }
 
 #[derive(Clone)]
@@ -225,6 +227,7 @@ impl Office {
     /// Opens the data dir, recovers from a previous crash, starts the MCP endpoint, and dispatches
     /// queued work. Does not start the scheduler loop (see `spawn_scheduler`).
     pub async fn open(data_dir: PathBuf, sink: Arc<dyn EventSink>, build: Build) -> Result<Office> {
+        crate::sandbox::check_office(build.channel, &data_dir, crate::sandbox::release_dir().as_deref())?;
         fs::create_dir_all(data_dir.join("employees"))?;
         own_skills::seed_company_page(&data_dir.join("employees"))?;
         fs::create_dir_all(data_dir.join("runs"))?;
@@ -243,6 +246,10 @@ impl Office {
         let store = Store::open(&data_dir.join(crate::store::DB_FILE))?;
         let held_until = store.held_until().ok().flatten().filter(|t| *t > now());
         let (rate_limits, rate_hold) = store.rate_limits().unwrap_or_default();
+        let sandbox = crate::sandbox::is_sandbox(&data_dir);
+        if sandbox {
+            log!("this office is a sandbox: it never starts Claude Code, backs up or watches anyone");
+        }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let port = listener.local_addr()?.port();
         let office = Office(Arc::new(Inner {
@@ -267,6 +274,7 @@ impl Office {
             transient_limits: AtomicU32::new(rate_limits),
             transient_hold: AtomicBool::new(rate_hold && held_until.is_some()),
             disk_full: AtomicBool::new(false),
+            sandbox,
         }));
         office.adopt_chat_turns()?;
         for mut run in office.recover()? {

@@ -25,6 +25,7 @@ impl Office {
             company: self.db().company()?,
             background,
             build: self.0.build.clone(),
+            sandbox: self.0.sandbox,
         })
     }
 
@@ -153,6 +154,9 @@ impl Office {
 
     /// Backs up now, whatever the schedule says. Fails if a backup is already running.
     pub async fn backup_now(&self) -> Result<BackupStatus> {
+        if self.0.sandbox {
+            return Err(AppError::conflict("This office is a sandbox copy, so it never backs up."));
+        }
         let Ok(_backing_up) = self.0.backing_up.try_lock() else {
             return Err(AppError::conflict("A backup is already running."));
         };
@@ -161,6 +165,9 @@ impl Office {
 
     /// Backs up if an automatic backup is due at `at` and the last one is out of date or gone.
     pub async fn backup_tick(&self, at: Ts) -> Result<()> {
+        if self.0.sandbox {
+            return Ok(());
+        }
         let settings = self.settings()?.backup;
         let st = self.db().backup_status()?.unwrap_or_default();
         if !backup::is_due(settings.frequency, &st, at) {

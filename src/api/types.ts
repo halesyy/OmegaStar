@@ -318,6 +318,8 @@ export type SetupStatus = {
   company: Company | null;
   background: boolean;
   build: Build;
+  /** A test copy that never starts Claude Code, backs up or watches anyone. */
+  sandbox: boolean;
 };
 export type AppSettings = {
   maxConcurrentRuns: number; claudePath: string | null; dataDir: string; paused: boolean; backup: BackupSettings; watch: WatchSettings; proxy: ProxySettings;

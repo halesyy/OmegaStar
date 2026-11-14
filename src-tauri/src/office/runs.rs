@@ -178,7 +178,8 @@ impl Office {
     /// employee's lanes: the parent is blocked on them, so capping them could deadlock. Nothing starts while the
     /// disk is nearly full.
     pub(super) fn pump(&self) {
-        if self.0.closing.load(Ordering::SeqCst) || self.disk_full() {
+        // A sandbox keeps its queue as it is: nothing in it ever starts.
+        if self.0.closing.load(Ordering::SeqCst) || self.0.sandbox || self.disk_full() {
             return;
         }
         let (started, dropped) = match self.claim_runnable() {
@@ -1628,6 +1629,32 @@ mod tests {
         assert!(t.root.cards[1].answer.as_ref().is_some_and(|a| !a.held));
         let sent: Vec<&str> = t.replies.iter().map(|r| r.prompt.as_str()).filter(|p| p.ends_with("Your card: \"Email the list?\"\nChose: Go.")).collect();
         assert_eq!(sent.len(), 1, "{:?}", t.replies.iter().map(|r| &r.prompt).collect::<Vec<_>>());
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_sandbox_never_starts_its_queue_or_backs_up() {
+        let dir = temp_dir("sandbox-queue");
+        fs::write(dir.join(crate::sandbox::MARKER), "").unwrap();
+        let pat = employee_named("Pat");
+        {
+            let db = Store::open(&dir.join("office.db")).unwrap();
+            db.set_company(&acme()).unwrap();
+            db.save_employee(&pat).unwrap();
+            // Were the guard to fail, the run would fail to find Claude Code rather than start it.
+            db.set_settings(&AppSettings { claude_path: Some("/nonexistent/claude".into()), ..AppSettings::default() }).unwrap();
+        }
+        let office = open_office(&dir).await;
+        assert!(office.0.sandbox);
+        let run = Run::new(&pat.id, task("Email the list"), "Email the list".into(), now());
+        assert!(office.db().insert_run(&run, &run.id).unwrap());
+        office.pump();
+        let kept = office.db().run(&run.id).unwrap().unwrap().run;
+        assert_eq!((kept.state, kept.started_at), (RunState::Queued, None), "nothing in a sandbox's queue starts");
+        assert!(office.backup_now().await.is_err(), "a sandbox never backs up");
+        office.backup_tick(now()).await.unwrap();
+        assert_eq!(office.db().backup_status().unwrap().unwrap_or_default().last_attempt_at, None);
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
