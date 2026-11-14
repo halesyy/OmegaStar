@@ -16,7 +16,15 @@ use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-const PREFIX: &str = "OmegaStar-backup-";
+/// Backup names start with their build's own prefix, so a test build pointed at the release's backup folder never
+/// prunes the release's backups (`is_backup_name`), nor a release a test build's.
+fn prefix(channel: BuildChannel) -> &'static str {
+    match channel {
+        BuildChannel::Release => "OmegaStar-backup-",
+        BuildChannel::Dogfood => "OmegaStar-dogfood-backup-",
+        BuildChannel::Dev => "OmegaStar-dev-backup-",
+    }
+}
 const EXT: &str = ".zip";
 const STAMP: &str = "%Y%m%d-%H%M%S";
 /// A backup being written; renamed to its final name only once complete.
@@ -41,11 +49,15 @@ impl From<zip::result::ZipError> for AppError {
 }
 
 pub fn file_name(at: DateTime<Local>) -> String {
-    format!("{PREFIX}{}{EXT}", at.format(STAMP))
+    format!("{}{}{EXT}", prefix(BuildChannel::current()), at.format(STAMP))
 }
 
 fn is_backup_name(name: &str) -> bool {
-    name.strip_prefix(PREFIX)
+    is_backup_name_of(BuildChannel::current(), name)
+}
+
+fn is_backup_name_of(channel: BuildChannel, name: &str) -> bool {
+    name.strip_prefix(prefix(channel))
         .and_then(|r| r.strip_suffix(EXT))
         .is_some_and(|stamp| stamp.len() == 15 && NaiveDateTime::parse_from_str(stamp, STAMP).is_ok())
 }
@@ -69,7 +81,7 @@ pub fn is_due(freq: BackupFrequency, st: &BackupStatus, now: Ts) -> bool {
 }
 
 /// The existing part of `p` resolved (symlinks, case, 8.3 names), with the rest appended as given.
-fn resolved(p: &Path) -> PathBuf {
+pub(crate) fn resolved(p: &Path) -> PathBuf {
     let mut rest = Vec::new();
     let mut cur = p;
     loop {
@@ -484,13 +496,34 @@ mod tests {
     }
 
     #[test]
+    fn each_build_prunes_only_its_own_backups() {
+        let stamp = "20260101-090000";
+        let channels = [BuildChannel::Release, BuildChannel::Dogfood, BuildChannel::Dev];
+        for mine in channels {
+            for theirs in channels {
+                let name = format!("{}{stamp}{EXT}", prefix(theirs));
+                assert_eq!(is_backup_name_of(mine, &name), mine == theirs, "{mine:?} reading {name}");
+            }
+        }
+        let dir = temp_office("not-mine");
+        let release = format!("{}{stamp}{EXT}", prefix(BuildChannel::Release));
+        put(&dir.join(&release), "zip");
+        prune(&dir, 1).unwrap();
+        make_room(&dir, 1, Some(GB), |_| Some(0), |_| GB).unwrap_err();
+        assert!(dir.join(&release).is_file(), "a test build never deletes the release's backups");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_short_disk_drops_the_oldest_backups_before_giving_up() {
         let dir = temp_office("room");
-        let backups = ["OmegaStar-backup-20260101-090000.zip", "OmegaStar-backup-20260102-090000.zip", "OmegaStar-backup-20260103-090000.zip"];
+        let named = |stamp: &str| format!("{}{stamp}{EXT}", prefix(BuildChannel::current()));
+        let owned = [named("20260101-090000"), named("20260102-090000"), named("20260103-090000")];
+        let backups = [owned[0].as_str(), owned[1].as_str(), owned[2].as_str()];
         for name in backups {
             put(&dir.join(name), "zip");
         }
-        put(&dir.join(format!("OmegaStar-backup-20260104-090000.zip{PARTIAL}")), "half");
+        put(&dir.join(format!("{}{PARTIAL}", named("20260104-090000"))), "half");
         put(&dir.join("notes.txt"), "not a backup");
         let left = || {
             let mut v: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();

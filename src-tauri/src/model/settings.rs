@@ -36,6 +36,8 @@ pub struct SetupStatus {
     pub company: Option<Company>,
     pub background: bool,
     pub build: Build,
+    /// A test copy that never starts Claude Code, backs up or watches anyone (`sandbox`).
+    pub sandbox: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

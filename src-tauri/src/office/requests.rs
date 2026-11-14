@@ -262,7 +262,7 @@ has to start that work, hand it back with what they need to start it instead of 
     pub async fn watch_tick(&self, at: Ts) -> Result<()> {
         let Ok(_watching) = self.0.watching.try_lock() else { return Ok(()) };
         let settings = self.settings()?;
-        if settings.paused {
+        if settings.paused || self.0.sandbox {
             return Ok(());
         }
         let s = settings.watch;

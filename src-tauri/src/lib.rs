@@ -17,6 +17,7 @@ mod own_skills;
 mod power;
 mod proxy;
 mod reader;
+mod sandbox;
 mod schedule;
 mod store;
 mod threads;
@@ -273,8 +274,13 @@ pub fn run() {
         .register_uri_scheme_protocol("omega-visual", |ctx, req| visual_page(ctx.app_handle(), &req))
         .setup(move |app| {
             let data_dir = office::default_data_dir();
-            if let Err(e) = std::fs::create_dir_all(&data_dir).and_then(|_| log::to_file(&data_dir.join("omega.log"))) {
-                log!("could not open omega.log: {e}");
+            // A test build pointed at the release office writes nothing there, not even its log: `Office::open`
+            // refuses it with the same check, and the dialog below says why.
+            let refused = sandbox::check_office(model::BuildChannel::current(), &data_dir, sandbox::release_dir().as_deref()).is_err();
+            if !refused {
+                if let Err(e) = std::fs::create_dir_all(&data_dir).and_then(|_| log::to_file(&data_dir.join("omega.log"))) {
+                    log!("could not open omega.log: {e}");
+                }
             }
             // `package_info` carries a version set with `tauri build --config`, as dogfood builds do.
             let build = Build::new(app.package_info().version.to_string());

@@ -135,6 +135,7 @@ export function SettingsScreen() {
               <Row title="Omega Star" desc={aboutDesc(st)}>
                 <span className="set-version num">v{st.build.version}</span>
                 <span className="tag">{CHANNELS[st.build.channel]}</span>
+                {st.sandbox && <span className="tag" title="This copy never starts Claude Code, backs up or watches anyone.">Sandbox</span>}
               </Row>
               <UpdateRow channel={st.build.channel} />
             </Group>

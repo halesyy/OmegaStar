@@ -33,6 +33,10 @@ pub async fn update_company(office: O<'_>, name: String, ceo_name: String, title
 
 #[tauri::command]
 pub async fn set_background(app: AppHandle, office: O<'_>, enabled: bool) -> Result<SetupStatus> {
+    // A login item is the release's alone: a test copy that started at login would run beside it unasked.
+    if enabled && BuildChannel::current() != BuildChannel::Release {
+        return Err(AppError::invalid("Only a release build starts at login."));
+    }
     let al = app.autolaunch();
     if enabled { al.enable() } else { al.disable() }.map_err(|e| AppError::internal(format!("autostart: {e}")))?;
     #[cfg(target_os = "macos")]
