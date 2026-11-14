@@ -246,7 +246,7 @@ impl Office {
         let store = Store::open(&data_dir.join(crate::store::DB_FILE))?;
         let held_until = store.held_until().ok().flatten().filter(|t| *t > now());
         let (rate_limits, rate_hold) = store.rate_limits().unwrap_or_default();
-        let sandbox = crate::sandbox::sandboxed(&data_dir);
+        let sandbox = crate::sandbox::is_sandbox(&data_dir);
         if sandbox {
             log!("this office is a sandbox: it never starts Claude Code, backs up or watches anyone");
         }

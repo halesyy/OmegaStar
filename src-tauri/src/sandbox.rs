@@ -5,38 +5,30 @@
 //!   one wrote, and its runs would act as your employees.
 //! - A sandboxed office never starts Claude Code, never backs up and never watches anyone, so a copy of a real
 //!   office can be opened and clicked through without sending a message or touching a backup. An office is
-//!   sandboxed when its folder holds `omega.sandbox` (it travels with the copy) or OMEGASTAR_SANDBOX is set.
+//!   sandboxed when its folder holds `omega.sandbox`, which travels with the copy.
 
+use crate::backup::resolved;
 use crate::model::{AppError, BuildChannel, Result};
-use std::ffi::OsStr;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 /// In an office folder: this office is a sandbox, whoever opens it.
 pub const MARKER: &str = "omega.sandbox";
-pub const ENV: &str = "OMEGASTAR_SANDBOX";
 
 /// The folder a release build keeps its office in when OMEGASTAR_DATA_DIR is not set.
 pub fn release_dir() -> Option<PathBuf> {
     dirs::data_dir().map(|d| d.join("OmegaStar"))
 }
 
-/// Whether the office in `data_dir` is a sandbox: it holds the marker, or `env` (OMEGASTAR_SANDBOX) is set to
-/// anything but empty, `0` or `false`.
-pub fn is_sandbox(data_dir: &Path, env: Option<&OsStr>) -> bool {
-    let set = env.map(|v| v.to_string_lossy().trim().to_ascii_lowercase()).is_some_and(|v| !v.is_empty() && v != "0" && v != "false");
-    set || data_dir.join(MARKER).exists()
+/// Whether the office in `data_dir` is a sandbox: it holds the marker.
+pub fn is_sandbox(data_dir: &Path) -> bool {
+    data_dir.join(MARKER).exists()
 }
 
-/// `is_sandbox` with this process's OMEGASTAR_SANDBOX.
-pub fn sandboxed(data_dir: &Path) -> bool {
-    is_sandbox(data_dir, std::env::var_os(ENV).as_deref())
-}
-
-/// Refuses to open `data_dir` from a build of `channel` when it is the release office or inside it. A release
-/// build opens any folder.
+/// Refuses to open `data_dir` from a build of `channel` when it is the release office or inside it, whatever
+/// symlinks or capitals the path goes through (`resolved`). A release build opens any folder.
 pub fn check_office(channel: BuildChannel, data_dir: &Path, release_dir: Option<&Path>) -> Result<()> {
     let Some(release) = release_dir else { return Ok(()) };
-    if channel == BuildChannel::Release || !within(data_dir, release) {
+    if channel == BuildChannel::Release || !resolved(data_dir).starts_with(resolved(release)) {
         return Ok(());
     }
     Err(AppError::invalid(format!(
@@ -45,23 +37,6 @@ pub fn check_office(channel: BuildChannel, data_dir: &Path, release_dir: Option<
         format!("{channel:?}").to_lowercase(),
         data_dir.display()
     )))
-}
-
-/// Whether `p` is `root` or inside it, after resolving symlinks, and ignoring case where the file system usually
-/// does (macOS, Windows).
-fn within(p: &Path, root: &Path) -> bool {
-    let (p, root) = (normal(&crate::backup::resolved(p)), normal(&crate::backup::resolved(root)));
-    p.len() >= root.len() && p[..root.len()] == root[..]
-}
-
-fn normal(p: &Path) -> Vec<String> {
-    p.components()
-        .filter(|c| !matches!(c, Component::CurDir))
-        .map(|c| {
-            let s = c.as_os_str().to_string_lossy().into_owned();
-            if cfg!(any(target_os = "macos", windows)) { s.to_lowercase() } else { s }
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -108,21 +83,5 @@ mod tests {
         fs::create_dir_all(&release).unwrap();
         assert!(check_office(BuildChannel::Dev, &home.join("omegastar"), Some(&release)).is_err());
         let _ = fs::remove_dir_all(&home);
-    }
-
-    #[test]
-    fn the_marker_or_the_variable_makes_a_sandbox() {
-        let dir = temp_dir("sandbox-marker");
-        assert!(!is_sandbox(&dir, None));
-        for off in ["", "0", "false", " FALSE "] {
-            assert!(!is_sandbox(&dir, Some(OsStr::new(off))), "{off:?}");
-        }
-        for on in ["1", "true", "yes"] {
-            assert!(is_sandbox(&dir, Some(OsStr::new(on))), "{on:?}");
-        }
-        fs::write(dir.join(MARKER), "").unwrap();
-        assert!(is_sandbox(&dir, None));
-        assert!(is_sandbox(&dir, Some(OsStr::new("0"))), "the marker travels with a copy, and a variable cannot lift it");
-        let _ = fs::remove_dir_all(&dir);
     }
 }
