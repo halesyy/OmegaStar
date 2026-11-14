@@ -28,9 +28,9 @@ const endOfDay = (key: string) => new Date(`${key}T23:59:59.999`).getTime();
 export function summarise(stats: TeamStats, range: TeamRange, now = new Date()): TeamSummary {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const firstHire = stats.staff.reduce<number | null>((m, s) => { const t = Date.parse(s.hiredAt); return m === null || t < m ? t : m; }, null);
-  const span = range === "all"
-    ? Math.max(1, Math.round((today.getTime() - new Date(new Date(firstHire ?? today.getTime()).toDateString()).getTime()) / 86_400_000) + 1)
-    : Number(range);
+  // Never before the first hire: days before the team existed would read as idle and drag the averages down.
+  const lived = Math.max(1, Math.round((today.getTime() - new Date(new Date(firstHire ?? today.getTime()).toDateString()).getTime()) / 86_400_000) + 1);
+  const span = range === "all" ? lived : Math.min(Number(range), lived);
   const keys: string[] = [];
   for (let i = span - 1; i >= 0; i--) keys.push(dayKey(new Date(today.getFullYear(), today.getMonth(), today.getDate() - i)));
   const start = new Date(`${keys[0]}T00:00:00`).getTime();
