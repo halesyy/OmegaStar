@@ -2,14 +2,15 @@
 // office.ts. Loaded by src/api/client.ts only under `npm run dev` outside Tauri, so production never contains it.
 // The URL picks what it shows; README.md beside this file lists every option.
 import type { Transport } from "../api/client";
-import type { TeamStats,
+import type {
   AnswerHow, Card, CardReply, CommandName, Commands, Employee, EmployeeView, EventName, Events, HumanRequest, OrgSnapshot,
-  Run, RunEvent, RunKind, Thread,
+  Run, RunEvent, RunKind, TeamStats, Thread,
 } from "../api/types";
 import { describeCron } from "../lib/cron";
 import { setMark } from "../lib/marks";
 import { COLLAPSE_KEY, NARROW_EXPANDED_KEY } from "../lib/sidebar";
 import { storageSet } from "../lib/storage";
+import { dayKey } from "../lib/teamStats";
 import { setTheme } from "../lib/theme";
 import { activityAt, archiveAt, isLive, isOpen, startedByYou } from "../lib/threads";
 import { toast } from "../lib/toasts";
@@ -484,8 +485,6 @@ export function previewTransport(): Transport {
     // An invented history: each employee works most days from their hire, a little more as weeks pass, and raises
     // fewer cards as their skills grow. Stable from load to load (no randomness).
     team_stats: () => {
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const key = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
       const today = new Date();
       const days: TeamStats["days"] = [];
       const learned = new Map<string, number>();
@@ -497,8 +496,8 @@ export function previewTransport(): Transport {
           const runs = Math.max(0, Math.round((weekend ? 1 : 4) + i / 12 + wobble));
           if (!runs) continue;
           const cards = Math.max(0, Math.round(runs / (2 + i / 10)));
-          days.push({ day: key(d), employeeId: e.id, runs, failed: wobble === 2 ? 1 : 0, workMs: runs * (6 + ((ei + i) % 9)) * 60_000, cards });
-          if ((i + ei) % 3 === 0) learned.set(key(d), (learned.get(key(d)) ?? 0) + 1 + ((i + ei) % 4));
+          days.push({ day: dayKey(d), employeeId: e.id, runs, workMs: runs * (6 + ((ei + i) % 9)) * 60_000, cards });
+          if ((i + ei) % 3 === 0) learned.set(dayKey(d), (learned.get(dayKey(d)) ?? 0) + 1 + ((i + ei) % 4));
         }
       });
       return {

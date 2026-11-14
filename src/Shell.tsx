@@ -118,7 +118,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
     case "inbox": page = <InboxScreen />; break;
     case "activity": page = <ActivityScreen view={route.view} />; break;
     case "settings": page = <SettingsScreen />; break;
-    case "analytics": page = <AnalyticsScreen range={route.range} />; break;
+    case "analytics": page = <AnalyticsScreen />; break;
     case "run": page = <RunRedirect key={route.runId} runId={route.runId} />; break;
   }
   const memberSelected = route.page === "org" ? route.memberId : null;

@@ -1,8 +1,7 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { call } from "../api/client";
 import { useOrg, useQuery } from "../lib/hooks";
 import { RANGES, summarise, type TeamDayTotal, type TeamRange } from "../lib/teamStats";
-import { navigate } from "../lib/router";
 import { Avatar, ErrorNote, PageColumn, Section, Skeleton } from "../components/ui";
 import "./Analytics.css";
 
@@ -15,10 +14,10 @@ const one = (n: number) => (Number.isInteger(n) || n >= 10 ? Math.round(n).toStr
  * done, over the last week, month or all time. It only shows, it changes nothing. Drawn as Activity's Numbers are:
  * figures, ink charts on one baseline and hairline rows, no cards.
  */
-export function AnalyticsScreen({ range }: { range: TeamRange }) {
+export function AnalyticsScreen() {
   const q = useQuery(() => call("team_stats"), [], ["org:changed"]);
   const { snap } = useOrg();
-  const setRange = (r: TeamRange) => navigate({ page: "analytics", range: r }, { replace: true });
+  const [range, setRange] = useState<TeamRange>("7");
   const s = useMemo(() => (q.data ? summarise(q.data, range) : null), [q.data, range]);
   const ranges = (
     <div className="seg" role="group" aria-label="How far back">

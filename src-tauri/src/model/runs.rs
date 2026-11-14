@@ -610,7 +610,6 @@ pub struct TeamDay {
     pub day: String,
     pub employee_id: String,
     pub runs: u32,
-    pub failed: u32,
     /// Time the runs spent working, in milliseconds.
     pub work_ms: i64,
     /// Cards the runs raised for you.
