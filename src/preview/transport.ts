@@ -4,12 +4,13 @@
 import type { Transport } from "../api/client";
 import type {
   AnswerHow, Card, CardReply, CommandName, Commands, Employee, EmployeeView, EventName, Events, HumanRequest, OrgSnapshot,
-  Run, RunEvent, RunKind, Thread,
+  Run, RunEvent, RunKind, TeamStats, Thread,
 } from "../api/types";
 import { describeCron } from "../lib/cron";
 import { setMark } from "../lib/marks";
 import { COLLAPSE_KEY, NARROW_EXPANDED_KEY } from "../lib/sidebar";
 import { storageSet } from "../lib/storage";
+import { dayKey } from "../lib/teamStats";
 import { setTheme } from "../lib/theme";
 import { activityAt, archiveAt, isLive, isOpen, startedByYou } from "../lib/threads";
 import { toast } from "../lib/toasts";
@@ -479,6 +480,30 @@ export function previewTransport(): Transport {
           const useful = rs.filter((r) => r.cards.length || r.denials.length || r.skillChanges.length || broke(r) || handedOn(r));
           return rs.length ? [{ scheduleId: s.id, employeeId: s.employeeId, label: s.label, quiet: s.quiet, runs: rs.length, reached: s.quiet ? useful.length : rs.length, failed: rs.filter(broke).length, useful: useful.length, costUsd: cost(rs) }] : [];
         }),
+      };
+    },
+    // An invented history: each employee works most days from their hire, a little more as weeks pass, and raises
+    // fewer cards as their skills grow. Stable from load to load (no randomness).
+    team_stats: () => {
+      const today = new Date();
+      const days: TeamStats["days"] = [];
+      const learned = new Map<string, number>();
+      w.employees.forEach((e, ei) => {
+        const hired = new Date(e.hiredAt);
+        for (let d = new Date(hired.getFullYear(), hired.getMonth(), hired.getDate()), i = 0; d <= today; d.setDate(d.getDate() + 1), i++) {
+          const wobble = ((ei * 7 + i * 13) % 5) - 2;
+          const weekend = d.getDay() === 0 || d.getDay() === 6;
+          const runs = Math.max(0, Math.round((weekend ? 1 : 4) + i / 12 + wobble));
+          if (!runs) continue;
+          const cards = Math.max(0, Math.round(runs / (2 + i / 10)));
+          days.push({ day: dayKey(d), employeeId: e.id, runs, workMs: runs * (6 + ((ei + i) % 9)) * 60_000, cards });
+          if ((i + ei) % 3 === 0) learned.set(dayKey(d), (learned.get(dayKey(d)) ?? 0) + 1 + ((i + ei) % 4));
+        }
+      });
+      return {
+        staff: w.employees.map((e) => ({ employeeId: e.id, name: e.name, hiredAt: e.hiredAt, departedAt: null })),
+        days: days.sort((a, b) => a.day.localeCompare(b.day)),
+        learned: [...learned].map(([day, n]) => ({ day, n })).sort((a, b) => a.day.localeCompare(b.day)),
       };
     },
     run_detail: ({ runId }) => {

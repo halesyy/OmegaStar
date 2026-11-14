@@ -213,6 +213,33 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The Analytics page's numbers: everyone hired, finished runs per employee per local day, and skill changes per day.
+    pub fn team_stats(&self) -> Result<TeamStats> {
+        let mut st = self.conn.prepare("SELECT data, departed_at FROM employees")?;
+        let staff = readable(
+            "employees",
+            st.query_map([], |r| {
+                let e: Employee = from_row(r, 0)?;
+                let departed_at = r.get::<_, Option<i64>>(1)?.and_then(Ts::from_timestamp_millis);
+                Ok(StaffSpan { employee_id: e.id, name: e.name, hired_at: e.hired_at, departed_at })
+            })?,
+        )?;
+        let mut st = self.conn.prepare(concat!(
+            "SELECT date(created_at / 1000, 'unixepoch', 'localtime') AS d, employee_id, COUNT(*),
+               TOTAL(COALESCE(json_extract(data, '$.durationMs'), 0)), SUM(COALESCE(json_array_length(data, '$.cards'), 0))
+             FROM runs WHERE state NOT IN ", active!(), " AND json_valid(data)
+             GROUP BY d, employee_id ORDER BY d",
+        ))?;
+        let days = st
+            .query_map([], |r| {
+                Ok(TeamDay { day: r.get(0)?, employee_id: r.get(1)?, runs: r.get(2)?, work_ms: r.get::<_, f64>(3)? as i64, cards: r.get(4)? })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut st = self.conn.prepare("SELECT date(at / 1000, 'unixepoch', 'localtime') AS d, COUNT(*) FROM skill_revisions GROUP BY d ORDER BY d")?;
+        let learned = st.query_map([], |r| Ok(DayCount { day: r.get(0)?, n: r.get(1)? }))?.collect::<rusqlite::Result<_>>()?;
+        Ok(TeamStats { staff, days, learned })
+    }
+
     /// The newest `limit` runs of the employees still here whose instruction, report or a card's question
     /// contains `query`, ignoring case in ASCII letters as SQLite's `lower` does.
     pub fn search_runs(&self, query: &str, limit: u32) -> Result<Vec<Run>> {

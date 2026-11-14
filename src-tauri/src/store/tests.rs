@@ -1028,3 +1028,37 @@ fn sql_fragments_match_the_rules_they_mirror() {
     }
     assert_eq!(check_run!(), format!("'{CHECK_PREFIX}%'"));
 }
+
+#[test]
+fn team_stats_counts_finished_work_per_day_and_keeps_who_left() {
+    let dir = temp_dir();
+    let db = Store::open(&dir.join("office.db")).unwrap();
+    let (ada, bo) = (employee("Ada", None), employee("Bo", None));
+    for e in [&ada, &bo] {
+        db.save_employee(e).unwrap();
+    }
+    db.depart_employee(&bo.id, Utc::now()).unwrap();
+    let insert = |e: &Employee, days: i64, state: RunState, ms: u64| {
+        let mut r = run(e, RunKind::Manual, state);
+        r.created_at = Utc::now() - chrono::Duration::days(days);
+        r.duration_ms = Some(ms);
+        assert!(db.insert_run(&r, &r.id).unwrap());
+    };
+    insert(&ada, 0, RunState::Succeeded, 60_000);
+    insert(&ada, 0, RunState::Failed, 30_000);
+    insert(&ada, 0, RunState::Running, 0);
+    insert(&ada, 3, RunState::Succeeded, 1_000);
+    insert(&bo, 0, RunState::Succeeded, 5_000);
+
+    let s = db.team_stats().unwrap();
+    assert_eq!(s.staff.len(), 2, "everyone ever hired, so headcount can be drawn for any day");
+    assert!(s.staff.iter().find(|x| x.employee_id == bo.id).unwrap().departed_at.is_some());
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let ada_today = s.days.iter().find(|d| d.employee_id == ada.id && d.day == today).unwrap();
+    assert_eq!((ada_today.runs, ada_today.work_ms), (2, 90_000), "finished runs only, failures counted");
+    assert_eq!(s.days.iter().filter(|d| d.employee_id == ada.id).count(), 2, "one row per day worked");
+    assert!(s.days.iter().any(|d| d.employee_id == bo.id), "work by someone who left still counts");
+
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}

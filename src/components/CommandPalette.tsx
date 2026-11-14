@@ -116,6 +116,7 @@ export function CommandPalette({ onClose, api, leaving = false }: { onClose: () 
       { id: "help", group: "Actions", label: "Open the Claude Code docs", icon: <Icon name="help" size={16} />, run: () => void openHelp(), keywords: "help documentation manual" },
       { id: "go-org", group: "Go to", label: "Org chart", icon: <Icon name="org" size={16} />, run: () => navigate({ page: "org", memberId: null, tab: null, focus: null }) },
       { id: "go-inbox", group: "Go to", label: "Needs you", icon: <Icon name="inbox" size={16} />, run: () => navigate({ page: "inbox" }), keywords: "inbox decisions reports snoozed archive" },
+      { id: "go-analytics", group: "Go to", label: "Analytics", icon: <Icon name="chart" size={16} />, run: () => navigate({ page: "analytics" }), keywords: "team stats staff headcount jobs charts" },
       { id: "go-activity", group: "Go to", label: "Activity", icon: <Icon name="activity" size={16} />, run: () => navigate({ page: "activity", view: "runs" }), keywords: "runs history waiting requests colleagues numbers" },
       { id: "go-skills", group: "Go to", label: "Skill changes", hint: "Activity", icon: <Icon name="layers" size={16} />, run: () => navigate({ page: "activity", view: "skills" }), keywords: "skills refinements growth learned" },
       { id: "go-settings", group: "Go to", label: "Settings", icon: <Icon name="settings" size={16} />, run: () => navigate({ page: "settings" }), keywords: "preferences theme" },

@@ -22,6 +22,8 @@ export type Route =
   | { page: "inbox"; view?: InboxView; item?: string | null }
   | { page: "activity"; view: ActivityView }
   | { page: "settings" }
+  /** The Analytics page: how big the team is and how much it gets done, in the sidebar under the Org chart. */
+  | { page: "analytics" }
   /** A run (from `openRun`, or an old link to a run's own page): it opens the run's conversation. */
   | { page: "run"; runId: string };
 
@@ -33,6 +35,7 @@ function parseHash(hash: string): Route {
     case "inbox": return { page: "inbox", view: INBOX_VIEWS.find((v) => v === parts[1]) ?? "inbox", item: parts[2] ?? null };
     case "activity": return { page: "activity", view: parts[1] === "skills" || parts[1] === "numbers" ? parts[1] : "runs" };
     case "settings": return { page: "settings" };
+    case "analytics": return { page: "analytics" };
     case "run": if (parts[1]) return { page: "run", runId: parts[1] }; break;
     case "chat": if (parts[1]) return { page: "chat", employeeId: parts[1], focus: parts[2] ?? null }; break;
   }

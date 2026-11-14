@@ -294,6 +294,13 @@ export type RunEvent =
 export type TaskOutcome = "done" | "failed" | "stopped";
 export type RunDetail = { run: Run; events: RunEvent[]; children: Run[] };
 
+/** How the team grew and what it got done, per local day (`YYYY-MM-DD`), for the Analytics page. */
+export type TeamStats = {
+  staff: { employeeId: string; name: string; hiredAt: string; departedAt: string | null }[];
+  days: { day: string; employeeId: string; runs: number; workMs: number; cards: number }[];
+  learned: { day: string; n: number }[];
+};
+
 /** What runs did and used since a time. Usage (costUsd) is what runs cost at API list price, as Claude Code reckons it. */
 export type RunUsage = { employees: EmployeeUsage[]; routines: RoutineUsage[] };
 /** An employee's finished runs: decisions are the cards they raised, handoffs the work they handed to colleagues. */
@@ -400,6 +407,7 @@ export type Commands = {
   search_runs: { args: { query: string; limit: number }; ret: Run[] };
   /** What each employee's runs and each routine did and used since `since`. */
   run_usage: { args: { since: string }; ret: RunUsage };
+  team_stats: { args: Record<string, never>; ret: TeamStats };
   run_detail: { args: { runId: string }; ret: RunDetail };
   /** Every row that reached you and needs nothing from you now, what you archived, and the conversations you marked
    *  done, newest first. */

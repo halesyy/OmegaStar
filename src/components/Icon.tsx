@@ -3,6 +3,7 @@ import type { ChannelKind } from "../api/types";
 const P = {
   org: <><rect x="5.75" y="1.75" width="4.5" height="3.5" rx="1" /><rect x="1.75" y="10.75" width="4.5" height="3.5" rx="1" /><rect x="9.75" y="10.75" width="4.5" height="3.5" rx="1" /><path d="M8 5.25V8M4 10.75V9a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1.75" /></>,
   inbox: <><path d="M1.75 9.25h3.5l1 1.75h3.5l1-1.75h3.5" /><path d="M3.6 3.4A1.5 1.5 0 0 1 4.9 2.75h6.2a1.5 1.5 0 0 1 1.3.65l1.85 5.4v3.95a1.5 1.5 0 0 1-1.5 1.5H3.25a1.5 1.5 0 0 1-1.5-1.5V8.8Z" /></>,
+  chart: <path d="M2.75 13.25V8.5M8 13.25V2.75M13.25 13.25V5.75" />,
   activity: <path d="M1.75 8h2.5l2-4.75 3.5 9.5 2-4.75h2.5" />,
   settings: <><path d="M2.25 4.5h6.5M11.75 4.5h2M2.25 11.5h2M7.25 11.5h6.5" /><circle cx="10.25" cy="4.5" r="1.5" /><circle cx="5.75" cy="11.5" r="1.5" /></>,
   plus: <path d="M8 3v10M3 8h10" />,

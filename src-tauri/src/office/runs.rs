@@ -105,6 +105,11 @@ impl Office {
         Ok(RunUsage { employees: db.employee_usage(since)?, routines: db.routine_counts(None, since)? })
     }
 
+    /// How the team grew and what it got done, day by day, for the Analytics page.
+    pub fn team_stats(&self) -> Result<TeamStats> {
+        self.db().team_stats()
+    }
+
     pub fn run(&self, run_id: &str) -> Result<Run> {
         self.db().run(run_id)?.map(|r| r.run).ok_or_else(|| AppError::not_found("run not found"))
     }
