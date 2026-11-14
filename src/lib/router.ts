@@ -23,8 +23,8 @@ export type Route =
   | { page: "inbox"; view?: InboxView; item?: string | null }
   | { page: "activity"; view: ActivityView }
   | { page: "settings" }
-  /** The Team page: how big the team is and how much it gets done, opened from the staff chip on the org chart. */
-  | { page: "team"; range: TeamRange }
+  /** The Analytics page: how big the team is and how much it gets done, in the sidebar under the Org chart. */
+  | { page: "analytics"; range: TeamRange }
   /** A run (from `openRun`, or an old link to a run's own page): it opens the run's conversation. */
   | { page: "run"; runId: string };
 
@@ -36,7 +36,7 @@ function parseHash(hash: string): Route {
     case "inbox": return { page: "inbox", view: INBOX_VIEWS.find((v) => v === parts[1]) ?? "inbox", item: parts[2] ?? null };
     case "activity": return { page: "activity", view: parts[1] === "skills" || parts[1] === "numbers" ? parts[1] : "runs" };
     case "settings": return { page: "settings" };
-    case "team": return { page: "team", range: parts[1] === "30" || parts[1] === "all" ? parts[1] : "7" };
+    case "analytics": return { page: "analytics", range: parts[1] === "30" || parts[1] === "all" ? parts[1] : "7" };
     case "run": if (parts[1]) return { page: "run", runId: parts[1] }; break;
     case "chat": if (parts[1]) return { page: "chat", employeeId: parts[1], focus: parts[2] ?? null }; break;
   }
@@ -58,7 +58,7 @@ function routeHash(r: Route): string {
       return "#/" + segs.map(encodeURIComponent).join("/");
     }
     case "run": return `#/run/${encodeURIComponent(r.runId)}`;
-    case "team": return r.range === "7" ? "#/team" : `#/team/${r.range}`;
+    case "analytics": return r.range === "7" ? "#/analytics" : `#/analytics/${r.range}`;
     case "chat": return "#/" + ["chat", r.employeeId, ...(r.focus ? [r.focus] : [])].map(encodeURIComponent).join("/");
     case "activity": return r.view === "runs" ? "#/activity" : `#/activity/${r.view}`;
     case "inbox": {

@@ -294,7 +294,7 @@ export type RunEvent =
 export type TaskOutcome = "done" | "failed" | "stopped";
 export type RunDetail = { run: Run; events: RunEvent[]; children: Run[] };
 
-/** How the team grew and what it got done, per local day (`YYYY-MM-DD`), for the Team page. */
+/** How the team grew and what it got done, per local day (`YYYY-MM-DD`), for the Analytics page. */
 export type TeamStats = {
   staff: { employeeId: string; name: string; hiredAt: string; departedAt: string | null }[];
   days: { day: string; employeeId: string; runs: number; failed: number; workMs: number; cards: number }[];

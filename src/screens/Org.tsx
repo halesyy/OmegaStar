@@ -14,7 +14,6 @@ import { YOU_ID, type OrgView } from "../lib/org";
 import { refreshOrg, useOrg } from "../lib/hooks";
 import { navigate, openMember, type PanelTab, type Route } from "../lib/router";
 import "./Org.css";
-import "./Team.css";
 
 type Member = { kind: "employee"; e: EmployeeView } | { kind: "person"; p: PersonView } | { kind: "you" };
 const memberOf = (snap: OrgSnapshot | null, id: string | null): Member | null => {
@@ -144,7 +143,7 @@ export function OrgScreen({ route }: { route: Extract<Route, { page: "org" }> })
       {showChart ? (
         <section className="org-chart" data-view="chart" aria-label="Org chart" aria-hidden={both && want === "open" ? true : undefined}>
           <OrgHead
-            ruled={empty || !hasPeople} staff={snap.employees}
+            ruled={empty || !hasPeople}
             tool={!empty && moved ? <ChartFit onFit={() => chart.current?.fit()} /> : null}
           />
           {!empty && hasPeople ? <Views view={view} setView={setView} /> : null}
@@ -203,27 +202,12 @@ function MemberPage({ m, tab, focus, short, onClose }: { m: Member; tab: PanelTa
 // ---------------------------------------------------------------- head, filter, foot (the same in both views)
 
 /** The chart's head. Folded beside a person's page it is a sidebar heading, one step down, so the person leads. */
-function OrgHead({ tool, ruled = false, folded = false, staff }: { tool: React.ReactNode; ruled?: boolean; folded?: boolean; staff?: EmployeeView[] }) {
+function OrgHead({ tool, ruled = false, folded = false }: { tool: React.ReactNode; ruled?: boolean; folded?: boolean }) {
   return (
     <header className={`pagehead org-head ${ruled ? "org-head-ruled" : ""} ${folded ? "org-head-folded" : ""}`}>
       <h1 className="pagehead-title" data-pair="title">Org chart</h1>
-      {staff && staff.length ? <StaffChip employees={staff} /> : null}
       {tool}
     </header>
-  );
-}
-
-const WEEK = 7 * 24 * 3600 * 1000;
-/** The team's size beside the title, with who joined this week: the way into the Team page. */
-function StaffChip({ employees }: { employees: EmployeeView[] }) {
-  const since = Date.now() - WEEK;
-  const joined = employees.filter((e) => Date.parse(e.hiredAt) >= since).length;
-  const label = `${employees.length} staff`;
-  return (
-    <button className="staff-chip" onClick={() => navigate({ page: "team", range: "7" })} aria-label={`${label}${joined ? `, ${joined} joined this week` : ""}. See how the team is doing`} data-tip="How the team is doing">
-      {label}{joined ? <span className="staff-chip-up">+{joined} this week</span> : null}
-      <Icon name="chevronRight" size={12} />
-    </button>
   );
 }
 

@@ -582,7 +582,7 @@ pub struct RunUsage {
     pub routines: Vec<RoutineUsage>,
 }
 
-/// How the team grew and what it got done, day by day, for the Team page. Days are this computer's local dates.
+/// How the team grew and what it got done, day by day, for the Analytics page. Days are this computer's local dates.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamStats {

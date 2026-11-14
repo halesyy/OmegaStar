@@ -213,7 +213,7 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// The Team page's numbers: everyone hired, finished runs per employee per local day, and skill changes per day.
+    /// The Analytics page's numbers: everyone hired, finished runs per employee per local day, and skill changes per day.
     pub fn team_stats(&self) -> Result<TeamStats> {
         let mut st = self.conn.prepare(
             "SELECT id, json_extract(data, '$.name'), json_extract(data, '$.hiredAt'), departed_at FROM employees WHERE json_valid(data)",

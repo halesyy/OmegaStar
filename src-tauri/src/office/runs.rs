@@ -105,7 +105,7 @@ impl Office {
         Ok(RunUsage { employees: db.employee_usage(since)?, routines: db.routine_counts(None, since)? })
     }
 
-    /// How the team grew and what it got done, day by day, for the Team page.
+    /// How the team grew and what it got done, day by day, for the Analytics page.
     pub fn team_stats(&self) -> Result<TeamStats> {
         self.db().team_stats()
     }

@@ -1,10 +1,10 @@
 import type { TeamStats } from "../api/types";
 
-/** How far back the Team page looks. */
+/** How far back the Analytics page looks. */
 export type TeamRange = "7" | "30" | "all";
 export const RANGES: { id: TeamRange; label: string }[] = [{ id: "7", label: "7 days" }, { id: "30", label: "30 days" }, { id: "all", label: "All time" }];
 
-/** One local day on the Team page's charts. */
+/** One local day on the Analytics page's charts. */
 export type TeamDayTotal = { day: string; staff: number; runs: number; workMs: number; cards: number; learned: number };
 export type TeamSummary = {
   days: TeamDayTotal[];
@@ -24,7 +24,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 export const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const endOfDay = (key: string) => new Date(`${key}T23:59:59.999`).getTime();
 
-/** The Team page's numbers for a range, from the Office's per-day rows. Days with nothing done still appear. */
+/** The Analytics page's numbers for a range, from the Office's per-day rows. Days with nothing done still appear. */
 export function summarise(stats: TeamStats, range: TeamRange, now = new Date()): TeamSummary {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const firstHire = stats.staff.reduce<number | null>((m, s) => { const t = Date.parse(s.hiredAt); return m === null || t < m ? t : m; }, null);

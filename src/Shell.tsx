@@ -25,7 +25,7 @@ import { ConversationScreen, RunRedirect } from "./screens/Conversation";
 import { InboxScreen } from "./screens/Inbox";
 import { ActivityScreen } from "./screens/Activity";
 import { SettingsScreen } from "./screens/Settings";
-import { TeamScreen } from "./screens/Team";
+import { AnalyticsScreen } from "./screens/Analytics";
 
 type Sheet =
   | { kind: "hire"; template: string | null }
@@ -118,7 +118,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
     case "inbox": page = <InboxScreen />; break;
     case "activity": page = <ActivityScreen view={route.view} />; break;
     case "settings": page = <SettingsScreen />; break;
-    case "team": page = <TeamScreen range={route.range} />; break;
+    case "analytics": page = <AnalyticsScreen range={route.range} />; break;
     case "run": page = <RunRedirect key={route.runId} runId={route.runId} />; break;
   }
   const memberSelected = route.page === "org" ? route.memberId : null;
@@ -162,7 +162,8 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
           </button>
           <nav ref={navRef} className="side-nav scroll-fade">
             <NavItem href="#/inbox" icon="inbox" label="Needs you" active={route.page === "inbox"} badge={inboxCount || null} collapsed={collapsed} />
-            <NavItem href="#/org" icon="org" label="Org chart" active={route.page === "org" || route.page === "team"} collapsed={collapsed} />
+            <NavItem href="#/org" icon="org" label="Org chart" active={route.page === "org"} collapsed={collapsed} />
+            <NavItem href="#/analytics" icon="chart" label="Analytics" active={route.page === "analytics"} collapsed={collapsed} />
             {team.length ? <div className="side-label">Team</div> : null}
             <div className="side-team">
               {team.map((m) => (

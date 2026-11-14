@@ -395,12 +395,12 @@ export function PageHeader({ title, children }: { title: string; children?: Reac
 }
 
 /** The one content column every page but the Org chart uses: a header that stays put over a column that scrolls. */
-export function PageColumn({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+export function PageColumn({ title, children, className, actions }: { title: string; children: ReactNode; className?: string; actions?: ReactNode }) {
   // Content scrolling under the header fades at that edge (and at the foot while more is below), never sliced.
   const scroll = useScrollFade<HTMLDivElement>();
   return (
     <div className={`pagecol ${className ?? ""}`}>
-      <PageHeader title={title} />
+      <PageHeader title={title}>{actions}</PageHeader>
       <div ref={scroll} className="pagecol-scroll scroll-fade">
         <div className="pagecol-inner">{children}</div>
       </div>
