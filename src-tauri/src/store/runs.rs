@@ -213,6 +213,40 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The Team page's numbers: everyone hired, finished runs per employee per local day, and skill changes per day.
+    pub fn team_stats(&self) -> Result<TeamStats> {
+        let mut st = self.conn.prepare(
+            "SELECT id, json_extract(data, '$.name'), json_extract(data, '$.hiredAt'), departed_at FROM employees WHERE json_valid(data)",
+        )?;
+        let staff = st
+            .query_map([], |r| {
+                let hired: String = r.get(2)?;
+                let departed: Option<i64> = r.get(3)?;
+                Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, hired, departed))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|(id, name, hired, departed)| {
+                let hired_at = chrono::DateTime::parse_from_rfc3339(&hired).ok()?.with_timezone(&chrono::Utc);
+                Some(StaffSpan { employee_id: id, name: name.unwrap_or_default(), hired_at, departed_at: departed.and_then(chrono::DateTime::from_timestamp_millis) })
+            })
+            .collect();
+        let mut st = self.conn.prepare(concat!(
+            "SELECT date(created_at / 1000, 'unixepoch', 'localtime') AS d, employee_id, COUNT(*), SUM(state IN ('failed', 'lost')),
+               TOTAL(COALESCE(json_extract(data, '$.durationMs'), 0)), SUM(COALESCE(json_array_length(data, '$.cards'), 0))
+             FROM runs WHERE state NOT IN ", active!(), " AND json_valid(data)
+             GROUP BY d, employee_id ORDER BY d",
+        ))?;
+        let days = st
+            .query_map([], |r| {
+                Ok(TeamDay { day: r.get(0)?, employee_id: r.get(1)?, runs: r.get(2)?, failed: r.get(3)?, work_ms: r.get::<_, f64>(4)? as i64, cards: r.get(5)? })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut st = self.conn.prepare("SELECT date(at / 1000, 'unixepoch', 'localtime') AS d, COUNT(*) FROM skill_revisions GROUP BY d ORDER BY d")?;
+        let learned = st.query_map([], |r| Ok(DayCount { day: r.get(0)?, n: r.get(1)? }))?.collect::<rusqlite::Result<_>>()?;
+        Ok(TeamStats { staff, days, learned })
+    }
+
     /// The newest `limit` runs of the employees still here whose instruction, report or a card's question
     /// contains `query`, ignoring case in ASCII letters as SQLite's `lower` does.
     pub fn search_runs(&self, query: &str, limit: u32) -> Result<Vec<Run>> {

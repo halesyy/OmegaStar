@@ -1,0 +1,49 @@
+/* The Team page: a range, four headline numbers, four small charts and who did the work. Flat cards, 1px rules. */
+.team-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: -12px; }
+.team-back { margin-left: -8px; }
+.team-back-icon { transform: scaleX(-1); }
+.team-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.team-kpi { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line); }
+.team-kpi-label { font-size: var(--t-sm); color: var(--muted); }
+.team-kpi-value { font-size: 28px; font-weight: 700; font-variation-settings: var(--display); letter-spacing: -0.035em; line-height: 1.15; color: var(--ink); }
+.team-kpi-note { font-size: var(--t-sm); color: var(--muted); }
+.team-good { color: var(--ok-text); font-weight: 600; }
+.team-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.team-chart { padding: 12px 14px 8px; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line); }
+.team-chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.team-chart-now { font-size: 18px; font-weight: 700; letter-spacing: -0.03em; color: var(--ink); }
+.team-h { font-size: var(--t-base); font-weight: 700; color: var(--ink); margin: 0; }
+.team-hint { font-size: var(--t-sm); color: var(--muted); margin: 0; }
+.team-svg { display: block; width: 100%; height: auto; margin-top: 6px; overflow: visible; }
+.team-axis { stroke: var(--line); }
+.team-tick { font-size: 10px; fill: var(--muted); font-family: var(--font-ui); }
+.team-svg { --c: var(--live); }
+.team-ok { --c: var(--ok); }
+.team-ink { --c: var(--ink-2); }
+.team-fill { fill: var(--c); }
+.team-stroke { fill: none; stroke: var(--c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.team-area { fill: var(--c); opacity: 0.08; }
+.team-dot { fill: var(--c); }
+.team-who { display: flex; flex-direction: column; }
+.team-who .team-hint { margin-bottom: 8px; }
+.team-row { display: grid; grid-template-columns: 140px 1fr 48px; align-items: center; gap: 12px; height: 32px; box-shadow: inset 0 1px 0 var(--line); }
+.team-name { font-size: var(--t-base); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-more .team-name { color: var(--muted); }
+.team-bar { height: 6px; border-radius: 3px; background: var(--sunken); overflow: hidden; }
+.team-bar > span { display: block; height: 100%; border-radius: 3px; background: var(--live); }
+.team-n { text-align: right; font-size: var(--t-base); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .team-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .team-charts { grid-template-columns: 1fr; }
+}
+
+/* The staff chip beside the org chart's title: the team's size, and the way into the Team page. */
+.staff-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px 0 10px; border-radius: 999px;
+  background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); font-size: var(--t-sm); font-weight: 600; color: var(--ink-2);
+  transition: background var(--d-ui) var(--ease), box-shadow var(--d-ui) var(--ease);
+}
+.staff-chip:hover { background: var(--raised); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.staff-chip:focus-visible { outline: none; box-shadow: var(--focus); }
+.staff-chip-up { color: var(--ok-text); }
+.staff-chip svg { color: var(--muted); }

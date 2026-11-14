@@ -582,6 +582,48 @@ pub struct RunUsage {
     pub routines: Vec<RoutineUsage>,
 }
 
+/// How the team grew and what it got done, day by day, for the Team page. Days are this computer's local dates.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamStats {
+    /// Everyone ever hired, including those who have left, so headcount can be drawn for any day.
+    pub staff: Vec<StaffSpan>,
+    /// One row per employee per day they finished runs.
+    pub days: Vec<TeamDay>,
+    /// Skill files changed per day: what the team learned.
+    pub learned: Vec<DayCount>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StaffSpan {
+    pub employee_id: String,
+    pub name: String,
+    pub hired_at: Ts,
+    pub departed_at: Option<Ts>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDay {
+    /// `YYYY-MM-DD`, local.
+    pub day: String,
+    pub employee_id: String,
+    pub runs: u32,
+    pub failed: u32,
+    /// Time the runs spent working, in milliseconds.
+    pub work_ms: i64,
+    /// Cards the runs raised for you.
+    pub cards: u32,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DayCount {
+    pub day: String,
+    pub n: u32,
+}
+
 /// An employee's finished runs since a time.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]

@@ -352,6 +352,7 @@ pub fn run() {
             commands::runs,
             commands::search_runs,
             commands::run_usage,
+            commands::team_stats,
             commands::run_detail,
             commands::archived,
             commands::conversations,

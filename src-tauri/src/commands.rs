@@ -221,6 +221,11 @@ pub async fn run_usage(office: O<'_>, since: Ts) -> Result<RunUsage> {
 }
 
 #[tauri::command]
+pub async fn team_stats(office: O<'_>) -> Result<TeamStats> {
+    office.team_stats()
+}
+
+#[tauri::command]
 pub async fn run_detail(office: O<'_>, run_id: String) -> Result<RunDetail> {
     office.run_detail(&run_id)
 }
