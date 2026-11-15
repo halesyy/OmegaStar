@@ -783,10 +783,10 @@ fn open_target(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<
     if raw.is_empty() {
         return Err(AppError::invalid("Pass the full path of what to open, or an https link."));
     }
-    let path = fs::canonicalize(employee_dir.join(raw))
+    let path = fs::canonicalize(folders::resolve(raw, employee_dir))
         .map_err(|_| AppError::invalid(format!("Nothing is at '{raw}'. Pass a full path, or an https link.")))?;
     let company = employee_dir.parent().unwrap_or(employee_dir);
-    let mut roots = std::iter::once(company.to_path_buf()).chain(workspaces.iter().map(|w| employee_dir.join(w))).filter_map(|r| fs::canonicalize(r).ok());
+    let mut roots = std::iter::once(company.to_path_buf()).chain(folders::resolve_all(workspaces, employee_dir)).filter_map(|r| fs::canonicalize(r).ok());
     if !roots.any(|r| path.starts_with(r)) {
         return Err(AppError::invalid("You can open what is in your folder, one of your workspaces or the company page's folder, or an https link."));
     }
@@ -805,11 +805,11 @@ pub(super) fn card_image_path(employee_dir: &Path, workspaces: &[String], raw: &
 /// A file a card shows, as a full path: `raw` is full, or from the employee's folder as their runs see it. Links are
 /// followed first, so one cannot lead out of their folder and workspaces.
 fn in_folders(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<PathBuf> {
-    let path = fs::canonicalize(employee_dir.join(raw))
+    let path = fs::canonicalize(folders::resolve(raw, employee_dir))
         .ok()
         .filter(|p| p.is_file())
         .ok_or_else(|| AppError::invalid(format!("No file at '{raw}'. Pass the path of the file you wrote, e.g. 'workspace/drafts/reply.md'.")))?;
-    let mut roots = std::iter::once(employee_dir.to_path_buf()).chain(workspaces.iter().map(|w| employee_dir.join(w))).filter_map(|r| fs::canonicalize(r).ok());
+    let mut roots = std::iter::once(employee_dir.to_path_buf()).chain(folders::resolve_all(workspaces, employee_dir)).filter_map(|r| fs::canonicalize(r).ok());
     if !roots.any(|r| path.starts_with(r)) {
         return Err(AppError::invalid("file must be in your folder or one of your workspaces."));
     }

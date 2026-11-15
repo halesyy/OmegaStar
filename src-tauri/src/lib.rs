@@ -4,6 +4,7 @@ mod catalog;
 mod claude;
 mod commands;
 mod error;
+mod folders;
 #[cfg(test)]
 mod fixtures;
 mod health;

@@ -167,6 +167,27 @@ impl EmployeeDraft {
         check_face(&self.name, self.hue, self.image.as_deref())
     }
 
+    /// Makes every workspace folder one full path (`folders::normalize`), dropping blanks and repeats, or says which
+    /// one cannot be used. `employee_dir` is set for someone already hired: a folder saved before workspaces were
+    /// checked may be relative to it, and stays where it always pointed.
+    pub fn normalize_workspaces(&mut self, employee_dir: Option<&std::path::Path>) -> Result<()> {
+        let mut out: Vec<String> = vec![];
+        for raw in self.workspaces.iter().map(|w| w.trim()).filter(|w| !w.is_empty()) {
+            let refused = |why: String| AppError::invalid(format!("The workspace folder '{raw}' {why}."));
+            let full = match (crate::folders::normalize(raw), employee_dir) {
+                (Ok(full), _) => full,
+                (Err(_), Some(dir)) if !raw.starts_with('~') => crate::folders::normalize(&dir.join(raw).to_string_lossy()).map_err(refused)?,
+                (Err(why), _) => return Err(refused(why)),
+            };
+            let full = full.to_string_lossy().into_owned();
+            if !out.contains(&full) {
+                out.push(full);
+            }
+        }
+        self.workspaces = out;
+        Ok(())
+    }
+
     pub fn into_employee(self, id: String, slug: String, chat_session: String, hired_at: Ts) -> Employee {
         Employee {
             id,
@@ -506,6 +527,26 @@ mod tests {
                 assert_eq!(got.err(), want.map(AppError::invalid), "{name:?} {hue}");
             }
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workspace_folders_are_saved_as_full_paths_without_blanks_or_repeats() {
+        let site = crate::folders::home().join("dev").join("site").to_string_lossy().into_owned();
+        let mut d = EmployeeDraft { workspaces: vec!["~/dev/site".into(), " ".into(), format!("{site}/"), "/srv/brand".into()], ..ada_draft() };
+        d.normalize_workspaces(None).unwrap();
+        assert_eq!(d.workspaces, vec![site, "/srv/brand".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_relative_workspace_is_refused_for_a_new_hire_but_kept_for_someone_already_hired() {
+        let mut new = EmployeeDraft { workspaces: vec!["dev/site".into()], ..ada_draft() };
+        let err = new.normalize_workspaces(None).unwrap_err();
+        assert!(err.message.starts_with("The workspace folder 'dev/site' is not a full path"), "{}", err.message);
+        let mut hired = EmployeeDraft { workspaces: vec!["workspace/shared".into()], ..ada_draft() };
+        hired.normalize_workspaces(Some(std::path::Path::new("/office/employees/e1"))).unwrap();
+        assert_eq!(hired.workspaces, vec!["/office/employees/e1/workspace/shared".to_string()]);
     }
 
     #[test]
