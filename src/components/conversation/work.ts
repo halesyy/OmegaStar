@@ -29,10 +29,11 @@ const skillWrite = (t: ToolItem, skills: Set<string>) => t.tool !== "Read" && sk
 const skillsOf = (items: TranscriptItem[]) => new Set(items.flatMap((it) => (it.kind === "skill" ? [it.skill] : [])));
 
 // Not a skill change: Omega Star records those after the run ends, so one would always fall after the answer and fold it
-// into the work line. Its row still shows (rowsOf). Nor steps that only kept a changed skill up to date, or that are said
-// by what came of them: a reply that ends by refining its skill keeps its answer, rather than reading it as a note.
+// into the work line. Its row still shows (rowsOf). Nor steps that only kept a changed skill up to date (a failed try
+// among them: the skill changed in the end), or that are said by what came of them: a reply that ends by refining its
+// skill keeps its answer, rather than reading it as a note.
 const isWork = (it: TranscriptItem, skills: Set<string>) =>
-  it.kind === "tools" ? !it.tools.every((t) => (saidElsewhere(t.tool) || skillCall(t, skills)) && t.result?.ok !== false)
+  it.kind === "tools" ? !it.tools.every((t) => skillCall(t, skills) || (saidElsewhere(t.tool) && t.result?.ok !== false))
   : it.kind === "delegated" || it.kind === "requested" || it.kind === "proposed" || it.kind === "visual";
 
 /** A reply split where a message you sent while it worked landed (one still waiting to go in splits nothing). In each part the talk keeps the first words (when they
