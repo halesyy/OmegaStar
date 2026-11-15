@@ -337,6 +337,17 @@ export function TipLayer() {
   );
 }
 
+/** Whether an element's text is cut off: by an ellipsis on its one line, or by a clamp of a few. */
+export const isCut = (el: HTMLElement) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1;
+
+/** For `onPointerEnter`: the element's whole text as its tooltip, only while it is cut off, so a long title can still
+ *  be read in full. */
+export function tipWhenCut(e: React.PointerEvent<HTMLElement>) {
+  const el = e.currentTarget;
+  if (isCut(el)) el.title = el.textContent ?? "";
+  else el.removeAttribute("title");
+}
+
 // ---------------------------------------------------------------- Switch
 
 export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
