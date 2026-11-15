@@ -114,3 +114,16 @@ armed button; the palette finding nothing.
 It reuses a dev server already serving this folder on port 1420, or starts one. It needs Google Chrome and
 `playwright-core`: set `PLAYWRIGHT_CORE` to a `playwright-core` folder, or install it here with
 `npm install --no-save playwright-core`. Nothing is added to this project's dependencies.
+
+### In a pull request
+
+A description can't show a picture that is only on your computer. Once the PR has a number:
+
+```
+scripts/pr-shots.sh <pr number> <image>...
+```
+
+It adds the pictures to the `pr-screenshots` branch of `origin` (never merged, created on first use) and prints a
+Markdown image line for each one: paste those into the description. Name a pair so it reads as one
+(`today-inbox.png`, `after-inbox.png`) and crop each to the part that changed. Shoot this preview only, never a real
+office: the pictures stay in the repository.
