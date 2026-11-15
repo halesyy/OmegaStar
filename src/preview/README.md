@@ -123,7 +123,7 @@ A description can't show a picture that is only on your computer. Once the PR ha
 scripts/pr-shots.sh <pr number> <image>...
 ```
 
-It adds the pictures to the `pr-screenshots` branch (never merged, created on first use) and prints a Markdown image
-line for each one: paste those into the description. Name a pair so it reads as one (`today-inbox.png`,
-`after-inbox.png`) and crop each to the part that changed. Shoot this preview only, never a real office: the pictures
-stay in the repository.
+It adds the pictures to the `pr-screenshots` branch of `origin` (never merged, created on first use) and prints a
+Markdown image line for each one: paste those into the description. Name a pair so it reads as one
+(`today-inbox.png`, `after-inbox.png`) and crop each to the part that changed. Shoot this preview only, never a real
+office: the pictures stay in the repository.
