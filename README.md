@@ -220,7 +220,7 @@ cargo test
 cargo clippy --all-targets
 ```
 
-`npm run dev` on its own opens every screen in a plain browser, with an invented office standing in for the backend (see [src/preview](src/preview/README.md)). The shared styles and parts are described in [src/design](src/design/README.md).
+`npm run dev` on its own opens every screen in a plain browser, with an invented office standing in for the backend (see [src/preview](src/preview/README.md)). Screenshots for a pull request come from there too: `scripts/pr-shots.sh <pr number> <image>...` uploads them and prints the lines for the description. The shared styles and parts are described in [src/design](src/design/README.md).
 
 Your office lives in the app data directory: `~/Library/Application Support/OmegaStar` on macOS, `%APPDATA%\OmegaStar` on Windows and `~/.local/share/OmegaStar` on Linux. A dev or dogfood build uses `OmegaStar-dev` or `OmegaStar-dogfood` beside it, so it never touches your real office. Set `OMEGASTAR_DATA_DIR` to use another folder. Errors are logged to `omega.log` there.
 
