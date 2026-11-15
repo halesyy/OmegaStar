@@ -26,12 +26,14 @@ fn graphics_on(ioreg_out: &str) -> Option<bool> {
     Some(caps & 0x2 != 0)
 }
 
-/// Asks macOS not to idle-sleep until the process `pid` exits, so the Mac does not nap mid-run.
+/// Asks macOS not to sleep until the process `pid` exits, so the Mac does not nap mid-run: `-i` holds off idle
+/// sleep, and `-s` holds off the sleep a closed lid or a dark wake's end brings, which `-i` does not. macOS
+/// honours `-s` on mains power only, so on battery a closed lid still sleeps the Mac.
 pub fn stay_awake_while(pid: u32) {
     #[cfg(target_os = "macos")]
     {
         let child = tokio::process::Command::new("/usr/bin/caffeinate")
-            .args(["-i", "-w", &pid.to_string()])
+            .args(["-i", "-s", "-w", &pid.to_string()])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
