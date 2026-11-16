@@ -587,7 +587,9 @@ fn settle(run: &mut Run, left: Leftover<'_>, lost: &str) -> Vec<runs::Seen> {
                     Some(Score { metric: text(c, "metric")?, value: text(c, "value")?, change: text(c, "change").unwrap_or_default(), note: text(c, "note").unwrap_or_default() })
                 });
             }
-            run.proposed = claude::office_calls(left.transcript, "mcp__omega__propose_changes").last().and_then(|c| text(c, "plan"));
+            if matches!(run.kind, RunKind::Tidy { .. }) {
+                run.proposed = claude::office_calls(left.transcript, "mcp__omega__propose_changes").last().and_then(|c| text(c, "plan"));
+            }
         }
         None if run.restarts < RESTART_RETRIES => {
             run.state = RunState::Queued;
