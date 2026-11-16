@@ -682,17 +682,16 @@ impl Office {
         self.sink().org_changed();
     }
 
-    /// Holds the office for a rate limit: for the wait its result `stated`, up to an hour, or else 5 minutes for the
-    /// first since a run last succeeded, then longer each time (`backoff`). A run that meets one while the office is
-    /// already held waits with the rest.
+    /// Holds the office for a rate limit: for the wait its result `stated`, or else 5 minutes for the first since a
+    /// run last succeeded, then longer each time (`rate_wait`). A run that meets one while the office is already held
+    /// waits with the rest.
     fn hold_for_transient_limit(&self, stated: Option<chrono::Duration>) {
         let at = now();
         if self.usage_limits().held_until.is_some_and(|t| t > at) {
             return;
         }
         let n = self.0.transient_limits.fetch_add(1, Ordering::SeqCst);
-        let wait = stated.map_or(backoff(n), |s| s.min(chrono::Duration::minutes(LONGEST_RATE_WAIT)));
-        self.hold_until(at + wait, Limit::Transient);
+        self.hold_until(at + rate_wait(n, stated), Limit::Transient);
     }
 
     /// How many of a schedule's runs up to `last` broke for a reason you can act on since it last worked.
@@ -1299,6 +1298,14 @@ const LONGEST_RATE_WAIT: i64 = 60;
 /// How long the office waits out its `n`th rate limit in a row, from 0: 5, 10, 20 and 40 minutes, then 60. Pure.
 fn backoff(n: u32) -> chrono::Duration {
     chrono::Duration::minutes([5, 10, 20, 40, LONGEST_RATE_WAIT][n.min(4) as usize])
+}
+
+/// How long the office waits out its `n`th rate limit in a row, from 0: the wait its result `stated`, up to an hour,
+/// or the `backoff` step when it stated none. From the second in a row the last wait was not enough, so a stated wait
+/// counts for no less than the step before: a short one stated again and again still grows. Pure.
+fn rate_wait(n: u32, stated: Option<chrono::Duration>) -> chrono::Duration {
+    let least = n.checked_sub(1).map_or(chrono::Duration::zero(), backoff);
+    stated.map_or(backoff(n), |s| s.clamp(least, chrono::Duration::minutes(LONGEST_RATE_WAIT)))
 }
 
 /// A run back in the queue after a limit: as if it never started, keeping what it changed and what it cost.
@@ -2209,6 +2216,15 @@ mod tests {
     #[test]
     fn rate_limits_wait_longer_each_time_in_a_row() {
         assert_eq!((0..7).map(|n| backoff(n).num_minutes()).collect::<Vec<_>>(), vec![5, 10, 20, 40, 60, 60, 60]);
+    }
+
+    #[test]
+    fn a_short_stated_wait_that_keeps_coming_back_still_grows() {
+        let secs = |n, stated: i64| rate_wait(n, Some(chrono::Duration::seconds(stated))).num_seconds();
+        assert_eq!((0..7).map(|n| secs(n, 20)).collect::<Vec<_>>(), vec![20, 300, 600, 1200, 2400, 3600, 3600]);
+        assert_eq!(secs(1, 750), 750, "a stated wait longer than the step before is kept as stated");
+        assert_eq!(secs(0, 3 * 3600), 3600, "never longer than the longest step");
+        assert_eq!(rate_wait(2, None), backoff(2), "none stated");
     }
 
     fn window(percent: f64) -> Option<UsageWindow> {
