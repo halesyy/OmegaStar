@@ -2244,6 +2244,33 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_rate_limit_that_states_its_wait_holds_the_office_until_then() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_path("stated-wait");
+        let ada = fixtures::employee();
+        let office = claiming_office(&dir, &[&ada]).await;
+        let result = json!({
+            "type": "result", "subtype": "success", "is_error": true, "num_turns": 1, "duration_ms": 900, "api_error_status": 429,
+            "result": "API Error: Server is temporarily limiting requests (not your usage limit) · All credentials for model example-model are cooling down via provider claude (last error: rate_limit_error: This request would exceed your account's rate limit. Please try again later.) (reset after 12m30s)",
+        });
+        let claude = dir.join("claude");
+        fs::write(&claude, format!("#!/bin/sh\ncat <<'EOF'\n{result}\nEOF\n")).unwrap();
+        fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = AppSettings { claude_path: Some(claude.display().to_string()), ..office.settings().unwrap() };
+        office.db().set_settings(&settings).unwrap();
+        let run = queue(&office, &ada, RunKind::Manual, None, RunState::Queued);
+        let (started, _) = office.claim_runnable().unwrap();
+        assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![run.id.as_str()]);
+        office.clone().execute(started[0].clone()).await;
+        assert_eq!(office.run(&run.id).unwrap().state, RunState::Queued, "it goes back to the queue");
+        let held = office.usage_limits().held_until.map(|t| (t - now()).num_seconds());
+        assert!(held.is_some_and(|s| (12 * 60..=12 * 60 + 30).contains(&s)), "held {held:?} seconds, not the 12m30s the result states");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_failure_is_logged_by_what_broke_it() {
         let failed = |error: &str| Run { state: RunState::Failed, error: Some(error.into()), ..Run::new("e1", RunKind::Manual, "go".into(), now()) };
