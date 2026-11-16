@@ -23,7 +23,7 @@ import { imageUrl, installTauriShim } from "./pages";
 /** What `?preview=` can be. */
 const STATES = [
   "full", "empty", "first-run", "first-run-no-claude", "first-run-signed-out", "loading", "loading-boot", "error", "error-boot",
-  "update-failed", "usage-limit", "api-key",
+  "update-failed", "usage-limit", "rate-limit", "api-key",
   "first-run-recheck", "first-run-opening", "first-run-error", "slow-saves", "failed-saves", "quiet", "large-org", "inbox-more",
   "live-more", "thread-error", "live-arrives", "live-ends",
 ] as const;
@@ -62,6 +62,7 @@ function worldFor(state: State): World {
       if (state === "usage-limit") {
         w.usage = { ...w.usage, fiveHour: { percent: 100, resetsAt: ahead(52), resetsText: null }, sevenDay: { percent: 84, resetsAt: w.usage.sevenDay?.resetsAt ?? null, resetsText: null }, heldUntil: ahead(52) };
       }
+      if (state === "rate-limit") w.usage = { ...w.usage, heldUntil: ahead(13), heldForRateLimit: true };
       if (state === "api-key") w.usage = { ...w.usage, fiveHour: null, sevenDay: null, subscription: false };
       return w;
     }

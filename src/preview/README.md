@@ -42,6 +42,7 @@ http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts
 | `error-boot` | The office can't open |
 | `update-failed` | `full`, and Restart to update fails |
 | `usage-limit` | `full` at the 5-hour limit: work waits for the reset |
+| `rate-limit` | `full` while Claude turns requests away, with room in both windows: work waits for the rate limit to ease |
 | `api-key` | `full` on an API-key account: the sidebar counts runs instead of usage |
 | `first-run-recheck` | Onboarding with Claude Code not found; Check again (from half a second after load) finds it, signed in |
 | `first-run-opening` | Onboarding; Open your office never answers ("Opening…") |

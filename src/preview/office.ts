@@ -121,7 +121,7 @@ function emptyUsage(): UsageLimits {
   return {
     fiveHour: { percent: 4, resetsAt: ahead(287), resetsText: null },
     sevenDay: { percent: 9, resetsAt: nextDow(2, 10), resetsText: null },
-    observedAt: ago(3), subscription: true, heldUntil: null, accountIssue: null, proxyIssue: null,
+    observedAt: ago(3), subscription: true, heldUntil: null, heldForRateLimit: false, accountIssue: null, proxyIssue: null,
   };
 }
 
@@ -223,7 +223,7 @@ export function fullOffice(): World {
   w.usage = {
     fiveHour: { percent: 38, resetsAt: ahead(134), resetsText: null },
     sevenDay: { percent: 61, resetsAt: nextDow(2, 10), resetsText: null },
-    observedAt: ago(4), subscription: true, heldUntil: null, accountIssue: null, proxyIssue: null,
+    observedAt: ago(4), subscription: true, heldUntil: null, heldForRateLimit: false, accountIssue: null, proxyIssue: null,
   };
 
   // ---- people

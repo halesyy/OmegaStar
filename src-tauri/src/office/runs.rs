@@ -543,7 +543,7 @@ impl Office {
                 let reset = ended.as_ref().ok().and_then(|e| e.limited);
                 self.hold_until(reset.unwrap_or_else(|| now() + chrono::Duration::minutes(15)), Limit::Usage);
             }
-            Some(Limit::Transient) => self.hold_for_transient_limit(),
+            Some(Limit::Transient) => self.hold_for_transient_limit(ended.as_ref().ok().and_then(|e| e.outcome.as_ref()).and_then(|o| claude::eases_in(&o.text))),
             None => {}
         }
         if let Some(limit) = requeue_for_limit(limit, &run) {
@@ -682,15 +682,16 @@ impl Office {
         self.sink().org_changed();
     }
 
-    /// Holds the office for a rate limit: 5 minutes for the first since a run last succeeded, then longer each
-    /// time (`backoff`). A run that meets one while the office is already held waits with the rest.
-    fn hold_for_transient_limit(&self) {
+    /// Holds the office for a rate limit: for the wait its result `stated`, or else 5 minutes for the first since a
+    /// run last succeeded, then longer each time (`rate_wait`). A run that meets one while the office is already held
+    /// waits with the rest.
+    fn hold_for_transient_limit(&self, stated: Option<chrono::Duration>) {
         let at = now();
         if self.usage_limits().held_until.is_some_and(|t| t > at) {
             return;
         }
         let n = self.0.transient_limits.fetch_add(1, Ordering::SeqCst);
-        self.hold_until(at + backoff(n), Limit::Transient);
+        self.hold_until(at + rate_wait(n, stated), Limit::Transient);
     }
 
     /// How many of a schedule's runs up to `last` broke for a reason you can act on since it last worked.
@@ -1291,9 +1292,20 @@ fn requeue_for_limit(limit: Option<Limit>, run: &Run) -> Option<Limit> {
     })
 }
 
+/// The longest the office waits out a rate limit, in minutes, however long its result says it lasts.
+const LONGEST_RATE_WAIT: i64 = 60;
+
 /// How long the office waits out its `n`th rate limit in a row, from 0: 5, 10, 20 and 40 minutes, then 60. Pure.
 fn backoff(n: u32) -> chrono::Duration {
-    chrono::Duration::minutes([5, 10, 20, 40, 60][n.min(4) as usize])
+    chrono::Duration::minutes([5, 10, 20, 40, LONGEST_RATE_WAIT][n.min(4) as usize])
+}
+
+/// How long the office waits out its `n`th rate limit in a row, from 0: the wait its result `stated`, up to an hour,
+/// or the `backoff` step when it stated none. From the second in a row the last wait was not enough, so a stated wait
+/// counts for no less than the step before: a short one stated again and again still grows. Pure.
+fn rate_wait(n: u32, stated: Option<chrono::Duration>) -> chrono::Duration {
+    let least = n.checked_sub(1).map_or(chrono::Duration::zero(), backoff);
+    stated.map_or(backoff(n), |s| s.clamp(least, chrono::Duration::minutes(LONGEST_RATE_WAIT)))
 }
 
 /// A run back in the queue after a limit: as if it never started, keeping what it changed and what it cost.
@@ -2222,6 +2234,15 @@ mod tests {
         assert_eq!((0..7).map(|n| backoff(n).num_minutes()).collect::<Vec<_>>(), vec![5, 10, 20, 40, 60, 60, 60]);
     }
 
+    #[test]
+    fn a_short_stated_wait_that_keeps_coming_back_still_grows() {
+        let secs = |n, stated: i64| rate_wait(n, Some(chrono::Duration::seconds(stated))).num_seconds();
+        assert_eq!((0..7).map(|n| secs(n, 20)).collect::<Vec<_>>(), vec![20, 300, 600, 1200, 2400, 3600, 3600]);
+        assert_eq!(secs(1, 750), 750, "a stated wait longer than the step before is kept as stated");
+        assert_eq!(secs(0, 3 * 3600), 3600, "never longer than the longest step");
+        assert_eq!(rate_wait(2, None), backoff(2), "none stated");
+    }
+
     fn window(percent: f64) -> Option<UsageWindow> {
         Some(UsageWindow { percent, resets_at: None, resets_text: None })
     }
@@ -2231,31 +2252,61 @@ mod tests {
         let dir = temp_dir("rate-hold");
         let office = open_office(&dir).await;
         let held_for = |office: &Office| office.usage_limits().held_until.map(|t| ((t - now()).num_seconds() as f64 / 60.0).round() as i64);
-        office.hold_for_transient_limit();
+        office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(5));
-        office.hold_for_transient_limit();
+        office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(5), "a run that meets it while held waits with the rest");
         let room = || claude::UsageSample { five_hour: window(12.0), seven_day: window(30.0) };
         office.observe_usage(room(), true);
         assert_eq!(held_for(&office), Some(5), "the usage windows say nothing about a rate limit");
         assert!(office.release_hold(now() + chrono::Duration::minutes(6)));
-        office.hold_for_transient_limit();
+        office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(10), "it came back before any run succeeded");
         assert_eq!(office.db().held_until().unwrap(), office.usage_limits().held_until, "kept across a restart");
 
         // After a restart it is still a rate limit's hold, which a usage check cannot end, and the next waits longer.
         drop(office);
         let office = open_office(&dir).await;
+        assert!(office.usage_limits().held_for_rate_limit, "the app still says why it waits");
         office.observe_usage(room(), true);
         assert_eq!(held_for(&office), Some(10));
         assert!(office.release_hold(now() + chrono::Duration::minutes(11)));
-        office.hold_for_transient_limit();
+        office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(20));
 
         assert!(office.release_hold(now() + chrono::Duration::minutes(21)));
         office.hold_until(now() + chrono::Duration::hours(2), Limit::Usage);
         office.observe_usage(room(), true);
         assert_eq!(office.usage_limits().held_until, None, "a usage check still ends a usage hold");
+        office.hold_for_transient_limit(Some(chrono::Duration::hours(3)));
+        assert_eq!(held_for(&office), Some(60), "a stated wait holds no longer than the longest backoff");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_rate_limit_that_states_its_wait_holds_the_office_until_then() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp_path("stated-wait");
+        let ada = fixtures::employee();
+        let office = claiming_office(&dir, &[&ada]).await;
+        let result = json!({
+            "type": "result", "subtype": "success", "is_error": true, "num_turns": 1, "duration_ms": 900, "api_error_status": 429,
+            "result": "API Error: Server is temporarily limiting requests (not your usage limit) · All credentials for model example-model are cooling down via provider claude (last error: rate_limit_error: This request would exceed your account's rate limit. Please try again later.) (reset after 12m30s)",
+        });
+        let claude = dir.join("claude");
+        fs::write(&claude, format!("#!/bin/sh\ncat <<'EOF'\n{result}\nEOF\n")).unwrap();
+        fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = AppSettings { claude_path: Some(claude.display().to_string()), ..office.settings().unwrap() };
+        office.db().set_settings(&settings).unwrap();
+        let run = queue(&office, &ada, RunKind::Manual, None, RunState::Queued);
+        let (started, _) = office.claim_runnable().unwrap();
+        assert_eq!(started.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), vec![run.id.as_str()]);
+        office.clone().execute(started[0].clone()).await;
+        assert_eq!(office.run(&run.id).unwrap().state, RunState::Queued, "it goes back to the queue");
+        let held = office.usage_limits().held_until.map(|t| (t - now()).num_seconds());
+        assert!(held.is_some_and(|s| (12 * 60..=12 * 60 + 30).contains(&s)), "held {held:?} seconds, not the 12m30s the result states");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

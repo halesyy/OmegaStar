@@ -91,11 +91,11 @@ export function resetsLabel(w: UsageWindow, now = new Date()): string {
   return w.resetsText ? `Resets ${w.resetsText.replace(/\s*\([^)]*\)\s*$/, "")}` : "";
 }
 
-/** When held work starts: "Starts at 9:30 pm when the limit resets", or "Starts Tue at 9:30 pm ..." on another day. */
-export function heldLabel(at: string, now = new Date()): string {
+/** When held work starts: "Starts at 9:30 pm when the limit resets" ("when the rate limit eases" for a rate limit), or "Starts Tue at 9:30 pm ..." on another day. */
+export function heldLabel(at: string, rateLimit: boolean, now = new Date()): string {
   const d = new Date(at);
   const day = d.toDateString() === now.toDateString() ? "" : `${d.toLocaleDateString(undefined, { weekday: "short" })} `;
-  return `Starts ${day}at ${clock(d)} when the limit resets`;
+  return `Starts ${day}at ${clock(d)} when the ${rateLimit ? "rate limit eases" : "limit resets"}`;
 }
 
 export function dateLong(isoStr: string): string {

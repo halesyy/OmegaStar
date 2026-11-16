@@ -168,10 +168,8 @@ struct Inner {
     /// When you last saved the company page in You. The save writes no revision, so a run's guard asks here.
     company_saved: Mutex<Option<Ts>>,
     /// Rate limits in a row since a run last succeeded: each new hold for one waits longer (`runs::backoff`). Kept in
-    /// the store with `transient_hold` (`save_rate_limits`), so a restart keeps both.
+    /// the store with `UsageLimits::held_for_rate_limit` (`save_rate_limits`), so a restart keeps both.
     transient_limits: AtomicU32,
-    /// The hold on work is for a rate limit, which a usage probe cannot see end: only its own time ends it.
-    transient_hold: AtomicBool,
     /// The office's disk was too full to start runs when last checked.
     disk_full: AtomicBool,
     /// A test copy (`sandbox`): it never starts Claude Code, backs up or watches anyone.
@@ -260,7 +258,7 @@ impl Office {
             active: Mutex::new(HashMap::new()),
             mcp_port: port,
             finished: tokio::sync::watch::channel(0).0,
-            usage: Mutex::new(UsageLimits { held_until, ..UsageLimits::default() }),
+            usage: Mutex::new(UsageLimits { held_until, held_for_rate_limit: rate_hold && held_until.is_some(), ..UsageLimits::default() }),
             probing: tokio::sync::Mutex::new(()),
             proxy_refused: AtomicBool::new(false),
             backing_up: tokio::sync::Mutex::new(()),
@@ -272,7 +270,6 @@ impl Office {
             closing: AtomicBool::new(false),
             company_saved: Mutex::new(None),
             transient_limits: AtomicU32::new(rate_limits),
-            transient_hold: AtomicBool::new(rate_hold && held_until.is_some()),
             disk_full: AtomicBool::new(false),
             sandbox,
         }));
