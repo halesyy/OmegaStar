@@ -137,7 +137,7 @@ Claude Code's own sub-agents, agent teams and scheduled tasks are building block
 <details>
 <summary><b>Is it safe to give employees my computer?</b></summary>
 
-Employees run as you, and there is no sandbox; containers isolate better. Supervised (the default) edits files only in the employee's folder and any folders you add, and blocks every other tool you haven't allowed, in Omega Star or in your own Claude Code settings. That includes your user-level MCP servers and claude.ai connectors, which every employee can reach. Browser control is off by default. Autonomous blocks nothing, and the app warns you.
+Employees run as you, and there is no sandbox; containers isolate better. Supervised (the default) edits files only in the employee's folder and any folders you add, and blocks every other tool you haven't allowed, in Omega Star or in your own Claude Code settings. That includes your user-level MCP servers and claude.ai connectors, which every employee can reach. Browser control is on by default, so a new hire can drive your Chrome, signed in as you; turn it off for any employee under Advanced. Autonomous blocks nothing, and the app warns you.
 
 </details>
 

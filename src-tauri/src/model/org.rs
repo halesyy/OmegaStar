@@ -84,8 +84,8 @@ pub struct EmployeeDraft {
     pub allow_rules: Vec<String>,
     pub model: Option<String>,
     pub effort: Option<Effort>,
-    /// Lets them drive your Chrome (Claude in Chrome). Off unless you turn it on for a new hire.
-    #[serde(default)]
+    /// Lets them drive your Chrome (Claude in Chrome). On unless you turn it off.
+    #[serde(default = "browser_on")]
     pub browser: bool,
     /// Tidies their skills and notes on their own when the health check finds something. On unless you turn it off.
     #[serde(default = "tidy_on")]
@@ -97,7 +97,7 @@ pub struct EmployeeDraft {
     pub image: Option<String>,
 }
 
-/// Employees hired before the browser switch existed could already drive Chrome, so they keep it.
+/// Driving your Chrome is on unless you turn it off, including for employees saved before the switch existed.
 fn browser_on() -> bool {
     true
 }
@@ -531,6 +531,20 @@ mod tests {
         employee.as_object_mut().unwrap().remove("autoTidy");
         assert!(serde_json::from_value::<EmployeeDraft>(draft).unwrap().auto_tidy);
         assert!(serde_json::from_value::<Employee>(employee).unwrap().auto_tidy);
+    }
+
+    #[test]
+    fn browser_control_is_on_unless_turned_off() {
+        let draft = ada_draft();
+        let employee = draft.clone().into_employee("e1".into(), "ada".into(), "chat-ada".into(), Utc::now());
+        let mut draft = serde_json::to_value(draft).unwrap();
+        let mut employee = serde_json::to_value(employee).unwrap();
+        assert!(!serde_json::from_value::<EmployeeDraft>(draft.clone()).unwrap().browser, "an explicit off stays off");
+        assert!(!serde_json::from_value::<Employee>(employee.clone()).unwrap().browser, "an explicit off stays off");
+        draft.as_object_mut().unwrap().remove("browser");
+        employee.as_object_mut().unwrap().remove("browser");
+        assert!(serde_json::from_value::<EmployeeDraft>(draft).unwrap().browser, "a new hire's draft");
+        assert!(serde_json::from_value::<Employee>(employee).unwrap().browser, "an employee saved before the switch existed");
     }
 
     #[test]
