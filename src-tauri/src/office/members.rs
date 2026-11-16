@@ -104,7 +104,6 @@ impl Office {
 
     pub fn hire(&self, mut draft: EmployeeDraft, imports: Vec<String>) -> Result<Employee> {
         draft.validate()?;
-        draft.normalize_workspaces(None)?;
         let catalog = self.skill_catalog();
         let picked = Self::resolve_imports(&catalog, &imports)?;
         draft.skills.keys.retain(|k| !imports.contains(k));
@@ -137,9 +136,8 @@ impl Office {
     }
 
     pub fn update_employee(&self, employee: Employee) -> Result<Employee> {
-        let mut draft = employee.draft();
+        let draft = employee.draft();
         draft.validate()?;
-        draft.normalize_workspaces(Some(&self.employee_dir(&employee.id)))?;
         let e = {
             let db = self.db();
             let old = db.employee(&employee.id)?.ok_or_else(|| AppError::not_found("employee not found"))?;
