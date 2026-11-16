@@ -81,7 +81,10 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const tail = replies.length ? replies[replies.length - 1].run : root;
   // A reply answers no card, so while one is open, Send & done would leave it behind.
   const carded = turns.some((t) => waiting(t.run));
-  const placeholder = archived ? `Reply to ${name}. Replying ${task ? "reopens it" : "brings it back"}.` : `Reply to ${name}`;
+  // A tidy's proposed changes wait below the last turn, where a reply can correct them before you approve.
+  const proposal = tidyAsks(root);
+  const placeholder = archived ? `Reply to ${name}. Replying ${task ? "reopens it" : "brings it back"}.`
+    : proposal ? `Tell ${name} what to change, or ask about it` : `Reply to ${name}`;
   // Not once archived: a hand-off tried again leaves its old run there, and Reopen brings one back to retry.
   const retry = !live && !archived && didNotFinish(tail);
   // A conversation's first message is a turn like the rest; a report opens its thread on its own.
@@ -123,7 +126,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
           {row && row.related.length ? <RowHistory t={row} employees={snap?.employees ?? []} people={snap?.people ?? []} retry={streak && retry && tail.id === root.id ? <RetryButton run={root} name={name} /> : null}
             refs={folded ? <WorkLine turn={turns[0]} e={e} /> : null} /> : null}
           {earlier ? <button className="btn btn-ghost btn-sm thread-earlier" onClick={() => setAll(true)}>Show {earlier} earlier</button> : null}
-          {showReport && !folded ? <ReportTurn turn={turns[0]} e={e} blocked={tail.id === root.id && !archived} archived={archived} retry={retry && tail.id === root.id && !streak} streak={streak} earlier={visible.length > 0 && !waiting(root)} /> : null}
+          {showReport && !folded ? <ReportTurn turn={turns[0]} e={e} blocked={tail.id === root.id && !archived} retry={retry && tail.id === root.id && !streak} streak={streak} earlier={visible.length > 0 && !waiting(root)} /> : null}
           {visible.map((t, i) => (
             <Turn key={t.run.id} turn={t} e={e} earlier={quiet(t.run, i)} latestMine={i === latestMine} footer={(
               <>
@@ -134,6 +137,7 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
               </>
             )} />
           ))}
+          {proposal ? <TidyProposal run={root} employee={e} answering={replies.some((t) => isLive(t.run))} onReply={() => surface.current?.focus()} /> : null}
         </div>
       </ChatSurface>
       </CardAim.Provider>
@@ -166,8 +170,8 @@ function Flags({ run }: { run: Run }) {
 /** The report that started the thread, as the employee's first message: who and when, its work line, the pages its run
  *  showed, the report, then what it asks you, so you read why before you answer. `retry`: it did not finish and nothing
  *  came after it, so it can be tried again. */
-function ReportTurn({ turn, e, blocked, archived, retry, streak = false, earlier = false }: {
-  turn: LiveRun; e: EmployeeView; blocked: boolean; archived: boolean; retry: boolean;
+function ReportTurn({ turn, e, blocked, retry, streak = false, earlier = false }: {
+  turn: LiveRun; e: EmployeeView; blocked: boolean; retry: boolean;
   /** A failure in a streak: the streak above says the error once, with Retry. */
   streak?: boolean;
   /** Replies follow it: it steps back so the latest exchange leads. */
@@ -191,7 +195,6 @@ function ReportTurn({ turn, e, blocked, archived, retry, streak = false, earlier
           <RunCards run={root} e={e} />
           {retry ? <div className="thread-retry"><RetryButton run={root} name={firstName(e.name)} /></div> : null}
           {blocked && root.denials.length > 0 ? <BlockedCard run={root} employee={e} /> : null}
-          {!archived ? <TidyProposal run={root} employee={e} /> : null}
         </div>
       </div>
     </div>

@@ -14,6 +14,7 @@ import { dismissToast, toast } from "../lib/toasts";
 import { archiveAt, archivable, isLive, isOpen, threadFocus, wasArchived, type OpenCard } from "../lib/threads";
 import { useShell } from "../Shell";
 import { TEMPLATES } from "../components/HireSheet";
+import { tidyAsks } from "../components/TidyProposal";
 import { Icon } from "../components/Icon";
 import { MenuButton, Popover, Roll, type MenuItem } from "../components/ui";
 import { LaterMenu } from "../components/conversation/LaterMenu";
@@ -407,7 +408,7 @@ export function InboxScreen() {
       // The main action: the bar's own, else the card's in the bar (its buttons sit in .d-slot: its black button, or for a
       // choice the employee's pick), else in the card.
       const main = () => q("[data-main]:not(:disabled)") ?? q(".d-slot .btn-primary:not(:disabled)") ?? q(".d-slot .card-pick:not(:disabled)")
-        ?? q(".d-card-main .btn-primary:not(:disabled)");
+        ?? q(":is(.d-card-main, .d-thread .tp) .btn-primary:not(:disabled)");
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       switch (key) {
         case "j": case "k": case "ArrowDown": case "ArrowUp":
@@ -457,7 +458,7 @@ export function InboxScreen() {
           if (row?.kind !== "decision") return;
           const d = row.d;
           const ok = d.type === "failures" ? d.failures.some((f) => archivable(f.thread, f.item.thread))
-            : (d.type === "flag" ? !d.thread.root.proposed || !!d.thread.root.approvedAt : d.type !== "card" && d.type !== "blocked") && archivable(d.thread, d.item.thread);
+            : (d.type === "flag" || d.type === "answered" ? !tidyAsks(d.thread.root) : d.type !== "card" && d.type !== "blocked") && archivable(d.thread, d.item.thread);
           if (!ok) return;
           L.detailCtx.actionsFor(d).done();
           break;
