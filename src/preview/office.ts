@@ -531,6 +531,17 @@ export function fullOffice(): World {
     proposed: "Split **weekly-report** in two:\n\n- **weekly-report** keeps the format and the status line\n- **board-update** gets the investor version, which has grown rules of its own\n\nAnd retire **old-launch-checklist**, which nothing has used since the spring launch.",
     needsYou: ["Approve Juniper's skill changes?"], skillChanges: [{ skill: "weekly-report", file: "SKILL.md", change: "modified" }],
   }));
+  // ---- Theo: a tidy whose proposal a reply revised, back for your OK
+  add(mk("tidy-2", "theo", { type: "tidy", reason: "auto", signature: ["looseNotes"], plan: null }, "Tidy your skills and notes.", {
+    end: ago(150), mins: 4, repliedAt: ago(70), summary: "Moved 4 loose notes into skills and dropped a rule the company page already says. Bigger changes need your OK.",
+    proposed: "Merge **launch-posts** into **social-posts**: the launch rules become one section, and the two posting checklists become one.\n\nRetire **ad-copy-2023**, which nothing has used since the summer.",
+    needsYou: ["Proposes bigger changes that need your OK."],
+  }));
+  add(mk("tidy-3", "theo", { type: "reply", toRunId: "tidy-2", label: "Tidy", task: false, card: false },
+    "Leave the newsletter skill whole. The questions for Maren only make sense next to the draft.", { end: ago(66), mins: 2,
+    summary: "Fair point. I've taken the newsletter split out, so the plan is now the merge and the retirement. Nothing has changed yet.",
+    needsYou: ["Revised the changes it proposes. They wait for your OK."],
+  }));
   add(mk("board-1", "juniper", { type: "manual" }, "Draft the January board update.", {
     end: onDay(-1, 16, 20), mins: 14, summary: "The board update is drafted: one page, numbers first.",
     cards: [card("Put the churn numbers in the update, or keep them for the meeting?", { type: "choices", choices: ["Put them in", "Keep them for the meeting"], recommended: 1 }, { why: "Churn rose in October for a reason we've fixed; it reads better with the story." })],
@@ -560,8 +571,8 @@ export function fullOffice(): World {
   w.runs = runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   // ---- where each thread is
-  w.open = ["plan-1", "slow-1", "refund-1", "pg-1", "flaky-1", "triage-1", "summary-1", "mail-1", "news-1", "pp-1", "pp-2", "stats-1", "recon-3", "close-1", "tidy-1", "board-1", "deploy-1", "widget-1"];
-  w.inbox = ["pg-1", "flaky-1", "triage-1", "summary-1", "mail-1", "news-1", "pp-1", "pp-2", "stats-1", "recon-3", "close-1", "tidy-1", "board-1", "deploy-1", "widget-1"];
+  w.open = ["plan-1", "slow-1", "refund-1", "pg-1", "flaky-1", "triage-1", "summary-1", "mail-1", "news-1", "pp-1", "pp-2", "stats-1", "recon-3", "close-1", "tidy-1", "tidy-2", "board-1", "deploy-1", "widget-1"];
+  w.inbox = ["pg-1", "flaky-1", "triage-1", "summary-1", "mail-1", "news-1", "pp-1", "pp-2", "stats-1", "recon-3", "close-1", "tidy-1", "tidy-2", "board-1", "deploy-1", "widget-1"];
   w.related = { "recon-3": ["recon-2", "recon-1"], "review-juniper": ["review-otto", "review-rafi", "review-mae", "review-theo", "review-ines"] };
   w.archive = ["monday-1", "review-juniper", "certs-1", "welcome-1", "followup-1", "hired-ines"];
 
