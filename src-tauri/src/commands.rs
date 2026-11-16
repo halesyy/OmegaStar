@@ -220,15 +220,16 @@ pub async fn report_file(path: String) -> Result<String> {
     read_report_file(&path)
 }
 
-/// The text of a notes file a report names, to read beside the conversation: a text file (`cards::is_text_file`)
-/// of at most `cards::FILE_BYTES`, found as `open_report_path` finds it.
+/// The text of a notes file a report names, to read beside the conversation: a regular text file
+/// (`cards::is_text_file`) of at most `cards::FILE_BYTES`, found as `open_report_path` finds it.
 fn read_report_file(path: &str) -> Result<String> {
     let full = resolved_report_path(path)?;
     let not_text = || AppError::invalid("It is not plain text. Open it instead.");
-    if !cards::is_text_file(&full) {
+    let meta = std::fs::metadata(&full)?;
+    if !cards::is_text_file(&full) || !meta.is_file() {
         return Err(not_text());
     }
-    if std::fs::metadata(&full)?.len() > cards::FILE_BYTES {
+    if meta.len() > cards::FILE_BYTES {
         return Err(AppError::invalid(format!("It is over {} KB, too long to show here. Open it instead.", cards::FILE_BYTES / 1024)));
     }
     std::fs::read_to_string(&full).map_err(|_| not_text())
@@ -598,6 +599,8 @@ mod tests {
         assert_eq!(refused("report.pdf"), "It is not plain text. Open it instead.");
         assert_eq!(refused("big.md"), "It is over 200 KB, too long to show here. Open it instead.");
         assert_eq!(refused("bytes.txt"), "It is not plain text. Open it instead.");
+        std::fs::create_dir(dir.join("old.md")).unwrap();
+        assert_eq!(refused("old.md"), "It is not plain text. Open it instead.");
         #[cfg(unix)]
         {
             // Judged by where a link leads, not by its own name.
