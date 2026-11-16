@@ -543,7 +543,7 @@ impl Office {
                 let reset = ended.as_ref().ok().and_then(|e| e.limited);
                 self.hold_until(reset.unwrap_or_else(|| now() + chrono::Duration::minutes(15)), Limit::Usage);
             }
-            Some(Limit::Transient) => self.hold_for_transient_limit(),
+            Some(Limit::Transient) => self.hold_for_transient_limit(ended.as_ref().ok().and_then(|e| e.outcome.as_ref()).and_then(|o| claude::eases_in(&o.text))),
             None => {}
         }
         if let Some(limit) = requeue_for_limit(limit, &run) {
@@ -682,15 +682,17 @@ impl Office {
         self.sink().org_changed();
     }
 
-    /// Holds the office for a rate limit: 5 minutes for the first since a run last succeeded, then longer each
-    /// time (`backoff`). A run that meets one while the office is already held waits with the rest.
-    fn hold_for_transient_limit(&self) {
+    /// Holds the office for a rate limit: for the wait its result `stated`, up to an hour, or else 5 minutes for the
+    /// first since a run last succeeded, then longer each time (`backoff`). A run that meets one while the office is
+    /// already held waits with the rest.
+    fn hold_for_transient_limit(&self, stated: Option<chrono::Duration>) {
         let at = now();
         if self.usage_limits().held_until.is_some_and(|t| t > at) {
             return;
         }
         let n = self.0.transient_limits.fetch_add(1, Ordering::SeqCst);
-        self.hold_until(at + backoff(n), Limit::Transient);
+        let wait = stated.map_or(backoff(n), |s| s.min(chrono::Duration::minutes(LONGEST_RATE_WAIT)));
+        self.hold_until(at + wait, Limit::Transient);
     }
 
     /// How many of a schedule's runs up to `last` broke for a reason you can act on since it last worked.
@@ -1291,9 +1293,12 @@ fn requeue_for_limit(limit: Option<Limit>, run: &Run) -> Option<Limit> {
     })
 }
 
+/// The longest the office waits out a rate limit, in minutes, however long its result says it lasts.
+const LONGEST_RATE_WAIT: i64 = 60;
+
 /// How long the office waits out its `n`th rate limit in a row, from 0: 5, 10, 20 and 40 minutes, then 60. Pure.
 fn backoff(n: u32) -> chrono::Duration {
-    chrono::Duration::minutes([5, 10, 20, 40, 60][n.min(4) as usize])
+    chrono::Duration::minutes([5, 10, 20, 40, LONGEST_RATE_WAIT][n.min(4) as usize])
 }
 
 /// A run back in the queue after a limit: as if it never started, keeping what it changed and what it cost.
@@ -2215,15 +2220,15 @@ mod tests {
         let dir = temp_dir("rate-hold");
         let office = open_office(&dir).await;
         let held_for = |office: &Office| office.usage_limits().held_until.map(|t| ((t - now()).num_seconds() as f64 / 60.0).round() as i64);
-        office.hold_for_transient_limit();
+        office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(5));
-        office.hold_for_transient_limit();
+        office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(5), "a run that meets it while held waits with the rest");
         let room = || claude::UsageSample { five_hour: window(12.0), seven_day: window(30.0) };
         office.observe_usage(room(), true);
         assert_eq!(held_for(&office), Some(5), "the usage windows say nothing about a rate limit");
         assert!(office.release_hold(now() + chrono::Duration::minutes(6)));
-        office.hold_for_transient_limit();
+        office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(10), "it came back before any run succeeded");
         assert_eq!(office.db().held_until().unwrap(), office.usage_limits().held_until, "kept across a restart");
 
@@ -2233,13 +2238,15 @@ mod tests {
         office.observe_usage(room(), true);
         assert_eq!(held_for(&office), Some(10));
         assert!(office.release_hold(now() + chrono::Duration::minutes(11)));
-        office.hold_for_transient_limit();
+        office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(20));
 
         assert!(office.release_hold(now() + chrono::Duration::minutes(21)));
         office.hold_until(now() + chrono::Duration::hours(2), Limit::Usage);
         office.observe_usage(room(), true);
         assert_eq!(office.usage_limits().held_until, None, "a usage check still ends a usage hold");
+        office.hold_for_transient_limit(Some(chrono::Duration::hours(3)));
+        assert_eq!(held_for(&office), Some(60), "a stated wait holds no longer than the longest backoff");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }

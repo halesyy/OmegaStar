@@ -156,6 +156,27 @@ const CHROME_TOOLS: &str = "mcp__claude-in-chrome__";
 /// status with it.
 const TURNED_AWAY: [&str; 2] = ["temporarily limiting requests", "cooling down"];
 
+/// The wait a turned-away result states, as a proxy prints it in Go's duration form: `(reset after 12m30s)`. `None`
+/// when it states none, or none longer than zero. Pure.
+pub fn eases_in(text: &str) -> Option<chrono::Duration> {
+    let (_, after) = text.rsplit_once("reset after ")?;
+    let mut rest = after.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.')).next()?;
+    let mut secs = 0.0;
+    while !rest.is_empty() {
+        let (n, tail) = rest.split_at(rest.find(|c: char| c.is_ascii_alphabetic())?);
+        let (unit, tail) = tail.split_at(tail.find(|c: char| !c.is_ascii_alphabetic()).unwrap_or(tail.len()));
+        let scale = match unit {
+            "h" => 3600.0,
+            "m" => 60.0,
+            "s" => 1.0,
+            _ => return None,
+        };
+        secs += n.parse::<f64>().ok()? * scale;
+        rest = tail;
+    }
+    (secs > 0.0).then(|| chrono::Duration::milliseconds((secs * 1000.0).round() as i64))
+}
+
 /// The line carries the HTTP status of a request turned away for now: 429 rate limited or 529 overloaded.
 fn turned_away_status(v: &Value) -> bool {
     matches!(v["api_error_status"].as_u64(), Some(429 | 529))
@@ -1069,6 +1090,28 @@ mod tests {
         let older = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1800000000,"rateLimitType":"five_hour"},"session_id":"sess-9"}"#;
         let p = parse_line(older, home());
         assert!(p.limited.is_some() && !p.throttled);
+    }
+
+    #[test]
+    fn a_turned_away_result_says_how_long_until_it_eases() {
+        let proxy = |wait: &str| format!("API Error: Server is temporarily limiting requests (not your usage limit) · All credentials for model example-model are cooling down via provider claude (last error: rate_limit_error: This request would exceed your account's rate limit. Please try again later.) (reset after {wait})");
+        let secs = |s: f64| Some(chrono::Duration::milliseconds((s * 1000.0) as i64));
+        for (wait, expected) in [
+            ("12m30s", secs(750.0)),
+            ("45s", secs(45.0)),
+            ("1h2m3s", secs(3723.0)),
+            ("2h", secs(7200.0)),
+            ("3m0s", secs(180.0)),
+            ("1m27.5s", secs(87.5)),
+            ("0s", None),
+            ("500ms", None),
+            ("12", None),
+            ("soon", None),
+            ("", None),
+        ] {
+            assert_eq!(eases_in(&proxy(wait)), expected, "{wait:?}");
+        }
+        assert_eq!(eases_in("API Error: Server is temporarily limiting requests."), None, "it states no wait");
     }
 
     #[test]
