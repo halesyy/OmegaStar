@@ -786,7 +786,7 @@ fn open_target(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<
     let path = fs::canonicalize(employee_dir.join(raw))
         .map_err(|_| AppError::invalid(format!("Nothing is at '{raw}'. Pass a full path, or an https link.")))?;
     let company = employee_dir.parent().unwrap_or(employee_dir);
-    let mut roots = std::iter::once(company.to_path_buf()).chain(workspaces.iter().map(|w| employee_dir.join(w))).filter_map(|r| fs::canonicalize(r).ok());
+    let mut roots = std::iter::once(company.to_path_buf()).chain(workspace_dirs(workspaces, employee_dir)).filter_map(|r| fs::canonicalize(r).ok());
     if !roots.any(|r| path.starts_with(r)) {
         return Err(AppError::invalid("You can open what is in your folder, one of your workspaces or the company page's folder, or an https link."));
     }
@@ -809,7 +809,7 @@ fn in_folders(employee_dir: &Path, workspaces: &[String], raw: &str) -> Result<P
         .ok()
         .filter(|p| p.is_file())
         .ok_or_else(|| AppError::invalid(format!("No file at '{raw}'. Pass the path of the file you wrote, e.g. 'workspace/drafts/reply.md'.")))?;
-    let mut roots = std::iter::once(employee_dir.to_path_buf()).chain(workspaces.iter().map(|w| employee_dir.join(w))).filter_map(|r| fs::canonicalize(r).ok());
+    let mut roots = std::iter::once(employee_dir.to_path_buf()).chain(workspace_dirs(workspaces, employee_dir)).filter_map(|r| fs::canonicalize(r).ok());
     if !roots.any(|r| path.starts_with(r)) {
         return Err(AppError::invalid("file must be in your folder or one of your workspaces."));
     }

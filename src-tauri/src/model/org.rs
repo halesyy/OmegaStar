@@ -2,6 +2,7 @@
 
 use super::*;
 use serde::{Deserialize, Serialize};
+use std::path::{is_separator, Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -135,6 +136,16 @@ pub struct Employee {
     /// its own, so an older build reading this employee never shares a session with another.
     pub chat_session: String,
     pub hired_at: Ts,
+}
+
+/// An employee's workspace folders as the full paths their runs use, blanks left out. `~` is this computer's home
+/// folder, and a folder that is not a full path is inside their own folder, where their runs start.
+pub fn workspace_dirs(workspaces: &[String], employee_dir: &Path) -> Vec<PathBuf> {
+    let dir = |w: &str| match (w.strip_prefix('~'), dirs::home_dir()) {
+        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with(is_separator) => home.join(rest.trim_start_matches(is_separator)),
+        _ => employee_dir.join(w),
+    };
+    workspaces.iter().map(|w| w.trim()).filter(|w| !w.is_empty()).map(dir).collect()
 }
 
 /// Largest display image, as its data URL. The app makes them a few dozen KB at most.
