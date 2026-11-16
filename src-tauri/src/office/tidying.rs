@@ -304,6 +304,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_tidy_that_was_stopped_is_filed_with_its_proposal() {
+        let dir = temp_path("tidy-stopped");
+        let e = fixtures::employee();
+        let mut stopped = waiting(&e);
+        stopped.state = RunState::Cancelled;
+        stopped.needs_you.clear();
+        let office = held(&dir, &e, &[&stopped]).await;
+        assert!(office.conversations().unwrap().inbox.is_empty(), "it never brought the proposal to you");
+        let archived: Vec<String> = office.archived().unwrap().into_iter().map(|t| t.root.id).collect();
+        assert_eq!(archived, vec![stopped.id.clone()], "so it is in the Archive, not lost between the two");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn a_proposal_stays_in_your_inbox_while_you_talk_it_over() {
         let dir = temp_path("tidy-stays");
         let e = fixtures::employee();
