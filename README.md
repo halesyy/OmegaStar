@@ -32,7 +32,7 @@ Omega Star is not another agent. Every AI employee (an autonomous Claude Code ag
 
 Juno is hired to run support, learns the morning email, and the next day has it done at 7 am with the window closed. Two and a half minutes, with sound.
 
-https://github.com/user-attachments/assets/3b16fe07-c238-4217-9f93-4de6f757a9ff
+https://github.com/user-attachments/assets/db3e331b-af9e-4dea-aa12-97bc4a2c65b1
 
 ## Why Omega Star
 
