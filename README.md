@@ -86,7 +86,7 @@ You teach an employee by talking to them, the way you'd teach a new hire. Each l
 
 1. **Download and install** the app for your computer from the [latest release](https://github.com/itsfutsy/Omegastar/releases/latest):
    - **macOS:** the `.dmg`, for Apple Silicon Macs only.
-   - **Windows:** the `-setup.exe`. If SmartScreen appears, click **More info**, then **Run anyway**.
+   - **Windows:** the `-setup.exe`. It isn't signed yet, so Edge may say it "isn't commonly downloaded". Point at that download, click the **...** that appears, choose **Keep**, then click the arrow next to **Delete** and choose **Keep anyway**. If "Windows protected your PC" appears instead, click **More info**, then **Run anyway**.
    - **Linux:** the `.AppImage` (tested on Ubuntu 24.04).
 2. **Open your office.** Setup checks Claude Code and asks for your company, name and title. Turn on "Keep Omega Star running in the background" so it starts at login. Closing the window leaves it in the tray, where schedules keep running.
 3. **Hire your first employee** from a template, such as Chief of Staff. A new conversation opens with a first lesson already written. Send it, and they'll interview you and write their first skill.
