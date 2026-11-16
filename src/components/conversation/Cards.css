@@ -69,7 +69,7 @@
 :is(.cv-card, .cv-slot, .cv-file-above) .card-file-body .md { font-size: 14px; }
 :is(.cv-card, .cv-slot, .cv-file-above) .card-file-clip { max-height: 260px; overflow: hidden; }
 :is(.cv-card, .cv-slot, .cv-file-above) .card-file-fade { -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
-:is(.cv-card, .cv-slot, .cv-file-above) .card-file-text { margin: 0; font: inherit; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+:is(.cv-card, .cv-slot, .cv-file-above, .reader-body) .card-file-text { margin: 0; font: inherit; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 :is(.cv-card, .cv-slot, .cv-file-above) .card-file-note { margin: 0; padding: 12px 16px; font-size: var(--t-sm); color: var(--muted); }
 :is(.cv-card, .cv-slot, .cv-file-above) .card-file-more { margin: 0 8px 8px; }
 

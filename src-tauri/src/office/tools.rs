@@ -734,24 +734,32 @@ you as a new run. Never create the hire any other way."
     }
 
     /// Opens a file, a folder or a page on your screen for the caller (`open_target` says what they may open), and
-    /// says whether it worked. Only in a conversation you are in (`ceo_present`): from a run nobody watches,
-    /// a tab or a window would appear out of nowhere.
+    /// says whether it worked. A notes file (`cards::is_text_file`) shows beside the caller's conversation instead of
+    /// in its app. Only in a conversation you are in (`ceo_present`): from a run nobody watches, a tab or a window
+    /// would appear out of nowhere.
     pub fn open_tool(&self, caller_run: &str, caller: &Employee, target: &str) -> Result<Value> {
-        let ceo = {
+        let (ceo, root_id) = {
             let db = self.db();
             let ceo = ceo_of(&db)?;
-            if !db.run(caller_run)?.is_some_and(|r| ceo_present(&r.run)) {
+            let Some(run) = db.run(caller_run)?.map(|r| r.run).filter(ceo_present) else {
                 return Err(AppError::invalid(format!(
                     "{ceo} is not in this run, so nothing opens on their screen. Put the link on your card instead: a sign-in page goes in the chore's url."
                 )));
-            }
-            ceo
+            };
+            let root_id = run.reply_to().unwrap_or(&run.id).to_owned();
+            (ceo, root_id)
         };
         let target = open_target(&self.employee_dir(&caller.id), &caller.workspaces, target.trim())?;
-        if let Err(e) = self.sink().open(&target) {
-            return Err(AppError::internal(format!("It did not open: {e}. Tell {ceo} where it is instead.")));
+        let path = Path::new(&target);
+        let shown = if path.is_file() && cards::is_text_file(path) {
+            self.sink().show_file(&root_id, &target).map(|()| format!("It shows beside your conversation on {ceo}'s screen."))
+        } else {
+            self.sink().open(&target).map(|()| format!("It is open on {ceo}'s screen."))
+        };
+        match shown {
+            Ok(note) => Ok(json!({ "opened": true, "note": note })),
+            Err(e) => Err(AppError::internal(format!("It did not open: {e}. Tell {ceo} where it is instead."))),
         }
-        Ok(json!({ "opened": true, "note": format!("It is open on {ceo}'s screen.") }))
     }
 }
 
@@ -1093,7 +1101,8 @@ mod tests {
         drop(office);
     }
 
-    /// Records what it opens, and fails on anything ending in `.fail`.
+    /// Records what it opens, and the notes files it shows as "beside {root}: {path}", and fails on anything ending
+    /// in `.fail`.
     #[derive(Default)]
     struct Screen(Mutex<Vec<String>>);
     impl EventSink for Screen {
@@ -1106,6 +1115,10 @@ mod tests {
                 return Err("its app is gone".into());
             }
             lock(&self.0).push(target.to_string());
+            Ok(())
+        }
+        fn show_file(&self, root_id: &str, path: &str) -> std::result::Result<(), String> {
+            lock(&self.0).push(format!("beside {root_id}: {path}"));
             Ok(())
         }
     }
@@ -1125,6 +1138,8 @@ mod tests {
         let back = RunKind::Reply { to_run_id: talking.id.clone(), label: "The report".into(), task: true, card: false };
         let check = Run { check: Some("c1".into()), state: RunState::Succeeded, ..Run::new(&ada.id, back, "Check.".into(), now()) };
         assert!(o.db.insert_run(&check, &talking.id).unwrap());
+        let more = Run { state: RunState::Succeeded, ..Run::new(&ada.id, RunKind::Reply { to_run_id: talking.id.clone(), label: "The report".into(), task: true, card: false }, "And the log?".into(), now()) };
+        assert!(o.db.insert_run(&more, &talking.id).unwrap());
         let screen = Arc::new(Screen::default());
         let office = Office::open(o.dir.clone(), screen.clone(), Build::new("0.0.0".into())).await.unwrap();
         let home = office.employee_dir(&ada.id);
@@ -1133,6 +1148,8 @@ mod tests {
         fs::create_dir_all(&theirs).unwrap();
         fs::write(home.join("workspace/report.pdf"), "%PDF").unwrap();
         fs::write(home.join("workspace/broken.fail"), "x").unwrap();
+        fs::write(home.join("workspace/RUN.TXT"), "Log").unwrap();
+        fs::create_dir_all(home.join("workspace/old.md")).unwrap();
         fs::write(theirs.join("draft.md"), "Bo's draft").unwrap();
         std::os::unix::fs::symlink(o.dir.join("outside.md"), home.join("link.md")).unwrap();
         let real = |p: PathBuf| fs::canonicalize(p).unwrap().to_string_lossy().into_owned();
@@ -1148,16 +1165,22 @@ mod tests {
         assert_eq!(open("https://acme.example/sign-in").unwrap(), json!({ "opened": true, "note": "It is open on Pat's screen." }));
         open(&home.join("workspace/report.pdf").to_string_lossy()).unwrap();
         open("workspace").unwrap();
-        open(&repo.join("notes.md").to_string_lossy()).unwrap();
+        open("workspace/old.md").unwrap();
+        // A notes file shows beside the conversation, from any turn of it.
+        assert_eq!(open(&repo.join("notes.md").to_string_lossy()).unwrap(), json!({ "opened": true, "note": "It shows beside your conversation on Pat's screen." }));
         open(&o.dir.join("employees").join("CLAUDE.md").to_string_lossy()).unwrap();
         open(&theirs.join("draft.md").to_string_lossy()).unwrap();
+        office.open_tool(&more.id, &ada, "workspace/RUN.TXT").unwrap();
+        let beside = |p: PathBuf| format!("beside {}: {}", talking.id, real(p));
         let want = vec![
             "https://acme.example/sign-in".to_string(),
             real(home.join("workspace/report.pdf")),
             real(home.join("workspace")),
-            real(repo.join("notes.md")),
-            real(o.dir.join("employees").join("CLAUDE.md")),
-            real(theirs.join("draft.md")),
+            real(home.join("workspace/old.md")),
+            beside(repo.join("notes.md")),
+            beside(o.dir.join("employees").join("CLAUDE.md")),
+            beside(theirs.join("draft.md")),
+            beside(home.join("workspace/RUN.TXT")),
         ];
         assert_eq!(*lock(&screen.0), want);
 
@@ -1176,6 +1199,7 @@ mod tests {
 
         let office = held_office(&o).await;
         assert!(office.open_tool(&talking.id, &ada, "workspace").unwrap_err().message.starts_with("It did not open: there is no screen to open it on."));
+        assert!(office.open_tool(&talking.id, &ada, "workspace/RUN.TXT").unwrap_err().message.starts_with("It did not open: there is no screen to show it on."));
         drop(office);
     }
 }

@@ -68,6 +68,9 @@ const scrollToEnd = (p) => p.evaluate(() => {
   }
 });
 
+/** Opens the first notes file a reply names in the reader beside it. */
+const openNotes = (p) => p.locator(".msg-emp .md-path").first().click();
+
 /** area, screen, state (?preview=), route, and what to do once it has settled. */
 const S = (area, screen, state, hash, o = {}) => ({ area, screen, state, hash, ...o });
 const SHOTS = [
@@ -129,6 +132,9 @@ const SHOTS = [
   S("conversation", "thread-delegated", "full", "#/chat/otto/thread~billing-1"),
   S("conversation", "thread-queued", "full", "#/chat/rafi/thread~widget-2"),
   S("conversation", "thread-reply", "full", "#/chat/otto/thread~slow-1"),
+  S("conversation", "thread-reader", "full", "#/chat/otto/thread~slow-1", { act: openNotes }),
+  S("conversation", "thread-reader", "notes-gone", "#/chat/otto/thread~slow-1", { act: openNotes }),
+  S("conversation", "thread-reader-text", "full", "#/chat/rafi/thread~flaky-1", { act: openNotes }),
   S("conversation", "thread-proposal-card", "full", "#/chat/mae/thread~refund-1"),
   S("conversation", "thread-report-card", "full", "#/chat/otto/thread~pg-1"),
   S("conversation", "thread-items-card", "full", "#/chat/rafi/thread~flaky-1"),

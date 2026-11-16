@@ -208,3 +208,20 @@
 .streak-run:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; }
 .thread-retry { display: flex; gap: 6px; }
 .streak-refs { margin-top: 8px; }
+
+/* ------------------------------------------------ a notes file read beside the conversation */
+.thread-reading { flex-direction: row; position: relative; container: thread / inline-size; }
+.thread-reading > .chat { flex: 1; min-width: 0; }
+.reader { flex: none; width: 720px; min-height: 0; display: flex; flex-direction: column; background: var(--canvas); box-shadow: inset 1px 0 0 var(--line); }
+/* Too narrow for both (a small window, the Inbox's detail column): the file covers the conversation, which waits
+   behind it as it was. */
+@container thread (max-width: 1199.98px) {
+  .reader { position: absolute; inset: 0; width: auto; z-index: 5; box-shadow: none; }
+}
+.reader-head { flex: none; display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }
+.reader-head > svg { flex: none; margin-left: -2px; }
+.reader-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+.reader-body { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px 40px 24px; }
+.reader-body .md { font-size: 14.5px; line-height: 1.6; max-width: 680px; }
+.reader-body .md > h1:first-child { margin-top: 0; }
+.reader-note { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--ink-2); }

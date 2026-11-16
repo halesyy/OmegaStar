@@ -62,6 +62,11 @@ pub trait EventSink: Send + Sync + 'static {
     fn open(&self, _target: &str) -> std::result::Result<(), String> {
         Err("there is no screen to open it on".into())
     }
+    /// Shows a notes file (`cards::is_text_file`, by its full path) beside the conversation whose first run is
+    /// `root_id` on your screen (`open`), or says why it could not.
+    fn show_file(&self, _root_id: &str, _path: &str) -> std::result::Result<(), String> {
+        Err("there is no screen to show it on".into())
+    }
 }
 
 const TICK: Duration = Duration::from_secs(30);

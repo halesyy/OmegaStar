@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, NewAttachment, Run, Thread } from "../../api/types";
-import { capitalize, firstName, relTime } from "../../lib/format";
+import { capitalize, firstName, relTime, typing } from "../../lib/format";
 import { dropConversation, refreshConversations, useOrg, type Conversation } from "../../lib/hooks";
+import { closeReader, openReader, ReaderContext, useReaderPath, type ReaderOpener } from "../../lib/reader";
 import { snoozePresets } from "../../lib/status";
 import { toast } from "../../lib/toasts";
 import { didNotFinish, flags, isLive, isOpen, isStreak, startedByYou, tidyAsks } from "../../lib/threads";
@@ -16,6 +17,7 @@ import { Markdown } from "../Markdown";
 import { Visual } from "../Visual";
 import { ErrorNote, Popover, Skeleton } from "../ui";
 import { ChatSurface, type ChatSurfaceHandle } from "./ChatSurface";
+import { ReaderPane } from "./ReaderPane";
 import { Turn, Waiting, WhoLine } from "./ChatTurn";
 import { WorkLine } from "./WorkLine";
 import type { LiveRun } from "../../lib/runs";
@@ -31,6 +33,7 @@ export const WHERE_ARE_WE = "Where are we? In three short lines: what is done, w
  * employee works reaches them as they work, or runs as the next reply. Whoever shows it (the conversation
  * screen, an Inbox row) holds the thread's runs (`thread`), and the rest of an Inbox row (`row`) when it leads one.
  * With `recent` it opens on the latest exchange, and the turns before it wait behind "Show N earlier".
+ * A notes file a reply names opens beside it (`ReaderPane`), and closes on its close button or Escape.
  */
 export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = true, recent = false }: {
   e: EmployeeView;
@@ -57,6 +60,39 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const archived = !!root?.archivedAt;
   const task = !!root && startedByYou(root);
   const name = firstName(e.name);
+
+  // Opening or closing the file keeps the path you clicked where it is, as the conversation narrows or widens.
+  const box = useRef<HTMLDivElement>(null);
+  const readerPath = useReaderPath(rootId);
+  const reader = useMemo<ReaderOpener>(() => ({
+    path: readerPath,
+    open: (path, link) => {
+      surface.current?.keep(link);
+      if (path === readerPath) closeReader();
+      else openReader(rootId, path);
+    },
+  }), [readerPath, rootId]);
+  const close = useCallback(() => {
+    const link = box.current?.querySelector('.chat [data-open-path][aria-expanded="true"]');
+    if (link) surface.current?.keep(link);
+    closeReader();
+  }, []);
+  useEffect(() => {
+    if (!readerPath) return;
+    // Ahead of the Inbox's own Escape. Not while a popover, lightbox or sheet is open, nor in a field that uses the
+    // key: the composer uses it only to stop answering a card.
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape" || ev.defaultPrevented || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+      if (document.querySelector('[aria-modal="true"], .popover')) return;
+      const t = ev.target instanceof Element ? ev.target : null;
+      if (t?.closest("[data-esc-stop], [role='dialog']")) return;
+      if (typing(t) && (aimed || !t?.closest(".composer-wrap"))) return;
+      ev.preventDefault();
+      close();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [readerPath, aimed, close]);
 
   const liveKey = turns ? `${turns.length}:${turns[turns.length - 1]?.events.length}:${turns[turns.length - 1]?.live.length}` : "";
 
@@ -116,7 +152,8 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
   const folded = streak && !root.summary && didNotFinish(root);
 
   return (
-    <div className="thread">
+    <div ref={box} className={`thread ${readerPath ? "thread-reading" : ""}`}>
+      <ReaderContext.Provider value={reader}>
       <CardAim.Provider value={aimer}>
       <ChatSurface
         ref={surface} e={e} live={live} draftKey={`thread:${rootId}`} scrollKey={liveKey} onAim={setAimed}
@@ -141,6 +178,8 @@ export function ThreadView({ e, rootId, thread, row, onSendDone, autoFocus = tru
         </div>
       </ChatSurface>
       </CardAim.Provider>
+      {readerPath ? <ReaderPane path={readerPath} onClose={close} /> : null}
+      </ReaderContext.Provider>
     </div>
   );
 }

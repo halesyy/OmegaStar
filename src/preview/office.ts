@@ -75,8 +75,8 @@ export type World = {
   checks: Check[];
   staged: Record<string, StagedImport[]>;
   originals: Record<string, OriginalSkill[]>;
-  /** What a card's file holds, by its path. */
-  cardFiles: Record<string, string>;
+  /** What a text file holds, by its full path: a card's file, or a notes file a reply names. */
+  textFiles: Record<string, string>;
   companyPage: string;
   settings: AppSettings;
   usage: UsageLimits;
@@ -149,7 +149,7 @@ export function emptyOffice(): World {
   return {
     setup: setupStatus(company), company, employees: [], people: [], status: {}, schedules: [], runs: [], events: {},
     open: [], inbox: [], archive: [], related: {}, requests: [], proposals: [], catalog: CATALOG, skills: {}, files: {},
-    revisions: {}, health: {}, checks: [], staged: {}, originals: {}, cardFiles: {}, companyPage: emptyCompanyPage(company.name),
+    revisions: {}, health: {}, checks: [], staged: {}, originals: {}, textFiles: {}, companyPage: emptyCompanyPage(company.name),
     settings: structuredClone(SETTINGS), usage: emptyUsage(), backup: backupStatus(), update: null,
   };
 }
@@ -384,7 +384,21 @@ export function fullOffice(): World {
       link: "https://code.fernbrook.app/fernbrook/infra/pulls/88",
     })],
   }), [init(8), ...tool("g1", "Bash", "pg_restore --list nightly.dump", "Restored to test-db"), ...tool("g2", "Bash", "psql -c 'select version()'", "PostgreSQL 14.13"), said(pgSummary)]);
-  const slowAnswer = "It was the database, not the app. Tuesday 6 to 7 pm is the busiest hour of the week (studios open the next week's classes), and one query read every past booking.\n\n- Added an index on `bookings.starts_at`: that query went from 1.9 s to 40 ms\n- The booking page's median is back to 310 ms\n\nNothing for you to do. I've set a check to look again next Tuesday evening.";
+  const slowAnswer = "One slow query made the booking page drag on Tuesday evening. It's fixed: the page opens in 310 ms again, down from 2.3 s.\n\n- The class list counted every past booking, with no index to help.\n- I added the index and limited the count to the last 90 days.\n- Three studios noticed. Mae has answered all three.\n\nThe timings and what's still open: `~/Fernbrook/ops/slow-booking-tuesday.md`";
+  w.textFiles[`${HOME}/Fernbrook/ops/slow-booking-tuesday.md`] = [
+    "# Slow booking page, Tuesday 3 November",
+    "Between 6 and 7 pm the booking page took **2.3 s** to open, against 310 ms on a normal evening. The cause was one query, and it is fixed.",
+    "## What happened",
+    "Tuesday evening is when studios open next week's classes, so it is the busiest hour of the week. The page that lists a studio's classes also counted every past booking for each class, and that count had no index to use.",
+    "## What I timed",
+    "| Query | Before | After |\n|---|---:|---:|\n| Bookings per class, all time | 1.9 s | 40 ms |\n| Classes for the week | 120 ms | 118 ms |\n| Waitlist places | 85 ms | 84 ms |\n| Whole page, median | 2.3 s | 310 ms |",
+    "## What I changed",
+    "1. Added an index on `bookings.starts_at`. It took 4 seconds to build and locked nothing.\n2. Limited the count to the last 90 days, which is all the page shows.\n3. Put the slow-query alert back at 500 ms. It had been raised to 5 s in August and never lowered.",
+    "## Who noticed",
+    "Three studios wrote to Mae between 6:10 and 6:40 pm. She has answered all three.",
+    "## Still open",
+    "- The same count runs on the monthly report. It is slow too, but nobody waits on it.\n- I look at Tuesday evening again next week, when the same rush comes round.",
+  ].join("\n\n");
   const slow = add(mk("slow-1", "otto", { type: "task", label: "Why was the site slow on Tuesday?", from: null, context: "" },
     "The booking page felt slow on Tuesday evening. What happened?", { end: ago(118), mins: 9, title: "Slow booking page on Tuesday evening, between six and seven, while studios opened next week's classes", summary: slowAnswer }));
   w.events[slow.id] = [init(8), said("Looking at Tuesday evening's traces."), ...tool("s1", "Bash", "kubectl logs deploy/web --since=48h | grep slow", "212 slow requests"), ...tool("s2", "Bash", "psql -f explain-bookings.sql", "Seq scan on bookings"), ...tool("s3", "Edit", "infra/migrations/0142_bookings_starts_at.sql", "Added"), said(slowAnswer), done(slow)];
@@ -401,7 +415,24 @@ export function fullOffice(): World {
 
   // ---- Rafi: waiting to start, a list to tick, a failure like Otto's, an answer for Mae
   add(mk("widget-2", "rafi", { type: "manual" }, "Check the booking widget on the new Safari release.\nScreenshots of anything that looks off.", { state: "queued", end: ago(9) }));
-  const flakySummary = "412 tests, 405 passed. The other 7 are flaky: they pass on a second try.\n\nThe booking flow itself is fine.";
+  const flakySummary = "412 tests, 405 passed. The other 7 are flaky: they pass on a second try.\n\nThe booking flow itself is fine. The whole run is in `~/Fernbrook/qa/regression-run.txt`, and screenshots of the 7 in `~/Fernbrook/qa/flaky/`.";
+  w.textFiles[`${HOME}/Fernbrook/qa/regression-run.txt`] = [
+    "Regression run, Thursday 5 November, 1:00 am",
+    "412 tests in 38 min 12 s: 405 passed, 7 passed on a second try.",
+    "",
+    "Flaky (passed on retry)",
+    "booking/waitlist-promotes-next-in-line: 2 tries, 1.8 s",
+    "calendar/drag-across-midnight: 2 tries, 0.9 s",
+    "checkout/apple-pay-sheet-closes: 3 tries, 2.4 s",
+    "classes/copy-week-keeps-instructors: 2 tries, 1.1 s",
+    "members/merge-duplicate-emails: 2 tries, 0.7 s",
+    "reminders/sms-24h-before: 2 tries, 3.2 s",
+    "studio/switch-keeps-filters: 2 tries, 1.3 s",
+    "",
+    "Slowest",
+    "checkout/full-flow-with-pass: 41.2 s",
+    "booking/waitlist-full-week: 33.9 s",
+  ].join("\n");
   add(mk("flaky-1", "rafi", sched(S.regress, lastAt(1)), S.regress.instruction, {
     end: lastAt(1, 38), mins: 38, summary: flakySummary,
     cards: [card("Quarantine these flaky tests until I fix them?", {
@@ -471,7 +502,7 @@ export function fullOffice(): World {
     denials: [{ tool: "mcp__newsletter__create_campaign", brief: "Create the draft campaign \"Your Studio plan from 1 March\"", suggestedRule: "mcp__newsletter__create_campaign" }],
   }), [init(9), ...tool("n1", "Read", "marketing/segments.md", "4 segments"), ...tool("n2", "mcp__newsletter__create_campaign", "Your Studio plan from 1 March", "Blocked: not allowed", false), said(mailSummary)]);
   const draftPath = `${HOME}/Fernbrook/marketing/drafts/november-newsletter.md`;
-  w.cardFiles[draftPath] = "# The waitlists are here\n\nHi {first name},\n\nWhen a class fills up, people can now join a waitlist. If someone cancels, the next person gets the spot and a text, without you lifting a finger.\n\nStudios that tried it in October filled **31 more spots** on average.\n\n[Turn on waitlists](https://app.fernbrook.app/settings/waitlists)\n\n## Also this month\n\n- Move a class without emailing everyone: Fernbrook tells only the people booked\n- SMS reminders now go out 24 hours before, not 2\n\nThanks for running your studio with us,\nThe Fernbrook team";
+  w.textFiles[draftPath] = "# The waitlists are here\n\nHi {first name},\n\nWhen a class fills up, people can now join a waitlist. If someone cancels, the next person gets the spot and a text, without you lifting a finger.\n\nStudios that tried it in October filled **31 more spots** on average.\n\n[Turn on waitlists](https://app.fernbrook.app/settings/waitlists)\n\n## Also this month\n\n- Move a class without emailing everyone: Fernbrook tells only the people booked\n- SMS reminders now go out 24 hours before, not 2\n\nThanks for running your studio with us,\nThe Fernbrook team";
   const newsSummary = "The November newsletter is drafted. Two questions before it goes:";
   add(mk("news-1", "theo", sched(S.news, lastDow(2, 10)), S.news.instruction, {
     end: lastDow(2, 10, 26), mins: 26, summary: newsSummary,

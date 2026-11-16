@@ -1,6 +1,7 @@
 //! One-line Tauri adapters over the Office. Argument names are the contract's (camelCase in JS).
 
 use crate::backup;
+use crate::cards;
 use crate::model::*;
 use crate::office::{self, Office};
 use crate::update;
@@ -199,14 +200,39 @@ fn percent_decoded(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
+/// A path from a report (`report_path`) with its links followed, so a link named like a document cannot point at a
+/// program.
+fn resolved_report_path(path: &str) -> Result<std::path::PathBuf> {
+    std::fs::canonicalize(report_path(path)?).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => AppError::not_found(format!("Nothing is at {path} any more.")),
+        _ => AppError::internal(format!("Could not open {path}: {e}")),
+    })
+}
+
 #[tauri::command]
 pub async fn open_report_path(app: AppHandle, path: String) -> Result<()> {
-    // Resolved, so a link named like a document cannot point at a program.
-    let full = std::fs::canonicalize(report_path(&path)?).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => AppError::not_found(format!("Nothing is at {path} any more")),
-        _ => AppError::internal(format!("Could not open {path}: {e}")),
-    })?;
+    let full = resolved_report_path(&path)?;
     open_or_reveal(&app, &full).map_err(|e| AppError::internal(format!("Could not open {path}: {e}")))
+}
+
+#[tauri::command]
+pub async fn report_file(path: String) -> Result<String> {
+    read_report_file(&path)
+}
+
+/// The text of a notes file a report names, to read beside the conversation: a regular text file
+/// (`cards::is_text_file`) of at most `cards::FILE_BYTES`, found as `open_report_path` finds it.
+fn read_report_file(path: &str) -> Result<String> {
+    let full = resolved_report_path(path)?;
+    let not_text = || AppError::invalid("It is not plain text. Open it instead.");
+    let meta = std::fs::metadata(&full)?;
+    if !cards::is_text_file(&full) || !meta.is_file() {
+        return Err(not_text());
+    }
+    if meta.len() > cards::FILE_BYTES {
+        return Err(AppError::invalid(format!("It is over {} KB, too long to show here. Open it instead.", cards::FILE_BYTES / 1024)));
+    }
+    std::fs::read_to_string(&full).map_err(|_| not_text())
 }
 
 #[tauri::command]
@@ -553,6 +579,35 @@ mod tests {
         assert!(!opens_directly(Path::new("/tmp/out/X.app"), true));
         assert!(!opens_directly(Path::new("/tmp/out/start.command"), false));
         assert!(!opens_directly(Path::new("/tmp/out/tool"), false));
+    }
+
+    #[test]
+    fn only_a_short_notes_file_in_plain_text_is_read() {
+        let dir = std::env::temp_dir().join(format!("omegastar-notes-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        std::fs::write(dir.join("notes.md"), "# Notes").unwrap();
+        std::fs::write(dir.join("LOG.TXT"), "ok").unwrap();
+        std::fs::write(dir.join("report.pdf"), "%PDF").unwrap();
+        std::fs::write(dir.join("big.md"), "x".repeat(cards::FILE_BYTES as usize + 1)).unwrap();
+        std::fs::write(dir.join("bytes.txt"), [0xff, 0xfe, 0x00]).unwrap();
+
+        assert_eq!(read_report_file(&at("notes.md")).unwrap(), "# Notes");
+        assert_eq!(read_report_file(&at("LOG.TXT")).unwrap(), "ok");
+        let refused = |name: &str| read_report_file(&at(name)).unwrap_err().message;
+        assert_eq!(refused("gone.md"), format!("Nothing is at {} any more.", at("gone.md")));
+        assert_eq!(refused("report.pdf"), "It is not plain text. Open it instead.");
+        assert_eq!(refused("big.md"), "It is over 200 KB, too long to show here. Open it instead.");
+        assert_eq!(refused("bytes.txt"), "It is not plain text. Open it instead.");
+        std::fs::create_dir(dir.join("old.md")).unwrap();
+        assert_eq!(refused("old.md"), "It is not plain text. Open it instead.");
+        #[cfg(unix)]
+        {
+            // Judged by where a link leads, not by its own name.
+            std::os::unix::fs::symlink(dir.join("report.pdf"), dir.join("report.md")).unwrap();
+            assert_eq!(refused("report.md"), "It is not plain text. Open it instead.");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

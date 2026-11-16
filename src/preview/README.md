@@ -54,6 +54,7 @@ http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts
 | `inbox-more` | `full` plus Inbox cases: three runs failing on one error (`smoke-1`, `links-1`, `widget-1`), Theo's two cards about the launch (`launch-1`, `launch-2`), Mae's question asked by Ines with other choices (`annual-1`), a three-line title (`dns-1`), a blocked MCP tool (`issues-1`) |
 | `live-more` | `full` with three runs going on Juniper's thread (her reply, Otto's `billing-1` and Mae's `help-1`, both delegated); `billing-1` finishes 6 seconds in; `slow-1` has 22 steps |
 | `thread-error` | `full`, but every conversation fails to load (`thread` errors) |
+| `notes-gone` | `full`, but the notes files replies name are gone: the reader beside a conversation says so |
 | `live-arrives` | `full`; 3 seconds in, Juniper asks Mae to update the help centre (`help-1`, delegated from `plan-2`), and Mae starts on it: live work arriving |
 | `live-ends` | `full`; everything live finishes in turn (the sub-agent at 2.5 s, `billing-1` at 4 s, `plan-2` at 6.5 s, the runs waiting to start by 8 s), so nothing is live after that |
 
@@ -76,10 +77,10 @@ The app's own hash routes (`src/lib/router.ts`), with these ids:
 |---|---|
 | `plan-1` (Juniper) | Conversation; its reply `plan-2` streams live with tools, a hand-off to Otto, a sub-agent and a page |
 | `billing-1` (Otto) | The hand-off, running |
-| `slow-1` (Otto) | Conversation he answered: a reply waiting on you |
+| `slow-1` (Otto) | Conversation he answered: a reply waiting on you, naming a notes file that opens beside it |
 | `refund-1` (Mae) | Conversation with a card proposing a company-page line |
 | `pg-1` (Otto) | Report with a choice card and a link |
-| `flaky-1` (Rafi) | Report with a list card |
+| `flaky-1` (Rafi) | Report with a list card, naming a plain-text log and a folder |
 | `news-1` (Theo) | Report with two cards, a draft file and images |
 | `triage-1`, `summary-1` (Mae) | A question card; news |
 | `stats-1` (Theo), `close-1` (Ines) | A chore (sign in); a task only you can do |

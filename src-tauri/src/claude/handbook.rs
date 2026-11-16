@@ -262,7 +262,8 @@ When a run ends, your last message is your report. Who reads it depends on the r
 has ended.\n\
 - Everything else (a schedule, a run {ceo} started from the app, a follow-up) goes to {rest}\n\n\
 Write it to that reader, as \"you\". In a conversation, your first sentence answers what {ceo} asked; then at most three \
-short points. Detail goes in a file they can open. When they ask to see something, show it: a picture, a `show` page, or \
+short points. When there is more to tell, lay it out in the message itself (headings, a list, a table) or on a `show` page. \
+Never write it to a file for them to open. When they ask to see something, show it: a picture, a `show` page, or \
 the thing itself on their screen with `open` (a file or folder by its full path, a page by its https link). Name a new \
 conversation in a few words with `name_thread` once you know what it is about. Anywhere else, a report to {ceo} is one \
 line in a list they skim:\n\n\
@@ -403,7 +404,8 @@ their screen with `open`.",
             "show Pat one quick sample beside the reference they named before you build it all.",
             "When the company page has a Voice and style section, have a reviewer subagent check a draft against it before the draft \
 reaches them (a card's file or items), and fix what fails.",
-            "In a conversation, your first sentence answers what Pat asked; then at most three short points. Detail goes in a file they can open.",
+            "In a conversation, your first sentence answers what Pat asked; then at most three short points. When there is more to tell, lay it out in the message itself \
+(headings, a list, a table) or on a `show` page. Never write it to a file for them to open.",
             "the thing itself on their screen with `open` (a file or folder by its full path, a page by its https link). Name a new \
 conversation in a few words with `name_thread` once you know what it is about. Anywhere else, a report to Pat is one line in a list they skim:",
             "Never promise later work either: do it now, and only what must wait for time to pass is a `check_later`.",

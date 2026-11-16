@@ -5,6 +5,7 @@ import type { Card, CardAnswer, CardItem, CardReply, EmployeeView, Proposal, Run
 import { answerCard, askAboutCard, backDay, onCard, undoAnswer, usePendingAnswers, type PendingAnswer } from "../../lib/cardAnswers";
 import { firstName, MOD } from "../../lib/format";
 import { useQuery } from "../../lib/hooks";
+import { textFile } from "../../lib/reader";
 import { isLive, isOpen } from "../../lib/threads";
 import { toast } from "../../lib/toasts";
 import { Icon } from "../Icon";
@@ -336,13 +337,18 @@ export function CardFile({ runId, index, path, label }: { runId: string; index: 
       {file.error ? <p className="card-file-note">{file.error}</p> : file.data === undefined ? null : (
         <>
           <div ref={body} className={`card-file-body ${all ? "" : "card-file-clip"} ${long && !all ? "card-file-fade" : ""}`}>
-            {/\.txt$/i.test(path) ? <pre className="card-file-text">{file.data}</pre> : <Markdown text={file.data} breaks />}
+            <FileText path={path} text={file.data} />
           </div>
           {long ? <button className="btn btn-ghost btn-sm card-file-more" onClick={() => setAll(!all)}>{all ? "Show less" : "Show all"}</button> : null}
         </>
       )}
     </div>
   );
+}
+
+/** A file's text as a card or the reader shows it: plain text as written, anything else as markdown. */
+export function FileText({ path, text }: { path: string; text: string }) {
+  return textFile(path) === "txt" ? <pre className="card-file-text">{text}</pre> : <Markdown text={text} breaks />;
 }
 
 /** A list to approve one by one, what the employee recommends ticked already: a note on any item, then Send.

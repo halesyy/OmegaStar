@@ -218,6 +218,8 @@ input, textarea { caret-color: var(--live); }
 .md .md-subj b { font-size: 13.5px; font-weight: 700; color: var(--ink); }
 .md a { text-decoration: underline; text-decoration-color: var(--accent-line); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .md .md-path { cursor: pointer; text-decoration: underline; }
+/* The path whose file is open beside the conversation. */
+.md .md-path-on { box-shadow: inset 0 0 0 1.5px var(--ink); border-radius: 4px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .md-img { display: block; max-width: 100%; height: auto; max-height: 360px; object-fit: contain; border: 1px solid var(--line); border-radius: var(--r-card); margin: 6px 0; cursor: zoom-in; }
 /* Images after their captions, one full size or a grid of two or three across. */
 .md-gallery { display: grid; gap: 12px 10px; margin: 2px 0 12px; }
