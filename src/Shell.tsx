@@ -88,7 +88,8 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); }
+      // K is the shortcut the sidebar shows; P opens it too, for hands used to "go to file" in code editors.
+      if ((e.ctrlKey || e.metaKey) && ["k", "p"].includes(e.key.toLowerCase())) { e.preventDefault(); setPalette((p) => !p); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
