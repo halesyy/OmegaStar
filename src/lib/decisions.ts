@@ -3,12 +3,13 @@
 // and answering it answers them all; where one of them offers other choices, their card shows in it too. Runs that
 // didn't finish on the same error close together are one entry. Pure.
 import type { Card, Run, Thread } from "../api/types";
-import { activityAt, blockedNow, broken, flags, latestFinished, rowThreads, STREAK, topic, type OpenCard } from "./threads";
+import { activityAt, blockedNow, broken, flags, latestFinished, rowThreads, STREAK, tidyAsks, topic, type OpenCard } from "./threads";
 
 /** Something waiting on you in a row (`item`). `thread`: the row's thread it is in; `run`: the run it is about. */
 export type Decision<T> = { id: string; item: T; thread: Thread; run: Run } & (
   | { type: "card"; cards: OpenCard[]; also: Run[]; differ: OpenCard[] }   // cards: the run's, open or held; also: other runs asking the same; differ: other runs' cards on it with other choices
   | { type: "flag"; text: string }                            // something Omega Star flagged
+  | { type: "proposal" }                                       // a tidy's bigger changes wait for your OK; run: the tidy
   | { type: "blocked" }                                        // blocked on a tool you could allow
   | { type: "broken"; times: number }                          // broke; times: a schedule's failures in a row
   | { type: "failures"; failures: BrokenDecision<T>[] }        // runs that broke on the same error close together, oldest first
@@ -32,7 +33,9 @@ const unsent = (run: Run): OpenCard[] =>
 
 /** What a row waits on you for, newest first. Mirrors Rust `threads::needs_you`: cards anywhere, and what each
  *  thread's newest finished run flagged, was blocked on or broke; a schedule's failures count once `STREAK` of them
- *  are in a row, as one decision. A row that asks nothing is the employee answering you. */
+ *  are in a row, as one decision. A tidy's waiting proposal is one decision for as long as it waits, whatever its
+ *  thread's replies flag, so it stays the same entry while you talk it over. A row that asks nothing is the employee
+ *  answering you. */
 function rowDecisions<T extends { thread: Thread }>(item: T): Decision<T>[] {
   const all = rowThreads(item.thread);
   const open = all.filter((x) => !x.root.archivedAt).reverse();
@@ -43,7 +46,8 @@ function rowDecisions<T extends { thread: Thread }>(item: T): Decision<T>[] {
       if (cards.some((c) => !c.card.answer)) out.push({ type: "card", id: `${run.id}:cards`, item, thread: x, run, cards, also: [], differ: [] });
     }
     const last = latestFinished(x);
-    flags(last).forEach((text, i) => out.push({ type: "flag", id: `${last.id}:f${i}`, item, thread: x, run: last, text }));
+    if (tidyAsks(x.root)) out.push({ type: "proposal", id: `${x.root.id}:proposal`, item, thread: x, run: x.root });
+    else flags(last).forEach((text, i) => out.push({ type: "flag", id: `${last.id}:f${i}`, item, thread: x, run: last, text }));
     if (blockedNow(x)) out.push({ type: "blocked", id: `${last.id}:blocked`, item, thread: x, run: last });
   }
   const failures = all.filter((x) => scheduled(x) && broken(x.root)).length;

@@ -96,6 +96,14 @@ export const topic = (c: Card): string | null => c.key ?? (c.ask.type === "chore
 /** What needs you in a run that is not a card: flags Omega Star raised. Mirrors Rust `Run::flags`. */
 export const flags = (r: Run): string[] => r.needsYou.filter((m) => !r.cards.some((c) => c.message === m));
 
+/** A tidy's bigger changes, waiting for your OK. */
+export const tidyAsks = (r: Run): r is Run & { proposed: string } => r.kind.type === "tidy" && !!r.proposed && !r.approvedAt && !r.archivedAt;
+
+/** Those changes keep the thread in the Inbox: the tidy finished and brought them to you. One that was stopped is
+ *  filed, with its card, and shows as a proposal whenever something else brings it back. Mirrors Rust
+ *  `threads::asks_you`. */
+export const proposalWaits = (t: Thread): boolean => t.root.state === "succeeded" && tidyAsks(t.root);
+
 /** Blocked on a tool you could allow (a tidy trying a command it may not run is not). */
 export const blocked = (r: Run): boolean => r.denials.length > 0 && r.kind.type !== "tidy";
 

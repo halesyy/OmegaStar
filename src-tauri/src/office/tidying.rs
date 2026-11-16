@@ -165,8 +165,8 @@ impl Office {
         Ok(json!({ "recorded": true, "note": "They see it in their Inbox with an Approve button. Do not make these changes in this run." }))
     }
 
-    /// A reply about a tidy's waiting proposal revises it: `plan` replaces the plan on the tidy, and the reply is
-    /// flagged, so a thread you sent away with "Send & done" comes back with the new plan to approve.
+    /// A reply about a tidy's waiting proposal revises it: `plan` replaces the plan on the tidy, and a thread you sent
+    /// away with "Send & done" comes back at once with the new plan to approve. The reply is flagged, so it says why.
     fn revise_proposal(&self, reply_id: &str, root_id: &str, plan: &str) -> Result<Value> {
         let root = {
             let db = self.db();
@@ -178,6 +178,7 @@ impl Office {
                 return Err(AppError::conflict("Those changes are already approved, so there is no plan left to change. Say what you would do differently in your reply."));
             }
             root.proposed = Some(plan.to_string());
+            root.archived_at = None;
             db.save_run(&root)?;
             root
         };
@@ -303,6 +304,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_tidy_that_was_stopped_is_filed_with_its_proposal() {
+        let dir = temp_path("tidy-stopped");
+        let e = fixtures::employee();
+        let mut stopped = waiting(&e);
+        stopped.state = RunState::Cancelled;
+        stopped.needs_you.clear();
+        let office = held(&dir, &e, &[&stopped]).await;
+        assert!(office.conversations().unwrap().inbox.is_empty(), "it never brought the proposal to you");
+        let archived: Vec<String> = office.archived().unwrap().into_iter().map(|t| t.root.id).collect();
+        assert_eq!(archived, vec![stopped.id.clone()], "so it is in the Archive, not lost between the two");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_proposal_stays_in_your_inbox_while_you_talk_it_over() {
+        let dir = temp_path("tidy-stays");
+        let e = fixtures::employee();
+        let open = waiting(&e);
+        let office = held(&dir, &e, &[&open]).await;
+        let filed = |when: &str| assert_eq!(office.conversations().unwrap().inbox, vec![open.id.clone()], "{when}");
+        filed("it proposes");
+        for said in ["Why split it?", "And the FAQ skills?"] {
+            let reply = office.reply_to_run(&open.id, said, false, vec![]).unwrap();
+            filed("your message is on its way");
+            start(&office, &reply);
+            filed("they are answering");
+            finish(&office, &reply.id);
+            filed("an answer that changes nothing");
+        }
+        office.approve_tidy(&open.id).unwrap();
+        assert!(office.conversations().unwrap().inbox.is_empty(), "approved, it no longer waits");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn a_thread_sent_away_comes_back_when_its_reply_revised_the_plan() {
         let dir = temp_path("tidy-surface");
         let e = fixtures::employee();
@@ -315,10 +353,11 @@ mod tests {
             start(&office, r);
         }
         office.propose_changes_tool(&replies[0].id, "Rename the pricing skill to plans.").unwrap();
+        assert!(office.run(&revised.id).unwrap().archived_at.is_none(), "a new plan waits for you, even if the reply never ends");
         for r in &replies {
             finish(&office, &r.id);
         }
-        assert!(office.run(&revised.id).unwrap().archived_at.is_none(), "a new plan waits for you");
+        assert!(office.run(&revised.id).unwrap().archived_at.is_none());
         assert!(office.run(&asked.id).unwrap().archived_at.is_some(), "an answer alone stays filed");
         drop(office);
         let _ = fs::remove_dir_all(&dir);

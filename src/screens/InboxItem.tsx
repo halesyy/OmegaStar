@@ -16,7 +16,6 @@ import { BlockedCard } from "../components/BlockedCard";
 import { Icon, type IconName } from "../components/Icon";
 import { Markdown } from "../components/Markdown";
 import { ProposalActions, ProposalRecord, hireTitle } from "../components/ProposalCard";
-import { tidyAsks } from "../components/TidyProposal";
 import { Avatar, tipWhenCut } from "../components/ui";
 import { CardImages } from "../components/conversation/CardImages";
 import { CardLink, webUrl } from "../components/conversation/CardLink";
@@ -94,8 +93,8 @@ function wordOf(d: Decision<Item>): Word {
       const a = d.cards[0].card.ask.type;
       return a === "choices" ? "Decide" : a === "items" ? "Approve" : a === "task" || a === "chore" ? "Do" : a === "question" ? "Answer" : "Know";
     }
-    case "flag": return tidyAsks(d.thread.root) ? "Approve" : "Know";
-    case "blocked": return "Approve";
+    case "flag": return "Know";
+    case "proposal": case "blocked": return "Approve";
     case "broken": case "failures": return "Failed";
     case "answered": return "Reply";
   }
@@ -119,8 +118,8 @@ function ask(d: Decision<Item>, who: string, employees: EmployeeView[], people: 
       const title = named && named.length <= 44 && !/[.?!:]$/.test(named) ? `${named}: ${n.toLowerCase()} questions` : `${n} questions from ${who}`;
       return { title, why: asked > 1 ? `${answered} of ${asked} answered. ${who} hears your answers together, once all are in.` : null };
     }
-    case "flag":
-      return tidyAsks(d.thread.root) ? { title: `Approve ${who}'s skill changes?`, why: null } : { title: d.text, why: null };
+    case "flag": return { title: d.text, why: null };
+    case "proposal": return { title: `Approve ${who}'s skill changes?`, why: null };
     case "blocked":
       return {
         title: r.denials.length === 1 ? `Allow ${who} to use ${toolName(r.denials[0].tool)}?` : `Allow ${r.denials.length} actions ${who} was blocked on?`,
@@ -146,7 +145,8 @@ function verbOf(d: Decision<Item>): string {
       const a = d.cards[0].card.ask.type;
       return a === "choices" ? "asks you to decide" : a === "items" ? "asks you to approve" : a === "task" || a === "chore" ? "has a task for you" : a === "question" ? "asks" : "wants you to know";
     }
-    case "flag": return tidyAsks(d.thread.root) ? "proposes skill changes" : "flagged this";
+    case "flag": return "flagged this";
+    case "proposal": return "proposes skill changes";
     case "blocked": return "was blocked";
     case "broken": case "failures": return "couldn't finish";
     case "answered": return "replied";
@@ -409,9 +409,11 @@ function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; gro
       body = <div className="d-card d-card-main"><BlockedCard run={d.run} employee={e} /></div>;
       break;
     case "flag":
-      // A tidy's proposal waits in its thread, where a reply can correct it before you approve.
-      if (tidyAsks(root)) body = <ItemThread item={d.item} e={e} onSendDone={act.sendDone} />;
-      else foot = archive(true);
+      foot = archive(true);
+      break;
+    case "proposal":
+      // It waits in its thread, where a reply can correct it before you approve.
+      body = <ItemThread item={d.item} e={e} onSendDone={act.sendDone} />;
       break;
     case "broken": {
       const retry = root.kind.type !== "scheduled";
@@ -426,10 +428,10 @@ function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; gro
       break;
     case "answered":
       body = <ItemThread item={d.item} e={e} onSendDone={act.sendDone} />;
-      if (!tidyAsks(root)) foot = archive(true);
+      foot = archive(true);
       break;
   }
-  const report = d.type === "answered" || failures || (d.type === "flag" && tidyAsks(root)) ? null : d.run.summary;
+  const report = d.type === "answered" || d.type === "proposal" || failures ? null : d.run.summary;
   return (
     <>
       {failures
