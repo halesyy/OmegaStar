@@ -9,6 +9,7 @@
         "height": 820,
         "minWidth": 980,
         "minHeight": 640,
+        "preventOverflow": true,
         "center": true,
         "visible": false,
         "dragDropEnabled": false,
