@@ -194,6 +194,12 @@ button.d-also-row:focus-visible::before { box-shadow: var(--focus); }
 
 /* The open item's thread, in the column. */
 .d-thread { margin-top: 24px; }
+/* A notes file takes the conversation's place here at its full length, since the entry scrolls as one page. */
+.d-thread .thread-reading > .chat { display: none; }
+.d-thread .reader { position: static; flex: 1; width: auto; min-width: 0; box-shadow: none; }
+.d-thread .reader-head { position: sticky; top: 0; z-index: 1; padding: 0; background: var(--canvas); }
+.d-thread .reader-head > svg { margin-left: 0; }
+.d-thread .reader-body { overflow: visible; padding: 22px 0 40px; }
 
 /* Nothing to list: one pane, its title, and a card with what this is for and one way on. */
 .ibx-one { height: 100%; display: flex; flex-direction: column; min-height: 0; }

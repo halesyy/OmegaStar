@@ -34,6 +34,8 @@ export type ChatSurfaceHandle = {
   aim: (target: AimTarget | null) => void;
   /** Puts the caret in the composer, leaving what is there. */
   focus: () => void;
+  /** Holds `el` where it is on screen while the transcript changes width in the next frame (a pane opening beside it). */
+  keep: (el: Element) => void;
 };
 
 /**
@@ -125,7 +127,12 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
     });
   }, []);
   const focus = useCallback(() => input.current?.focus(), []);
-  useImperativeHandle(ref, () => ({ prefill, aim: setAim, focus }), [prefill, setAim, focus]);
+  const kept = useRef<{ el: Element; top: number } | null>(null);
+  const keep = useCallback((el: Element) => {
+    kept.current = { el, top: el.getBoundingClientRect().top };
+    requestAnimationFrame(() => requestAnimationFrame(() => { kept.current = null; }));
+  }, []);
+  useImperativeHandle(ref, () => ({ prefill, aim: setAim, focus, keep }), [prefill, setAim, focus, keep]);
 
   useEffect(() => { setDraft(draftKey, text); }, [draftKey, text]);
 
@@ -196,13 +203,19 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
     const el = scroller.current, inner = el?.firstElementChild;
     if (!el || !inner) return;
     const ro = new ResizeObserver(() => {
+      const k = kept.current;
+      if (k?.el.isConnected) {
+        el.scrollTop += k.el.getBoundingClientRect().top - k.top;
+        if (pin) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+        return;
+      }
       if (!stick.current || easing.current) return;
       if (touched.current) { el.scrollTop = el.scrollHeight; return; }
       landWhole();
     });
     ro.observe(inner);
     return () => ro.disconnect();
-  }, [landWhole]);
+  }, [landWhole, pin]);
 
   useLayoutEffect(() => {
     const el = input.current;

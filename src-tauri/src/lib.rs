@@ -355,6 +355,7 @@ pub fn run() {
             commands::read_image,
             commands::open_image,
             commands::open_report_path,
+            commands::report_file,
             commands::runs,
             commands::search_runs,
             commands::run_usage,

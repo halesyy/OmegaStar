@@ -25,7 +25,7 @@ const STATES = [
   "full", "empty", "first-run", "first-run-no-claude", "first-run-signed-out", "loading", "loading-boot", "error", "error-boot",
   "update-failed", "usage-limit", "rate-limit", "api-key",
   "first-run-recheck", "first-run-opening", "first-run-error", "slow-saves", "failed-saves", "quiet", "large-org", "inbox-more",
-  "live-more", "thread-error", "live-arrives", "live-ends",
+  "live-more", "thread-error", "notes-gone", "live-arrives", "live-ends",
 ] as const;
 type State = (typeof STATES)[number];
 
@@ -461,6 +461,11 @@ export function previewTransport(): Transport {
     read_image: ({ path }) => imageUrl(path),
     open_image: () => null,
     open_report_path: () => null,
+    report_file: ({ path }) => {
+      const text = state === "notes-gone" ? undefined : w.textFiles[path.replace(/^~\//, `${HOME}/`)];
+      if (text === undefined) throw notFound(`Nothing is at ${path} any more.`);
+      return text;
+    },
     runs: ({ employeeId, limit }) => w.runs.filter((r) => !employeeId || r.employeeId === employeeId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit),
     search_runs: ({ query, limit }) => {
       const q = query.toLowerCase();
@@ -574,7 +579,7 @@ export function previewTransport(): Transport {
     answer_card: answerCard,
     card_file: ({ runId, card }) => {
       const path = need(runId).cards[card]?.file;
-      const text = path ? w.cardFiles[path] : undefined;
+      const text = path ? w.textFiles[path] : undefined;
       if (text === undefined) throw notFound("That file is no longer there.");
       return text;
     },

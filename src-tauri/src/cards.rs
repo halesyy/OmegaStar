@@ -45,6 +45,11 @@ const LINE_CHARS: usize = 300;
 /// The question a line for the company page is put to you with.
 pub const ADD_LINE: &str = "Add to the company page?";
 
+/// A notes file the app lays out to read beside a conversation: a .md or .txt file, in any letter case.
+pub fn is_text_file(path: &Path) -> bool {
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("txt"))
+}
+
 /// The chore of signing in to `site`.
 fn sign_in(site: &str) -> String {
     format!("{SIGN_IN}{site}")

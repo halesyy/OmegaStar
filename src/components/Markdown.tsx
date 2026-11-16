@@ -1,7 +1,8 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Marked, type Tokens } from "marked";
 import DOMPurify from "dompurify";
 import { call, errorMessage } from "../api/client";
+import { ReaderContext, textFile } from "../lib/reader";
 import { toast } from "../lib/toasts";
 import { Lightbox, loadImage, type Shot } from "./Lightbox";
 
@@ -266,7 +267,8 @@ function figure(img: HTMLElement, caption: Node[]): HTMLElement {
   return fig;
 }
 
-/** `breaks`: a single line break stays one, as in a draft whose sign-off is on lines of its own. */
+/** `breaks`: a single line break stays one, as in a draft whose sign-off is on lines of its own. In a thread, a notes
+ *  file's path opens beside it (`ReaderContext`), and the one open there carries a ring. */
 export function Markdown({ text, className, breaks = false }: { text: string; className?: string; breaks?: boolean }) {
   const html = useMemo(() => renderMarkdown(text, breaks), [text, breaks]);
   const ref = useRef<HTMLDivElement>(null);
@@ -286,11 +288,24 @@ export function Markdown({ text, className, breaks = false }: { text: string; cl
       }, () => code.isConnected && code.classList.add("md-img-missing"));
     }
   }, [html]);
+  const reader = useContext(ReaderContext);
+  const readerPath = reader?.path;
+  useLayoutEffect(() => {
+    if (readerPath === undefined) return;
+    for (const el of ref.current!.querySelectorAll<HTMLElement>("[data-open-path]")) {
+      if (!textFile(el.dataset.openPath!)) continue;
+      const on = el.dataset.openPath === readerPath;
+      el.classList.toggle("md-path-on", on);
+      el.setAttribute("aria-expanded", String(on));
+    }
+  }, [html, readerPath]);
   const open = (e: React.MouseEvent) => {
     const path = (e.target as Element).closest<HTMLElement>("[data-open-path]");
     if (path) {
       e.preventDefault();
-      call("open_report_path", { path: path.dataset.openPath! }).catch((err) => toast(errorMessage(err), "err"));
+      const at = path.dataset.openPath!;
+      if (reader && textFile(at)) reader.open(at, path);
+      else call("open_report_path", { path: at }).catch((err) => toast(errorMessage(err), "err"));
     } else if (e.target instanceof HTMLImageElement && e.target.classList.contains("md-img")) {
       const all = [...ref.current!.querySelectorAll<HTMLImageElement>("img.md-img")];
       setView({ shots: all.map((img) => ({ path: img.dataset.path!, caption: img.dataset.caption ?? "" })), at: all.indexOf(e.target) });

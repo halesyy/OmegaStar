@@ -403,6 +403,8 @@ export type Commands = {
   open_image: { args: { path: string }; ret: null };
   /** A path an agent mentioned: documents and folders open, anything else is shown in Finder. */
   open_report_path: { args: { path: string }; ret: null };
+  /** The text of a notes file (.md or .txt) a path in a report names, to read beside the conversation. */
+  report_file: { args: { path: string }; ret: string };
   runs: { args: { employeeId: string | null; limit: number }; ret: Run[] };
   /** The newest runs whose instruction, report or a card's question contains `query`, ignoring case. */
   search_runs: { args: { query: string; limit: number }; ret: Run[] };
@@ -497,5 +499,7 @@ export type Events = {
   "proposal:updated": HireProposal;
   "usage:updated": UsageLimits;
   "backup:updated": BackupStatus;
+  /** An employee's `open` of a notes file: show it beside the conversation whose first run is `rootId`. */
+  "reader:open": { rootId: string; path: string };
 };
 export type EventName = keyof Events;
