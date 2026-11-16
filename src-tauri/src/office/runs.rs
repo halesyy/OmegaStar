@@ -438,6 +438,10 @@ impl Office {
             }
             _ => None,
         };
+        let waiting_plan = match &run.kind {
+            RunKind::Reply { to_run_id, .. } => db.run(to_run_id)?.and_then(|r| r.run.waiting_plan().map(String::from)),
+            _ => None,
+        };
         let session = db.run(&run.id)?.map(|r| r.session).unwrap_or_else(|| run.id.clone());
         let resume = db.session_started(&session)?;
         let mut opening = opening(&db, &e, &employees, run, &session, resume, now())?;
@@ -489,6 +493,7 @@ impl Office {
             source,
             manager_is_agent,
             tidy,
+            waiting_plan,
             replier,
             watched,
             resume,

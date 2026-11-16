@@ -73,5 +73,7 @@ pub(super) fn every_text() -> Vec<String> {
     texts.extend(kinds.into_iter().map(|k| system_prompt(&s, &run(k))));
     let check_back = Run { check: Some("c1".into()), ..run(RunKind::Reply { to_run_id: "r0".into(), label: "Sweep".into(), task: true, card: false }) };
     texts.push(system_prompt(&s, &check_back));
+    s.waiting_plan = Some("Merge two skills.".into());
+    texts.push(system_prompt(&s, &run(RunKind::Reply { to_run_id: "r0".into(), label: "Tidy".into(), task: false, card: false })));
     texts
 }
