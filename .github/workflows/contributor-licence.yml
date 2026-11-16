@@ -27,29 +27,29 @@ jobs:
             echo "Opened by the repository owner: no agreement needed."
             exit 0
           fi
-          # Agreeing is a line of its own: the template's box ticked, or the sentence written out.
-          # A hidden comment is not an agreement, spacing does not matter, and nothing inside an
-          # unticked box's list item counts: its first line, the lines that run on from it, and
-          # the indented lines after a gap.
+          # Two things count as agreeing, and nothing else does:
+          # the template's line with its box ticked, or the sentence typed out in plain words as a
+          # paragraph of its own (no indent, an empty line above it). The template's own text, which
+          # has a link in it, only ever counts next to a ticked box, so no way of writing an unticked
+          # box needs to be recognised here. A hidden comment counts for nothing.
           if perl -e '
             $_ = $ENV{BODY} // "";
+            s/\r\n?/\n/g;
             s/<!--.*?(-->|\z)//gs;
-            s/\xC2\xA0/ /g;
-            s/[ \t\r]+/ /g;
-            my $bullet = qr/^ ?(?:[-*+]|\d+[.)]) /;
-            my ($unticked, $gap) = (0, 0);
+            my $typed = qr/I agree to the contributor licen[cs]e for this and my past contributions/i;
+            my $template = qr/I agree to the \[[*_]*contributor licen[cs]e[*_]*\]\([^)]*\) for this and my past contributions/i;
+            my $above = "";
             for (split /\n/) {
-              my $blank = !/\S/;
-              my $item = /$bullet/;
-              if ($item && /$bullet\[ ?\]/) { ($unticked, $gap) = (1, 0); next }
-              $unticked = 0 if $item || ($gap && !$blank && !/^ /);
-              if ($unticked) { $gap = $blank; next }
-              exit 0 if /^ ?(?:(?:[-*+]|\d+[.)]) (?:\[x\] )?)?[*_"]*I agree to the \[?[*_]*contributor licen[cs]e[*_]*\]?(?:\([^)]*\))? for this and my past contributions[*_".]* ?$/i;
+              s/[ \t]+/ /g;
+              s/ $//;
+              exit 0 if /^ ?(?:[-*+]|\d+[.)]) \[x\] (?:$template|$typed)\.?$/i;
+              exit 0 if $above eq "" && /^[*_"]*$typed[*_".]*$/;
+              $above = $_;
             }
             exit 1;
           '; then
             echo "The description agrees to the contributor licence."
             exit 0
           fi
-          echo "::error::This pull request has not agreed to the contributor licence. Tick the box in its description, or write \"I agree to the contributor licence for this and my past contributions\" there on a line of its own. See CONTRIBUTING.md."
+          echo "::error::This pull request has not agreed to the contributor licence. Tick the box in its description, or write \"I agree to the contributor licence for this and my past contributions\" there on a line of its own with an empty line above it. See CONTRIBUTING.md."
           exit 1
