@@ -17,7 +17,7 @@ export type Employee = {
   skills: { builtins: boolean; keys: string[] };   // catalog ids
   clearance: Clearance; allowRules: string[];
   model: string | null; effort: Effort | null;
-  browser: boolean;                         // may drive your Chrome (Claude in Chrome); off for new hires unless you turn it on
+  browser: boolean;                         // may drive your Chrome (Claude in Chrome); on unless you turn it off
   autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on unless you turn it off
   workspaces: string[]; hue: number;        // 0-359, avatar colour
   image?: string | null;                    // display image as a data: URL, shown in place of their initials

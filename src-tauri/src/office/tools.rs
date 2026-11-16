@@ -649,7 +649,7 @@ yourself. Their answer comes back to you in this conversation. Finish this run n
                     allow_rules: vec![],
                     model: None,
                     effort: None,
-                    browser: false,
+                    browser: true,
                     auto_tidy: true,
                     workspaces: vec![],
                     hue,
@@ -1018,6 +1018,19 @@ mod tests {
         assert_eq!(saved(&o.db, &r.id).cards.len(), 1);
         assert!(office.propose_company_line_tool(&r.id, &ada, &json!({ "section": "Who to ask", "line": " ", "why": "Asked." })).is_err());
         assert_eq!(told.0.lock().unwrap().len(), 1);
+        drop(office);
+    }
+
+    #[tokio::test]
+    async fn a_proposed_hire_can_drive_chrome() {
+        let o = office();
+        let ada = employee(&o.db, "Ada", None);
+        let r = saved_run(&o.db, &ada, standup("s1"), "Sweep the inbox.", RunState::Succeeded, 5, None);
+        let (office, _told) = told_office(&o).await;
+        let args = json!({ "name": "Bo", "title": "Designer", "reason": "Design work piles up." });
+        office.propose_hire_tool(&r.id, &ada, &args).unwrap();
+        let proposed = office.my_proposals(&ada).unwrap();
+        assert_eq!(proposed["proposals"][0]["draft"]["browser"], true, "{proposed}");
         drop(office);
     }
 
