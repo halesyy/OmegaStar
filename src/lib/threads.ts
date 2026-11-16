@@ -96,6 +96,9 @@ export const topic = (c: Card): string | null => c.key ?? (c.ask.type === "chore
 /** What needs you in a run that is not a card: flags Omega Star raised. Mirrors Rust `Run::flags`. */
 export const flags = (r: Run): string[] => r.needsYou.filter((m) => !r.cards.some((c) => c.message === m));
 
+/** A tidy's bigger changes, waiting for your OK. */
+export const tidyAsks = (r: Run): r is Run & { proposed: string } => r.kind.type === "tidy" && !!r.proposed && !r.approvedAt && !r.archivedAt;
+
 /** Blocked on a tool you could allow (a tidy trying a command it may not run is not). */
 export const blocked = (r: Run): boolean => r.denials.length > 0 && r.kind.type !== "tidy";
 

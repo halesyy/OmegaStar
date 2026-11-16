@@ -2,13 +2,11 @@ import { useState } from "react";
 import { call, errorMessage } from "../api/client";
 import type { EmployeeView, Run } from "../api/types";
 import { firstName } from "../lib/format";
+import { tidyAsks } from "../lib/threads";
 import { toast } from "../lib/toasts";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import "./TidyProposal.css";
-
-/** A tidy's bigger changes, waiting for your OK. */
-export const tidyAsks = (r: Run): r is Run & { proposed: string } => r.kind.type === "tidy" && !!r.proposed && !r.approvedAt && !r.archivedAt;
 
 /**
  * The bigger changes a tidy wants to make: splitting, merging, renaming or retiring a skill, or
@@ -45,7 +43,7 @@ export function TidyProposal({ run, employee, answering, onReply }: {
       <div className="tp-actions">
         <button className="btn btn-primary btn-sm" disabled={busy || answering} onClick={() => void approve()}><Icon name="check" size={13} /> Approve these changes</button>
         <button type="button" className="btn btn-ghost btn-sm" onClick={onReply}><Icon name="reply" size={14} /> Reply</button>
-        <span className="tp-hint">{answering ? `${name} is answering, and the plan may change.` : `Reply and ${name} revises the plan. Nothing changes until you approve.`}</span>
+        <span className="tp-hint">{answering ? `${name} is answering, and the plan may change.` : "Reply to ask about the plan or correct it. Nothing changes until you approve."}</span>
       </div>
     </section>
   );
