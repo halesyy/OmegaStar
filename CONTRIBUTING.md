@@ -6,7 +6,7 @@ For a larger change, open an issue first so we can agree on the approach before 
 
 ## Contributor licence
 
-To keep Omega Star open source and fund it through commercial licences, we need the following from you before we can merge your pull request. Tick the box in the pull request description to agree. If your pull request has no box, write "I agree to the contributor licence for this and my past contributions" in its description.
+To keep Omega Star open source and fund it through commercial licences, we need the following from you before we can merge your pull request. Tick the box in the pull request description to agree. If your pull request has no box, write "I agree to the contributor licence for this and my past contributions" in its description. The "Contributor licence" check on your pull request passes once you have.
 
 For anything you contribute to this project, now or in the past (code, docs, images or other material):
 

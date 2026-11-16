@@ -1,0 +1,36 @@
+name: Contributor licence
+
+# Fails a pull request whose description does not agree to the contributor licence in CONTRIBUTING.md.
+# It runs from the default branch's copy of this file and never checks out or runs the pull request's code,
+# so a pull request cannot change its own result.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: contributor-licence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  agreed:
+    name: Contributor licence
+    runs-on: ubuntu-latest
+    steps:
+      - name: The description agrees to the contributor licence
+        env:
+          AUTHOR: ${{ github.event.pull_request.author_association }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ "$AUTHOR" = OWNER ]; then
+            echo "Opened by the repository owner: no agreement needed."
+            exit 0
+          fi
+          agreement='I agree to the \[?contributor licen[cs]e\]?(\([^)]*\))? for this and my past contributions'
+          if printf '%s\n' "$BODY" | grep -Eiv '\[[[:space:]]*\][[:space:]]*I agree' | grep -Eiq "$agreement"; then
+            echo "The description agrees to the contributor licence."
+            exit 0
+          fi
+          echo "::error::This pull request has not agreed to the contributor licence. Tick the box in its description, or write \"I agree to the contributor licence for this and my past contributions\" there. See CONTRIBUTING.md."
+          exit 1
