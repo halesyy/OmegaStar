@@ -368,7 +368,7 @@ export type BackupStatus = {
 export type UsageWindow = { percent: number; resetsAt: string | null; resetsText: string | null };   // percent 0-100
 export type UsageLimits = {
   fiveHour: UsageWindow | null; sevenDay: UsageWindow | null; observedAt: string | null; subscription: boolean;
-  heldUntil: string | null;    // no run starts until the usage limit resets then
+  heldUntil: string | null;    // no run starts until then, when the usage limit resets or a rate limit eases
   heldForRateLimit: boolean;   // the hold is a rate limit's, which eases then
   accountIssue: { message: string; signedInAs: string | null } | null;   // routines wait for the right account
   proxyIssue: string | null;   // why the CLI proxy could not report its accounts' usage

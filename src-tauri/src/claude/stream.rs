@@ -23,7 +23,8 @@ pub struct Outcome {
 pub enum Limit {
     /// The subscription's usage limit, which resets at a set time.
     Usage,
-    /// Claude, or a proxy in front of it, turning requests away for now (HTTP 429 or 529) with no time it resets.
+    /// Claude, or a proxy in front of it, turning requests away for now (HTTP 429 or 529). Its result may state how
+    /// long for (`eases_in`).
     Transient,
 }
 

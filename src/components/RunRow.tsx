@@ -100,7 +100,7 @@ export function Age({ at, now }: { at: string | null; now: number }) {
   );
 }
 
-/** While the office waits for the usage limit, when a queued run starts. `on`: only a queued run asks. */
+/** While the office waits out a limit, when a queued run starts. `on`: only a queued run asks. */
 function useHeld(on: boolean): string | null {
   const { usage } = useUsage();
   const now = useNow(60_000, on && !!usage?.heldUntil);

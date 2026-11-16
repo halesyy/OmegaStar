@@ -295,7 +295,7 @@ pub struct UsageLimits {
     pub observed_at: Option<Ts>,
     /// `false` when the account has no subscription limits (API key billing).
     pub subscription: bool,
-    /// The office waits for the usage limit to reset until then: no run starts.
+    /// The office waits until then for the usage limit to reset, or for a rate limit to ease: no run starts.
     pub held_until: Option<Ts>,
     /// The hold is a rate limit's, which only its own time ends: the usage windows say nothing about it.
     pub held_for_rate_limit: bool,
