@@ -28,13 +28,25 @@ jobs:
             exit 0
           fi
           # Agreeing is a line of its own: the template's box ticked, or the sentence written out.
-          # A hidden comment is not an agreement, and spacing does not matter.
+          # A hidden comment is not an agreement, spacing does not matter, and nothing inside an
+          # unticked box's list item counts: its first line, the lines that run on from it, and
+          # the indented lines after a gap.
           if perl -e '
             $_ = $ENV{BODY} // "";
             s/<!--.*?(-->|\z)//gs;
             s/\xC2\xA0/ /g;
             s/[ \t\r]+/ /g;
-            exit !m{^ ?([-*+] (\[x\] )?)?[*_"]*I agree to the \[?[*_]*contributor licen[cs]e[*_]*\]?(\([^)\n]*\))? for this and my past contributions[*_".]* ?$}mi;
+            my $bullet = qr/^ ?(?:[-*+]|\d+[.)]) /;
+            my ($unticked, $gap) = (0, 0);
+            for (split /\n/) {
+              my $blank = !/\S/;
+              my $item = /$bullet/;
+              if ($item && /$bullet\[ ?\]/) { ($unticked, $gap) = (1, 0); next }
+              $unticked = 0 if $item || ($gap && !$blank && !/^ /);
+              if ($unticked) { $gap = $blank; next }
+              exit 0 if /^ ?(?:(?:[-*+]|\d+[.)]) (?:\[x\] )?)?[*_"]*I agree to the \[?[*_]*contributor licen[cs]e[*_]*\]?(?:\([^)]*\))? for this and my past contributions[*_".]* ?$/i;
+            }
+            exit 1;
           '; then
             echo "The description agrees to the contributor licence."
             exit 0
