@@ -100,7 +100,8 @@ export const flags = (r: Run): string[] => r.needsYou.filter((m) => !r.cards.som
 export const tidyAsks = (r: Run): r is Run & { proposed: string } => r.kind.type === "tidy" && !!r.proposed && !r.approvedAt && !r.archivedAt;
 
 /** Those changes keep the thread in the Inbox: the tidy finished and brought them to you. One that was stopped is
- *  filed, with its card. Mirrors Rust `threads::asks_you`. */
+ *  filed, with its card, and shows as a proposal whenever something else brings it back. Mirrors Rust
+ *  `threads::asks_you`. */
 export const proposalWaits = (t: Thread): boolean => t.root.state === "succeeded" && tidyAsks(t.root);
 
 /** Blocked on a tool you could allow (a tidy trying a command it may not run is not). */
