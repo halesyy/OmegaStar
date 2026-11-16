@@ -30,30 +30,9 @@ Omega Star is not another agent. Every AI employee (an autonomous Claude Code ag
 
 ## See it work
 
-A week with Sam, your Chief of Staff, and Felix, a Cloud Engineer who reports to Sam:
+Juno is hired to run support, learns the morning email, and the next day has it done at 7 am with the window closed. Two and a half minutes, with sound.
 
-```text
-Monday 10 am, a conversation with Sam
-
-  You    Every Monday I want one page: status line first, then evidence.
-  Sam    Done. That's a rule in my weekly report skill now, and I've set
-         a "Monday report" schedule for 8 am.
-         [Skill refined: sam-weekly-report]
-
-Next Monday 8 am, window closed, Omega Star in the tray
-
-  Sam delegates the infrastructure review to Felix. Felix finds a
-  certificate expiring Friday, sees on the org chart that Grace owns
-  DNS, and asks her on Teams (through a local Microsoft 365 MCP server):
-
-  Felix  Hi Grace, our API certificate expires Friday. Could you make
-         the DNS change? Felix (AI assistant to Alex)
-
-  Activity  Waiting on people: Felix asked Grace · watching for a reply
-  Archive   Sam: Monday report. Status: on track, one open item (DNS).
-
-9:15 am  Grace replies on Teams. Omega Star reads it and resumes Felix's work.
-```
+https://github.com/user-attachments/assets/3b16fe07-c238-4217-9f93-4de6f757a9ff
 
 ## Why Omega Star
 
