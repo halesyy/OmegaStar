@@ -27,10 +27,17 @@ jobs:
             echo "Opened by the repository owner: no agreement needed."
             exit 0
           fi
-          agreement='I agree to the \[?contributor licen[cs]e\]?(\([^)]*\))? for this and my past contributions'
-          if printf '%s\n' "$BODY" | grep -Eiv '\[[[:space:]]*\][[:space:]]*I agree' | grep -Eiq "$agreement"; then
+          # Agreeing is a line of its own: the template's box ticked, or the sentence written out.
+          # A hidden comment is not an agreement, and spacing does not matter.
+          if perl -e '
+            $_ = $ENV{BODY} // "";
+            s/<!--.*?(-->|\z)//gs;
+            s/\xC2\xA0/ /g;
+            s/[ \t\r]+/ /g;
+            exit !m{^ ?([-*+] (\[x\] )?)?[*_"]*I agree to the \[?[*_]*contributor licen[cs]e[*_]*\]?(\([^)\n]*\))? for this and my past contributions[*_".]* ?$}mi;
+          '; then
             echo "The description agrees to the contributor licence."
             exit 0
           fi
-          echo "::error::This pull request has not agreed to the contributor licence. Tick the box in its description, or write \"I agree to the contributor licence for this and my past contributions\" there. See CONTRIBUTING.md."
+          echo "::error::This pull request has not agreed to the contributor licence. Tick the box in its description, or write \"I agree to the contributor licence for this and my past contributions\" there on a line of its own. See CONTRIBUTING.md."
           exit 1
