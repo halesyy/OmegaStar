@@ -17,6 +17,7 @@ import { useOrg, useProposals } from "./lib/hooks";
 import { dragRegion, macChrome } from "./lib/chrome";
 import { usePresence } from "./lib/motion";
 import { usePending } from "./lib/pending";
+import { wireReader } from "./lib/reader";
 import { useScrollFade } from "./lib/scrollFade";
 import { useRail } from "./lib/sidebar";
 import { workLabel } from "./lib/workTitle";
@@ -59,6 +60,8 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
   }, [arrive]);
   const route = useRoute();
   const { snap } = useOrg();
+  // A notes file an employee opens waits beside its conversation, even one you are not looking at.
+  useEffect(wireReader, []);
   const [sheet, setSheet] = useState<Sheet>(null);
   // Each opening remounts the sheet, so it starts from a fresh form.
   const [sheetKey, setSheetKey] = useState(0);

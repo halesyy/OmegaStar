@@ -120,6 +120,9 @@ impl EventSink for TauriSink {
         };
         done.map_err(|e| e.to_string())
     }
+    fn show_file(&self, root_id: &str, path: &str) -> std::result::Result<(), String> {
+        self.app.emit("reader:open", serde_json::json!({ "rootId": root_id, "path": path })).map_err(|e| e.to_string())
+    }
     fn settings_changed(&self, s: &AppSettings) {
         if let Some(item) = self.pause_item.get() {
             let _ = item.set_text(pause_label(s.paused));
