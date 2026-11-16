@@ -165,8 +165,8 @@ impl Office {
         Ok(json!({ "recorded": true, "note": "They see it in their Inbox with an Approve button. Do not make these changes in this run." }))
     }
 
-    /// A reply about a tidy's waiting proposal revises it: `plan` replaces the plan on the tidy, and the reply is
-    /// flagged, so a thread you sent away with "Send & done" comes back with the new plan to approve.
+    /// A reply about a tidy's waiting proposal revises it: `plan` replaces the plan on the tidy, and a thread you sent
+    /// away with "Send & done" comes back at once with the new plan to approve. The reply is flagged, so it says why.
     fn revise_proposal(&self, reply_id: &str, root_id: &str, plan: &str) -> Result<Value> {
         let root = {
             let db = self.db();
@@ -178,6 +178,7 @@ impl Office {
                 return Err(AppError::conflict("Those changes are already approved, so there is no plan left to change. Say what you would do differently in your reply."));
             }
             root.proposed = Some(plan.to_string());
+            root.archived_at = None;
             db.save_run(&root)?;
             root
         };
@@ -315,10 +316,11 @@ mod tests {
             start(&office, r);
         }
         office.propose_changes_tool(&replies[0].id, "Rename the pricing skill to plans.").unwrap();
+        assert!(office.run(&revised.id).unwrap().archived_at.is_none(), "a new plan waits for you, even if the reply never ends");
         for r in &replies {
             finish(&office, &r.id);
         }
-        assert!(office.run(&revised.id).unwrap().archived_at.is_none(), "a new plan waits for you");
+        assert!(office.run(&revised.id).unwrap().archived_at.is_none());
         assert!(office.run(&asked.id).unwrap().archived_at.is_some(), "an answer alone stays filed");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
