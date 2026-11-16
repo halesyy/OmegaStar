@@ -87,6 +87,7 @@ const SHOTS = [
   S("shell", "update-installing", "full", "#/activity", { act: clickUpdate }),
   S("shell", "update", "update-failed", "#/activity", { act: clickUpdate }),
   S("shell", "usage", "usage-limit", "#/inbox"),
+  S("shell", "usage", "rate-limit", "#/inbox"),
   S("shell", "usage", "api-key", "#/inbox"),
 
   S("onboarding", "setup", "first-run", ""),
