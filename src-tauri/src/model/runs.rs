@@ -436,6 +436,15 @@ impl Run {
         self.needs_you.iter().filter(|m| !self.cards.iter().any(|c| c.message == **m))
     }
 
+    /// For a Tidy run: the bigger changes it proposed that wait for your approval. A reply in its thread may still
+    /// change them.
+    pub fn waiting_plan(&self) -> Option<&str> {
+        match (&self.kind, &self.proposed, self.approved_at) {
+            (RunKind::Tidy { .. }, Some(plan), None) => Some(plan),
+            _ => None,
+        }
+    }
+
     pub fn parent_run_id(&self) -> Option<&str> {
         match &self.kind {
             RunKind::Delegated { parent_run_id } | RunKind::Asked { parent_run_id, .. } => Some(parent_run_id),

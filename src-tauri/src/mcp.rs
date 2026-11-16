@@ -235,7 +235,7 @@ fn tools() -> Value {
         },
         {
             "name": "propose_changes",
-            "description": "Only in a tidy run: record the bigger changes you want to make (splitting, merging, renaming or retiring a skill, or removing or rewording a rule you were taught) so the person you work for can approve them. Do not make those changes yourself. Call once with everything, written so a later run can carry it out without your report: for each change, the skills involved, exactly what moves or goes, and why.",
+            "description": "Only in a tidy run: record the bigger changes you want to make (splitting, merging, renaming or retiring a skill, or removing or rewording a rule you were taught) so the person you work for can approve them. Do not make those changes yourself. Call once with everything, written so a later run can carry it out without your report: for each change, the skills involved, exactly what moves or goes, and why. It also works in a reply about a tidy's proposal that still waits for approval: there it replaces the plan they see, so give the whole plan as it should now read.",
             "inputSchema": obj(json!({ "plan": { "type": "string", "description": "The proposed changes, one per paragraph." } }), &["plan"]),
         },
         {

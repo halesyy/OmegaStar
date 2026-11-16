@@ -32,6 +32,8 @@ export type ChatSurfaceHandle = {
   prefill: (text: string) => void;
   /** Aims the composer at a card, so what you write answers it (null: back to the conversation). */
   aim: (target: AimTarget | null) => void;
+  /** Puts the caret in the composer, leaving what is there. */
+  focus: () => void;
 };
 
 /**
@@ -122,7 +124,8 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
       if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
     });
   }, []);
-  useImperativeHandle(ref, () => ({ prefill, aim: setAim }), [prefill, setAim]);
+  const focus = useCallback(() => input.current?.focus(), []);
+  useImperativeHandle(ref, () => ({ prefill, aim: setAim, focus }), [prefill, setAim, focus]);
 
   useEffect(() => { setDraft(draftKey, text); }, [draftKey, text]);
 

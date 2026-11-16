@@ -594,6 +594,7 @@ export function previewTransport(): Transport {
     tidy: ({ employeeId }) => respond(newRun(employeeId, { type: "tidy", reason: "manual", signature: [], plan: null }, "Tidy your skills and notes."), "Tidied: nothing big to change. Merged one repeated rule."),
     approve_tidy: ({ runId }) => {
       const r = need(runId);
+      if (threadOf(r.id, false).replies.some(isLive)) throw { code: "conflict", message: "wait for their answer: the plan may change" };
       r.approvedAt = iso(Date.now());
       w.inbox = w.inbox.filter((id) => id !== rootOf(r));
       emitRun(r);

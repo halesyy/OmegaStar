@@ -16,7 +16,7 @@ import { BlockedCard } from "../components/BlockedCard";
 import { Icon, type IconName } from "../components/Icon";
 import { Markdown } from "../components/Markdown";
 import { ProposalActions, ProposalRecord, hireTitle } from "../components/ProposalCard";
-import { TidyProposal, tidyAsks } from "../components/TidyProposal";
+import { tidyAsks } from "../components/TidyProposal";
 import { Avatar, tipWhenCut } from "../components/ui";
 import { CardImages } from "../components/conversation/CardImages";
 import { CardLink, webUrl } from "../components/conversation/CardLink";
@@ -409,7 +409,8 @@ function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; gro
       body = <div className="d-card d-card-main"><BlockedCard run={d.run} employee={e} /></div>;
       break;
     case "flag":
-      if (tidyAsks(root)) body = <div className="d-card d-card-main"><TidyProposal run={root} employee={e} /></div>;
+      // A tidy's proposal waits in its thread, where a reply can correct it before you approve.
+      if (tidyAsks(root)) body = <ItemThread item={d.item} e={e} onSendDone={act.sendDone} />;
       else foot = archive(true);
       break;
     case "broken": {
@@ -425,7 +426,7 @@ function DecisionBody({ d, group, ctx, actions, slot }: { d: Decision<Item>; gro
       break;
     case "answered":
       body = <ItemThread item={d.item} e={e} onSendDone={act.sendDone} />;
-      foot = archive(true);
+      if (!tidyAsks(root)) foot = archive(true);
       break;
   }
   const report = d.type === "answered" || failures || (d.type === "flag" && tidyAsks(root)) ? null : d.run.summary;

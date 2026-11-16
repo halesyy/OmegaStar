@@ -223,6 +223,8 @@ pub struct Snapshot {
     pub manager_is_agent: bool,
     /// For Tidy runs: what to work from.
     pub tidy: Option<TidyBrief>,
+    /// For a reply in a tidy's thread: the changes that tidy proposed, while they wait for approval.
+    pub waiting_plan: Option<String>,
     /// For follow-up runs, reply checks, nudges and give-ups: the person the request went to.
     pub replier: Option<String>,
     /// For reply checks, nudges and give-ups: the request they are about.
@@ -428,6 +430,7 @@ pub(crate) fn test_snapshot(company: Company, employee: Employee, opening: Optio
         source: None,
         manager_is_agent: false,
         tidy: None,
+        waiting_plan: None,
         replier: None,
         watched: None,
         settings: json!({}),

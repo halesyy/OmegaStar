@@ -195,13 +195,15 @@ reading on. If nothing changed, say so in one line."
         }
         RunKind::Reply { label, task: false, card, .. } => format!(
             "{ceo} replied in the thread on your report '{label}'; their message is below. This session is the run \
-that report came from, so you remember all of it. {}",
-            talk(s, "thread", *card)
+that report came from, so you remember all of it. {}{}",
+            talk(s, "thread", *card),
+            waiting_plan(s)
         ),
         RunKind::Reply { label, task: true, card, .. } => format!(
             "{ceo} replied in your conversation '{label}'; their message is below. This session is that conversation, \
-so you remember all of it. {}",
-            talk(s, "conversation", *card)
+so you remember all of it. {}{}",
+            talk(s, "conversation", *card),
+            waiting_plan(s)
         ),
         RunKind::Task { label, .. } => format!(
             "{ceo} started a conversation with you, '{label}'; their message is below. It runs at the same time as your \
@@ -285,6 +287,22 @@ they may close this {place} without reading on."
     );
     if card {
         t += &format!(" This is {ceo}'s answer to your card. Carry on with the work that was waiting on it.");
+    }
+    t
+}
+
+/// For a reply in the thread of a tidy whose proposed changes still wait: a reply may correct them before they are
+/// approved. Empty otherwise. A resumed session remembers the plan, so only a new one is shown it.
+fn waiting_plan(s: &Snapshot) -> String {
+    let Some(plan) = &s.waiting_plan else { return String::new() };
+    let ceo = &s.company.ceo_name;
+    let mut t = format!(
+        "\n\nThe bigger changes you proposed in your tidy still wait for {ceo}'s approval, and none of them is made. If their \
+message corrects or changes them, call `propose_changes` with the whole plan as it should now read: it replaces the one they \
+see. If it only asks a question, answer it and leave the plan as it is. Make none of the changes in this turn."
+    );
+    if !s.resume {
+        t += &format!("\n\nThe plan as it stands:\n\n{plan}");
     }
     t
 }
@@ -543,6 +561,23 @@ mod tests {
         assert!(f.contains("Find rules that contradict the company page or each other across your skills. Settle one you wrote yourself; one you were taught goes in your proposals below."), "{f}");
         let approved = frame(&snap(), &run(RunKind::Tidy { reason: TidyReason::Approved, signature: vec![], plan: Some("Merge two skills.".into()) }));
         assert!(!approved.contains("propose_company_line") && !approved.contains("contradict"), "an approved tidy makes only the approved changes: {approved}");
+    }
+
+    #[test]
+    fn a_reply_about_a_waiting_proposal_may_revise_it() {
+        let reply = |task| run(RunKind::Reply { to_run_id: "r0".into(), label: "Tidy".into(), task, card: false });
+        let mut s = snap();
+        s.waiting_plan = Some("Merge the two pricing skills.".into());
+        for task in [false, true] {
+            let f = frame(&s, &reply(task));
+            assert!(f.contains("call `propose_changes` with the whole plan") && f.contains("Make none of the changes in this turn."), "{f}");
+            assert!(f.contains("Merge the two pricing skills."), "a new session is shown the plan: {f}");
+        }
+        s.resume = true;
+        let resumed = frame(&s, &reply(false));
+        assert!(resumed.contains("propose_changes") && !resumed.contains("Merge the two pricing skills."), "a resumed session remembers it: {resumed}");
+        let other = frame(&snap(), &reply(false));
+        assert!(!other.contains("propose_changes"), "{other}");
     }
 
     #[test]

@@ -85,6 +85,7 @@ The app's own hash routes (`src/lib/router.ts`), with these ids:
 | `stats-1` (Theo), `close-1` (Ines) | A chore (sign in); a task only you can do |
 | `mail-1` (Theo) | Blocked on a tool |
 | `tidy-1` (Juniper) | A tidy proposing bigger changes |
+| `tidy-2` (Theo) | A tidy whose proposal his reply `tidy-3` revised, back for your OK |
 | `recon-3` (Ines) | A routine failing three times in a row |
 | `board-1` (Juniper) | Snoozed until tomorrow |
 | `welcome-1` (Mae) | Archived |
