@@ -157,11 +157,11 @@ const CHROME_TOOLS: &str = "mcp__claude-in-chrome__";
 /// status with it.
 const TURNED_AWAY: [&str; 2] = ["temporarily limiting requests", "cooling down"];
 
-/// The wait a turned-away result states, as a proxy prints it in Go's duration form: `(reset after 12m30s)`. `None`
-/// when it states none, or none longer than zero. Pure.
+/// The wait a turned-away result states, as a proxy prints it in hours, minutes and seconds: `(reset after 12m30s)`,
+/// `1m27.5s`. `None` when it states none, one in another unit (`500ms`), or one that rounds to no time. Pure.
 pub fn eases_in(text: &str) -> Option<chrono::Duration> {
     let (_, after) = text.rsplit_once("reset after ")?;
-    let mut rest = after.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.')).next()?;
+    let mut rest = after.split(|c: char| !(c.is_ascii_alphanumeric() || c == '.')).next()?.trim_end_matches('.');
     let mut secs = 0.0;
     while !rest.is_empty() {
         let (n, tail) = rest.split_at(rest.find(|c: char| c.is_ascii_alphabetic())?);
@@ -175,7 +175,8 @@ pub fn eases_in(text: &str) -> Option<chrono::Duration> {
         secs += n.parse::<f64>().ok()? * scale;
         rest = tail;
     }
-    (secs > 0.0).then(|| chrono::Duration::milliseconds((secs * 1000.0).round() as i64))
+    let ms = (secs * 1000.0).round() as i64;
+    (ms > 0).then(|| chrono::Duration::milliseconds(ms))
 }
 
 /// The line carries the HTTP status of a request turned away for now: 429 rate limited or 529 overloaded.
@@ -1104,7 +1105,9 @@ mod tests {
             ("2h", secs(7200.0)),
             ("3m0s", secs(180.0)),
             ("1m27.5s", secs(87.5)),
+            ("30s.", secs(30.0)),
             ("0s", None),
+            ("0.0004s", None),
             ("500ms", None),
             ("12", None),
             ("soon", None),
