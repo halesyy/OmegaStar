@@ -105,7 +105,7 @@ function useHeld(on: boolean): string | null {
   const { usage } = useUsage();
   const now = useNow(60_000, on && !!usage?.heldUntil);
   if (!on || !usage?.heldUntil || Date.parse(usage.heldUntil) <= now) return null;
-  return heldLabel(usage.heldUntil, new Date(now));
+  return heldLabel(usage.heldUntil, usage.heldForRateLimit, new Date(now));
 }
 
 const HOUR_MS = 3_600_000;

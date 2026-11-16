@@ -381,10 +381,6 @@ impl Office {
             let mut u = lock(&self.0.usage);
             let held = u.held_until;
             *u = merge_usage(&u, sample, from_probe, now());
-            // A rate limit is not in the usage windows, so room there says nothing about it.
-            if self.0.transient_hold.load(Ordering::SeqCst) {
-                u.held_until = held;
-            }
             (u.clone(), held.filter(|_| u.held_until.is_none()))
         };
         self.sink().usage_updated(&next);
@@ -406,7 +402,7 @@ impl Office {
             let new = u.held_until.is_none_or(|t| t <= at);
             if u.held_until.is_none_or(|t| until > t) {
                 u.held_until = Some(until);
-                self.0.transient_hold.store(why == Limit::Transient, Ordering::SeqCst);
+                u.held_for_rate_limit = why == Limit::Transient;
             }
             (u.clone(), new)
         };
@@ -428,7 +424,7 @@ impl Office {
     /// Keeps the rate limits in a row and whether the hold is for one in the store, so a restart keeps the backoff and a
     /// usage check after it cannot end a rate limit's hold.
     pub(super) fn save_rate_limits(&self) {
-        let (n, holding) = (self.0.transient_limits.load(Ordering::SeqCst), self.0.transient_hold.load(Ordering::SeqCst));
+        let (n, holding) = (self.0.transient_limits.load(Ordering::SeqCst), self.usage_limits().held_for_rate_limit);
         if let Err(e) = self.db().set_rate_limits(n, holding) {
             log!("could not save the rate limits: {e}");
         }
@@ -436,13 +432,14 @@ impl Office {
 
     /// Ends a hold whose reset time has come. Returns whether there was one.
     pub(super) fn release_hold(&self, now: Ts) -> bool {
-        let (next, until) = {
+        let (next, until, why) = {
             let mut u = lock(&self.0.usage);
             let Some(until) = u.held_until.filter(|t| *t <= now) else { return false };
+            let why = if u.held_for_rate_limit { Limit::Transient } else { Limit::Usage };
             u.held_until = None;
-            (u.clone(), until)
+            u.held_for_rate_limit = false;
+            (u.clone(), until, why)
         };
-        let why = if self.0.transient_hold.load(Ordering::SeqCst) { Limit::Transient } else { Limit::Usage };
         log!("hold for {} ended (it held work until {})", why.as_str(), until.with_timezone(&Local).format("%Y-%m-%d %H:%M"));
         if let Err(e) = self.db().set_held_until(None) {
             log!("could not clear the usage hold: {e}");
@@ -540,17 +537,17 @@ impl Office {
 /// future exact reset time from an earlier run is kept.
 ///
 /// The hold and the account issue carry over, except that a probe showing room in every window the
-/// account has ends the hold. A window it does not report holds nothing back: a pool of Team seats has
-/// no 7-day limit.
+/// account has ends a usage limit's hold. A window it does not report holds nothing back: a pool of Team seats has
+/// no 7-day limit. A rate limit is not in the windows, so room there never ends its hold.
 fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool, now: Ts) -> UsageLimits {
     let subscription = sample.five_hour.is_some() || sample.seven_day.is_some();
     let account_issue = old.account_issue.clone();
     let proxy_issue = old.proxy_issue.clone();
     if from_probe && !subscription {
-        return UsageLimits { five_hour: None, seven_day: None, observed_at: Some(now), subscription: false, held_until: old.held_until, account_issue, proxy_issue };
+        return UsageLimits { five_hour: None, seven_day: None, observed_at: Some(now), subscription: false, held_until: old.held_until, held_for_rate_limit: old.held_for_rate_limit, account_issue, proxy_issue };
     }
     let room = |w: &Option<UsageWindow>| w.as_ref().is_none_or(|w| w.percent < 100.0);
-    let held_until = if from_probe && room(&sample.five_hour) && room(&sample.seven_day) { None } else { old.held_until };
+    let held_until = if from_probe && !old.held_for_rate_limit && room(&sample.five_hour) && room(&sample.seven_day) { None } else { old.held_until };
     let fold = |old: &Option<UsageWindow>, new: Option<UsageWindow>| match new {
         None if from_probe => None,
         None => old.clone(),
@@ -567,6 +564,7 @@ fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool,
         observed_at: Some(now),
         subscription: true,
         held_until,
+        held_for_rate_limit: old.held_for_rate_limit,
         account_issue,
         proxy_issue,
     }
@@ -621,6 +619,9 @@ mod tests {
         assert_eq!(no_week.held_until, None, "an account with no 7-day window is not held for one");
         let full_week = merge_usage(&old, claude::UsageSample { five_hour: None, seven_day: window(100.0) }, true, at);
         assert_eq!(full_week.held_until, old.held_until);
+        let rate = UsageLimits { held_for_rate_limit: true, ..old.clone() };
+        let room = merge_usage(&rate, claude::UsageSample { five_hour: window(12.0), seven_day: window(40.0) }, true, at);
+        assert_eq!((room.held_until, room.held_for_rate_limit), (old.held_until, true), "room in the windows never ends a rate limit's hold");
     }
 
     fn account(logged_in: bool, email: Option<&str>) -> Account {

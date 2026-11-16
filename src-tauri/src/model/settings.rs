@@ -297,6 +297,8 @@ pub struct UsageLimits {
     pub subscription: bool,
     /// The office waits for the usage limit to reset until then: no run starts.
     pub held_until: Option<Ts>,
+    /// The hold is a rate limit's, which only its own time ends: the usage windows say nothing about it.
+    pub held_for_rate_limit: bool,
     /// Claude Code is signed out or on another account than the one set up: routines wait.
     pub account_issue: Option<AccountIssue>,
     /// Why the CLI proxy could not report its accounts' usage, when it could not.
@@ -306,7 +308,7 @@ pub struct UsageLimits {
 impl Default for UsageLimits {
     fn default() -> Self {
         // Unknown until the first probe; assume a subscription so the UI waits rather than switching to spend.
-        UsageLimits { five_hour: None, seven_day: None, observed_at: None, subscription: true, held_until: None, account_issue: None, proxy_issue: None }
+        UsageLimits { five_hour: None, seven_day: None, observed_at: None, subscription: true, held_until: None, held_for_rate_limit: false, account_issue: None, proxy_issue: None }
     }
 }
 

@@ -153,7 +153,7 @@ export function Waiting({ run, e }: { run: Run; e: EmployeeView }) {
   const working = others.filter((r) => r.state === "running");
   const ahead = others.filter((r) => r.state === "queued" && r.createdAt < run.createdAt);
   const held = usage?.heldUntil && Date.parse(usage.heldUntil) > now ? usage.heldUntil : null;
-  const why = held ? `${heldLabel(held, new Date(now))}.`
+  const why = held ? `${heldLabel(held, !!usage?.heldForRateLimit, new Date(now))}.`
     : working.length >= lanes ? `${name} starts this once ${working.length === 1 ? "the run below" : "one of the runs below"} finishes.`
     : ahead.length ? `${name} starts this after ${ahead.length === 1 ? "the run" : `the ${ahead.length} runs`} ahead of it.`
     : `${name} starts this as soon as there's room.`;

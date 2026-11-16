@@ -2235,6 +2235,7 @@ mod tests {
         // After a restart it is still a rate limit's hold, which a usage check cannot end, and the next waits longer.
         drop(office);
         let office = open_office(&dir).await;
+        assert!(office.usage_limits().held_for_rate_limit, "the app still says why it waits");
         office.observe_usage(room(), true);
         assert_eq!(held_for(&office), Some(10));
         assert!(office.release_hold(now() + chrono::Duration::minutes(11)));

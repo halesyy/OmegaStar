@@ -90,7 +90,9 @@ export function UsageCard() {
       <div className={`usage ${refreshing ? "usage-refreshing" : ""}`} aria-label="Claude usage limits">
         <Window label="5-hour" w={five} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} near={top === five} other={`7-day ${said(week, known)}`} />
         <Window label="7-day" w={week} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} near={top === week && top !== five} other={`5-hour ${said(five, known)}`} />
-        {held ? <div className="usage-note usage-note-warn">Work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}, when the limit resets.</div> : null}
+        {held ? <div className="usage-note usage-note-warn">{usage?.heldForRateLimit
+          ? <>Claude is turning requests away for now, so work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}.</>
+          : <>Work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}, when the limit resets.</>}</div> : null}
         {usage?.accountIssue ? <AccountIssue message={usage.accountIssue.message} signedInAs={usage.accountIssue.signedInAs} /> : null}
         {usage?.proxyIssue ? <div className="usage-note usage-note-warn">{usage.proxyIssue}</div> : null}
       </div>
