@@ -97,6 +97,8 @@
 .chat-start-name { font-size: var(--t-lg); line-height: 1.15; font-variation-settings: var(--display); font-weight: 700; letter-spacing: -0.03em; color: var(--ink); }
 .chat-start-role { margin-top: 3px; font-size: 13px; color: var(--muted); }
 .chat-start-role .status { font-size: 13px; }
+.chat-start-now { cursor: pointer; }
+.chat-start-now:hover { text-decoration: underline; text-underline-offset: 2px; }
 .chat-start-note { max-width: 56ch; font-size: var(--t-md); line-height: 1.6; color: var(--ink-2); }
 .chat-start-sec { padding-top: 6px; font-size: var(--t-sm); font-weight: 700; color: var(--muted); }
 .chat-suggest { display: flex; flex-direction: column; border-top: 1px solid var(--line); }

@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { call } from "../../api/client";
 import type { EmployeeView, NewAttachment } from "../../api/types";
 import { firstName, relTime, whenInline } from "../../lib/format";
-import { openChat } from "../../lib/router";
+import { openChat, openWork } from "../../lib/router";
 import { threadFocus } from "../../lib/threads";
 import { Icon } from "../Icon";
 import { Avatar } from "../ui";
@@ -20,8 +20,11 @@ const SUGGESTIONS = [
 /** The draft key of an employee's new-conversation composer, so a message can wait in it, such as a hire's first lesson. */
 export const newConversationDraft = (employeeId: string): string => `new-conversation:${employeeId}`;
 
-/** Where they are now, in a word: working, up next, their next run, or when they last worked. */
+/** Where they are now, in a word: working, up next, their next run, or when they last worked. Working opens what they
+ *  are working on. */
 function Now({ e }: { e: EmployeeView }) {
+  const running = e.live.find((r) => r.state === "running");
+  if (running) return <button type="button" className="status status-live chat-start-now" onClick={() => openWork(running)} data-tip="See what they're working on">Working</button>;
   if (e.presence === "working") return <span className="status status-live">Working</span>;
   if (e.presence === "queued") return <span className="status status-wait">Up next</span>;
   if (e.presence === "attention") return <span className="status status-attn">Needs you</span>;
