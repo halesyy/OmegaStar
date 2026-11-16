@@ -304,6 +304,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_proposal_stays_in_your_inbox_while_you_talk_it_over() {
+        let dir = temp_path("tidy-stays");
+        let e = fixtures::employee();
+        let open = waiting(&e);
+        let office = held(&dir, &e, &[&open]).await;
+        let filed = |when: &str| assert_eq!(office.conversations().unwrap().inbox, vec![open.id.clone()], "{when}");
+        filed("it proposes");
+        for said in ["Why split it?", "And the FAQ skills?"] {
+            let reply = office.reply_to_run(&open.id, said, false, vec![]).unwrap();
+            filed("your message is on its way");
+            start(&office, &reply);
+            filed("they are answering");
+            finish(&office, &reply.id);
+            filed("an answer that changes nothing");
+        }
+        office.approve_tidy(&open.id).unwrap();
+        assert!(office.conversations().unwrap().inbox.is_empty(), "approved, it no longer waits");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn a_thread_sent_away_comes_back_when_its_reply_revised_the_plan() {
         let dir = temp_path("tidy-surface");
         let e = fixtures::employee();

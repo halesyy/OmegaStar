@@ -3,7 +3,7 @@
 import type { Thread } from "../api/types";
 import type { Mark, Marks } from "./marks";
 import { toolName } from "./rules";
-import { activityAt, blockedNow, broken, flags, isLive, isTask, lastReply, latestFinished, openCards, threadBusy } from "./threads";
+import { activityAt, blockedNow, broken, flags, isLive, isTask, lastReply, latestFinished, openCards, threadBusy, tidyAsks } from "./threads";
 
 /** What a conversation is waiting on: you, the employee (working, or queued for a free slot), a time (snoozed),
  *  nothing ever again (done), or nothing right now (idle). */
@@ -61,11 +61,12 @@ function lastSpeaker(t: Thread): "you" | "them" {
   return (lastReply(t) ?? t.root).endedAt ? "them" : "you";
 }
 
-/** The thread asks you something: a card anywhere in it, or its newest finished run flagged something, was blocked
- *  (with no retry on its way) or broke (not on the usage limit). Mirrors Rust `threads::asks_you` and `threads::broken`. */
+/** The thread asks you something: a card anywhere in it, a tidy's proposed changes you have not approved, or its
+ *  newest finished run flagged something, was blocked (with no retry on its way) or broke (not on the usage limit).
+ *  Mirrors Rust `threads::asks_you` and `threads::broken`. */
 function flagged(t: Thread): boolean {
   const r = latestFinished(t);
-  return openCards(t).length > 0 || flags(r).length > 0 || blockedNow(t) || broken(r);
+  return openCards(t).length > 0 || tidyAsks(t.root) || flags(r).length > 0 || blockedNow(t) || broken(r);
 }
 
 /** A snooze that has ended and you have not looked at since: snoozing means "remind me". */
@@ -81,6 +82,7 @@ function threadReason(t: Thread, mark: Mark, now: number): string {
   const r = latestFinished(t);
   const card = openCards(t)[0];
   if (card) return card.card.message;
+  if (tidyAsks(t.root)) return "Proposes skill changes";
   const flag = flags(r)[0];
   if (flag) return flag;
   if (blockedNow(t)) return `Blocked on ${toolName(r.denials[0].tool)}`;

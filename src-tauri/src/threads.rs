@@ -103,13 +103,17 @@ fn latest_finished(t: &Thread) -> &Run {
     t.replies.iter().rev().find(|r| r.ended_at.is_some()).unwrap_or(&t.root)
 }
 
-/// The thread asks you something: a card you have not answered or news you have not seen anywhere in it, or its
-/// newest finished run flagged something or was blocked on a tool. A flag on an earlier run was answered by what came
-/// after it, and a block is no longer yours once a later turn (the retry you allowed) is on its way.
+/// The thread asks you something: a card you have not answered or news you have not seen anywhere in it, a tidy's
+/// proposed changes you have not approved, or its newest finished run flagged something or was blocked on a tool. A
+/// flag on an earlier run was answered by what came after it, and a block is no longer yours once a later turn (the
+/// retry you allowed) is on its way. A proposal is answered only by approving it, so talking it over leaves it asking.
 pub fn asks_you(t: &Thread) -> bool {
     let last = latest_finished(t);
     let retrying = t.replies.last().is_some_and(|r| r.ended_at.is_none());
-    std::iter::once(&t.root).chain(&t.replies).any(|r| r.has_open_card() || r.has_news()) || last.flags().next().is_some() || (blocked(last) && !retrying)
+    std::iter::once(&t.root).chain(&t.replies).any(|r| r.has_open_card() || r.has_news())
+        || t.root.waiting_plan().is_some()
+        || last.flags().next().is_some()
+        || (blocked(last) && !retrying)
 }
 
 /// The thread's newest finished run broke for a reason you can act on: not the usage limit, which Omega
