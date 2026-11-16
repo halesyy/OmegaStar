@@ -941,7 +941,7 @@ impl Office {
         }
         // What Omega Star did that the report should say, after the employee's own words.
         let mut omega_notes: Vec<String> = vec![];
-        if snap.employee.browser && signals.chrome_missing() {
+        if chrome_did_not_load(snap.employee.browser, signals.chrome_missing(), self.usage_limits().subscription, proxied) {
             log!("run {}: Claude in Chrome did not load, so the run had none of its tools", run.id);
             omega_notes.push("Claude in Chrome did not load in this run, so it worked without your browser.".into());
         }
@@ -1431,6 +1431,13 @@ fn steer_words(run: &Run, ceo: &str, text: &str) -> String {
     if run.kind.is_conversation() { text.to_string() } else { format!("{ceo} is watching this run and says: {text}") }
 }
 
+/// The report says Claude in Chrome did not load: the employee may use Chrome, the run's first init line listed none
+/// of its tools, and the account could have loaded them. Claude Code loads Chrome only with a claude.ai sign-in,
+/// which a CLI proxy keeps and an API-key account (one with no subscription limits) does not have. Pure.
+fn chrome_did_not_load(browser: bool, missing: bool, subscription: bool, proxied: bool) -> bool {
+    browser && missing && (subscription || proxied)
+}
+
 fn append_line(file: &Mutex<File>, line: &str) {
     let mut f = lock(file);
     let _ = f.write_all(line.as_bytes()).and_then(|_| f.write_all(b"\n"));
@@ -1583,6 +1590,15 @@ mod tests {
 
     fn ended(o: Option<Outcome>, stderr: &str) -> Result<Ended> {
         Ok(Ended { outcome: o, exit: Some(1), stderr: stderr.into(), changes: vec![], limited: None, blocks: vec![], notes: vec![], context: None, claude_version: None, cost: None })
+    }
+
+    #[test]
+    fn chrome_not_loading_is_noted_only_where_it_could_have_loaded() {
+        assert!(chrome_did_not_load(true, true, true, false), "a subscription account");
+        assert!(chrome_did_not_load(true, true, false, true), "behind a proxy, which keeps the claude.ai sign-in");
+        assert!(!chrome_did_not_load(true, true, false, false), "an API-key account never loads Chrome");
+        assert!(!chrome_did_not_load(false, true, true, false), "the switch is off");
+        assert!(!chrome_did_not_load(true, false, true, false), "Chrome loaded");
     }
 
     /// A temp store in its own folder.
