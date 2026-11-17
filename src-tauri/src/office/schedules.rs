@@ -66,8 +66,8 @@ impl Office {
     }
 
     /// Gives every employee the weekly review, once per office: a review someone deletes never returns. A
-    /// review still as first seeded gets today's instruction, and so does one an older build saved without
-    /// its flag, which gets the flag back. Either keeps its times, model and effort.
+    /// review nobody edited gets today's instruction, and so does one an older build saved without its
+    /// flag, which gets the flag back. Either keeps its times, model and effort.
     pub(super) fn seed_reviews(&self) -> Result<()> {
         let db = self.db();
         if db.reviews_seeded()? {
@@ -76,7 +76,9 @@ impl Office {
             return db.tx(|| {
                 for (mut s, last) in db.all_schedules()? {
                     let unflagged = lost_review_flag(&s);
-                    if unflagged || (s.review && s.instruction == old) {
+                    // Builds up to 0.6.5 wrote the name as "Omega Star".
+                    let seeded = s.instruction.replace("Omega Star", "OmegaStar");
+                    if unflagged || (s.review && s.instruction != new && (seeded == old || seeded == new)) {
                         if unflagged {
                             log!("schedule {} is the weekly review again: an older build saved it without its flag", s.id);
                         }
@@ -841,6 +843,32 @@ mod tests {
         office.delete_schedule(&r.id).unwrap();
         office.seed_reviews().unwrap();
         assert!(office.schedules(&ada.id).unwrap().is_empty(), "a deleted review stays deleted");
+
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_review_nobody_edited_gets_todays_instruction() {
+        let ada = employee_named("ada");
+        let (office, dir) = office_with(&ada).await;
+        let seeded = Schedule { next_fire: None, ..office.schedules(&ada.id).unwrap().remove(0) };
+        // As builds up to 0.6.5 stored it, with the name in two words.
+        let old_name = |text: String| text.replace("OmegaStar", "Omega Star");
+        let first = Schedule { instruction: old_name(first_review_instruction("Pat")), ..seeded.clone() };
+        let latest = Schedule { id: "s2".into(), instruction: old_name(review_instruction("Pat")), ..seeded.clone() };
+        let edited = Schedule { id: "s3".into(), instruction: format!("{}\nCount the signups too.", latest.instruction), ..seeded.clone() };
+        let last: Ts = "2026-10-19T04:30:00Z".parse().unwrap();
+        for s in [&first, &latest, &edited] {
+            office.db().save_schedule(s, last).unwrap();
+        }
+
+        office.seed_reviews().unwrap();
+        for s in [&first, &latest] {
+            let stored = office.db().schedule(&s.id).unwrap().unwrap().0;
+            assert_eq!(stored, Schedule { instruction: review_instruction("Pat"), ..s.clone() }, "today's wording, nothing else");
+        }
+        assert_eq!(office.db().schedule(&edited.id).unwrap().unwrap().0, edited, "an employee's own edit stands");
 
         drop(office);
         let _ = fs::remove_dir_all(&dir);

@@ -248,7 +248,7 @@ pub struct BackupSettings {
 
 impl Default for BackupSettings {
     fn default() -> Self {
-        let dir = dirs::document_dir().or_else(dirs::home_dir).unwrap_or_default().join("OmegaStar Backups");
+        let dir = dirs::document_dir().or_else(dirs::home_dir).unwrap_or_default().join("Omega Star Backups");
         BackupSettings { frequency: BackupFrequency::Off, dir: dir.to_string_lossy().into_owned(), keep: 7 }
     }
 }
