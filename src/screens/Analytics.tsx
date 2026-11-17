@@ -120,7 +120,7 @@ function Work({ s, range }: { s: TeamSummary; range: TeamRange }) {
     const before = range === "7" ? "the week before" : `the ${range} days before`, b = hours(s.workBefore);
     against = b === h ? <>, the same as {before}</> : <>, {s.workMs < s.workBefore ? "down" : "up"} from <b>{b}</b> {before}</>;
   }
-  return <p>{team} worked {worked} {span}{against}, and finished {jobs}.{night}</p>;
+  return <p>{team} worked {worked} {span}{against}{against ? "," : ""} and finished {jobs}.{night}</p>;
 }
 
 /** The second sentence: how often they asked you, how fast half got an answer, and how many waited more than a day. */
