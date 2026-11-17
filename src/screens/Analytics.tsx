@@ -20,13 +20,13 @@ const hours = (ms: number) => {
 };
 /** A count with its noun, one or many: "1 job", "551 jobs". */
 const count = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()}${NBSP}${n === 1 ? one : many}`;
-/** How long an answer took, to follow "within": "a minute", "8 min", "2 h 21 min", "3 days". */
+/** How long an answer took, to follow "within", so rounded up: "a minute", "8 min", "2 h 21 min", "3 days". */
 function waitWords(ms: number): string {
-  const m = Math.floor(ms / 60_000);
-  if (m < 1) return "a minute";
+  const m = Math.ceil(ms / 60_000);
+  if (m <= 1) return "a minute";
   if (m < 60) return `${m}${NBSP}min`;
   if (m < 1440) return m % 60 ? `${Math.floor(m / 60)}${NBSP}h ${m % 60}${NBSP}min` : `${m / 60}${NBSP}h`;
-  return count(Math.round(m / 1440), "day");
+  return count(Math.ceil(m / 1440), "day");
 }
 /** The plain fractions the overnight share is rounded to. */
 const SHARES: [number, string][] = [[1 / 10, "a tenth"], [1 / 5, "a fifth"], [1 / 4, "a quarter"], [1 / 3, "a third"], [1 / 2, "half"], [2 / 3, "two thirds"], [0.9, "most"]];
