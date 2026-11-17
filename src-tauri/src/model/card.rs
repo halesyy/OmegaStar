@@ -23,7 +23,7 @@ pub struct Card {
     #[serde(default)]
     pub why: Option<String>,
     /// What it is about, so the same question from anyone is one Inbox item and asking again replaces it:
-    /// `ask:<what the employee named it>`, `chore:<subject>`, or for a proposal Omega Star raised `company:`,
+    /// `ask:<what the employee named it>`, `chore:<subject>`, or for a proposal OmegaStar raised `company:`,
     /// `owns:` or `company-page:` and what it is about. None on cards asked before keys.
     #[serde(default)]
     pub key: Option<String>,
@@ -49,7 +49,7 @@ pub struct Card {
     /// You said Later again once it came back: it waits in your Parked list, answerable, and never comes back by itself.
     #[serde(default)]
     pub parked: bool,
-    /// What Omega Star does when you go ahead: the card is its proposal, not an employee's ask.
+    /// What OmegaStar does when you go ahead: the card is its proposal, not an employee's ask.
     #[serde(default)]
     pub proposal: Option<Proposal>,
 }
@@ -107,7 +107,7 @@ impl Card {
     }
 }
 
-/// What a card Omega Star raised for an employee does when you go ahead.
+/// What a card OmegaStar raised for an employee does when you go ahead.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Proposal {

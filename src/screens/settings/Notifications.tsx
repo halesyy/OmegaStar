@@ -85,7 +85,7 @@ export function RepliesGroup({ w, change }: { w: WatchSettings; change: Change }
     setHours({ days: h.days.includes(day) ? h.days.filter((d) => d !== day) : [...h.days, day].sort((a, b) => a - b) });
 
   return (
-    <Group title="Replies from people" sub="When an employee asks someone on your org chart, Omega Star watches for the reply and reminds them once.">
+    <Group title="Replies from people" sub="When an employee asks someone on your org chart, OmegaStar watches for the reply and reminds them once.">
       <Row title="Business hours" desc="Reminders and give-ups count only these hours. Teams chats are still checked outside them, less often.">
         <div className="set-hours">
           <span className="set-times">
@@ -110,7 +110,7 @@ export function RepliesGroup({ w, change }: { w: WatchSettings; change: Change }
           </div>
         </div>
       </Row>
-      <Row title="Check for replies" desc="How often Omega Star looks. Checks start often and slow down as an ask gets older.">
+      <Row title="Check for replies" desc="How often OmegaStar looks. Checks start often and slow down as an ask gets older.">
         <div className="seg" role="group" aria-label="Check frequency">
           {CHECK_FREQUENCIES.map((f) => (
             <button key={f.value} aria-pressed={w.frequency === f.value} onClick={() => setWatch("Check for replies", { frequency: f.value })}>{f.label}</button>

@@ -3,7 +3,7 @@
 import tokens from "../design/tokens.css?raw";
 import interOpsz from "@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2?inline";
 
-/** The pages employees showed, by visual id. Served the way the app serves them: Omega Star's tokens first. */
+/** The pages employees showed, by visual id. Served the way the app serves them: OmegaStar's tokens first. */
 const PAGES: Record<string, string> = {
   timeline: `
 <style>

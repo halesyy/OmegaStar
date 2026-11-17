@@ -21,7 +21,7 @@ function getTransport(): Promise<Transport> {
     transport = inTauri ? Promise.resolve(tauriTransport)
       // `npm run dev` in a plain browser: the invented office in src/preview. Vite drops this from builds.
       : import.meta.env.DEV ? import("../preview/transport").then((m) => m.previewTransport())
-      : Promise.reject(new OfficeError({ code: "unavailable", message: "Omega Star runs in its desktop app." }));
+      : Promise.reject(new OfficeError({ code: "unavailable", message: "OmegaStar runs in its desktop app." }));
   }
   return transport;
 }

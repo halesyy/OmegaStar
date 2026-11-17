@@ -339,7 +339,7 @@ pub fn tomorrow_morning(at: Ts) -> Ts {
 /// Puts your `reply` on `card` at `at`, as the employee is to hear it (`answer_text`). Later, and Not now on anything but
 /// a chore (Later until 9 am tomorrow), sets when the card comes back, or parks it once it came back already. Any answer
 /// on a card put off with Later (`Card::put_off`), waiting to come back or parked, takes the place of its Later. A
-/// proposal's own answers say what Omega Star did with it. When the answer does not fit, the card is left as it was.
+/// proposal's own answers say what OmegaStar did with it. When the answer does not fit, the card is left as it was.
 pub fn answer(card: &mut Card, reply: &CardReply, ceo: &str, at: Ts) -> Result<()> {
     if !card.waiting() {
         return Err(AppError::conflict("That card was already answered."));

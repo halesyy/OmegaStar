@@ -4,7 +4,7 @@ use super::*;
 
 const EVENT_BATCH: Duration = Duration::from_millis(100);
 /// Told to a run whose Chrome dropped, with `{ceo}` filled in.
-const CHROME_NOTE: &str = "Omega Star: Chrome is not connected, so {ceo} has been asked to reconnect it. Do not ask {ceo} about it yourself. Carry on with what does not need Chrome. If the rest needs Chrome, finish with what you have and say what is left; you will be picked up again once it is back.";
+const CHROME_NOTE: &str = "OmegaStar: Chrome is not connected, so {ceo} has been asked to reconnect it. Do not ask {ceo} about it yourself. Carry on with what does not need Chrome. If the rest needs Chrome, finish with what you have and say what is left; you will be picked up again once it is back.";
 
 impl Office {
     pub(super) fn enqueue(&self, run: Run, session: String) -> Result<Run> {
@@ -311,7 +311,7 @@ impl Office {
         if self.0.disk_full.swap(full, Ordering::SeqCst) != full {
             if full {
                 log!("paused work: less than {MIN_FREE_GB} GB is free on the office's disk");
-                self.sink().notify("Omega Star paused work: your disk is nearly full", &format!("Work starts again by itself once more than {MIN_FREE_GB} GB is free."));
+                self.sink().notify("OmegaStar paused work: your disk is nearly full", &format!("Work starts again by itself once more than {MIN_FREE_GB} GB is free."));
             } else {
                 log!("resumed work: more than {MIN_FREE_GB} GB is free on the office's disk again");
             }
@@ -340,7 +340,7 @@ impl Office {
         true
     }
 
-    /// Writes into a run's open stdin without recording it as your message: for notes Omega Star writes,
+    /// Writes into a run's open stdin without recording it as your message: for notes OmegaStar writes,
     /// such as Chrome dropping. `false` when the run no longer takes messages.
     pub(super) fn tell(&self, run_id: &str, text: &str) -> bool {
         let active = lock(&self.0.active);
@@ -638,10 +638,10 @@ impl Office {
         if let RunKind::Scheduled { schedule_id, label, .. } = &run.kind {
             if threads::broke(&run) {
                 // A routine that keeps breaking is exactly what needs you: say so once, as it reaches the
-                // Inbox. A failure from the usage limit is Omega Star's to wait out, never yours.
+                // Inbox. A failure from the usage limit is OmegaStar's to wait out, never yours.
                 if !run.limited && self.failures_in_a_row(schedule_id, &run) == threads::STREAK {
                     let name = self.db().employee(&run.employee_id).ok().flatten().map(|e| e.name).unwrap_or_default();
-                    self.sink().notify(&format!("{name}: '{label}' keeps failing"), run.error.as_deref().unwrap_or("Open Omega Star for details."));
+                    self.sink().notify(&format!("{name}: '{label}' keeps failing"), run.error.as_deref().unwrap_or("Open OmegaStar for details."));
                 }
             } else if run.state == RunState::Succeeded {
                 if let Err(e) = self.archive_streak(schedule_id, &run) {
@@ -837,7 +837,7 @@ impl Office {
             let _ = stdin.shutdown().await; // claude -p exits once its stdin is closed and its turn is done
         });
         let _ = input.send(claude::user_line(&inv.stdin));
-        // Your messages an earlier attempt never took, as Omega Star stopped before its next step, go in again now.
+        // Your messages an earlier attempt never took, as OmegaStar stopped before its next step, go in again now.
         let unheard = if attempt_start > 0 { claude::unheard(&fs::read_to_string(&transcript_path).unwrap_or_default()) } else { vec![] };
         for (id, text) in &unheard {
             let _ = input.send(claude::steer_line(&steer_words(run, &snap.company.ceo_name, text), id));
@@ -945,7 +945,7 @@ impl Office {
         if is_tidy {
             after.extend(own_skills::notes_snapshot(&notes_dir));
         }
-        // What Omega Star did that the report should say, after the employee's own words.
+        // What OmegaStar did that the report should say, after the employee's own words.
         let mut omega_notes: Vec<String> = vec![];
         if chrome_did_not_load(snap.employee.browser, signals.chrome_missing(), self.usage_limits().subscription, proxied) {
             log!("run {}: Claude in Chrome did not load, so the run had none of its tools", run.id);
@@ -962,7 +962,7 @@ impl Office {
                     after = own_skills::snapshot(&skills_dir);
                     after.extend(own_skills::notes_snapshot(&notes_dir));
                     let n = put_back.len();
-                    omega_notes.push(format!("Omega Star put back {n} {} you taught that the tidy dropped.", if n == 1 { "rule" } else { "rules" }));
+                    omega_notes.push(format!("OmegaStar put back {n} {} you taught that the tidy dropped.", if n == 1 { "rule" } else { "rules" }));
                 }
             }
         }
@@ -1014,7 +1014,7 @@ impl Office {
             guarded_after = own_skills::guarded_snapshot(&snap.employee_dir);
         }
         // A run working alone made every skill edit it saw. Beside another run of the employee, an edit is its own only
-        // when its own calls show it: a write of the file, or Omega Star's tools moving or retiring the skill.
+        // when its own calls show it: a write of the file, or OmegaStar's tools moving or retiring the skill.
         let alone = !lock(&self.0.active).get(&run.id).is_some_and(|a| a.beside);
         let mut moved: Option<HashSet<String>> = None;
         let mut changes: Vec<Seen> = changes
@@ -1153,7 +1153,7 @@ pub(super) struct Seen {
     pub(super) own: bool,
 }
 
-/// The skills a run's own calls moved or retired with Omega Star's tools, which write no file themselves.
+/// The skills a run's own calls moved or retired with OmegaStar's tools, which write no file themselves.
 pub(super) fn moved_skills(transcript: &str) -> HashSet<String> {
     let moves = claude::office_calls(transcript, "mcp__omega__move_skill").into_iter().flat_map(|c| [c["from"].clone(), c["to"].clone()]);
     let retires = claude::office_calls(transcript, "mcp__omega__retire_skill").into_iter().map(|c| c["name"].clone());
@@ -1346,7 +1346,7 @@ const NO_RESULT: &str = "Claude Code exited without a result";
 fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
     let error = run.error.as_deref().unwrap_or("");
     if run.state == RunState::Lost {
-        "lost when Omega Star stopped"
+        "lost when OmegaStar stopped"
     } else if run.limited || limit == Some(Limit::Usage) {
         "usage limit"
     } else if limit == Some(Limit::Transient) {
@@ -2325,7 +2325,7 @@ mod tests {
         assert_eq!(error_class(&failed("Stopped: the run reached its turn limit."), None), "turn limit");
         assert_eq!(error_class(&failed("could not start Claude Code: no such file"), None), "could not start");
         assert_eq!(error_class(&failed("Claude Code exited without a result (exit code Some(1))."), None), "no result");
-        assert_eq!(error_class(&Run { state: RunState::Lost, ..failed("Omega Star stopped while this run was in progress.") }, None), "lost when Omega Star stopped");
+        assert_eq!(error_class(&Run { state: RunState::Lost, ..failed("OmegaStar stopped while this run was in progress.") }, None), "lost when OmegaStar stopped");
         assert_eq!(error_class(&failed("Something broke."), None), "error");
     }
 

@@ -1,7 +1,7 @@
 [package]
 name = "omega-star"
 version = "0.6.5"
-description = "Omega Star: a company of Claude Code employees"
+description = "OmegaStar: a company of Claude Code employees"
 authors = ["Abram Industries Pty Ltd"]
 license = "AGPL-3.0-only"
 edition = "2021"

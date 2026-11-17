@@ -31,8 +31,8 @@ type State = (typeof STATES)[number];
 
 type Handlers = { [K in CommandName]: (args: Commands[K]["args"]) => Commands[K]["ret"] | Promise<Commands[K]["ret"]> };
 
-const OFFICE_ERROR = { code: "io", message: "Couldn't read the office: the database is busy. Close any other copy of Omega Star and try again." };
-const BOOT_ERROR = { code: "io", message: "Couldn't open the office in ~/Library/Application Support/OmegaStar: another copy of Omega Star has it open." };
+const OFFICE_ERROR = { code: "io", message: "Couldn't read the office: the database is busy. Close any other copy of OmegaStar and try again." };
+const BOOT_ERROR = { code: "io", message: "Couldn't open the office in ~/Library/Application Support/OmegaStar: another copy of OmegaStar has it open." };
 const UPDATE_ERROR = { code: "update", message: "Couldn't download the update: the connection timed out." };
 const CREATE_ERROR = { code: "io", message: "Couldn't create the office: the folder ~/Library/Application Support/OmegaStar is read-only." };
 const LOGIN_ITEM_ERROR = { code: "io", message: "Couldn't turn on start at login: macOS didn't allow it. You can turn it on later in Settings." };
@@ -734,7 +734,7 @@ export function previewTransport(): Transport {
       emit("backup:updated", w.backup);
       return w.backup;
     },
-    pick_backup_dir: () => `${HOME}/Backups/Omega Star`,
+    pick_backup_dir: () => `${HOME}/Backups/OmegaStar`,
     open_backup_dir: () => null,
     usage_limits: () => w.usage,
     refresh_usage: () => {

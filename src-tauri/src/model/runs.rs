@@ -62,7 +62,7 @@ pub enum RunKind {
         label: String,
         #[serde(default)]
         task: bool,
-        /// The reply answers a card, written by Omega Star from your tap.
+        /// The reply answers a card, written by OmegaStar from your tap.
         #[serde(default)]
         card: bool,
     },
@@ -174,7 +174,7 @@ pub struct Denial {
     pub suggested_rule: String,
 }
 
-/// How this copy of Omega Star was built: a published release, a test build, or a developer's own.
+/// How this copy of OmegaStar was built: a published release, a test build, or a developer's own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BuildChannel {
@@ -193,7 +193,7 @@ impl BuildChannel {
     }
 }
 
-/// This copy of Omega Star: its version, the commit it was built from, and its channel.
+/// This copy of OmegaStar: its version, the commit it was built from, and its channel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Build {
@@ -256,7 +256,7 @@ pub struct Run {
     pub employee_id: String,
     pub kind: RunKind,
     pub prompt: String,
-    /// Omega Star wrote this prompt from something you did or something that came back (an approval, a
+    /// OmegaStar wrote this prompt from something you did or something that came back (an approval, a
     /// returned report, a card answer); it is not your own words, except where it quotes them.
     #[serde(default)]
     pub omega_wrote: bool,
@@ -272,7 +272,7 @@ pub struct Run {
     pub denials: Vec<Denial>,
     #[serde(default)]
     pub skill_changes: Vec<SkillChange>,
-    /// What needs you from this run: each card's message, and flags Omega Star raised.
+    /// What needs you from this run: each card's message, and flags OmegaStar raised.
     #[serde(default)]
     pub needs_you: Vec<String>,
     /// The decisions the run asked you with cards, and your answers. Each message is also in `needs_you`.
@@ -300,7 +300,7 @@ pub struct Run {
     /// await_reports or an Answered run. Set once, so it is delivered exactly once.
     #[serde(default)]
     pub delivered_at: Option<Ts>,
-    /// For a due check that came back into the conversation it was set in, as a reply Omega Star wrote there:
+    /// For a due check that came back into the conversation it was set in, as a reply OmegaStar wrote there:
     /// the check's id. A check's own run names it in its kind instead (`RunKind::check_id`).
     #[serde(default)]
     pub check: Option<String>,
@@ -330,10 +330,10 @@ pub struct Run {
     /// It failed because the usage limit stopped it once too often: nothing you can do, so it never needs you.
     #[serde(default)]
     pub limited: bool,
-    /// Times the run went back to the queue because Omega Star stopped while it was in progress.
+    /// Times the run went back to the queue because OmegaStar stopped while it was in progress.
     #[serde(default)]
     pub restarts: u32,
-    /// It last went back to the queue because Omega Star stopped, not the usage limit; its next attempt is told which.
+    /// It last went back to the queue because OmegaStar stopped, not the usage limit; its next attempt is told which.
     #[serde(default)]
     pub restarted: bool,
     /// Where its next attempt's lines start in its transcript, which every attempt appends to: set when it goes back to
@@ -349,7 +349,7 @@ pub struct Run {
     /// What the run cost in US dollars as Claude Code reckons it, summed over its result segments and attempts.
     #[serde(default)]
     pub cost_usd: Option<f64>,
-    /// Not to start before then: a hand-off Omega Star paused to keep its chain short, an answer queued again
+    /// Not to start before then: a hand-off OmegaStar paused to keep its chain short, an answer queued again
     /// after it failed, or the reports held for a manager.
     #[serde(default)]
     pub not_before: Option<Ts>,
@@ -431,7 +431,7 @@ impl Run {
         self.cards.iter().any(|c| c.answer.is_none() && c.ask == CardAsk::News)
     }
 
-    /// What needs you that is not a card: flags Omega Star raised, and `notify` messages from before cards.
+    /// What needs you that is not a card: flags OmegaStar raised, and `notify` messages from before cards.
     pub fn flags(&self) -> impl Iterator<Item = &String> {
         self.needs_you.iter().filter(|m| !self.cards.iter().any(|c| c.message == **m))
     }
@@ -478,7 +478,7 @@ impl Run {
 
     /// A turn of a conversation with you, which never waits for or counts against the cap on runs at once: a
     /// conversation you started, a reply you typed, an answer that came back into a conversation, and a turn of
-    /// an older build's chat. A reply Omega Star wrote from your tap (a card's answer, an approval) is capped:
+    /// an older build's chat. A reply OmegaStar wrote from your tap (a card's answer, an approval) is capped:
     /// one tap can answer many runs at once.
     pub fn uncapped(&self) -> bool {
         self.kind.is_conversation() && !(self.omega_wrote && matches!(self.kind, RunKind::Reply { .. }))
@@ -785,7 +785,7 @@ mod tests {
         for kind in [RunKind::Task { label: "Draft it".into(), from: None, context: String::new() }, reply(false), answered(Some("r0"), false), RunKind::Chat, answered(None, true)] {
             assert!(run(kind.clone(), false).uncapped(), "{kind:?}");
         }
-        assert!(run(answered(Some("r0"), false), true).uncapped(), "Omega Star writes every answer");
+        assert!(run(answered(Some("r0"), false), true).uncapped(), "OmegaStar writes every answer");
         assert!(!run(reply(true), true).uncapped(), "a card's answer waits its turn");
         assert!(!run(reply(false), true).uncapped(), "so does an approval");
         for kind in [RunKind::Manual, answered(None, false), RunKind::Delegated { parent_run_id: "r0".into() }] {

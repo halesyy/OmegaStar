@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds a test copy of Omega Star: the next patch version with a -dogfood prerelease tag, stamped
+# Builds a test copy of OmegaStar: the next patch version with a -dogfood prerelease tag, stamped
 # with the dogfood channel. Signing and CARGO_TARGET_DIR come from the caller's environment.
 set -euo pipefail
 

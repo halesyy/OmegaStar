@@ -59,7 +59,7 @@ export function Turn({ turn, e, footer, earlier = false, latestMine = false }: {
   const failed = didNotFinish(turn.run);
   const report = turn.run.summary?.trim();
   const showReport = !running && !!report && !items.some((i) => i.kind === "text" && i.text.trim() === report);
-  // A colleague's report or answer that came back, or a check that came due: Omega Star wrote the prompt, so it is not
+  // A colleague's report or answer that came back, or a check that came due: OmegaStar wrote the prompt, so it is not
   // shown as yours.
   const came = turn.run.kind.type === "answered" ? turn.run.kind : null;
   const fromName = came ? snap?.employees.find((x) => x.id === came.from)?.name : undefined;

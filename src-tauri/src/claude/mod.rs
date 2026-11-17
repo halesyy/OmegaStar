@@ -340,7 +340,7 @@ pub fn attachments_dir(employee_dir: &Path, run_id: &str) -> PathBuf {
     employee_dir.join("attachments").join(run_id)
 }
 
-/// Claude Code tools whose effect dies with the `claude -p` process or bypasses Omega Star. The
+/// Claude Code tools whose effect dies with the `claude -p` process or bypasses OmegaStar. The
 /// `omega` MCP tools `schedule` and `notify` replace them.
 const SESSION_ONLY_TOOLS: [&str; 6] = ["CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger", "PushNotification"];
 
@@ -603,7 +603,7 @@ mod tests {
         let before = fresh.prompt.clone();
         let inv = prepare(&snapshot(Some(now_opening(None)), false), &fresh);
         assert!(file(&inv, "system-prompt.md").contains("Scheduled routine 'Inbox sweep'"));
-        assert!(inv.stdin.starts_with("<omega-star>\nOmega Star wrote this note. It is not a message from Pat.\n\nNow: "), "{}", inv.stdin);
+        assert!(inv.stdin.starts_with("<omega-star>\nOmegaStar wrote this note. It is not a message from Pat.\n\nNow: "), "{}", inv.stdin);
         assert!(inv.stdin.ends_with("</omega-star>\n\nSweep the inbox."));
         assert!(!inv.stdin.contains("Scheduled routine"), "a new session reads its frame in the system prompt");
         assert_eq!(fresh.prompt, before);

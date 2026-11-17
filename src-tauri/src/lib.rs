@@ -142,12 +142,12 @@ fn show_main(app: &AppHandle) {
 
 fn build_tray(app: &tauri::App, office: Office, sink: &TauriSink) -> tauri::Result<()> {
     let paused = office.settings().map(|s| s.paused).unwrap_or(false);
-    let open = MenuItem::with_id(app, "open", "Open Omega Star", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open OmegaStar", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause", pause_label(paused), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &pause, &quit])?;
     let _ = sink.pause_item.set(pause);
-    let mut tray = TrayIconBuilder::with_id("main").tooltip("Omega Star").menu(&menu).show_menu_on_left_click(false);
+    let mut tray = TrayIconBuilder::with_id("main").tooltip("OmegaStar").menu(&menu).show_menu_on_left_click(false);
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
@@ -202,7 +202,7 @@ fn autostart() -> tauri::plugin::TauriPlugin<Wry> {
     b.build()
 }
 
-/// Keys for the login item: launchd starts Omega Star again when the copy it started dies of a crash
+/// Keys for the login item: launchd starts OmegaStar again when the copy it started dies of a crash
 /// signal (a panic aborts), and only then, at most once a minute. A Quit, a force quit or a start that
 /// could not open the office stays down, and a restarted copy meets the single-instance check like any
 /// other, so it never runs beside one you opened.
@@ -221,7 +221,7 @@ fn with_keep_alive(plist: &str) -> Option<String> {
     Some(format!("{}{KEEP_ALIVE}{}", &plist[..end], &plist[end..]))
 }
 
-/// Has the login item, when there is one, bring Omega Star back after a crash. launchd reads it at
+/// Has the login item, when there is one, bring OmegaStar back after a crash. launchd reads it at
 /// login, so this takes effect from the next one.
 #[cfg(target_os = "macos")]
 fn keep_alive_after_crash(app: &AppHandle) {
@@ -229,7 +229,7 @@ fn keep_alive_after_crash(app: &AppHandle) {
     let plist = home.join("Library/LaunchAgents").join(format!("{}.plist", app.package_info().name));
     let Some(text) = std::fs::read_to_string(&plist).ok().and_then(|t| with_keep_alive(&t)) else { return };
     if let Err(e) = std::fs::write(&plist, text) {
-        log!("could not have the login item restart Omega Star after a crash: {e}");
+        log!("could not have the login item restart OmegaStar after a crash: {e}");
     }
 }
 
@@ -288,7 +288,7 @@ pub fn run() {
             }
             // `package_info` carries a version set with `tauri build --config`, as dogfood builds do.
             let build = Build::new(app.package_info().version.to_string());
-            log!("Omega Star {} started ({} build {}) on {}", build.version, format!("{:?}", build.channel).to_lowercase(), build.commit, data_dir.display());
+            log!("OmegaStar {} started ({} build {}) on {}", build.version, format!("{:?}", build.channel).to_lowercase(), build.commit, data_dir.display());
             let sink = Arc::new(TauriSink { app: app.handle().clone(), pause_item: OnceLock::new(), notices: Mutex::new(Notices::default()) });
             let office = match tauri::async_runtime::block_on(Office::open(data_dir.clone(), sink.clone(), build)) {
                 Ok(office) => office,
@@ -297,8 +297,8 @@ pub fn run() {
                     log!("could not open the office at {}: {e}", data_dir.display());
                     let handle = app.handle().clone();
                     app.dialog()
-                        .message(format!("Omega Star could not open its office folder at {}.\n\n{}", data_dir.display(), e.message))
-                        .title("Omega Star could not start")
+                        .message(format!("OmegaStar could not open its office folder at {}.\n\n{}", data_dir.display(), e.message))
+                        .title("OmegaStar could not start")
                         .kind(MessageDialogKind::Error)
                         .show(move |_| handle.exit(1));
                     return Ok(());
@@ -423,7 +423,7 @@ pub fn run() {
             commands::install_update,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Omega Star")
+        .expect("error while building OmegaStar")
         .run(|app, event| {
             // Children would otherwise outlive the Office on any exit path (tray Quit, Cmd+Q, logout).
             if let tauri::RunEvent::Exit = event {

@@ -100,7 +100,7 @@ function setupStatus(company: Company | null, claude = true, signedIn = true): S
 
 const SETTINGS: AppSettings = {
   maxConcurrentRuns: 3, claudePath: null, dataDir: `${HOME}/Library/Application Support/OmegaStar`, paused: false,
-  backup: { frequency: "daily", dir: `${HOME}/Backups/Omega Star`, keep: 14 },
+  backup: { frequency: "daily", dir: `${HOME}/Backups/OmegaStar`, keep: 14 },
   watch: { hours: { startMinute: 9 * 60, endMinute: 17 * 60 + 30, days: [1, 2, 3, 4, 5] }, frequency: "normal", nudgeAfterDays: 2, giveUpAfterDays: 5 },
   proxy: { url: "", apiKey: "", managementKey: "" },
   transcriptDays: 90,
@@ -127,7 +127,7 @@ function emptyUsage(): UsageLimits {
 
 function backupStatus(): BackupStatus {
   return {
-    running: false, lastAt: lastAt(3, 0), lastFile: `${HOME}/Backups/Omega Star/omega-star-backup.zip`, lastBytes: 48_300_000,
+    running: false, lastAt: lastAt(3, 0), lastFile: `${HOME}/Backups/OmegaStar/omega-star-backup.zip`, lastBytes: 48_300_000,
     skipped: 0, lastAttemptAt: lastAt(3, 0), lastError: null, nextAt: nextAt(3, 0), fingerprint: "c0ffee12", checkedAt: null, leftOut: 2,
   };
 }
@@ -210,7 +210,7 @@ function employee(id: string, name: string, title: string, o: Partial<Employee>)
 const skillDoc = (name: string, description: string, body: string) => `---\nname: ${name}\ndescription: ${description}\n---\n\n${body.trim()}\n`;
 export const own = (name: string, description: string, updatedAt: string, files = ["SKILL.md"], o: Partial<OwnSkill> = {}): OwnSkill =>
   ({ name, description, role: false, managed: false, files, updatedAt, ...o });
-export const CRAFT = (at: string) => own("omega-skill-craft", "How to write and tidy your own skills. Omega Star keeps this one up to date.", at, ["SKILL.md"], { managed: true });
+export const CRAFT = (at: string) => own("omega-skill-craft", "How to write and tidy your own skills. OmegaStar keeps this one up to date.", at, ["SKILL.md"], { managed: true });
 
 // ---------------------------------------------------------------- Fernbrook, busy
 

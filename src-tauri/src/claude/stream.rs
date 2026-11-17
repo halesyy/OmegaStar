@@ -18,7 +18,7 @@ pub struct Outcome {
     pub notice: bool,
 }
 
-/// A limit that stops a run, which Omega Star waits out instead of failing the run.
+/// A limit that stops a run, which OmegaStar waits out instead of failing the run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Limit {
     /// The subscription's usage limit, which resets at a set time.

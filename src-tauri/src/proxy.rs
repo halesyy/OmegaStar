@@ -40,7 +40,7 @@ async fn management(client: &reqwest::Client, p: &ProxySettings, path: &str, bod
         .timeout(Duration::from_secs(15))
         .send()
         .await
-        .map_err(|_| failure(format!("Omega Star could not reach the CLI proxy at {}.", p.url)))?;
+        .map_err(|_| failure(format!("OmegaStar could not reach the CLI proxy at {}.", p.url)))?;
     let status = res.status();
     let answer: Value = res.json().await.unwrap_or(Value::Null);
     if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {

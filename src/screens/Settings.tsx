@@ -28,7 +28,7 @@ export function SettingsScreen() {
   const page = useRef<HTMLDivElement>(null);
 
   const setBackground = async (enabled: boolean) => {
-    const row = "Keep Omega Star running in the background";
+    const row = "Keep OmegaStar running in the background";
     const before = status.data;
     if (before) status.set({ ...before, background: enabled });
     saves.saving(row);
@@ -93,7 +93,7 @@ export function SettingsScreen() {
             </Group>
 
             <Group title="Running">
-              <Row title="Keep Omega Star running in the background" desc="Schedules only run while Omega Star is open. With this on, it starts at login and stays in the tray.">
+              <Row title="Keep OmegaStar running in the background" desc="Schedules only run while OmegaStar is open. With this on, it starts at login and stays in the tray.">
                 <Switch checked={st.background} onChange={(v) => void setBackground(v)} label="Run in the background" />
               </Row>
               <Row title="Pause all schedules" desc={<Swap on={String(s.paused)}>{s.paused ? "Nobody runs on a schedule until you resume. Manual runs and conversations still work." : "Stop every schedule at once, for a holiday or a noisy week."}</Swap>}>
@@ -132,7 +132,7 @@ export function SettingsScreen() {
             />
 
             <Group title="About">
-              <Row title="Omega Star" desc={aboutDesc(st)}>
+              <Row title="OmegaStar" desc={aboutDesc(st)}>
                 <span className="set-version num">v{st.build.version}</span>
                 <span className="tag">{CHANNELS[st.build.channel]}</span>
                 {st.sandbox && <span className="tag" title="This copy never starts Claude Code, backs up or watches anyone.">Sandbox</span>}

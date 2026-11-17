@@ -85,7 +85,7 @@ pub(crate) const RUNNING_MARKER: &str = "omega.running";
 const BEFORE_SNAPSHOT: &str = "before.json";
 /// In a run's folder: its transcript, one JSON event per line.
 const TRANSCRIPT: &str = "transcript.jsonl";
-/// Times a run Omega Star stopped mid-turn goes back to the queue before it is lost, so one that keeps
+/// Times a run OmegaStar stopped mid-turn goes back to the queue before it is lost, so one that keeps
 /// crashing the app cannot loop.
 const RESTART_RETRIES: u32 = 3;
 const DEFAULT_PROMPT: &str = "Work toward your objective. Start from your role skill, pick the most valuable next step, do it, and report.";
@@ -119,7 +119,7 @@ struct Active {
     beside: bool,
     pid: Option<u32>,
     cancelled: bool,
-    /// What needs you from it (each card's message, and flags Omega Star raised), copied onto the run when it ends.
+    /// What needs you from it (each card's message, and flags OmegaStar raised), copied onto the run when it ends.
     needs_you: Vec<String>,
     /// The cards it raised with `notify`, copied onto the run when it ends.
     cards: Vec<Card>,
@@ -220,7 +220,7 @@ fn ceo_in(kind: &RunKind) -> bool {
     matches!(kind, RunKind::Chat | RunKind::Task { .. } | RunKind::Reply { .. })
 }
 
-/// You are in this run (`ceo_in`), unless it is a due check Omega Star brought back into a conversation: that turn
+/// You are in this run (`ceo_in`), unless it is a due check OmegaStar brought back into a conversation: that turn
 /// runs with nobody watching, as a check run does.
 fn ceo_present(run: &Run) -> bool {
     ceo_in(&run.kind) && run.check.is_none()
@@ -489,7 +489,7 @@ impl Office {
     /// have too often. Either way the skill edits since its start are recorded when its snapshot survived.
     /// Returns the runs.
     fn recover(&self) -> Result<Vec<Run>> {
-        let lost = if self.0.crashed { "Omega Star closed unexpectedly while this run was in progress." } else { "Omega Star stopped while this run was in progress." };
+        let lost = if self.0.crashed { "OmegaStar closed unexpectedly while this run was in progress." } else { "OmegaStar stopped while this run was in progress." };
         let db = self.db();
         let mut settled = vec![];
         for mut r in db.runs_in_state(RunState::Running)? {
@@ -531,7 +531,7 @@ impl Office {
             })?;
             let _ = fs::remove_file(&before_path);
             match r.state {
-                RunState::Queued => log!("requeued {} after Omega Star stopped (attempt {})", r.id, r.restarts),
+                RunState::Queued => log!("requeued {} after OmegaStar stopped (attempt {})", r.id, r.restarts),
                 RunState::Failed | RunState::Lost => runs::log_failed(&r, &slug, None),
                 _ => {}
             }
@@ -704,7 +704,7 @@ mod tests {
     use super::*;
     use crate::fixtures::{task, temp_path};
 
-    const LOST: &str = "Omega Star stopped while this run was in progress.";
+    const LOST: &str = "OmegaStar stopped while this run was in progress.";
 
     fn home() -> &'static Path {
         Path::new("/tmp/office/employees/tester")
@@ -783,7 +783,7 @@ mod tests {
             "result": "API Error: Server is temporarily limiting requests.", "permission_denials": [], "api_error_status": 429 })
         .to_string();
         let first = format!("{}\n{limited}\n", assistant("Reading."));
-        // The limit sent it back to the queue, and Omega Star stopped before its next attempt wrote a line.
+        // The limit sent it back to the queue, and OmegaStar stopped before its next attempt wrote a line.
         let mut r = running();
         r.limit_retries = 1;
         r.attempt_from = first.len() as u64;

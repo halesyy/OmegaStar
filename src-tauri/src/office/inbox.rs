@@ -7,7 +7,7 @@ use crate::threads::View;
 /// How many rows the Archive shows, and how many of each kind of run it reads for them, newest first.
 const ARCHIVE_ROWS: u32 = 200;
 
-/// Who wrote a reply: you, or Omega Star from something you did in the app (an approval, or your answer
+/// Who wrote a reply: you, or OmegaStar from something you did in the app (an approval, or your answer
 /// on a card). `Question` is you too, asking about a card (`Run::about_card`).
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum ReplyBy {
@@ -284,7 +284,7 @@ impl Office {
 
     /// Tries again a finished run that failed, was lost or was stopped. A hand-off (a colleague's ask, delegated work,
     /// or an answer brought back) runs again as it was, in its session if that started, so its report still goes to
-    /// whoever handed it over: an answer Omega Star already queued again by itself (`queued_again`) goes now instead.
+    /// whoever handed it over: an answer OmegaStar already queued again by itself (`queued_again`) goes now instead.
     /// Anything else carries on in its thread, told how the last attempt stopped. Either way it leaves the Inbox, unless
     /// you are in it or it still asks you something, and the retry brings it back only if it needs you. Returns the new run.
     pub fn retry_run(&self, run_id: &str) -> Result<Run> {
@@ -582,7 +582,7 @@ Approval covers only what is listed, so if something else is blocked, stop and s
 
     /// `run_id` may be any run in the thread. The reply answers the thread's root and resumes the
     /// thread's newest session (the root's, or a fresh one an earlier reply had to start). A plain reply
-    /// goes into that session's run while it works; one that carries files or rules, or that Omega Star
+    /// goes into that session's run while it works; one that carries files or rules, or that OmegaStar
     /// wrote (`by`), is a run of its own.
     fn reply_with(&self, run_id: &str, text: &str, archive: bool, allow_once: Vec<String>, attachments: Vec<NewAttachment>, by: ReplyBy) -> Result<Run> {
         let text = text.trim();
@@ -687,7 +687,7 @@ pub(super) fn yours(t: &Thread) -> bool {
     matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || threads::talking(t) || t.root.steered
 }
 
-/// For an answer brought back (`RunKind::Answered`) that did not finish: the copy Omega Star queued again by itself
+/// For an answer brought back (`RunKind::Answered`) that did not finish: the copy OmegaStar queued again by itself
 /// (`handoffs::redeliver`), made due now, so a retry sends that rather than a second copy. Err once a copy is running or
 /// brought it, as a retry would bring the same answer twice. None for anything else. Save the run it returns.
 fn queued_again(db: &Store, failed: &Run) -> Result<Option<Run>> {
@@ -1738,7 +1738,7 @@ mod tests {
             r.ended_at = state.is_finished().then(now);
             r
         };
-        // The answer failed, and Omega Star queued it again for ten minutes on.
+        // The answer failed, and OmegaStar queued it again for ten minutes on.
         let failed = answer("a1", 2, RunState::Failed);
         let mut copy = answer("a1", 1, RunState::Queued);
         copy.not_before = Some(now() + chrono::Duration::minutes(10));

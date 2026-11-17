@@ -146,7 +146,7 @@ impl ProxySettings {
     }
 }
 
-/// How Omega Star watches requests to people for replies.
+/// How OmegaStar watches requests to people for replies.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WatchSettings {
@@ -248,7 +248,7 @@ pub struct BackupSettings {
 
 impl Default for BackupSettings {
     fn default() -> Self {
-        let dir = dirs::document_dir().or_else(dirs::home_dir).unwrap_or_default().join("Omega Star Backups");
+        let dir = dirs::document_dir().or_else(dirs::home_dir).unwrap_or_default().join("OmegaStar Backups");
         BackupSettings { frequency: BackupFrequency::Off, dir: dir.to_string_lossy().into_owned(), keep: 7 }
     }
 }

@@ -102,7 +102,7 @@ function wordOf(d: Decision<Item>): Word {
 
 export const rowWord = (r: Row): Word | null => (r.kind === "hire" ? "Hire" : r.kind === "decision" ? wordOf(r.d) : null);
 
-/** A decision as the Inbox titles it, and one line on why. Where Omega Star writes the title it asks the decision;
+/** A decision as the Inbox titles it, and one line on why. Where OmegaStar writes the title it asks the decision;
  *  a card's question, a flagged line and a reply are the employee's own words. */
 function ask(d: Decision<Item>, who: string, employees: EmployeeView[], people: PersonView[]): { title: string; why: string | null } {
   const r = d.run;
@@ -458,7 +458,7 @@ function RetryAllMain({ d }: { d: Extract<Decision<Item>, { type: "failures" }> 
   const retry = async () => {
     setTrying(true);
     const tries = await Promise.allSettled(d.failures.map((f) => call("retry_run", { runId: f.run.id })));
-    // An answer Omega Star already sent again is on its way: nothing to retry, and nothing went wrong.
+    // An answer OmegaStar already sent again is on its way: nothing to retry, and nothing went wrong.
     const again = (t: PromiseSettledResult<unknown>) => t.status === "rejected" && /already went again/.test(errorMessage(t.reason));
     const went = tries.filter((t) => t.status === "fulfilled" || again(t)).length;
     const failed = tries.find((t) => t.status === "rejected" && !again(t));

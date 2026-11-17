@@ -297,7 +297,7 @@ impl Office {
         if moved {
             note.push_str("You already had this check open, so it moved to the new date instead of adding another. ");
         }
-        note.push_str("On its due date Omega Star starts a quiet run of yours to do it, or brings it back into this conversation if you set it in one that is still open. Do not also leave it as a note in a skill or promise it in your report.");
+        note.push_str("On its due date OmegaStar starts a quiet run of yours to do it, or brings it back into this conversation if you set it in one that is still open. Do not also leave it as a note in a skill or promise it in your report.");
         Ok(json!({ "check": c, "note": note }))
     }
 
@@ -359,7 +359,7 @@ fn due_check_runs(mut checks: Vec<Check>, busy: &HashSet<String>, departed: &Has
         .collect()
 }
 
-/// A due check's run as the next turn of `t`, the conversation it was set in: a reply Omega Star writes there with
+/// A due check's run as the next turn of `t`, the conversation it was set in: a reply OmegaStar writes there with
 /// the same instruction, so what it finds shows where the work began. Named as a reply you type there is. Pure.
 fn into_turn(run: Run, t: &Thread) -> Run {
     let (label, task) = threads::reply_label(&t.root);
@@ -414,45 +414,45 @@ can decide. If it cannot be settled yet, close it saying why and set a new check
     )
 }
 
-/// The instruction of the weekly review Omega Star seeds for every employee.
+/// The instruction of the weekly review OmegaStar seeds for every employee.
 fn review_instruction(ceo: &str) -> String {
     format!(
-        "Your weekly review. Omega Star adds what it counted this week below.
+        "Your weekly review. OmegaStar adds what it counted this week below.
 1. Measure your number with a command you can rerun, compare it with last week, and record it with report_number. If you have no number yet, pick one that shows your objective moving.
 2. For each routine, decide to keep it, reshape it or stop it, and change your own schedules to match.
 3. Act on the biggest lever your remit allows. Put each decision only {ceo} can make on a card of its own, with your recommendation.
 4. Close every check that is due or overdue with check_done, or close it and set a new check_later for the day it can be settled. Leave checks that are not due yet.
 5. Remove each blocker you hit twice: fix it, hand it to a colleague, or raise one chore card.
 6. Check your skills and routing rules against the current team, and remove any rule your runs wrote this week that a run next month would not need. Leave every rule {ceo} taught you (marked taught or confirmed) as it is: to merge or drop one, put it to {ceo} on a card with your recommendation.
-7. Read what-you-own.md in your folder. If it is empty or out of date, write the version you propose there: the number you answer for, your limits, and what you decide alone. Omega Star puts the file back and shows {ceo} your version: only they set it.
+7. Read what-you-own.md in your folder. If it is empty or out of date, write the version you propose there: the number you answer for, your limits, and what you decide alone. OmegaStar puts the file back and shows {ceo} your version: only they set it.
 Your report is one sentence on what you changed this week. Your number and your cards already reach {ceo}: do not repeat them."
     )
 }
 
-/// A weekly review an older build saved without its flag, known by the name and opening Omega Star gave
+/// A weekly review an older build saved without its flag, known by the name and opening OmegaStar gave
 /// it. It runs as a plain routine: no brief, and report_number refuses it. Pure.
 fn lost_review_flag(s: &Schedule) -> bool {
     !s.review && s.label == "Weekly review" && s.instruction.trim_start().starts_with("Your weekly review.")
 }
 
-/// The weekly review's instruction as Omega Star seeded it before reviews recorded a number, so a review
+/// The weekly review's instruction as OmegaStar seeded it before reviews recorded a number, so a review
 /// nobody edited can be brought up to date.
 fn first_review_instruction(ceo: &str) -> String {
     format!(
-        "Your weekly review. Omega Star adds what it counted this week below.
+        "Your weekly review. OmegaStar adds what it counted this week below.
 1. Measure your number with a command you can rerun, and compare it with last week. If you have no number yet, pick one that shows your objective moving.
 2. For each routine, decide to keep it, reshape it or stop it, and change your own schedules to match.
 3. Act on the biggest lever your remit allows, or put the decision to {ceo} as a card with your recommendation.
 4. Close every check that is due or overdue with check_done, or close it and set a new check_later for the day it can be settled. Leave checks that are not due yet.
 5. Remove each blocker you hit twice: fix it, hand it to a colleague, or raise one chore card.
 6. Check your skills and routing rules against the current team, and remove any rule your runs wrote this week that a run next month would not need. Leave every rule {ceo} taught you (marked taught or confirmed) as it is: to merge or drop one, put it to {ceo} on a card with your recommendation.
-7. Read what-you-own.md in your folder. If it is empty or out of date, write the version you propose there: the number you answer for, your limits, and what you decide alone. Omega Star puts the file back and shows {ceo} your version: only they set it.
+7. Read what-you-own.md in your folder. If it is empty or out of date, write the version you propose there: the number you answer for, your limits, and what you decide alone. OmegaStar puts the file back and shows {ceo} your version: only they set it.
 End with at most three lines. The first opens with your number."
     )
 }
 
 /// The instruction a schedule's run at `slot` is given. A weekly review keeps its stored instruction, so
-/// an employee's own edit of it stands, and gets what Omega Star counted over the week before it.
+/// an employee's own edit of it stands, and gets what OmegaStar counted over the week before it.
 fn slot_prompt(db: &Store, s: &Schedule, e: &Employee, slot: Ts) -> Result<String> {
     if !s.review {
         return Ok(if s.instruction.trim().is_empty() { DEFAULT_PROMPT.to_string() } else { s.instruction.clone() });
@@ -463,7 +463,7 @@ fn slot_prompt(db: &Store, s: &Schedule, e: &Employee, slot: Ts) -> Result<Strin
     Ok(if brief.is_empty() { instruction } else { format!("{instruction}\n\n{brief}") })
 }
 
-/// What Omega Star counted for `e`'s weekly review since `since`: their routines, open checks, cards still
+/// What OmegaStar counted for `e`'s weekly review since `since`: their routines, open checks, cards still
 /// waiting on `ceo`, and the rules their runs wrote with nobody watching. A section with nothing in it is
 /// left out, and with nothing at all the brief is empty.
 fn review_brief(db: &Store, e: &Employee, ceo: &str, since: Ts) -> Result<String> {
@@ -543,7 +543,7 @@ money or deleting anything should have been a card: remove it and raise the card
     if sections.is_empty() {
         return Ok(String::new());
     }
-    Ok(format!("## What Omega Star counted since {}\n\n{}", day(since), sections.join("\n\n")))
+    Ok(format!("## What OmegaStar counted since {}\n\n{}", day(since), sections.join("\n\n")))
 }
 
 /// How many rule lines a weekly review's brief lists.
@@ -725,7 +725,7 @@ mod tests {
         db.insert_revision(&ada.id, &rev).unwrap();
 
         let brief = review_brief(&db, &ada, "Pat", since).unwrap();
-        assert!(brief.starts_with(&format!("## What Omega Star counted since {}\n\nYour routines:\n", since.with_timezone(&Local).format("%A %-d %B"))));
+        assert!(brief.starts_with(&format!("## What OmegaStar counted since {}\n\nYour routines:\n", since.with_timezone(&Local).format("%A %-d %B"))));
         assert!(brief.contains("- Inbox sweep (quiet): 2 runs, 1 did something, 1 reached someone, 0 failed, usage $1.23\n"), "{brief}");
         assert!(
             brief.contains("- Daily report: 1 run, each reported to Pat, 0 did something\n\nA run did something when it raised a card, handed work"),
@@ -772,7 +772,7 @@ mod tests {
         assert_eq!(slot_prompt(&db, &review("Count the signups."), &bo, t).unwrap(), "Count the signups.", "the employee's own edit stands");
         assert_eq!(slot_prompt(&db, &review(" "), &bo, t).unwrap(), review_instruction("Pat"));
         let with_brief = slot_prompt(&db, &review(" "), &ada, t).unwrap();
-        assert!(with_brief.starts_with(&format!("{}\n\n## What Omega Star counted since ", review_instruction("Pat"))));
+        assert!(with_brief.starts_with(&format!("{}\n\n## What OmegaStar counted since ", review_instruction("Pat"))));
         let routine_schedule = Schedule { review: false, ..review(" ") };
         assert_eq!(slot_prompt(&db, &routine_schedule, &ada, t).unwrap(), DEFAULT_PROMPT);
 

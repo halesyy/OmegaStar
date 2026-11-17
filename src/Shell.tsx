@@ -249,9 +249,9 @@ async function dockBadge(count: number) {
 /** The product's mark and name at the top of the sidebar; the boot screen draws it in the same place. */
 export function SideBrand() {
   return (
-    <a href="#/org" className="side-brand" aria-label="Omega Star">
+    <a href="#/org" className="side-brand" aria-label="OmegaStar">
       <LogoMark size={20} />
-      <span className="side-word">Omega Star</span>
+      <span className="side-word">OmegaStar</span>
     </a>
   );
 }

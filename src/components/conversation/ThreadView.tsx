@@ -194,7 +194,7 @@ const reason = (error: string) => {
 /** The run has a card still waiting on your answer. News waits on nothing. */
 const waiting = (run: Run) => run.cards.some(isOpen);
 
-/** What Omega Star flagged on a run, apart from its cards. */
+/** What OmegaStar flagged on a run, apart from its cards. */
 function Flags({ run }: { run: Run }) {
   // A tidy's bigger changes ask for themselves (TidyProposal), so their flag is not said again.
   const fs = tidyAsks(run) ? [] : flags(run);

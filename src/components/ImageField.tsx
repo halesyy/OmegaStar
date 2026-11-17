@@ -50,7 +50,7 @@ export function ImageField({ name, hue, image, person = false, you = false, onCh
       const value = await displayImage(file);
       if (current === request.current) onChange(value);
     } catch {
-      if (current === request.current) toast("That file is not a picture Omega Star can read.", "err");
+      if (current === request.current) toast("That file is not a picture OmegaStar can read.", "err");
     }
   };
   return (

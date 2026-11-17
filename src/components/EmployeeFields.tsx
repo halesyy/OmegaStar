@@ -87,7 +87,7 @@ export function ClearancePicker({ value, onChange }: { value: Clearance; onChang
   );
 }
 
-/** What earlier versions of Omega Star saved. Claude Code resolves these to whatever is newest, so they
+/** What earlier versions of OmegaStar saved. Claude Code resolves these to whatever is newest, so they
  *  are only offered while an employee still has one; picking a specific version replaces it. */
 const MODEL_ALIASES: { value: string; label: string }[] = [
   { value: "fable", label: "Fable (whatever is newest)" }, { value: "opus", label: "Opus (whatever is newest)" },
@@ -182,7 +182,7 @@ export function AdvancedFields({ value, onChange }: { value: Advanced; onChange:
           <div className="field">
             <span className="field-label">Tidy on its own</span>
             <span className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-              <span className="field-help" style={{ margin: 0 }}>Now and then, when Omega Star finds something worth it, they follow up what they promised to check, make sure what you taught them is written down, and clean up their skills. Bigger changes wait for your OK.</span>
+              <span className="field-help" style={{ margin: 0 }}>Now and then, when OmegaStar finds something worth it, they follow up what they promised to check, make sure what you taught them is written down, and clean up their skills. Bigger changes wait for your OK.</span>
               <Switch checked={value.autoTidy} onChange={(v) => onChange({ ...value, autoTidy: v })} label="Tidy on its own" />
             </span>
           </div>

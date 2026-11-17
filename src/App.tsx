@@ -28,7 +28,7 @@ export default function App() {
     body = (
       <Boot>
         <div className="boot-error" role="alert">
-          <h1 className="boot-title">Omega Star couldn't open the office</h1>
+          <h1 className="boot-title">OmegaStar couldn't open the office</h1>
           <p className="boot-text">{error}</p>
           <button className="btn" onClick={load}><Icon name="refresh" size={13} /> Try again</button>
         </div>

@@ -8,7 +8,7 @@ import { activityAt, blockedNow, broken, flags, latestFinished, rowThreads, STRE
 /** Something waiting on you in a row (`item`). `thread`: the row's thread it is in; `run`: the run it is about. */
 export type Decision<T> = { id: string; item: T; thread: Thread; run: Run } & (
   | { type: "card"; cards: OpenCard[]; also: Run[]; differ: OpenCard[] }   // cards: the run's, open or held; also: other runs asking the same; differ: other runs' cards on it with other choices
-  | { type: "flag"; text: string }                            // something Omega Star flagged
+  | { type: "flag"; text: string }                            // something OmegaStar flagged
   | { type: "proposal" }                                       // a tidy's bigger changes wait for your OK; run: the tidy
   | { type: "blocked" }                                        // blocked on a tool you could allow
   | { type: "broken"; times: number }                          // broke; times: a schedule's failures in a row

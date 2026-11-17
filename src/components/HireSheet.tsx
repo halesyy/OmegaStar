@@ -267,7 +267,7 @@ export function HireSheet({ open, template, proposal, onClose, returnFocus = nul
             </div>
           </div>
           <ol className="preview-steps">
-            <li><b>Omega Star writes their role skill</b> from the objective, listing the skills they may use.</li>
+            <li><b>OmegaStar writes their role skill</b> from the objective, listing the skills they may use.</li>
             {imports.some((k) => draft.skills.keys.includes(k)) ? <li><b>They organize what you import</b> into their own skill family, first thing. Your originals stay as they are.</li> : null}
             <li><b>You teach them in conversation.</b> Every procedure you explain becomes one of their own skills.</li>
             <li><b>Give them a schedule</b> and they run on their own, refining their skills after each run.</li>

@@ -79,7 +79,7 @@ function dueLabel(c: Check, now = Date.now()): { text: string; late: boolean } {
 
 /**
  * How an employee keeps their own skills in order, at the foot of the Skills tab: when they last tidied,
- * what they promised to look at again, and what Omega Star finds worth a look. The lists stay folded
+ * what they promised to look at again, and what OmegaStar finds worth a look. The lists stay folded
  * unless something is overdue or broken.
  */
 export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Health; onOpenFile: (skill: string, file: string) => void }) {
@@ -153,7 +153,7 @@ export function Upkeep({ e, health, onOpenFile }: { e: EmployeeView; health: Hea
         </Fold>
       ) : null}
       {findings.length > 0 ? (
-        <Fold startOpen={broken} summary={<>{findings.length === 1 ? "1 thing worth tidying" : `${findings.length} things worth tidying`}<span className="upkeep-quiet"> · found by Omega Star, nothing changed</span></>}>
+        <Fold startOpen={broken} summary={<>{findings.length === 1 ? "1 thing worth tidying" : `${findings.length} things worth tidying`}<span className="upkeep-quiet"> · found by OmegaStar, nothing changed</span></>}>
           <ul className="hf-list">
             {findings.map((f, i) => <Finding key={`${f.kind}~${f.skill}~${f.file}~${i}`} f={f} onOpenFile={onOpenFile} />)}
           </ul>

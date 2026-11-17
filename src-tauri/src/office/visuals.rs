@@ -1,5 +1,5 @@
 //! Pages an employee shows in a message (`show`): saved with the run, and served on the `omega-visual` scheme
-//! to a sealed frame, in Omega Star's look, with no way out to the network or the app.
+//! to a sealed frame, in OmegaStar's look, with no way out to the network or the app.
 
 use super::*;
 use base64::Engine;
@@ -69,7 +69,7 @@ impl Office {
         Ok(json!({ "shown": true, "note": "It appears above your message. Do not repeat in words what it shows." }))
     }
 
-    /// A page as its frame loads it: Omega Star's look and the height reporter first, then the page.
+    /// A page as its frame loads it: OmegaStar's look and the height reporter first, then the page.
     pub fn visual_page(&self, run_id: &str, id: &str, dark: bool) -> Result<Vec<u8>> {
         let plain = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
         if !plain(run_id) || !plain(id) {

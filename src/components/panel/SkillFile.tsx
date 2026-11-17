@@ -93,7 +93,7 @@ export function FileView({ e, skill, file, history, onBack, onOpenRev, onChanged
             </div>
           ) : null}
         </div>
-        {skill?.managed ? <p className="fileview-lock"><Icon name="lock" size={12} /> Omega Star rewrites this before every run. It's how {firstName(e.name)} learns to write skills, so it can't be edited here.</p> : null}
+        {skill?.managed ? <p className="fileview-lock"><Icon name="lock" size={12} /> OmegaStar rewrites this before every run. It's how {firstName(e.name)} learns to write skills, so it can't be edited here.</p> : null}
         {q.error ? <ErrorNote text={q.error} onRetry={q.reload} /> : null}
         {q.data === undefined && !q.error ? <div className="stack" style={{ gap: 8 }}><Skeleton /><Skeleton w="85%" /><Skeleton w="70%" /><Skeleton w="90%" /></div> : null}
         {editing ? (

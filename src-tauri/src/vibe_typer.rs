@@ -1,4 +1,4 @@
-//! Vibe Typer, voice typing from the same maker: when it last put dictated words into Omega Star.
+//! Vibe Typer, voice typing from the same maker: when it last put dictated words into OmegaStar.
 //!
 //! After each insertion Vibe Typer records the app it typed into in its own settings file,
 //! `<config dir>/vibe-typer/config.json`, at `user.textInsertion.paste.recentTargets`: `{ id, name, lastUsed }`, with
@@ -6,14 +6,14 @@
 
 use serde_json::Value;
 
-/// When Vibe Typer last inserted text into Omega Star, in milliseconds since the Unix epoch. `None` when it is not
+/// When Vibe Typer last inserted text into OmegaStar, in milliseconds since the Unix epoch. `None` when it is not
 /// installed, has never typed here, or its settings cannot be read.
 pub fn last_dictation_here() -> Option<u64> {
     let path = dirs::config_dir()?.join("vibe-typer").join("config.json");
     last_dictation(&std::fs::read_to_string(path).ok()?)
 }
 
-/// The newest `lastUsed` among the recent targets in Vibe Typer's settings text that are Omega Star (`is_omega_star`).
+/// The newest `lastUsed` among the recent targets in Vibe Typer's settings text that are OmegaStar (`is_omega_star`).
 /// `None` for text that is not that shape.
 fn last_dictation(config_json: &str) -> Option<u64> {
     let config: Value = serde_json::from_str(config_json).ok()?;
@@ -25,9 +25,10 @@ fn last_dictation(config_json: &str) -> Option<u64> {
         .max()
 }
 
-/// Whether an app's id or name is Omega Star's on any desktop: lowercased, with everything but ASCII letters and digits
+/// Whether an app's id or name is OmegaStar's on any desktop: lowercased, with everything but ASCII letters and digits
 /// dropped, it contains `omegastar`. That covers the Mac's bundle ids (`com.abramindustries.omegastar`), the Windows exe
-/// (`omega-star`), the Linux window class (`omegastar`, `omega-star`) and the name "Omega Star".
+/// (`omega-star`), the Linux window class (`omegastar`, `omega-star`), the name "OmegaStar" and the name installs before
+/// the rename carry, "Omega Star".
 fn is_omega_star(id_or_name: &str) -> bool {
     let plain: String = id_or_name.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect();
     plain.contains("omegastar")
@@ -52,8 +53,10 @@ mod tests {
 
     #[test]
     fn omega_star_is_found_by_its_name_alone() {
-        let text = config(r#"{ "id": "app-4021", "name": "Omega Star", "lastUsed": 1763337354000 }"#);
-        assert_eq!(last_dictation(&text), Some(1763337354000));
+        for name in ["OmegaStar", "Omega Star"] {
+            let text = config(&format!(r#"{{ "id": "app-4021", "name": "{name}", "lastUsed": 1763337354000 }}"#));
+            assert_eq!(last_dictation(&text), Some(1763337354000), "{name}");
+        }
     }
 
     #[test]

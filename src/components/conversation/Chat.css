@@ -166,7 +166,7 @@
 
 /* ------------------------------------------------ a thread */
 .thread { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* What Omega Star flagged on a run, apart from its cards: it needs you, so it leads like a card does. */
+/* What OmegaStar flagged on a run, apart from its cards: it needs you, so it leads like a card does. */
 .flags { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .flags li { display: flex; gap: 8px; align-items: flex-start; font-size: var(--t-md); font-weight: 650; line-height: 1.45; color: var(--ink); }
 .flags svg { flex: none; margin-top: 4px; color: var(--err); }

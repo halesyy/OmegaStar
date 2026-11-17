@@ -21,7 +21,7 @@ export type WorkRow = {
 /** One stretch of a reply: what you said to start it (after the first), its items, and how the talk reads them. */
 export type Part = { said: string | null; items: TranscriptItem[]; opener: TextItem | null; notes: TextItem[]; answer: TextItem[] };
 
-// Not a skill change: Omega Star records those after the run ends, so one would always fall after the answer and fold it
+// Not a skill change: OmegaStar records those after the run ends, so one would always fall after the answer and fold it
 // into the work line. Its row still shows (rowsOf).
 const isWork = (it: TranscriptItem) => it.kind === "tools" || it.kind === "delegated" || it.kind === "requested" || it.kind === "proposed" || it.kind === "visual";
 

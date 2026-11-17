@@ -397,7 +397,7 @@ something changes. Adjust your plan for the gap, and say in a line or two how yo
 fn left_instruction(name: &str, ceo: &str) -> String {
     format!(
         "{name} has left. Remove them from your skills and notes. If your what-you-own.md names them, write the change there: \
-Omega Star shows it to {ceo} to approve."
+OmegaStar shows it to {ceo} to approve."
     )
 }
 
@@ -518,7 +518,7 @@ mod tests {
 
         office.remove_person(&sam.id).unwrap();
         let told = left_instruction("Sam Lee", "Pat");
-        assert_eq!(told, "Sam Lee has left. Remove them from your skills and notes. If your what-you-own.md names them, write the change there: Omega Star shows it to Pat to approve.");
+        assert_eq!(told, "Sam Lee has left. Remove them from your skills and notes. If your what-you-own.md names them, write the change there: OmegaStar shows it to Pat to approve.");
         let cleanup = |e: &Employee| office.db().active_runs_of(&e.id).unwrap().into_iter().map(|r| (r.kind, r.prompt)).collect::<Vec<_>>();
         for e in [&ada, &bo, &cy] {
             assert_eq!(cleanup(e), vec![(RunKind::Manual, told.clone())], "{}", e.name);

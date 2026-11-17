@@ -37,7 +37,7 @@ async fn respond(office: &Office, token: &str, msg: Value) -> Option<Value> {
             "protocolVersion": params.get("protocolVersion").cloned().unwrap_or(json!("2025-06-18")),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "omega", "version": env!("CARGO_PKG_VERSION") },
-            "instructions": "Omega Star office tools: your recurring schedules, putting decisions to the person you work for, showing them a page in your message, moving and retiring your skills, your team (delegate, await reports), proposing hires, and the people you can ask for help. Omega Star runs your schedules even when no Claude session is open, and watches your requests to people for replies.",
+            "instructions": "OmegaStar office tools: your recurring schedules, putting decisions to the person you work for, showing them a page in your message, moving and retiring your skills, your team (delegate, await reports), proposing hires, and the people you can ask for help. OmegaStar runs your schedules even when no Claude session is open, and watches your requests to people for replies.",
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools() })),
@@ -161,7 +161,7 @@ fn tools() -> Value {
         },
         {
             "name": "schedule",
-            "description": "Create a recurring schedule for yourself, or change one by id (only the fields you pass change). Omega Star starts a run with the instruction at every cron slot, whether or not any Claude session is open. Check schedules() first so you never create a duplicate. If Omega Star was closed, asleep or waiting at a slot, the routine runs once as soon as it can.",
+            "description": "Create a recurring schedule for yourself, or change one by id (only the fields you pass change). OmegaStar starts a run with the instruction at every cron slot, whether or not any Claude session is open. Check schedules() first so you never create a duplicate. If OmegaStar was closed, asleep or waiting at a slot, the routine runs once as soon as it can.",
             "inputSchema": obj(json!({
                 "id": { "type": "string", "description": "Omit to create; pass to change an existing schedule." },
                 "label": { "type": "string", "description": "Short name, e.g. 'Inbox watch'." },
@@ -186,7 +186,7 @@ fn tools() -> Value {
         },
         {
             "name": "show",
-            "description": "Show a page in your message: a chart, table, comparison, diagram, timeline or mockup that says more than words. Write one complete, self-contained HTML document with inline <style> and <script>. It cannot load anything from the internet (no CDNs, web fonts or remote images), so draw charts with inline SVG or canvas. Local images written as full paths (src=\"/Users/me/shot.png\", url(/Users/me/bg.webp) or a string in a script) are embedded for you. Omega Star shows it above your message, as wide as the message column (450 to 700 pixels, so keep the layout fluid) and as tall as the page. Leave the page background transparent, and let the content set the height: never use vh units or height: 100%. Omega Star's look comes as CSS variables that follow light and dark mode: --ink (text), --ink-2, --muted and --faint (quieter text), --canvas, --surface, --raised and --sunken (backgrounds), --line and --line-strong (borders), --live (the one blue), --ok, --warn and --err (each with a -soft background), --font-ui, --font-mono, --r-card and --r-inner (corner radii). Then write your message without repeating what the page shows.",
+            "description": "Show a page in your message: a chart, table, comparison, diagram, timeline or mockup that says more than words. Write one complete, self-contained HTML document with inline <style> and <script>. It cannot load anything from the internet (no CDNs, web fonts or remote images), so draw charts with inline SVG or canvas. Local images written as full paths (src=\"/Users/me/shot.png\", url(/Users/me/bg.webp) or a string in a script) are embedded for you. OmegaStar shows it above your message, as wide as the message column (450 to 700 pixels, so keep the layout fluid) and as tall as the page. Leave the page background transparent, and let the content set the height: never use vh units or height: 100%. OmegaStar's look comes as CSS variables that follow light and dark mode: --ink (text), --ink-2, --muted and --faint (quieter text), --canvas, --surface, --raised and --sunken (backgrounds), --line and --line-strong (borders), --live (the one blue), --ok, --warn and --err (each with a -soft background), --font-ui, --font-mono, --r-card and --r-inner (corner radii). Then write your message without repeating what the page shows.",
             "inputSchema": obj(json!({
                 "title": { "type": "string", "description": "What the page shows, at most 80 characters, e.g. 'Signups by week'." },
                 "html": { "type": "string", "description": "The page, up to 2 MB." }
@@ -201,7 +201,7 @@ fn tools() -> Value {
         },
         {
             "name": "name_thread",
-            "description": "Name the conversation or thread this run is in, in a few words, so the person you work for can find it again. It replaces the name Omega Star gave it from its first message or its kind. Name a new conversation once you know what it is about; rename it only when its subject changes.",
+            "description": "Name the conversation or thread this run is in, in a few words, so the person you work for can find it again. It replaces the name OmegaStar gave it from its first message or its kind. Name a new conversation once you know what it is about; rename it only when its subject changes.",
             "inputSchema": obj(json!({
                 "title": { "type": "string", "description": "At most 60 characters, e.g. 'Spring sale emails'." }
             }), &["title"]),
@@ -216,7 +216,7 @@ fn tools() -> Value {
         },
         {
             "name": "propose_company_line",
-            "description": "Propose one line for the company page, which every employee reads at the start of every run: something true for everyone, such as a tool or account you all use, how the person you work for likes to work, or a decision they made. It goes to them on a card, from any run, and when they tap Add it, Omega Star adds it as a bullet under that section. Use it whenever they teach you something like that, instead of changing the page yourself.",
+            "description": "Propose one line for the company page, which every employee reads at the start of every run: something true for everyone, such as a tool or account you all use, how the person you work for likes to work, or a decision they made. It goes to them on a card, from any run, and when they tap Add it, OmegaStar adds it as a bullet under that section. Use it whenever they teach you something like that, instead of changing the page yourself.",
             "inputSchema": obj(json!({
                 "section": { "type": "string", "description": "The page's heading it goes under, e.g. 'Who to ask' or 'How things work here'. A heading the page lacks is added." },
                 "line": { "type": "string", "description": "One fact, at most 300 characters, e.g. 'Refunds over 100 go to Bo.'" },
@@ -240,7 +240,7 @@ fn tools() -> Value {
         },
         {
             "name": "check_later",
-            "description": "Set yourself a check: something you must find out or do later and cannot now (a change that needs a day to show up, a follow-up you promised). On its due date Omega Star starts a quiet run of yours with what and how as its instruction, whether or not anything else runs; set in a conversation that is still open, it comes back into that conversation. Do what you can now: use it only for what must wait for time to pass, instead of writing 'I'll check' in a report or 'verify later' in a skill or notes file. Max 20 open at once.",
+            "description": "Set yourself a check: something you must find out or do later and cannot now (a change that needs a day to show up, a follow-up you promised). On its due date OmegaStar starts a quiet run of yours with what and how as its instruction, whether or not anything else runs; set in a conversation that is still open, it comes back into that conversation. Do what you can now: use it only for what must wait for time to pass, instead of writing 'I'll check' in a report or 'verify later' in a skill or notes file. Max 20 open at once.",
             "inputSchema": obj(json!({
                 "what": { "type": "string", "description": "What you will find out, in one sentence." },
                 "how": { "type": "string", "description": "Where or how you will look: the command, the page, who to ask. Specific enough that a future run can do it cold." },
@@ -280,7 +280,7 @@ fn tools() -> Value {
         },
         {
             "name": "delegate",
-            "description": "Hand one direct report a self-contained task, at most 4 a day to each. Returns {runId} immediately. Their report always comes back to you: wait with await_reports only if it should take a few minutes; otherwise finish. Handed over in a conversation the person you work for started, it comes back as its next turn; any other report waits for your next run, or comes with your team's other reports in one run once 30 minutes pass without a new one. When a chain of hand-offs grows long, Omega Star pauses the task and sends it by itself later: never send it again.",
+            "description": "Hand one direct report a self-contained task, at most 4 a day to each. Returns {runId} immediately. Their report always comes back to you: wait with await_reports only if it should take a few minutes; otherwise finish. Handed over in a conversation the person you work for started, it comes back as its next turn; any other report waits for your next run, or comes with your team's other reports in one run once 30 minutes pass without a new one. When a chain of hand-offs grows long, OmegaStar pauses the task and sends it by itself later: never send it again.",
             "inputSchema": obj(json!({
                 "to": { "type": "string", "description": "The report's name, slug or id." },
                 "task": { "type": "string", "description": "What to do, why, and what done looks like." }
@@ -293,7 +293,7 @@ fn tools() -> Value {
         },
         {
             "name": "ask_colleague",
-            "description": "Ask another agent a question, or hand them a task, that falls in their area, not yours. They work on it in a run of their own. Returns {runId} immediately. The answer or report always comes back to you: wait with await_reports only if it should take a few minutes and you need it now; otherwise finish without it, and a new run brings it to you. If they have not started your earlier question or task yet, this one is added to it. With kind info, it leaves them news instead: no run, nothing comes back, and they read it at the top of their next run. When a chain of hand-offs grows long, Omega Star pauses the next one and sends it by itself later: never send it again. Only when it genuinely helps: never for what you can find or do yourself.",
+            "description": "Ask another agent a question, or hand them a task, that falls in their area, not yours. They work on it in a run of their own. Returns {runId} immediately. The answer or report always comes back to you: wait with await_reports only if it should take a few minutes and you need it now; otherwise finish without it, and a new run brings it to you. If they have not started your earlier question or task yet, this one is added to it. With kind info, it leaves them news instead: no run, nothing comes back, and they read it at the top of their next run. When a chain of hand-offs grows long, OmegaStar pauses the next one and sends it by itself later: never send it again. Only when it genuinely helps: never for what you can find or do yourself.",
             "inputSchema": obj(json!({
                 "to": { "type": "string", "description": "The colleague's name, slug or id, or 'everyone' with kind info to tell every colleague." },
                 "kind": { "type": "string", "enum": ["question", "task", "info"], "description": "question (default): they answer and change nothing. task: they do the work, e.g. set something up once it is approved, or act on news you pass on. info: news that needs no answer and no work; it starts no run. When you raise a card in work a colleague handed you, its outcome already reaches them, so never send a separate notice about it." },
@@ -340,7 +340,7 @@ fn tools() -> Value {
         },
         {
             "name": "request",
-            "description": "Record a question, a task or an FYI for a person before you send it. Returns the request and the chosen channel's details. Then deliver it through that channel if you can and call sent right after sending; otherwise the person you work for relays it from Omega Star. Their reply comes back to you as a follow-up run.",
+            "description": "Record a question, a task or an FYI for a person before you send it. Returns the request and the chosen channel's details. Then deliver it through that channel if you can and call sent right after sending; otherwise the person you work for relays it from OmegaStar. Their reply comes back to you as a follow-up run.",
             "inputSchema": obj(json!({
                 "person": { "type": "string", "description": "The person's name or id." },
                 "kind": { "type": "string", "enum": ["question", "task", "info"], "description": "info: an FYI that needs no reply. It is never watched or followed up." },
@@ -351,7 +351,7 @@ fn tools() -> Value {
         },
         {
             "name": "sent",
-            "description": "Record that you delivered one of your requests, right after sending it: pass the tool you sent it with and exactly what that tool returned. Omega Star then watches for the person's reply, nudges them once when it is due, and brings the reply back to you as a follow-up run. Do not watch for it yourself.",
+            "description": "Record that you delivered one of your requests, right after sending it: pass the tool you sent it with and exactly what that tool returned. OmegaStar then watches for the person's reply, nudges them once when it is due, and brings the reply back to you as a follow-up run. Do not watch for it yourself.",
             "inputSchema": obj(json!({
                 "requestId": { "type": "string" },
                 "tool": { "type": "string", "description": "The tool you sent it with, e.g. mcp__ms365-local__send-chat-message." },
@@ -360,7 +360,7 @@ fn tools() -> Value {
         },
         {
             "name": "check_result",
-            "description": "Only in a reply check or a nudge that Omega Star started: record what you found, once. answered: it answers the question. done: they did the task. askedBack: they asked something that must be answered first. acknowledged: they saw it and will get to it. noReply: nothing there is about this ask.",
+            "description": "Only in a reply check or a nudge that OmegaStar started: record what you found, once. answered: it answers the question. done: they did the task. askedBack: they asked something that must be answered first. acknowledged: they saw it and will get to it. noReply: nothing there is about this ask.",
             "inputSchema": obj(json!({
                 "requestId": { "type": "string" },
                 "verdict": { "type": "string", "enum": ["answered", "done", "askedBack", "acknowledged", "noReply"] },
