@@ -13,17 +13,17 @@ import "./Analytics.css";
 const NBSP = "\u00a0";
 /** Team sizes up to twelve read as words. */
 const WORDS = ["no one", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
-/** Hours from milliseconds: whole from 10 up, one decimal below. */
+/** Hours from milliseconds: whole from 10 up, one decimal below, and never less than 0.1 for any work at all. */
 const hours = (ms: number) => {
   const h = ms / 3_600_000;
-  return h >= 10 || h === 0 ? Math.round(h).toLocaleString() : h.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return h >= 10 || h === 0 ? Math.round(h).toLocaleString() : Math.max(0.1, h).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 };
 /** A count with its noun, one or many: "1 job", "551 jobs". */
 const count = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()}${NBSP}${n === 1 ? one : many}`;
-/** How long an answer took: "under a minute", "8 min", "2 h 21 min", "3 days". */
+/** How long an answer took, to follow "within": "a minute", "8 min", "2 h 21 min", "3 days". */
 function waitWords(ms: number): string {
   const m = Math.floor(ms / 60_000);
-  if (m < 1) return "under a minute";
+  if (m < 1) return "a minute";
   if (m < 60) return `${m}${NBSP}min`;
   if (m < 1440) return m % 60 ? `${Math.floor(m / 60)}${NBSP}h ${m % 60}${NBSP}min` : `${m / 60}${NBSP}h`;
   return count(Math.round(m / 1440), "day");
@@ -106,7 +106,7 @@ function Work({ s, range }: { s: TeamSummary; range: TeamRange }) {
   const span = range === "all" ? "" : `in the last ${range} days`;
   if (!s.runs) return <p>{range === "all" ? `${team} hasn't finished anything yet.` : `${team} finished nothing ${span}.`}</p>;
   const h = hours(s.workMs);
-  const worked = <b>{h}{NBSP}{h === "1" ? "hour" : "hours"}</b>;
+  const worked = <b>{h}{NBSP}hours</b>;
   const jobs = <b>{count(s.runs, "job")}</b>;
   const share = s.nightMs / s.workMs;
   const night = share >= 0.1 ? <> <b>{shareWords(share)}</b> of the hours were overnight.</> : null;

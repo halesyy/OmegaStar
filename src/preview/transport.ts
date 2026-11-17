@@ -488,6 +488,8 @@ export function previewTransport(): Transport {
         }),
       };
     },
+    // An invented history: each employee works most days from their hire, a little more as weeks pass, and asks you
+    // less as their skills grow. Stable from load to load (no randomness).
     team_stats: () => {
       const now = Date.now(), today = new Date();
       const days: TeamStats["days"] = [];
