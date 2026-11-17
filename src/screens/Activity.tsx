@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call } from "../api/client";
 import type { EmployeeUsage, EmployeeView, PersonView, RoutineUsage, Run, RunUsage, SkillRevision } from "../api/types";
-import { dayHeading, firstName, listNames, MOD, plural, runKindLabel, shortAge, timeOrDay } from "../lib/format";
+import { changeWords, dayHeading, firstName, listNames, MOD, plural, runKindLabel, shortAge, timeOrDay } from "../lib/format";
 import { refreshOrg, useNow, useOrg, useQuery, useRunDetail, type Query } from "../lib/hooks";
 import { curve, ms, reducedMotion } from "../lib/motion";
 import { navigate, openChat, openMember, openRun, type ActivityView } from "../lib/router";
@@ -560,15 +560,6 @@ function dayStart(now: number, daysBack = 0): string {
 
 /** Usage in US dollars at API list price, without its sign: "12.40", "<0.01", or "0" when no run recorded a cost. */
 const dollars = (n: number) => (n <= 0 ? "0" : n < 0.01 ? "<0.01" : n.toFixed(2));
-
-/** A weekly change in words: "+31" is "up 31", "-3" is "down 3". */
-function changeWords(change: string): string {
-  const c = change.trim();
-  if (!c || /^[+±-]?0+(\.0+)?$/.test(c)) return "no change";
-  if (c.startsWith("+")) return `up ${c.slice(1)}`;
-  if (c.startsWith("-") || c.startsWith("−")) return `down ${c.slice(1)}`;
-  return c;
-}
 
 /** What a routine's runs did, as a sentence: "1 of 5 runs did something". One run's count is beside it already. */
 function routineWords(r: RoutineUsage): string {

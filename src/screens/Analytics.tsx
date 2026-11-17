@@ -1,22 +1,53 @@
 import { useMemo, useState } from "react";
 import { call } from "../api/client";
+import { changeWords } from "../lib/format";
 import { useOrg, useQuery } from "../lib/hooks";
-import { RANGES, summarise, type TeamDayTotal, type TeamRange } from "../lib/teamStats";
+import { RANGES, summarise, type TeamPoint, type TeamRange, type TeamSummary } from "../lib/teamStats";
+import { useShell } from "../Shell";
+import { Icon } from "../components/Icon";
 import { Avatar, ErrorNote, PageColumn, Section, Skeleton } from "../components/ui";
+import { EmptyPage } from "./ActivityParts";
 import "./Analytics.css";
 
-const short = (day: string) => new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-const hours = (ms: number) => { const h = ms / 3_600_000; return h >= 10 ? Math.round(h).toString() : h.toFixed(1); };
-const one = (n: number) => (Number.isInteger(n) || n >= 10 ? Math.round(n).toString() : n.toFixed(1));
+/** Keeps a number on one line with its unit. */
+const NBSP = "\u00a0";
+/** Team sizes up to twelve read as words. */
+const WORDS = ["no one", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
+/** Hours from milliseconds: whole from 10 up, one decimal below, and never less than 0.1 for any work at all. */
+const hours = (ms: number) => {
+  const h = ms / 3_600_000;
+  return h >= 10 || h === 0 ? Math.round(h).toLocaleString() : Math.max(0.1, h).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+};
+/** A count with its noun, one or many: "1 job", "551 jobs". */
+const count = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()}${NBSP}${n === 1 ? one : many}`;
+/** How long an answer took, to follow "within", so rounded up: "a minute", "8 min", "2 h 21 min", "3 days". */
+function waitWords(ms: number): string {
+  const m = Math.ceil(ms / 60_000);
+  if (m <= 1) return "a minute";
+  if (m < 60) return `${m}${NBSP}min`;
+  if (m < 1440) return m % 60 ? `${Math.floor(m / 60)}${NBSP}h ${m % 60}${NBSP}min` : `${m / 60}${NBSP}h`;
+  return count(Math.ceil(m / 1440), "day");
+}
+/** The plain fractions the overnight share is rounded to. */
+const SHARES: [number, string][] = [[1 / 10, "a tenth"], [1 / 5, "a fifth"], [1 / 4, "a quarter"], [1 / 3, "a third"], [1 / 2, "half"], [2 / 3, "two thirds"], [0.9, "most"]];
+/** A share as a plain fraction, the nearest one: "Nearly a third", "About half", "Most". */
+function shareWords(f: number): string {
+  const [near, word] = SHARES.reduce((a, b) => (Math.abs(b[0] - f) < Math.abs(a[0] - f) ? b : a));
+  if (word === "most") return "Most";
+  return `${Math.abs(f - near) < 0.015 ? "About" : f < near ? "Nearly" : "Just over"} ${word}`;
+}
+/** Midday on a `YYYY-MM-DD` day, so no time zone shift lands it on the day before. */
+const dayDate = (day: string) => new Date(`${day}T12:00:00`);
 
 /**
- * The Analytics page, in the sidebar under the Org chart: how big the team is, how it has grown and how much it gets
- * done, over the last week, month or all time. It only shows, it changes nothing. Drawn as Activity's Numbers are:
- * figures, ink charts on one baseline and hairline rows, no cards.
+ * The Analytics page, in the sidebar under the Org chart: what the team got done, what it asked of you, and the number
+ * each person answers for, over the last week, month or all time. It only shows, it changes nothing. Two sentences carry
+ * the range; one mirrored chart shows hours above the line and asks below; hairline rows show each person.
  */
 export function AnalyticsScreen() {
   const q = useQuery(() => call("team_stats"), [], ["org:changed"]);
   const { snap } = useOrg();
+  const shell = useShell();
   const [range, setRange] = useState<TeamRange>("7");
   const s = useMemo(() => (q.data ? summarise(q.data, range) : null), [q.data, range]);
   const ranges = (
@@ -29,40 +60,38 @@ export function AnalyticsScreen() {
     <PageColumn title="Analytics" className="an" actions={ranges}>
       {q.error ? <ErrorNote title="Couldn't count the team" text={q.error} onRetry={q.reload} /> : null}
       {!s && !q.error ? <Skeleton h={220} r={8} /> : null}
-      {s ? (
+      {s && !s.team ? (
+        <EmptyPage
+          title="Nobody works here yet"
+          text="Once you hire someone, their week shows up here: the hours they worked, what they asked you, and the number they answer for."
+          action={<button className="btn btn-primary" onClick={(ev) => shell.hire(null, ev.currentTarget)}><Icon name="plus" size={14} strokeWidth={1.8} /> Hire an employee</button>}
+        />
+      ) : null}
+      {s?.team ? (
         <>
-          <div className="an-stats">
-            <Stat label="Staff" value={String(s.staff)} note={s.hired || s.left ? [s.hired ? `+${s.hired} hired` : "", s.left ? `${s.left} left` : ""].filter(Boolean).join(", ") : "No change"} />
-            <Stat label="Jobs done" value={String(s.runs)} note={`${one(s.runs / s.days.length)} a day`} />
-            <Stat label="Hours worked" value={hours(s.workMs)} note="Time spent working" />
-            <Stat label="Jobs per card to you" value={s.perCard === null ? "–" : one(s.perCard)} note="Higher: they need you less" />
+          <div className="an-lede">
+            <Work s={s} range={range} />
+            <Asks s={s} />
           </div>
-          <div className="an-charts">
-            <Chart title="Staff" hint={`Headcount each ${s.per}`} days={s.points} value={(d) => d.staff} kind="step" />
-            <Chart title="Jobs done" hint={`Work finished each ${s.per}`} days={s.points} value={(d) => d.runs} kind="bars" />
-            <Chart title="Learning" hint={`Skill updates each ${s.per}`} days={s.points} value={(d) => d.learned} kind="line" />
-            <Chart title="Needing you less" hint="Jobs done per card they raised" days={s.points} value={(d) => (d.cards ? d.runs / d.cards : null)} kind="line" />
-          </div>
-          <Section title="Who did the work">
-            {s.who.length === 0 ? <p className="an-hint">Nothing finished yet.</p> : null}
-            <div className="an-who">
-              {s.who.slice(0, 8).map((w) => {
-                const e = snap?.employees.find((x) => x.id === w.employeeId);
+          {s.workMs || s.asks ? <Mirror points={s.points} per={s.per} /> : null}
+          <Section title="The number each person answers for">
+            <div className="an-rows">
+              <div className="an-row an-head" aria-hidden="true">
+                <span /><span /><span>Their number</span><span className="an-r">Now</span><span>Against last week</span><span className="an-r">Worked</span>
+              </div>
+              {s.people.map((p) => {
+                const e = snap?.employees.find((x) => x.id === p.employeeId);
                 return (
-                  <div className="an-row" key={w.employeeId}>
+                  <div className="an-row" key={p.employeeId}>
                     {e ? <Avatar name={e.name} hue={e.hue} image={e.image} size={20} /> : <span />}
-                    <span className="an-name">{w.name}</span>
-                    <span className="an-bar"><span style={{ width: `${(w.runs / s.who[0].runs) * 100}%` }} /></span>
-                    <span className="an-n num">{w.runs} jobs</span>
+                    <span className="an-name" title={p.name}>{p.name}</span>
+                    {p.number ? <span className="an-metric" title={p.number.metric}>{p.number.metric}</span> : <span className="an-metric an-none">No weekly number yet</span>}
+                    <span className="an-value num" title={p.number?.value}>{p.number?.value || "–"}</span>
+                    <span className="an-change" title={p.number ? changeWords(p.number.change) : undefined}>{p.number ? changeWords(p.number.change) : ""}</span>
+                    <span className="an-hours num">{hours(p.workMs)}{NBSP}h</span>
                   </div>
                 );
               })}
-              {s.who.length > 8 ? (
-                <div className="an-row an-more">
-                  <span /><span className="an-name">{s.who.length - 8} more</span><span />
-                  <span className="an-n num">{s.who.slice(8).reduce((n, w) => n + w.runs, 0)} jobs</span>
-                </div>
-              ) : null}
             </div>
           </Section>
         </>
@@ -71,54 +100,87 @@ export function AnalyticsScreen() {
   );
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note: string }) {
-  return (
-    <div className="an-stat">
-      <span className="an-stat-value num">{value}</span>
-      <span className="an-stat-label">{label}</span>
-      <span className="an-stat-note">{note}</span>
-    </div>
-  );
+/** The first sentence: how much the team worked against the span before, what it finished, and how much was overnight. */
+function Work({ s, range }: { s: TeamSummary; range: TeamRange }) {
+  const team = `Your team of ${s.team <= 12 ? WORDS[s.team] : s.team.toLocaleString()}`;
+  const span = range === "all" ? "" : `in the last ${range} days`;
+  if (!s.runs) return <p>{range === "all" ? `${team} hasn't finished anything yet.` : `${team} finished nothing ${span}.`}</p>;
+  const h = hours(s.workMs);
+  const worked = <b>{h}{NBSP}hours</b>;
+  const jobs = <b>{count(s.runs, "job")}</b>;
+  const share = s.nightMs / s.workMs;
+  const night = share >= 0.1 ? <> <b>{shareWords(share)}</b> of the hours were overnight.</> : null;
+  if (range === "all") {
+    const year = s.since.getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" } as const;
+    const since = s.since.toLocaleDateString(undefined, { day: "numeric", month: "short", ...year });
+    return <p>{team} has worked {worked} since {since} and finished {jobs}.{night}</p>;
+  }
+  let against = null;
+  if (s.workBefore !== null) {
+    const before = range === "7" ? "the week before" : `the ${range} days before`, b = hours(s.workBefore);
+    against = b === h ? <>, the same as {before}</> : <>, {s.workMs < s.workBefore ? "down" : "up"} from <b>{b}</b> {before}</>;
+  }
+  return <p>{team} worked {worked} {span}{against}{against ? "," : ""} and finished {jobs}.{night}</p>;
 }
 
-const W = 320, H = 120, PAD = { l: 8, r: 8, t: 18, b: 20 };
+/** The second sentence: how often they asked you, how fast half got an answer, and how many waited more than a day. */
+function Asks({ s }: { s: TeamSummary }) {
+  if (!s.asks) return <p>They asked you nothing.</p>;
+  const one = s.asks === 1;
+  let after = null;
+  if (s.medianWaitMs !== null) {
+    const within = <>{one ? "It" : "Half"} got an answer within <b>{waitWords(s.medianWaitMs)}</b></>;
+    after = one ? <> {within}.</> : <> {within}, and {s.overDay ? <><b>{s.overDay.toLocaleString()}</b>{NBSP}waited</> : "none waited"} more than a day.</>;
+  } else if (s.overDay) {
+    if (!one) return <p>They asked you <b>{count(s.asks, "thing")}</b>, and <b>{s.overDay.toLocaleString()}</b>{NBSP}waited more than a day.</p>;
+    after = <> It has waited more than a day.</>;
+  }
+  return <p>They asked you <b>{count(s.asks, "thing")}</b>.{after}</p>;
+}
 
-/** A small chart of one number per day: bars, a line, or a step line for headcount. Drawn in SVG, scaled to fit. */
-function Chart({ title, hint, days, value, kind }: {
-  title: string; hint: string; days: TeamDayTotal[]; value: (d: TeamDayTotal) => number | null; kind: "bars" | "line" | "step";
-}) {
-  const vals = days.map(value);
-  const nums = vals.filter((v): v is number => v !== null);
-  const max = Math.max(1, ...nums);
-  const iw = W - PAD.l - PAD.r, ih = H - PAD.t - PAD.b;
-  const step = iw / days.length;
-  const x = (i: number) => PAD.l + step * i + step / 2;
-  const y = (v: number) => PAD.t + ih - (v / max) * ih;
-  const last = [...vals].reverse().find((v) => v !== null) ?? null;
-  const pts = vals.map((v, i) => (v === null ? null : [x(i), y(v)] as const)).filter((p): p is readonly [number, number] => p !== null);
-  let path = "";
-  if (kind === "step") path = pts.map(([px, py], i) => (i === 0 ? `M${PAD.l} ${py} H${px}` : `V${py} H${px}`)).join(" ") + (pts.length ? ` H${W - PAD.r}` : "");
-  if (kind === "line") path = pts.map(([px, py], i) => `${i ? "L" : "M"}${px} ${py}`).join(" ");
+/** The chart's width, the room above, between and below its two baselines, and where they sit. */
+const W = 772, UP = 96, MID = 22, DOWN = 66, BASE = UP, LOW = BASE + MID, H = LOW + DOWN + 4;
+/** The room the tallest bars leave on each side for their value and the corner labels. */
+const HEAD = 30, FOOT = 32;
+
+/**
+ * Hours worked as ink bars rising from the upper baseline, and the times they asked you as coral bars hanging from the
+ * lower one. Up to ten columns each carry their values and a label; past that only the tallest on each side does, and a
+ * few evenly spaced columns carry a date.
+ */
+function Mirror({ points, per }: { points: TeamPoint[]; per: "day" | "week" }) {
+  const n = points.length, step = W / n, dense = n <= 10;
+  const bw = dense ? Math.min(56, step * 0.72) : Math.max(2, step * 0.6);
+  const maxW = Math.max(...points.map((p) => p.workMs)), maxA = Math.max(...points.map((p) => p.asks));
+  const tallW = points.findIndex((p) => p.workMs === maxW), tallA = points.findIndex((p) => p.asks === maxA);
+  const ticks = new Set(dense ? points.map((_, i) => i) : Array.from({ length: 6 }, (_, k) => Math.round((k * (n - 1)) / 5)));
+  const short = (p: TeamPoint) => {
+    const d = dayDate(p.day);
+    return dense && per === "day" ? `${d.toLocaleDateString(undefined, { weekday: "short" })} ${d.getDate()}` : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  };
+  const when = (p: TeamPoint) => (per === "week" ? `Week of ${short(p)}` : dayDate(p.day).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }));
+  const edgeAnchor = (i: number) => (dense ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle");
+  const lx = (i: number) => { const x = step * i + (step - bw) / 2; return edgeAnchor(i) === "start" ? x : edgeAnchor(i) === "end" ? x + bw : x + bw / 2; };
+  const label = `Hours worked and times they asked you, each ${per}, from ${when(points[0])} to ${when(points[n - 1])}`;
   return (
-    <div className="an-chart">
-      <div className="an-chart-head">
-        <span><h2 className="an-h">{title}</h2><p className="an-hint">{hint}</p></span>
-        <span className="an-now num">{last === null ? "–" : one(last)}</span>
-      </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="an-svg" role="img" aria-label={`${title}: ${hint}`}>
-        <line x1={PAD.l} x2={W - PAD.r} y1={PAD.t + ih} y2={PAD.t + ih} className="an-axis" />
-        {kind === "bars" ? vals.map((v, i) => v ? (
-          <rect key={i} x={x(i) - Math.min(18, step * 0.7) / 2} width={Math.min(18, step * 0.7)} y={y(v)} height={PAD.t + ih - y(v)} rx={3} className="an-fill">
-            <title>{`${short(days[i].day)}: ${v}`}</title>
-          </rect>
-        ) : null) : null}
-        {kind === "step" && pts.length ? <path d={`${path} V${PAD.t + ih} H${PAD.l} Z`} className="an-area" /> : null}
-        {kind !== "bars" ? <path d={path} className="an-stroke" /> : null}
-        {kind === "line" ? pts.map(([px, py], i) => <circle key={i} cx={px} cy={py} r={days.length > 14 ? 1.6 : 2.6} className="an-dot" />) : null}
-        <text x={PAD.l} y={H - 5} className="an-tick">{short(days[0].day)}</text>
-        <text x={W - PAD.r} y={H - 5} className="an-tick" textAnchor="end">{days.length > 1 ? short(days[days.length - 1].day) : ""}</text>
-        <text x={PAD.l} y={11} className="an-tick">{`Most ${one(max)}`}</text>
-      </svg>
-    </div>
+    <svg viewBox={`0 0 ${W} ${H}`} className="an-svg" role="img" aria-label={label}>
+      <text className="an-tick" x={0} y={10}>Hours worked</text>
+      <text className="an-tick" x={0} y={H - 3}>Times they asked you</text>
+      <line className="an-axis" x1={0} x2={W} y1={BASE + 0.5} y2={BASE + 0.5} />
+      <line className="an-axis" x1={0} x2={W} y1={LOW - 0.5} y2={LOW - 0.5} />
+      {points.map((p, i) => {
+        const x = step * i + (step - bw) / 2;
+        const hh = p.workMs ? Math.max(2, (p.workMs / maxW) * (UP - HEAD)) : 0, ah = p.asks ? Math.max(2, (p.asks / maxA) * (DOWN - FOOT)) : 0;
+        return (
+          <g key={p.day}>
+            {hh ? <rect className="an-ink" x={x} y={BASE - hh} width={bw} height={hh} rx={dense ? 3 : 1}><title>{`${when(p)}: ${hours(p.workMs)} h worked`}</title></rect> : null}
+            {hh && (dense || i === tallW) ? <text className="an-val" x={lx(i)} y={BASE - hh - 6} textAnchor={edgeAnchor(i)}>{`${hours(p.workMs)} h`}</text> : null}
+            {ticks.has(i) ? <text className="an-tick" x={lx(i)} y={BASE + 15} textAnchor={edgeAnchor(i)}>{short(p)}</text> : null}
+            {ah ? <rect className="an-you" x={x} y={LOW} width={bw} height={ah} rx={dense ? 3 : 1}><title>{`${when(p)}: asked you ${count(p.asks, "time")}`}</title></rect> : null}
+            {ah && (dense || i === tallA) ? <text className="an-val" x={lx(i)} y={LOW + ah + 14} textAnchor={edgeAnchor(i)}>{p.asks.toLocaleString()}</text> : null}
+          </g>
+        );
+      })}
+    </svg>
   );
 }

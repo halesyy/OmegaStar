@@ -213,7 +213,8 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// The Analytics page's numbers: everyone hired, finished runs per employee per local day, and skill changes per day.
+    /// The Analytics page's numbers: everyone hired, finished runs per employee per local day, every card that asked you
+    /// something, and each employee's latest weekly number. A run's night is judged by when it was made, as its day is.
     pub fn team_stats(&self) -> Result<TeamStats> {
         let mut st = self.conn.prepare("SELECT data, departed_at FROM employees")?;
         let staff = readable(
@@ -226,18 +227,46 @@ impl Store {
         )?;
         let mut st = self.conn.prepare(concat!(
             "SELECT date(created_at / 1000, 'unixepoch', 'localtime') AS d, employee_id, COUNT(*),
-               TOTAL(COALESCE(json_extract(data, '$.durationMs'), 0)), SUM(COALESCE(json_array_length(data, '$.cards'), 0))
+               TOTAL(COALESCE(json_extract(data, '$.durationMs'), 0)),
+               TOTAL(CASE WHEN CAST(strftime('%H', created_at / 1000, 'unixepoch', 'localtime') AS INTEGER) NOT BETWEEN 7 AND 21
+                 THEN COALESCE(json_extract(data, '$.durationMs'), 0) ELSE 0 END)
              FROM runs WHERE state NOT IN ", active!(), " AND json_valid(data)
              GROUP BY d, employee_id ORDER BY d",
         ))?;
         let days = st
             .query_map([], |r| {
-                Ok(TeamDay { day: r.get(0)?, employee_id: r.get(1)?, runs: r.get(2)?, work_ms: r.get::<_, f64>(3)? as i64, cards: r.get(4)? })
+                Ok(TeamDay { day: r.get(0)?, employee_id: r.get(1)?, runs: r.get(2)?, work_ms: r.get::<_, f64>(3)? as i64, night_ms: r.get::<_, f64>(4)? as i64 })
             })?
             .collect::<rusqlite::Result<_>>()?;
-        let mut st = self.conn.prepare("SELECT date(at / 1000, 'unixepoch', 'localtime') AS d, COUNT(*) FROM skill_revisions GROUP BY d ORDER BY d")?;
-        let learned = st.query_map([], |r| Ok(DayCount { day: r.get(0)?, n: r.get(1)? }))?.collect::<rusqlite::Result<_>>()?;
-        Ok(TeamStats { staff, days, learned })
+        let mut st = self.conn.prepare(
+            "SELECT COALESCE(json_extract(r.data, '$.endedAt'), json_extract(r.data, '$.createdAt')) AS at,
+               json_extract(c.value, '$.answer.at'), json_extract(c.value, '$.answer.how')
+             FROM runs r, json_each(r.data, '$.cards') c
+             WHERE json_valid(r.data) AND json_extract(c.value, '$.ask.type') <> 'news'
+             ORDER BY at, r.rowid, c.key",
+        )?;
+        let time = |s: Option<String>| s.and_then(|s| s.parse::<Ts>().ok());
+        let asks = st
+            .query_map([], |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, Option<String>>(2)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|(at, answered, how)| {
+                let yours = matches!(how.as_deref(), Some("tapped" | "typed" | "dismissed" | "rejected"));
+                Some(TeamAsk { at: time(at)?, answered_at: if yours { time(answered) } else { None }, open: how.is_none() })
+            })
+            .collect();
+        // SQLite takes the other columns from the row MAX picked, so each is the newest review's.
+        let mut st = self.conn.prepare(
+            "SELECT employee_id, MAX(created_at), json_extract(data, '$.score.metric'), json_extract(data, '$.score.value'),
+               json_extract(data, '$.score.change')
+             FROM runs WHERE json_valid(data) AND json_type(data, '$.score') = 'object'
+             GROUP BY employee_id",
+        )?;
+        let text = |r: &Row, i: usize| r.get::<_, Option<String>>(i).map(Option::unwrap_or_default);
+        let numbers = st
+            .query_map([], |r| Ok(TeamNumber { employee_id: r.get(0)?, metric: text(r, 2)?, value: text(r, 3)?, change: text(r, 4)? }))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(TeamStats { staff, days, asks, numbers })
     }
 
     /// The newest `limit` runs of the employees still here whose instruction, report or a card's question

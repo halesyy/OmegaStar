@@ -28,6 +28,15 @@ export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n ==
 /** The text with its first letter a capital: "due today" reads "Due today". */
 export const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** A weekly change in words: "+31" is "up 31", "-3" is "down 3". */
+export function changeWords(change: string): string {
+  const c = change.trim();
+  if (!c || /^[+±-]?0+(\.0+)?$/.test(c)) return "no change";
+  if (c.startsWith("+")) return `up ${c.slice(1)}`;
+  if (c.startsWith("-") || c.startsWith("−")) return `down ${c.slice(1)}`;
+  return c;
+}
+
 export function relTime(isoStr: string | null, now = Date.now()): string {
   if (!isoStr) return "";
   const t = Date.parse(isoStr);

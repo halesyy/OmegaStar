@@ -488,12 +488,13 @@ export function previewTransport(): Transport {
         }),
       };
     },
-    // An invented history: each employee works most days from their hire, a little more as weeks pass, and raises
-    // fewer cards as their skills grow. Stable from load to load (no randomness).
+    // An invented history: each employee works most days from their hire, a little more as weeks pass, and asks you
+    // less as their skills grow. Stable from load to load (no randomness).
     team_stats: () => {
-      const today = new Date();
+      const now = Date.now(), today = new Date();
       const days: TeamStats["days"] = [];
-      const learned = new Map<string, number>();
+      const asks: TeamStats["asks"] = [];
+      let k = 0;
       w.employees.forEach((e, ei) => {
         const hired = new Date(e.hiredAt);
         for (let d = new Date(hired.getFullYear(), hired.getMonth(), hired.getDate()), i = 0; d <= today; d.setDate(d.getDate() + 1), i++) {
@@ -501,15 +502,26 @@ export function previewTransport(): Transport {
           const weekend = d.getDay() === 0 || d.getDay() === 6;
           const runs = Math.max(0, Math.round((weekend ? 1 : 4) + i / 12 + wobble));
           if (!runs) continue;
-          const cards = Math.max(0, Math.round(runs / (2 + i / 10)));
-          days.push({ day: dayKey(d), employeeId: e.id, runs, workMs: runs * (6 + ((ei + i) % 9)) * 60_000, cards });
-          if ((i + ei) % 3 === 0) learned.set(dayKey(d), (learned.get(dayKey(d)) ?? 0) + 1 + ((i + ei) % 4));
+          const workMs = runs * (6 + ((ei + i) % 9)) * 60_000;
+          days.push({ day: dayKey(d), employeeId: e.id, runs, workMs, nightMs: Math.round(workMs * [0.1, 0.3, 0.2, 0.4][(ei + i) % 4]) });
+          for (let c = Math.round(runs / (2 + i / 10)); c > 0; c--, k++) {
+            const at = d.getTime() + (8 + ((ei * 5 + c * 3) % 11)) * 3_600_000 + ((k * 17) % 60) * 60_000;
+            if (at > now) continue;
+            const wait = k % 23 === 0 ? (26 + (k % 20)) * 3_600_000 : k % 11 === 0 ? 141 * 60_000 : (2 + ((k * 7) % 18)) * 60_000;
+            const replaced = k % 19 === 0, answered = !replaced && at + wait <= now;
+            asks.push({ at: iso(at), answeredAt: answered ? iso(at + wait) : null, open: !replaced && !answered });
+          }
         }
+      });
+      const numbers = w.employees.flatMap((e) => {
+        const score = w.runs.filter((r) => r.employeeId === e.id && r.score).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.score;
+        return score ? [{ employeeId: e.id, metric: score.metric, value: score.value, change: score.change }] : [];
       });
       return {
         staff: w.employees.map((e) => ({ employeeId: e.id, name: e.name, hiredAt: e.hiredAt, departedAt: null })),
         days: days.sort((a, b) => a.day.localeCompare(b.day)),
-        learned: [...learned].map(([day, n]) => ({ day, n })).sort((a, b) => a.day.localeCompare(b.day)),
+        asks: asks.sort((a, b) => a.at.localeCompare(b.at)),
+        numbers,
       };
     },
     run_detail: ({ runId }) => {

@@ -294,11 +294,17 @@ export type RunEvent =
 export type TaskOutcome = "done" | "failed" | "stopped";
 export type RunDetail = { run: Run; events: RunEvent[]; children: Run[] };
 
-/** How the team grew and what it got done, per local day (`YYYY-MM-DD`), for the Analytics page. */
+/** What the team got done and what it asked of you, all time, for the Analytics page to slice by range. */
 export type TeamStats = {
   staff: { employeeId: string; name: string; hiredAt: string; departedAt: string | null }[];
-  days: { day: string; employeeId: string; runs: number; workMs: number; cards: number }[];
-  learned: { day: string; n: number }[];
+  /** One row per employee per local day (`YYYY-MM-DD`) they finished runs. nightMs: the part of workMs from runs that
+   *  started between 10 pm and 7 am local. */
+  days: { day: string; employeeId: string; runs: number; workMs: number; nightMs: number }[];
+  /** Every card that asked you something (never news): when its run ended (or began, while it works), when you answered,
+   *  and whether it still waits. */
+  asks: { at: string; answeredAt: string | null; open: boolean }[];
+  /** Each employee's latest weekly number, from their newest weekly review that reported one. */
+  numbers: { employeeId: string; metric: string; value: string; change: string }[];
 };
 
 /** What runs did and used since a time. Usage (costUsd) is what runs cost at API list price, as Claude Code reckons it. */
