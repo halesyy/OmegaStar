@@ -245,7 +245,7 @@ export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot
   const answerEl = answer();
   const split = ask.type === "task" || (ask.type === "question" && !aimer);
   return (
-    <div className="cv-card" onClick={(ev) => ev.stopPropagation()}>
+    <div className="cv-card">
       {about}
       {proposal?.type === "companyLine" ? (
         <div className="card-proposal">
