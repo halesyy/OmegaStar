@@ -1,6 +1,8 @@
-import { useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { DEFAULT_AVATARS } from "../lib/defaultAvatars";
 import { toast } from "../lib/toasts";
 import { Avatar } from "./ui";
+import "./ImageField.css";
 
 /** Side of a display image, in pixels: sharp at the largest avatar (56px) on a 2x screen. */
 const IMAGE_SIDE = 128;
@@ -26,23 +28,57 @@ export function ImageField({ name, hue, image, person = false, you = false, onCh
   name: string; hue: number; image: string | null | undefined; person?: boolean; you?: boolean; onChange: (image: string | null) => void;
 }) {
   const picker = useRef<HTMLInputElement>(null);
+  const disclosure = useRef<HTMLButtonElement>(null);
+  const request = useRef(0);
+  const choicesId = useId();
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => () => { request.current++; }, [image]);
+
+  const change = (value: string | null) => {
+    request.current++;
+    onChange(value);
+  };
+  const close = () => {
+    setExpanded(false);
+    disclosure.current?.focus();
+  };
   const pick = async (file: File | undefined) => {
     if (!file) return;
+    const current = ++request.current;
     try {
-      onChange(await displayImage(file));
+      const value = await displayImage(file);
+      if (current === request.current) onChange(value);
     } catch {
-      toast("That file is not a picture Omega Star can read.", "err");
+      if (current === request.current) toast("That file is not a picture Omega Star can read.", "err");
     }
   };
   return (
-    <div className="field">
+    <div className="field" onKeyDown={(event) => {
+      if (expanded && event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }
+    }}>
       <span className="field-label">Display image</span>
-      <div className="row" style={{ gap: 12 }}>
+      <div className="row image-field-controls">
         <Avatar name={name} hue={hue} image={image} size={40} person={person} you={you} />
-        <button type="button" className="btn btn-sm" onClick={() => picker.current?.click()}>{image ? "Change image" : "Choose image"}</button>
-        {image ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange(null)}>Remove</button> : null}
+        <button ref={disclosure} type="button" className="btn btn-sm" aria-expanded={expanded} aria-controls={choicesId} onClick={() => setExpanded(!expanded)}>Choose avatar</button>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => picker.current?.click()}>Upload image</button>
+        {image ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => change(null)}>Remove</button> : null}
         <input ref={picker} type="file" accept="image/*" hidden onChange={(ev) => { void pick(ev.target.files?.[0]); ev.target.value = ""; }} />
       </div>
+      {expanded ? (
+        <div id={choicesId} className="image-field-choices" role="group" aria-label="Default avatars">
+          {DEFAULT_AVATARS.map((avatar) => (
+            <button key={avatar.id} type="button" className="image-field-choice" aria-label={`Use ${avatar.name} avatar`} aria-pressed={image === avatar.image} title={avatar.name}
+              onClick={() => { change(avatar.image); close(); }}>
+              <img src={avatar.image} alt="" width={48} height={48} draggable={false} />
+            </button>
+          ))}
+        </div>
+      ) : null}
       <span className="field-help">Shown in place of {you ? "your" : "their"} initials wherever {you ? "you appear" : "they appear"}.</span>
     </div>
   );
