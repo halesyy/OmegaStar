@@ -1,0 +1,44 @@
+/* The reward for a message dictated with Vibe Typer (VibeReward.ts): the butterflies' layer over the conversation, the
+   butterfly itself, and "Said with Vibe Typer" under the message. The wings take the mark's colours (--w0 to --w2),
+   lighter on dark; a kaleidoscope also flies in five more colours (--vr-s1 to --vr-s5), deeper on light. */
+.vr-sky {
+  position: fixed; z-index: 20; overflow: hidden; pointer-events: none;
+  --w0: #7c3aed; --w1: #8b5cf6; --w2: #a78bfa;
+  --vr-s1: #f0532c; --vr-s2: #e08a00; --vr-s3: #0f9d4f; --vr-s4: #1745d6; --vr-s5: #7c3aed;
+}
+:root[data-theme="dark"] .vr-sky {
+  --w0: #8b5cf6; --w1: #a78bfa; --w2: #c4b5fd;
+  --vr-s1: #ff7452; --vr-s2: #f2a33a; --vr-s3: #2fc775; --vr-s4: #6b93ff; --vr-s5: #a78bfa;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .vr-sky {
+    --w0: #8b5cf6; --w1: #a78bfa; --w2: #c4b5fd;
+    --vr-s1: #ff7452; --vr-s2: #f2a33a; --vr-s3: #2fc775; --vr-s4: #6b93ff; --vr-s5: #a78bfa;
+  }
+}
+.vr-defs { position: absolute; width: 0; height: 0; }
+.vr-trail { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+/* Each wing is its own layer, hinged on the body and folding in depth. In flight they beat; a glide beats three times,
+   holds them open, and beats again. */
+.vr-fly { position: absolute; left: 0; top: 0; opacity: 0; will-change: transform, opacity; }
+.vr-pair { display: flex; width: 100%; height: 100%; perspective: var(--depth); }
+.vr-spine { position: absolute; left: 50%; top: 0; width: 2.4%; height: 100%; transform: translateX(-50%); }
+.vr-w { flex: none; width: 50%; height: 100%; will-change: transform; }
+.vr-w svg { display: block; width: 100%; height: 100%; }
+.vr-l { transform-origin: 100% 50%; animation: vr-beat-l 200ms ease-in-out infinite alternate; }
+.vr-r { transform-origin: 0 50%; animation: vr-beat-r 200ms ease-in-out infinite alternate; }
+.vr-glide .vr-l { animation: vr-glide-l 1500ms ease-in-out infinite; }
+.vr-glide .vr-r { animation: vr-glide-r 1500ms ease-in-out infinite; }
+@keyframes vr-beat-l { from { transform: rotateY(12deg); } to { transform: rotateY(64deg); } }
+@keyframes vr-beat-r { from { transform: rotateY(-12deg); } to { transform: rotateY(-64deg); } }
+@keyframes vr-glide-l { 0%, 20%, 40% { transform: rotateY(12deg); } 10%, 30%, 50% { transform: rotateY(64deg); } 64% { transform: rotateY(4deg); } 100% { transform: rotateY(12deg); } }
+@keyframes vr-glide-r { 0%, 20%, 40% { transform: rotateY(-12deg); } 10%, 30%, 50% { transform: rotateY(-64deg); } 64% { transform: rotateY(-4deg); } 100% { transform: rotateY(-12deg); } }
+
+/* Right under the message, out of the way of everything: it takes no room and no clicks. */
+.vr-said {
+  position: absolute; top: calc(100% + 8px); right: 0; display: inline-flex; align-items: center; gap: 5px; height: 20px;
+  font-size: 13px; font-weight: 400; line-height: 20px; color: var(--muted); white-space: nowrap; pointer-events: none; user-select: none;
+}
+.vr-said img { flex: none; width: 14px; height: 14px; }
+.vr-said b { font-weight: 600; color: var(--ink); }

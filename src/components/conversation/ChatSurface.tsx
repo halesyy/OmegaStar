@@ -10,6 +10,7 @@ import { ms, reducedMotion } from "../../lib/motion";
 import { Icon } from "../Icon";
 import { ConfirmButton, ErrorNote } from "../ui";
 import type { AimTarget } from "./CardView";
+import { vibeReward } from "./VibeReward";
 import "./Chat.css";
 
 const MAX_FILES = 10;
@@ -136,6 +137,13 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
 
   useEffect(() => { setDraft(draftKey, text); }, [draftKey, text]);
 
+  // When the words in the composer began: as the field went from empty to written, or when a kept draft came back.
+  const began = useRef<{ key: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!text) began.current = null;
+    else if (began.current?.key !== draftKey) began.current = { key: draftKey, at: Date.now() };
+  }, [draftKey, text]);
+
   // The conversation's menu: words to start from, or the file picker.
   useComposerAsks(draftKey, (ask) => {
     if (ask.type === "attach") picker.current?.click();
@@ -257,6 +265,7 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
     setSending(true);
     setSendError(null);
     stick.current = true;
+    const sent = vibeReward(body, began.current?.at ?? null);
     try {
       const attachments = await Promise.all(files.map((f) => toAttachment(f.file)));
       await to(body, attachments);
@@ -264,6 +273,7 @@ export const ChatSurface = forwardRef<ChatSurfaceHandle, {
       setDraft(draftKey, "");
       setText("");
       clearFiles();
+      sent();
     } catch (err) {
       setSendError(errorMessage(err));
     } finally {
