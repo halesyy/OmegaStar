@@ -747,6 +747,8 @@ export function previewTransport(): Transport {
       emit("usage:updated", w.usage);
       return w.company!;
     },
+    // With `dictated=1` every message was just dictated with Vibe Typer, so sending one plays its reward.
+    last_dictation: () => (params.get("dictated") === "1" ? Date.now() : null),
     check_update: () => w.update,
     // A real update restarts the app, so it never answers.
     install_update: () => (state === "update-failed" ? Promise.reject(UPDATE_ERROR) : never<null>()),
