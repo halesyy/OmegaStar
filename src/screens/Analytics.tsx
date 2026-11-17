@@ -132,7 +132,8 @@ function Asks({ s }: { s: TeamSummary }) {
     const within = <>{one ? "It" : "Half"} got an answer within <b>{waitWords(s.medianWaitMs)}</b></>;
     after = one ? <> {within}.</> : <> {within}, and {s.overDay ? <><b>{s.overDay.toLocaleString()}</b>{NBSP}waited</> : "none waited"} more than a day.</>;
   } else if (s.overDay) {
-    after = one ? <> It has waited more than a day.</> : <> <b>{s.overDay.toLocaleString()}</b>{NBSP}waited more than a day.</>;
+    if (!one) return <p>They asked you <b>{count(s.asks, "thing")}</b>, and <b>{s.overDay.toLocaleString()}</b>{NBSP}waited more than a day.</p>;
+    after = <> It has waited more than a day.</>;
   }
   return <p>They asked you <b>{count(s.asks, "thing")}</b>.{after}</p>;
 }
