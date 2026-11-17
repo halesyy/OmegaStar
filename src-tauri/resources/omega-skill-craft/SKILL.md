@@ -25,7 +25,7 @@ lives in names and pointers:
   wait in `imports/`, which Claude Code does not load, until an Organize run folds them into your family.
 
 The folder name is the skill name, and the frontmatter `name` matches it exactly. `omega-skill-craft`
-is managed by Omega Star. Never edit it.
+is managed by OmegaStar. Never edit it.
 
 ## Writing a skill
 
@@ -62,7 +62,7 @@ Within your skills:
 - **A rule you were taught** (a preference, a correction, a threshold, who to escalate to) goes in a
   `## Rules` section of the leaf it governs, or in your role skill's `## Standing preferences` when it
   applies everywhere. One bullet per rule, ending `(taught YYYY-MM-DD)`. Never remove or reword one on
-  your own: only with the say-so of the person who taught it. Omega Star puts back any taught rule that
+  your own: only with the say-so of the person who taught it. OmegaStar puts back any taught rule that
   goes missing.
 - **A fact that goes stale** (an id, a date, a version, an owner, "X cannot do Y", how a system
   currently behaves) goes in `facts.md` beside the `SKILL.md`, each line ending `(checked YYYY-MM-DD)`
@@ -103,7 +103,7 @@ Before you write a rule:
 
 Never leave "verify later", "TODO", "not yet confirmed" or "check next run" as a sentence in a skill or
 a notes file: nothing reads it back, so it is never done. Either settle it now, or call the `omega` tool
-`check_later(what, how, inDays)`. Omega Star tracks it and brings it back when it is due. When you look
+`check_later(what, how, inDays)`. OmegaStar tracks it and brings it back when it is due. When you look
 into one, close it with `check_done(id, result)` and write what you found into its home, dated. If only
 the person you work for can settle it, put it to them on a card (`notify`).
 
@@ -126,7 +126,7 @@ the person you work for can settle it, put it to them on a card (`notify`).
 
 ## Tidy runs
 
-Every so often Omega Star measures your skills and notes (sizes, broken pointers, unfinished notes,
+Every so often OmegaStar measures your skills and notes (sizes, broken pointers, unfinished notes,
 diaries that repeat) and starts a tidy run when something needs it. A check that comes due starts a run of its own. The person you
 work for can also ask for one. A tidy settles unfinished notes, confirms that what they told you since
 the last tidy is written down, settles rules that contradict the company page or each other, and brings

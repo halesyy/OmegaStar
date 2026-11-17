@@ -1,6 +1,6 @@
 # Browser preview
 
-Every screen of Omega Star in a plain browser, without Tauri, so it can be seen and screenshotted. Dev only.
+Every screen of OmegaStar in a plain browser, without Tauri, so it can be seen and screenshotted. Dev only.
 
 `npm run dev`, then open `http://localhost:1420/`. Outside Tauri, `src/api/client.ts` loads `transport.ts` here instead
 of the desktop bridge. That branch sits behind `import.meta.env.DEV`, so `npm run build` drops it, and inside Tauri

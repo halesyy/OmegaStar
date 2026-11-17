@@ -1,6 +1,6 @@
 //! Skill health: what can be noticed about an employee's skills and notes without a model.
 //!
-//! Omega Star measures; the employee judges. Everything here is a fact about files (sizes, links,
+//! OmegaStar measures; the employee judges. Everything here is a fact about files (sizes, links,
 //! repeated lines, edit counts), so it costs nothing to run after every run. A finding is a reason to
 //! look, never an order: a long runbook may be one procedure that belongs together, and the tidy that
 //! reads these findings decides.

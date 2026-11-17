@@ -619,7 +619,7 @@ pub fn retire_skill(skills_dir: &Path, imports: &Path, slug: &str, name: &str, a
 pub fn promote(skills_dir: &Path, skill: &str, config_dir: &Path, catalog: &[SkillInfo]) -> Result<SkillInfo> {
     let src = resolve(skills_dir, skill, "SKILL.md")?;
     if skill == CRAFT_NAME {
-        return Err(AppError::invalid("omega-skill-craft is managed by Omega Star"));
+        return Err(AppError::invalid("omega-skill-craft is managed by OmegaStar"));
     }
     let Some((name, _)) = catalog::read_skill(src.parent().unwrap()) else {
         return Err(AppError::not_found(format!("skill '{skill}' has no SKILL.md")));

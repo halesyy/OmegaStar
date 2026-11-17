@@ -98,7 +98,7 @@ export function BackupsGroup({ s, change, saves, onOpenData }: { s: AppSettings;
   return (
     <Group
       title="Data and backups"
-      foot={<p className="set-aside"><span className="set-aside-title">Restoring</span> Quit Omega Star from the tray, replace everything in the office folder with the contents of a backup zip, then start Omega Star again.</p>}
+      foot={<p className="set-aside"><span className="set-aside-title">Restoring</span> Quit OmegaStar from the tray, replace everything in the office folder with the contents of a backup zip, then start OmegaStar again.</p>}
     >
       <Row title="Office folder" desc={<span className="mono">{s.dataDir}</span>}>
         <button className="btn" onClick={onOpenData}><Icon name="folder" size={13} /> Open</button>

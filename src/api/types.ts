@@ -18,7 +18,7 @@ export type Employee = {
   clearance: Clearance; allowRules: string[];
   model: string | null; effort: Effort | null;
   browser: boolean;                         // may drive your Chrome (Claude in Chrome); on unless you turn it off
-  autoTidy: boolean;                        // tidies their own skills and notes when Omega Star finds something to tidy; on unless you turn it off
+  autoTidy: boolean;                        // tidies their own skills and notes when OmegaStar finds something to tidy; on unless you turn it off
   workspaces: string[]; hue: number;        // 0-359, avatar colour
   image?: string | null;                    // display image as a data: URL, shown in place of their initials
   chatSession: string;                      // the session of the one long chat older builds kept; nothing reads it
@@ -131,7 +131,7 @@ export type Schedule = {
   enabled: boolean;
   quiet: boolean;            // reports reach you only when the run calls notify or fails
   model: string | null; effort: Effort | null;   // null: the employee's own
-  review?: boolean;          // the weekly review Omega Star seeds for every employee
+  review?: boolean;          // the weekly review OmegaStar seeds for every employee
   activeHours: boolean;      // only during business hours (watch.hours): a time outside them is skipped
   nextFire: string | null;
 };
@@ -150,11 +150,11 @@ export type RunKind =
   | { type: "nudge"; requestId: string; personId: string }
   | { type: "unanswered"; requestId: string; personId: string }
   | { type: "organize"; imported: ImportedSkill[]; settled: boolean }
-  | { type: "reply"; toRunId: string; label: string; task: boolean; card: boolean }    // your reply to a report or in a conversation (task); label = what it was; card: Omega Star wrote it from your answer on a card
+  | { type: "reply"; toRunId: string; label: string; task: boolean; card: boolean }    // your reply to a report or in a conversation (task); label = what it was; card: OmegaStar wrote it from your answer on a card
   | { type: "task"; label: string; from: string | null; context: string }   // a conversation you started; from and context: an older build's chat it began in
   | { type: "hireDecided"; proposalId: string; approved: boolean }   // you approved or declined their hire proposal
   | { type: "tidy"; reason: TidyReason; signature: string[]; plan: string | null };   // they tidy their own skills and notes
-/** auto: Omega Star saw something to tidy. manual: you asked. approved: you approved the changes an earlier tidy proposed. */
+/** auto: OmegaStar saw something to tidy. manual: you asked. approved: you approved the changes an earlier tidy proposed. */
 export type TidyReason = "auto" | "manual" | "approved";
 /** A catalog skill copied into an employee's imports/ folder. */
 export type ImportedSkill = { id: string; name: string };
@@ -164,7 +164,7 @@ export type StagedImport = { name: string; description: string; files: string[] 
 export type OriginalSkill = {
   id: string; name: string; source: SkillSource;
   present: boolean;            // still in your Claude Code skills
-  removable: boolean;          // Omega Star can move it to the Recycle Bin (user skills only)
+  removable: boolean;          // OmegaStar can move it to the Recycle Bin (user skills only)
   notes: string[];             // why removing it could hurt
 };
 export type RunState = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "lost";
@@ -210,13 +210,13 @@ export type CardReply =
   | { type: "later"; until: string } | { type: "cant" } | { type: "seen" };
 export type Run = {
   id: string; employeeId: string; kind: RunKind; prompt: string;
-  omegaWrote: boolean;         // Omega Star wrote the prompt (an approval, a returned report), not you
+  omegaWrote: boolean;         // OmegaStar wrote the prompt (an approval, a returned report), not you
   state: RunState;
   createdAt: string; startedAt: string | null; endedAt: string | null;
   turns: number | null; durationMs: number | null;
   summary: string | null; error: string | null; denials: Denial[];
   skillChanges: SkillChange[];
-  needsYou: string[];          // every card's question, and what Omega Star flagged
+  needsYou: string[];          // every card's question, and what OmegaStar flagged
   cards: Card[];               // what the run asked you, each with your answer
   score: Score | null;         // a weekly review's number, from report_number
   archivedAt: string | null;   // archived reports leave the Inbox for the Archive
@@ -232,7 +232,7 @@ export type Run = {
   attachments: string[];       // file names you attached to a message
   build: RunBuild | null;      // the build that ran it, and the Claude Code organisation around it
   limitRetries: number;        // times it went back to the queue after the usage limit
-  limited: boolean;            // it failed on the usage limit, which Omega Star waits out itself
+  limited: boolean;            // it failed on the usage limit, which OmegaStar waits out itself
   contextTokens: number | null; // the context size after its last top-level message
   costUsd: number | null;      // what it cost in US dollars as Claude Code reckons it, over all its attempts; null when unknown
 };
@@ -321,7 +321,7 @@ export type RoutineUsage = {
 /** A model Claude Code offers: the exact ID `claude --model` takes, and the name its own picker shows. */
 export type ModelOption = { id: string; name: string };
 export type Account = { loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null };
-/** How this copy of Omega Star was built: a published release, a test build, or a developer's own. */
+/** How this copy of OmegaStar was built: a published release, a test build, or a developer's own. */
 export type BuildChannel = "release" | "dogfood" | "dev";
 export type Build = { version: string; commit: string; channel: BuildChannel };
 export type RunBuild = Build & { claude: string | null; org: string | null };
@@ -491,7 +491,7 @@ export type Commands = {
   usage_limits: { args: Record<string, never>; ret: UsageLimits };
   refresh_usage: { args: Record<string, never>; ret: UsageLimits };
   use_signed_in_account: { args: Record<string, never>; ret: Company };
-  /** When Vibe Typer last put dictated words into Omega Star (milliseconds since the epoch); null when it never has or cannot be read. */
+  /** When Vibe Typer last put dictated words into OmegaStar (milliseconds since the epoch); null when it never has or cannot be read. */
   last_dictation: { args: Record<string, never>; ret: number | null };
   check_update: { args: Record<string, never>; ret: string | null };
   install_update: { args: Record<string, never>; ret: null };

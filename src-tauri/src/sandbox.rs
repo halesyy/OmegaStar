@@ -1,4 +1,4 @@
-//! Test copies of Omega Star beside the one you work in. Two guards:
+//! Test copies of OmegaStar beside the one you work in. Two guards:
 //!
 //! - Only a release build opens the release office. A dev or dogfood build pointed at it (OMEGASTAR_DATA_DIR, a
 //!   symlink, a different case) refuses to start, since an older build that saves a row drops the fields a newer

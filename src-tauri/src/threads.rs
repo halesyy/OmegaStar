@@ -117,8 +117,8 @@ pub fn asks_you(t: &Thread) -> bool {
         || (blocked(last) && !retrying)
 }
 
-/// The thread's newest finished run broke for a reason you can act on: not the usage limit, which Omega
-/// Star waits out and retries itself.
+/// The thread's newest finished run broke for a reason you can act on: not the usage limit, which OmegaStar
+/// waits out and retries itself.
 pub fn broken(t: &Thread) -> bool {
     let last = latest_finished(t);
     broke(last) && !last.limited
@@ -325,7 +325,7 @@ fn going_on(t: &Thread) -> bool {
 }
 
 /// A conversation you are in: one going on (`going_on`) that you started (an older build's chat message an
-/// answer came back into too) or typed into. Turns Omega Star wrote from a tap (a card's answer, an approval)
+/// answer came back into too) or typed into. Turns OmegaStar wrote from a tap (a card's answer, an approval)
 /// alone do not make one, nor do questions you asked about a card (`Run::about_card`).
 pub fn talking(t: &Thread) -> bool {
     going_on(t) && (matches!(t.root.kind, RunKind::Task { .. } | RunKind::Chat) || t.replies.iter().any(|r| !r.omega_wrote && !r.about_card))
@@ -547,7 +547,7 @@ mod tests {
         r.cards = vec![card];
         assert!(!asks_you(&t(&r)), "an answered card asks nothing, though its message stays");
         r.needs_you.push("The tidy dropped a rule.".into());
-        assert!(asks_you(&t(&r)), "a flag Omega Star raised");
+        assert!(asks_you(&t(&r)), "a flag OmegaStar raised");
         r.needs_you.truncate(1);
         r.denials = vec![Denial { tool: "Bash".into(), brief: "ls".into(), suggested_rule: "Bash(ls:*)".into() }];
         assert!(asks_you(&t(&r)));

@@ -52,7 +52,7 @@ pub struct Schedule {
     pub model: Option<String>,
     #[serde(default)]
     pub effort: Option<Effort>,
-    /// The weekly review Omega Star seeds for every employee.
+    /// The weekly review OmegaStar seeds for every employee.
     #[serde(default)]
     pub review: bool,
     /// Runs only during business hours (`WatchSettings::hours`): a slot outside them is skipped, not caught up.

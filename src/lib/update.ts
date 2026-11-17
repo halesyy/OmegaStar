@@ -1,4 +1,4 @@
-// Whether a newer Omega Star is out, shared by the sidebar's update card and Settings: checked when the app
+// Whether a newer OmegaStar is out, shared by the sidebar's update card and Settings: checked when the app
 // opens, every hour after, and whenever you ask.
 import { call, errorMessage } from "../api/client";
 import { createStore, useStore } from "./store";

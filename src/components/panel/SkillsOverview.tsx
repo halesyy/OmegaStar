@@ -117,7 +117,7 @@ export function SkillsOverview({ e, skills, history, runs, staged, health, runBy
             )}
           </div>
           {managed.map((s) => (
-            <button key={s.name} className="tree-managed" onClick={() => onOpenFile(s.name, "SKILL.md")} title="Omega Star rewrites this before every run">
+            <button key={s.name} className="tree-managed" onClick={() => onOpenFile(s.name, "SKILL.md")} title="OmegaStar rewrites this before every run">
               <Icon name="lock" size={12} />
               <span>How {name} writes skills</span>
               <span className="mono">{s.name}</span>

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs this checkout (any git worktree) as a test copy of Omega Star, beside the one you work in and beside other
+# Runs this checkout (any git worktree) as a test copy of OmegaStar, beside the one you work in and beside other
 # test copies, each with its own name, office folder, app id and dev server port.
 #
 #   scripts/side-by-side.sh [name] [--copy-live]
@@ -47,5 +47,5 @@ fi
 export OMEGA_CHANNEL=dev
 export OMEGASTAR_DATA_DIR="$data"
 export OMEGA_DEV_PORT="$port"
-echo "Starting Omega Star ($name) on port $port with its office in $data"
+echo "Starting OmegaStar ($name) on port $port with its office in $data"
 exec npx tauri dev --config "$config"

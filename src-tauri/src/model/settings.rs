@@ -146,7 +146,7 @@ impl ProxySettings {
     }
 }
 
-/// How Omega Star watches requests to people for replies.
+/// How OmegaStar watches requests to people for replies.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct WatchSettings {

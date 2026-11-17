@@ -47,7 +47,7 @@ impl Store {
             .optional()?)
     }
 
-    /// Open requests Omega Star is watching for a reply, oldest first.
+    /// Open requests OmegaStar is watching for a reply, oldest first.
     pub fn watched_requests(&self) -> Result<Vec<HumanRequest>> {
         self.requests_where("WHERE state = 'open' AND json_valid(data) AND json_extract(data, '$.delivery.watch.phase.type') = 'watching'", &[])
     }

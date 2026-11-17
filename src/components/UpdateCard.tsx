@@ -75,7 +75,7 @@ export function UpdateCard() {
       <button
         className={`update-mini ${armed ? "update-mini-armed" : ""}`} disabled={installing} data-tip={tip}
         onClick={working && !installing && !armed ? () => setArmed(true) : install}
-        aria-label={armed ? "Restarting stops work in progress. Press again to restart and update" : `Update Omega Star to ${version}`}
+        aria-label={armed ? "Restarting stops work in progress. Press again to restart and update" : `Update OmegaStar to ${version}`}
       >
         <Icon name="refresh" size={15} />
       </button>

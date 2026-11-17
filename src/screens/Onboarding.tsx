@@ -354,7 +354,7 @@ export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: 
     const next = ready ? companyRef.current : [...document.querySelectorAll<HTMLButtonElement>(".ob-check")].find((b) => !b.closest("[inert]"));
     next?.focus();
   }, [found, ready]);
-  // While something is missing, coming back to Omega Star (from the terminal or the browser sign-in) checks again.
+  // While something is missing, coming back to OmegaStar (from the terminal or the browser sign-in) checks again.
   useEffect(() => {
     if (ready) return;
     const again = () => void recheck();
@@ -503,7 +503,7 @@ export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: 
           {/* The title and its one-line intro hold still; only the form under them scrolls. */}
           <div className="ob-top">
             <PageHeader title="Set up your company" />
-            <p className="ob-lead">Omega Star turns the Claude Code on this computer into a company you run. Name it and you're in.</p>
+            <p className="ob-lead">OmegaStar turns the Claude Code on this computer into a company you run. Name it and you're in.</p>
           </div>
           <div ref={scroll} className="pagecol-scroll scroll-fade ob-scroll">
             <div className="ob-stage">
@@ -531,10 +531,10 @@ export function Onboarding({ initial, onDone }: { initial: SetupStatus; onDone: 
                 <div className="ob-bg">
                   <div className="ob-bg-row">
                     <div className="ob-bg-text">
-                      <span className="ob-bg-title">Start Omega Star at login</span>
-                      <span className="ob-line">Schedules only run while Omega Star is open. It waits quietly in the tray.</span>
+                      <span className="ob-bg-title">Start OmegaStar at login</span>
+                      <span className="ob-line">Schedules only run while OmegaStar is open. It waits quietly in the tray.</span>
                     </div>
-                    <Switch checked={status.background} disabled={busy} onChange={(v) => void setBackground(v)} label="Start Omega Star at login" />
+                    <Switch checked={status.background} disabled={busy} onChange={(v) => void setBackground(v)} label="Start OmegaStar at login" />
                   </div>
                   <Collapse open={!!bgErr}>
                     <p className="field-error ob-bg-err" role="alert"><Icon name="alert" size={12} /> {bgErr}</p>

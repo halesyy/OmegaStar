@@ -328,7 +328,7 @@ fn lexical(p: &Path) -> PathBuf {
 /// already holds it.
 pub(super) fn record(db: &Store, employee_dir: &Path, employee_id: &str, skill: &str, file: &str, text: Option<&str>) -> Result<Option<SkillRevision>> {
     if skill == own_skills::CRAFT_NAME {
-        return Err(AppError::invalid("omega-skill-craft is managed by Omega Star"));
+        return Err(AppError::invalid("omega-skill-craft is managed by OmegaStar"));
     }
     let path = own_skills::recorded_path(employee_dir, skill, file)?;
     let before = fs::read_to_string(&path).ok();

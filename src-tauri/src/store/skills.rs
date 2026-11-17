@@ -85,7 +85,7 @@ impl Store {
 
     /// Skill revisions since `since` that an employee's runs made with nobody watching (not in a conversation
     /// with you, a tidy or an organize), each with its run, newest first. Pseudo-skills like the company page
-    /// are left out: Omega Star guards those.
+    /// are left out: OmegaStar guards those.
     pub fn unattended_revisions(&self, employee_id: &str, since: Ts) -> Result<Vec<(SkillRevision, Run)>> {
         let mut st = self.conn.prepare(
             "SELECT r.data, runs.data FROM skill_revisions r JOIN runs ON runs.id = r.run_id

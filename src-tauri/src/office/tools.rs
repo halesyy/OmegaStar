@@ -94,10 +94,10 @@ impl Office {
         let then = "then call `sent` with the request id, the tool you sent it with and exactly what that tool returned";
         let hint = match channel {
             Some(c) => format!(
-                "Recorded. Now deliver it: {}. Use a connector or skill you have for that channel, {then}. If you cannot reach it, say so in your report and {relay} will relay it from Omega Star.",
+                "Recorded. Now deliver it: {}. Use a connector or skill you have for that channel, {then}. If you cannot reach it, say so in your report and {relay} will relay it from OmegaStar.",
                 claude::channel_line(c)
             ),
-            None => format!("Recorded without a channel. Deliver it through whichever of their channels fits the ask if you can reach one, {then}; otherwise say so in your report and {relay} will relay it from Omega Star."),
+            None => format!("Recorded without a channel. Deliver it through whichever of their channels fits the ask if you can reach one, {then}; otherwise say so in your report and {relay} will relay it from OmegaStar."),
         };
         Ok(json!({
             "request": req,
@@ -155,9 +155,9 @@ impl Office {
             Some(Delivery { watch: None, .. }) => "Recorded as sent. An FYI needs no reply, so nothing watches it.".to_string(),
             _ if !r.state.is_open() => "Recorded as sent.".to_string(),
             Some(Delivery { locator: Locator::TeamsChat { server: Some(_), .. }, .. }) => format!(
-                "Omega Star now watches that Teams chat for {person}'s reply, nudges them once when it is due, and {back} when they reply. Do not watch for it yourself."
+                "OmegaStar now watches that Teams chat for {person}'s reply, nudges them once when it is due, and {back} when they reply. Do not watch for it yourself."
             ),
-            _ => format!("Omega Star now checks for {person}'s reply in business hours, nudges them once when it is due, and {back} when they reply. Do not watch for it yourself."),
+            _ => format!("OmegaStar now checks for {person}'s reply in business hours, nudges them once when it is due, and {back} when they reply. Do not watch for it yourself."),
         };
         Ok(json!({ "request": self.present(r), "note": note }))
     }
@@ -174,7 +174,7 @@ impl Office {
         let kind = self.run(caller_run)?.kind;
         let nudging = matches!(kind, RunKind::Nudge { .. });
         if !matches!(&kind, RunKind::ReplyCheck { request_id, .. } | RunKind::Nudge { request_id, .. } if *request_id == id) {
-            return Err(AppError::invalid("check_result is only for a reply check or a nudge that Omega Star started, about its own request"));
+            return Err(AppError::invalid("check_result is only for a reply check or a nudge that OmegaStar started, about its own request"));
         }
         {
             let mut active = lock(&self.0.active);
@@ -208,7 +208,7 @@ impl Office {
             (Applied::Stale, _) => "Nothing changed: the request was already answered or is no longer watched. Send nothing; end now with one line.",
             (Applied::Kept, Verdict::NoReply) if nudging => "Recorded: no reply yet. Send the reminder now, as your instructions say.",
             (Applied::Kept, _) if nudging => "Recorded. Send nothing; end now with one line.",
-            (Applied::Kept, _) => "Recorded. Omega Star keeps watching. End now with one line.",
+            (Applied::Kept, _) => "Recorded. OmegaStar keeps watching. End now with one line.",
             (Applied::Resolve { .. }, _) => "Recorded. A follow-up run carries on with their reply. Send nothing; end now with one line.",
         };
         if applied != Applied::Stale {
@@ -382,7 +382,7 @@ impl Office {
         };
         let (_, notified) = self.ask_card(caller_run, caller, card, edit)?;
         let note = format!(
-            "Recorded. {ceo} sees the line on a card, and Omega Star adds it to the page when they tap Add it, so do not write it there \
+            "Recorded. {ceo} sees the line on a card, and OmegaStar adds it to the page when they tap Add it, so do not write it there \
 yourself. Their answer comes back to you in this conversation. Finish this run now; do not wait for it."
         );
         Ok(json!({ "notified": notified, "note": note }))

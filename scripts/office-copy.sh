@@ -45,7 +45,7 @@ fi
 mkdir -p "$dest"
 
 # Everything, cloned where the disk allows (cp -c on APFS), less the log, the running marker and the database, which
-# is put back as a consistent snapshot read from the source read-only, so a running Omega Star is never blocked or
+# is put back as a consistent snapshot read from the source read-only, so a running OmegaStar is never blocked or
 # changed.
 cp -cR "$src/" "$dest" 2>/dev/null || cp -R "$src/" "$dest"
 rm -f "$dest"/office.db{,-wal,-shm,-journal} "$dest/omega.log" "$dest/omega.running"

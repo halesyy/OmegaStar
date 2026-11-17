@@ -31,8 +31,8 @@ const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 const BULK_DIRS: [&str; 13] = ["node_modules", "target", ".gradle", "DerivedData", "Pods", "__pycache__", ".venv", ".cache", ".next", ".turbo", "build", "builds", "dist"];
 const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, app bundles, and dependency, build and cache folders (such as node_modules, target, build and dist) are not in this backup.";
 const GB: u64 = 1024 * 1024 * 1024;
-pub const RESTORE_STEPS: &str = "Quit Omega Star from the tray, replace the contents of the office folder with the contents \
-of this zip, then start Omega Star.";
+pub const RESTORE_STEPS: &str = "Quit OmegaStar from the tray, replace the contents of the office folder with the contents \
+of this zip, then start OmegaStar.";
 
 impl From<zip::result::ZipError> for AppError {
     fn from(e: zip::result::ZipError) -> Self {
@@ -175,7 +175,7 @@ enum Item {
 }
 
 /// The entries of `dir` in name order, without links (`.claude/skills` points at `skills/` and is
-/// rebuilt by Omega Star; following it would store its target twice) and the live database. `None`
+/// rebuilt by OmegaStar; following it would store its target twice) and the live database. `None`
 /// when the folder can't be read.
 fn items(root: &Path, dir: &Path) -> Option<Vec<Item>> {
     let mut entries: Vec<_> = fs::read_dir(dir).ok()?.collect();
@@ -195,7 +195,7 @@ fn items(root: &Path, dir: &Path) -> Option<Vec<Item>> {
             continue;
         }
         let Some(name) = entry_name(root, &path) else { continue };
-        // The clean-exit marker is always there while Omega Star runs: restored, it would read as a crash.
+        // The clean-exit marker is always there while OmegaStar runs: restored, it would read as a crash.
         if dir == root && (DB_FILES.contains(&name.as_str()) || name == RUNNING_MARKER) {
             continue;
         }
@@ -325,7 +325,7 @@ pub fn write_archive(data_dir: &Path, db_snapshot: &Path, dest: &Path, mut manif
 }
 
 /// Deletes all but the newest `keep` backups in `dir`, and any half-written ones. Files that aren't
-/// Omega Star backups are never touched.
+/// OmegaStar backups are never touched.
 pub fn prune(dir: &Path, keep: u32) -> Result<()> {
     for path in prunable(dir, keep)? {
         fs::remove_file(path)?;

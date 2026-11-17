@@ -74,8 +74,8 @@ export const isOpen = (c: Card): boolean => !c.answer && c.ask.type !== "news";
 export const openCards = (t: Thread): OpenCard[] =>
   [...t.replies].reverse().concat(t.root).flatMap((run) => run.cards.flatMap((card, index) => (card.answer ? [] : [{ run, index, card }])));
 
-/** A conversation you are in: one going on (not archived, with replies) that you started or typed into. Turns Omega
- *  Star wrote from a tap alone do not make one. Mirrors Rust `threads::talking`. */
+/** A conversation you are in: one going on (not archived, with replies) that you started or typed into. Turns OmegaStar
+ *  wrote from a tap alone do not make one. Mirrors Rust `threads::talking`. */
 const talking = (t: Thread): boolean =>
   !t.root.archivedAt && t.replies.length > 0 && (isTask(t) || t.replies.some((r) => !r.omegaWrote && !r.aboutCard));
 
@@ -93,7 +93,7 @@ export const archivable = (thread: Thread, row: Thread): boolean => !threadBusy(
  *  before keys, `chore:<subject>`. Mirrors Rust `Card::topic`. */
 export const topic = (c: Card): string | null => c.key ?? (c.ask.type === "chore" ? `chore:${c.ask.subject}` : null);
 
-/** What needs you in a run that is not a card: flags Omega Star raised. Mirrors Rust `Run::flags`. */
+/** What needs you in a run that is not a card: flags OmegaStar raised. Mirrors Rust `Run::flags`. */
 export const flags = (r: Run): string[] => r.needsYou.filter((m) => !r.cards.some((c) => c.message === m));
 
 /** A tidy's bigger changes, waiting for your OK. */
@@ -114,7 +114,7 @@ export function blockedNow(t: Thread): boolean {
   return blocked(latestFinished(t)) && !(r && !r.endedAt);
 }
 
-/** Broke for a reason you can act on: not the usage limit, which Omega Star waits out and retries itself. */
+/** Broke for a reason you can act on: not the usage limit, which OmegaStar waits out and retries itself. */
 export const broken = (r: Run): boolean => (r.state === "failed" || r.state === "lost") && !r.limited;
 
 /** A schedule's failures in a row before they need you. Mirrors Rust `threads::STREAK`. */

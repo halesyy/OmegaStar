@@ -136,7 +136,7 @@ impl Office {
         let (run, note) = if folded {
             self.sink().run_updated(&run);
             let back = handoff_note(&colleague.name, what, ahead, conversation, false);
-            (run, format!("{} had not started your earlier request yet, so Omega Star added this one to it, and one answer covers both. {back}", colleague.name))
+            (run, format!("{} had not started your earlier request yet, so OmegaStar added this one to it, and one answer covers both. {back}", colleague.name))
         } else {
             let session = run.id.clone();
             let run = self.enqueue(run, session)?;
@@ -177,7 +177,7 @@ impl Office {
             Some((last, rest)) if !rest.is_empty() => format!("{} and {last}", rest.join(", ")),
             _ => names.join(""),
         };
-        let note = format!("Omega Star shows this to {who} at the top of their next run. It starts no run, and nothing comes back.");
+        let note = format!("OmegaStar shows this to {who} at the top of their next run. It starts no run, and nothing comes back.");
         Ok(json!({ "told": names, "note": note }))
     }
 
@@ -260,13 +260,13 @@ fn handoff_note(name: &str, what: &str, ahead: usize, conversation: bool, held: 
     };
     let back = if held {
         format!(
-            "Omega Star keeps it for your next run, or brings it with any other reports from your team in one run once {} minutes pass without a new one",
+            "OmegaStar keeps it for your next run, or brings it with any other reports from your team in one run once {} minutes pass without a new one",
             HOLD.num_minutes()
         )
     } else if conversation {
-        "Omega Star starts a new run for you when it arrives, as your next turn in this conversation".to_string()
+        "OmegaStar starts a new run for you when it arrives, as your next turn in this conversation".to_string()
     } else {
-        "Omega Star starts a new run for you when it arrives".to_string()
+        "OmegaStar starts a new run for you when it arrives".to_string()
     };
     format!(
         "{wait}{what} comes back to you either way. Wait for it with await_reports only if it should take a few minutes and you need it \
@@ -274,10 +274,10 @@ before you finish. Otherwise finish now: {back}."
     )
 }
 
-/// The note a hand-off the loop guard paused returns, in words that blame nobody: Omega Star paused it, not the colleague.
+/// The note a hand-off the loop guard paused returns, in words that blame nobody: OmegaStar paused it, not the colleague.
 fn paused_note(name: &str, what: &str, at: Ts) -> String {
     format!(
-        "Omega Star paused this hand-off to keep the chain short. It goes to {name} by itself at {}, and {} comes back to you as usual. \
+        "OmegaStar paused this hand-off to keep the chain short. It goes to {name} by itself at {}, and {} comes back to you as usual. \
 Do not send it again or set a check for it: finish now.",
         at.with_timezone(&Local).format("%-I:%M %P"),
         what.to_lowercase()
@@ -316,7 +316,7 @@ fn guard(db: &Store, run: &mut Run, chain: String, from: &Employee, to: &Employe
     let ask = matches!(run.kind, RunKind::Asked { .. });
     if ask && db.paused_asks(&from.id, &to.id, day_start(run.created_at))? >= PAUSES_PER_DAY {
         return Err(AppError::invalid(format!(
-            "Omega Star stopped this hand-off: {} and {} have passed this back and forth all day. Finish with what you have and say in your report what is still open.",
+            "OmegaStar stopped this hand-off: {} and {} have passed this back and forth all day. Finish with what you have and say in your report what is still open.",
             from.name, to.name
         )));
     }
@@ -700,7 +700,7 @@ pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
     let mut text = match &chain.origin {
         None => missing,
         Some((r, _)) if r.omega_wrote => format!(
-            "This began with a message Omega Star wrote in the app from something {ceo} did there. It is not {ceo}'s own words, except where it quotes them:\n{}",
+            "This began with a message OmegaStar wrote in the app from something {ceo} did there. It is not {ceo}'s own words, except where it quotes them:\n{}",
             quote(&r.prompt)
         ),
         Some((r, employee)) => match &r.kind {
@@ -710,7 +710,7 @@ pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
                 format!("This began with {ceo}'s own message to {employee}:\n{}", quote(&words.join(" ")))
             }
             RunKind::HireDecided { .. } => {
-                let mut t = format!("This began with {ceo}'s decision on a hire {employee} proposed; Omega Star wrote the message.");
+                let mut t = format!("This began with {ceo}'s decision on a hire {employee} proposed; OmegaStar wrote the message.");
                 if let Some(n) = &chain.note {
                     t += &format!(" {ceo}'s note: \"{}\"", claude::clip(&claude::one_line(n), 600));
                 }
@@ -722,7 +722,7 @@ pub(super) fn source_text(chain: &SourceChain, runs_dir: &Path) -> String {
                 chain.person.as_deref().unwrap_or("a former member")
             ),
             RunKind::Tidy { .. } | RunKind::Organize { .. } | RunKind::ReplyCheck { .. } | RunKind::Nudge { .. } | RunKind::Unanswered { .. } => {
-                format!("This began with {employee}'s {}, which Omega Star started, not a message from {ceo}.", claude::kind_label(&r.kind))
+                format!("This began with {employee}'s {}, which OmegaStar started, not a message from {ceo}.", claude::kind_label(&r.kind))
             }
             // A hand-off is never an origin: the walk goes on past it.
             RunKind::Delegated { .. } | RunKind::Asked { .. } | RunKind::Answered { .. } => missing,
@@ -997,7 +997,7 @@ mod tests {
         assert_eq!(
             plain,
             "Their report comes back to you either way. Wait for it with await_reports only if it should take a few minutes and you need it \
-before you finish. Otherwise finish now: Omega Star starts a new run for you when it arrives."
+before you finish. Otherwise finish now: OmegaStar starts a new run for you when it arrives."
         );
         let both = handoff_note("Bo", "The answer", 1, true, false);
         assert!(both.starts_with("Bo is busy with other work: 1 run is ahead of this one, so this starts when that finishes. The answer comes back"), "{both}");
@@ -1005,9 +1005,9 @@ before you finish. Otherwise finish now: Omega Star starts a new run for you whe
         let queue = handoff_note("Bo", "The answer", 3, false, false);
         assert!(queue.starts_with("Bo is busy with other work: 3 runs are ahead of this one, so this starts when those finish. "), "{queue}");
         let held = handoff_note("Bo", "Their report", 0, false, true);
-        assert!(held.ends_with("Otherwise finish now: Omega Star keeps it for your next run, or brings it with any other reports from your team in one run once 30 minutes pass without a new one."), "{held}");
+        assert!(held.ends_with("Otherwise finish now: OmegaStar keeps it for your next run, or brings it with any other reports from your team in one run once 30 minutes pass without a new one."), "{held}");
         let paused = paused_note("Bo", "Their report", now());
-        assert!(paused.starts_with("Omega Star paused this hand-off to keep the chain short. It goes to Bo by itself at "), "{paused}");
+        assert!(paused.starts_with("OmegaStar paused this hand-off to keep the chain short. It goes to Bo by itself at "), "{paused}");
         assert!(!paused.contains("declin") && !paused.contains("refus"), "nothing suggests Bo said no: {paused}");
         for t in [&plain, &both, &queue, &held, &paused] {
             assert!(!t.contains('\u{2014}'), "{t}");
@@ -1096,7 +1096,7 @@ Pat also wrote into Bo's run on the way:\n\
         o.db.insert_run(&approval, &root.id).unwrap();
         assert_eq!(
             from(&approval),
-            "This began with a message Omega Star wrote in the app from something Pat did there. It is not Pat's own words, except where it \
+            "This began with a message OmegaStar wrote in the app from something Pat did there. It is not Pat's own words, except where it \
 quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         );
 
@@ -1167,7 +1167,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         assert_eq!(r.chain, Some(r.id.clone()), "it starts a chain of its own");
         assert_eq!(chain_up(&o.db, &r.id).unwrap().1, r.id, "what it hands on counts there");
         let note = second["note"].as_str().unwrap();
-        assert!(note.starts_with("Omega Star paused this hand-off to keep the chain short. It goes to Cy by itself at "), "{note}");
+        assert!(note.starts_with("OmegaStar paused this hand-off to keep the chain short. It goes to Cy by itself at "), "{note}");
         drop(office);
     }
 
@@ -1196,10 +1196,10 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let stopped = office.ask_colleague(&root.id, &ada, "Cy", "And the till?", "question").unwrap_err();
         assert_eq!(
             stopped.message,
-            "Omega Star stopped this hand-off: Ada and Cy have passed this back and forth all day. Finish with what you have and say in your report what is still open."
+            "OmegaStar stopped this hand-off: Ada and Cy have passed this back and forth all day. Finish with what you have and say in your report what is still open."
         );
         let back = office.ask_colleague(&theirs.id, &cy, "Ada", "Can you check the till?", "task").unwrap_err();
-        assert!(back.message.starts_with("Omega Star stopped this hand-off: Cy and Ada have passed this back and forth all day."), "{}", back.message);
+        assert!(back.message.starts_with("OmegaStar stopped this hand-off: Cy and Ada have passed this back and forth all day."), "{}", back.message);
         drop(office);
     }
 
@@ -1259,7 +1259,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let first = saved(&o.db, &run_id(&hand(1).unwrap()));
         assert_eq!((first.not_before, first.chain.clone()), (None, Some(root.id.clone())), "39 hand-offs came before it");
         let second = hand(2).unwrap();
-        assert!(second["note"].as_str().unwrap().starts_with("Omega Star paused this hand-off to keep the chain short. It goes to Bo by itself at "), "{second}");
+        assert!(second["note"].as_str().unwrap().starts_with("OmegaStar paused this hand-off to keep the chain short. It goes to Bo by itself at "), "{second}");
         assert!(saved(&o.db, &run_id(&second)).not_before.is_some(), "the 41st waits");
         hand(3).unwrap();
         hand(4).unwrap();
@@ -1302,7 +1302,7 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let again = office.ask_colleague(&later.id, &ada, "Cy", "Book it for Friday.", "task").unwrap();
         assert_eq!(run_id(&again), first, "{again}");
         let note = again["note"].as_str().unwrap();
-        assert!(note.starts_with("Cy had not started your earlier request yet, so Omega Star added this one to it, and one answer covers both."), "{note}");
+        assert!(note.starts_with("Cy had not started your earlier request yet, so OmegaStar added this one to it, and one answer covers both."), "{note}");
         let r = saved(&o.db, &first);
         assert_eq!(r.prompt, "Which room?\n\nLater, Ada added:\n\nBook it for Friday.");
         assert!(matches!(r.kind, RunKind::Asked { task: true, .. }), "a task added makes it one");
@@ -1327,10 +1327,10 @@ quotes them:\n> \"Pat approved what was blocked: - Bash: npm publish\""
         let sender = saved_run(&o.db, &ada, RunKind::Manual, "Ship it.", RunState::Running, 5, None);
         let office = held_office(&o).await;
         let one = office.ask_colleague(&sender.id, &ada, "Bo", "The new opening hours are up.", "info").unwrap();
-        assert_eq!(one["note"], "Omega Star shows this to Bo at the top of their next run. It starts no run, and nothing comes back.");
+        assert_eq!(one["note"], "OmegaStar shows this to Bo at the top of their next run. It starts no run, and nothing comes back.");
         let all = office.ask_colleague(&sender.id, &ada, "everyone", "We close at noon on Friday.", "info").unwrap();
         assert_eq!(all["told"], json!(["Bo", "Cy"]));
-        assert!(all["note"].as_str().unwrap().starts_with("Omega Star shows this to Bo and Cy at the top of their next run."), "{all}");
+        assert!(all["note"].as_str().unwrap().starts_with("OmegaStar shows this to Bo and Cy at the top of their next run."), "{all}");
         assert!(o.db.active_runs_of(&bo.id).unwrap().is_empty() && o.db.active_runs_of(&cy.id).unwrap().is_empty(), "news starts no run");
         let err = office.ask_colleague(&sender.id, &ada, "everyone", "Who is free?", "question").unwrap_err();
         assert!(err.message.starts_with("Only news (kind info) goes to everyone."), "{}", err.message);

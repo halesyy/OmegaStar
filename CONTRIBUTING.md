@@ -1,4 +1,4 @@
-# Contributing to Omega Star
+# Contributing to OmegaStar
 
 Pull requests are welcome. Fork the repository, make your change on a branch, and open a pull request against `master`. The [Development](README.md#development) section of the README lists the checks to run first. Every pull request is also linted, built, tested and run through clippy, where a warning counts as a failure.
 
@@ -6,7 +6,7 @@ For a larger change, open an issue first so we can agree on the approach before 
 
 ## Contributor licence
 
-To keep Omega Star open source and fund it through commercial licences, we need the following from you before we can merge your pull request. Tick the box in the pull request description to agree. If your pull request has no box, write "I agree to the contributor licence for this and my past contributions" in its description, on a line of its own with an empty line above it. The "Contributor licence" check on your pull request passes once you have.
+To keep OmegaStar open source and fund it through commercial licences, we need the following from you before we can merge your pull request. Tick the box in the pull request description to agree. If your pull request has no box, write "I agree to the contributor licence for this and my past contributions" in its description, on a line of its own with an empty line above it. The "Contributor licence" check on your pull request passes once you have.
 
 For anything you contribute to this project, now or in the past (code, docs, images or other material):
 

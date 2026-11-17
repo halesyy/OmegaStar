@@ -107,7 +107,7 @@ impl Office {
                     let judged = heard.filter(|h| matches!(h.verdict, Verdict::Answered | Verdict::Done | Verdict::AskedBack));
                     let mut read = String::new();
                     if let Some(h) = judged.filter(|h| !h.note.trim().is_empty()) {
-                        read += &format!("\n\nOmega Star read their reply as: {}", h.note.trim());
+                        read += &format!("\n\nOmegaStar read their reply as: {}", h.note.trim());
                     }
                     if judged.is_some_and(|h| h.verdict == Verdict::AskedBack) {
                         read += "\n\nThey asked something back: answer it on the same thread, then record a new request and `sent` for what you still need.";
@@ -159,7 +159,7 @@ has to start that work, hand it back with what they need to start it instead of 
 
     /// The session a run about a request or a hire proposal continues: the asking run's own when it was a
     /// work run whose session started; otherwise `fresh`. An ask from a turn of an older build's chat starts
-    /// fresh, with your message there to quote; a turn Omega Star wrote, such as a colleague's report coming
+    /// fresh, with your message there to quote; a turn OmegaStar wrote, such as a colleague's report coming
     /// back, is not yours.
     pub(super) fn origin_session(db: &Store, origin_run_id: Option<&str>, fresh: &str) -> Result<(String, Option<String>)> {
         let Some(rec) = origin_run_id.map(|id| db.run(id)).transpose()?.flatten() else {
@@ -235,7 +235,7 @@ has to start that work, hand it back with what they need to start it instead of 
         }
         db.save_request(r)?;
         let ask = claude::clip(&r.message, 120);
-        let body = if run.is_some() { format!("{employee} will go on without it: {ask}") } else { format!("Omega Star stopped watching again: {ask}") };
+        let body = if run.is_some() { format!("{employee} will go on without it: {ask}") } else { format!("OmegaStar stopped watching again: {ask}") };
         Ok((run, (format!("No reply from {person}"), body)))
     }
 
@@ -559,7 +559,7 @@ has to start that work, hand it back with what they need to start it instead of 
             let mut run = None;
             match action {
                 WatchAction::Check | WatchAction::Nudge if !watching => {
-                    return Err(AppError::invalid("Omega Star is not watching this request: resume watching first"));
+                    return Err(AppError::invalid("OmegaStar is not watching this request: resume watching first"));
                 }
                 WatchAction::Check if native => {}
                 WatchAction::Check => {
@@ -678,7 +678,7 @@ fn still_watching(r: &HumanRequest, anchor: &str) -> bool {
 fn fail_check(w: &mut Watch, person: &str, error: String) -> Option<(String, String)> {
     w.failures += 1;
     w.last_error = Some(error.clone());
-    (w.failures == FAILURES_TO_NOTIFY).then(|| (format!("Omega Star cannot check {person}'s replies"), error))
+    (w.failures == FAILURES_TO_NOTIFY).then(|| (format!("OmegaStar cannot check {person}'s replies"), error))
 }
 
 #[cfg(test)]

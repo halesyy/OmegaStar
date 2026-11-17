@@ -9,8 +9,8 @@ fn watch_status(r: &HumanRequest) -> &'static str {
     match (&d.locator, d.watch.as_ref().map(|w| &w.phase)) {
         (_, Some(WatchPhase::Stopped { .. })) => "stopped watching",
         (_, Some(WatchPhase::GaveUp { .. })) => "gave up",
-        (Locator::TeamsChat { server: Some(_), .. }, _) => "sent via Teams, Omega Star is watching",
-        _ => "sent, Omega Star checks for replies",
+        (Locator::TeamsChat { server: Some(_), .. }, _) => "sent via Teams, OmegaStar is watching",
+        _ => "sent, OmegaStar checks for replies",
     }
 }
 
@@ -271,7 +271,7 @@ pub(super) fn opening_note(s: &Snapshot, run: &Run) -> Option<String> {
         RunKind::Reply { label, task: true, .. } | RunKind::Task { label, .. } => format!("your conversation '{label}'"),
         k => kind_label(k),
     };
-    let wrote = |r: &Run| if r.omega_wrote { "Omega Star".to_string() } else { ceo.clone() };
+    let wrote = |r: &Run| if r.omega_wrote { "OmegaStar".to_string() } else { ceo.clone() };
     let work = run_lines(o.work.iter(), "", &o.parents, |r| {
         let said = if r.kind.is_conversation() { format!(" {}: \"{}\" You:", wrote(r), clip(&one_line(&r.prompt), 160)) } else { String::new() };
         format!("{}, {}:{said} {}", local_time(ended(r)), what(r), result(r))
@@ -385,7 +385,7 @@ mod tests {
 
         s.resume = false;
         let quiet = first_message(&s, &run(scheduled("s1", true)));
-        assert!(quiet.starts_with("<omega-star>\nOmega Star wrote this note. It is not a message from Pat.\n\nPat has approved these"), "{quiet}");
+        assert!(quiet.starts_with("<omega-star>\nOmegaStar wrote this note. It is not a message from Pat.\n\nPat has approved these"), "{quiet}");
         assert!(quiet.contains("Which caterer?") && !quiet.contains("Now: "), "a quiet routine with nothing new hears what stands, and no clock: {quiet}");
         s.owns = String::new();
         s.opening.as_mut().unwrap().answers.clear();

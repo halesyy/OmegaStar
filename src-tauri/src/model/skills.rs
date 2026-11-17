@@ -37,7 +37,7 @@ pub struct SkillSources {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum TidyReason {
-    /// Omega Star saw something to tidy.
+    /// OmegaStar saw something to tidy.
     Auto,
     /// You asked for one.
     Manual,
@@ -72,7 +72,7 @@ pub struct OriginalSkill {
     pub source: SkillSource,
     /// Still in your Claude Code skills.
     pub present: bool,
-    /// Omega Star can move it to the Recycle Bin (user skills only).
+    /// OmegaStar can move it to the Recycle Bin (user skills only).
     pub removable: bool,
     /// Why removing it could hurt ("Also granted to Leo", "Called by `recurring-weekly`").
     pub notes: Vec<String>,

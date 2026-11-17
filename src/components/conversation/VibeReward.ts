@@ -8,7 +8,7 @@
 // conversation opening its thread mid-flight does not cut it short. The line rides inside the message, so it scrolls
 // with it and moves nothing. Under reduced motion nothing flies; only the line shows.
 //
-// A message counts as dictated when Vibe Typer last typed into Omega Star (`last_dictation`) after its words began in
+// A message counts as dictated when Vibe Typer last typed into OmegaStar (`last_dictation`) after its words began in
 // the composer.
 import { call } from "../../api/client";
 import { reducedMotion } from "../../lib/motion";

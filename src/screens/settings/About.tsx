@@ -12,9 +12,9 @@ export function UpdateRow({ channel }: { channel: BuildChannel }) {
     channel === "dev" ? ["dev", "Developer builds don't update themselves."]
     : checking ? ["checking", "Checking…"]
     : error ? [`error${error}`, <span className="set-err">{sentence(error)}</span>]
-    : version ? [`v${version}`, `Omega Star ${version} is ready. Use Restart to update in the sidebar.`]
+    : version ? [`v${version}`, `OmegaStar ${version} is ready. Use Restart to update in the sidebar.`]
     : at ? [`at${at}`, `Up to date. Checked ${relTime(new Date(at).toISOString())}.`]
-    : ["never", "Checks when Omega Star opens, then every hour."];
+    : ["never", "Checks when OmegaStar opens, then every hour."];
   return (
     <Row title="Updates" desc={<Swap on={key}>{desc}</Swap>}>
       <button className="btn" disabled={checking || channel === "dev"} onClick={checkForUpdate}>Check now</button>

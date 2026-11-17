@@ -178,7 +178,7 @@ export function Parts() {
         </Sec>
 
         <Sec title="Error" note="what happened, what happens next, one way to act">
-          <ErrorNote title="Couldn't load the org chart" text="Omega Star's service didn't answer. Your team keeps working." onRetry={() => {}} />
+          <ErrorNote title="Couldn't load the org chart" text="OmegaStar's service didn't answer. Your team keeps working." onRetry={() => {}} />
           <ErrorNote text="Couldn't save: the name is already taken." />
         </Sec>
       </div>

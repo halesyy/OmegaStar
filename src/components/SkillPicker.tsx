@@ -76,7 +76,7 @@ export function SkillPicker({ catalog, keys, builtins, onChange, imports, onImpo
           <div className="empty sp-none">
             <Icon name="layers" size={22} />
             <span className="empty-title">No skills found</span>
-            <p>Omega Star looked in <span className="mono">{sources?.skillsDir ?? "your Claude Code skills folder"}</span>.</p>
+            <p>OmegaStar looked in <span className="mono">{sources?.skillsDir ?? "your Claude Code skills folder"}</span>.</p>
             {sources?.error ? <p className="sp-none-err mono">{sources.error}</p> : null}
             <button type="button" className="btn btn-sm" onClick={rescanSkills} disabled={scan.scanning}>
               <Icon name="refresh" size={12} /> {scan.scanning ? "Scanning…" : "Rescan"}

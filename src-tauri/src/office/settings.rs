@@ -236,7 +236,7 @@ impl Office {
         }
         let file = dir.join(backup::file_name(stamp));
         let manifest = json!({
-            "app": "Omega Star",
+            "app": "OmegaStar",
             "version": env!("CARGO_PKG_VERSION"),
             "createdAt": at,
             "officeFolder": self.data_dir(),

@@ -39,7 +39,7 @@ in a line and when you need it, signed as the handbook says, as an AI. Do not ca
             let days = s.watched.as_ref().map(|w| w.days).unwrap_or(3);
             let reminded = delivery.and_then(|d| d.watch.as_ref()).is_some_and(|w| w.nudged_at.is_some());
             format!(
-                "{person} has not replied in {days} business days{}; Omega Star stopped watching. Decide now, within your standing \
+                "{person} has not replied in {days} business days{}; OmegaStar stopped watching. Decide now, within your standing \
 rules: go on without it and state your assumption, ask someone else, or put it to {} on a card (`notify`) with exactly what \
 you need. A late reply still comes back to you. {autonomous}",
                 if reminded { ", despite a reminder" } else { "" },
@@ -153,12 +153,12 @@ Anything still waiting on {ceo} after this message is a card (`notify`): they ma
 If nothing is left to do, say so in one line."
                 )
             } else if !run.reports.is_empty() {
-                // Reports Omega Star held for a manager, brought together.
+                // Reports OmegaStar held for a manager, brought together.
                 let session = if s.resume { " This session is the run you handed the work over from." } else { NEW_SESSION };
                 let (came, origin, it) = match run.reports.len() {
-                    1 => (format!("{from} {did} after your run had ended. Omega Star held the report for you, and it is below."), origin, "it"),
+                    1 => (format!("{from} {did} after your run had ended. OmegaStar held the report for you, and it is below."), origin, "it"),
                     n => (
-                        format!("Your team finished {n} tasks you handed them after your run had ended. Omega Star held the reports to bring them to you together, and they are below."),
+                        format!("Your team finished {n} tasks you handed them after your run had ended. OmegaStar held the reports to bring them to you together, and they are below."),
                         String::new(),
                         "them",
                     ),
@@ -187,7 +187,7 @@ it to them on a card (`notify`). If nothing is left to do, say so in one line. {
         RunKind::Reply { task, .. } if run.check.is_some() => {
             let place = if *task { "conversation" } else { "thread" };
             format!(
-                "A check you set in this {place} with {ceo} is due; it is below. Omega Star brought it back here, so this turn is \
+                "A check you set in this {place} with {ceo} is due; it is below. OmegaStar brought it back here, so this turn is \
 your next message in the {place}, and {ceo} reads it here. Do the check now, then tell {ceo} in a few lines what you found and \
 what you did. Anything still waiting on {ceo} after this message is a card (`notify`): they may close this {place} without \
 reading on. If nothing changed, say so in one line."
@@ -230,11 +230,11 @@ words quoted above show {ceo} saying it."
 
 /// The first message of a run that goes again after the usage limit or a rate limit stopped it: the
 /// conversation it resumes already holds the message it was answering.
-pub(super) const LIMIT_RETRY_NOTE: &str = "Omega Star: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
+pub(super) const LIMIT_RETRY_NOTE: &str = "OmegaStar: the usage limit or a rate limit stopped you before you could answer. It has passed now, so carry on with the message above.";
 
-/// The first message of a run that goes again after Omega Star stopped while it was in progress. Its live cards
+/// The first message of a run that goes again after OmegaStar stopped while it was in progress. Its live cards
 /// went with it, so it is told to raise again any it still needs.
-pub(super) const RESTART_NOTE: &str = "Omega Star: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
+pub(super) const RESTART_NOTE: &str = "OmegaStar: the app restarted before you could answer, so carry on with the message above. Any card you raised since that message was lost in the restart: raise it again if you still need it.";
 
 /// The prompt, followed by the absolute path of each attached file.
 fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
@@ -246,8 +246,8 @@ fn with_attachments(prompt: &str, dir: &Path, names: &[String]) -> String {
     if prompt.trim().is_empty() { note } else { format!("{prompt}\n\n{note}") }
 }
 
-/// A run's first message: its prompt, under a note Omega Star wrote when there is one, which carries the run's
-/// frame too when `frame_in_note`. Quoted text loses the note's tags, so only Omega Star's own note has them.
+/// A run's first message: its prompt, under a note OmegaStar wrote when there is one, which carries the run's
+/// frame too when `frame_in_note`. Quoted text loses the note's tags, so only OmegaStar's own note has them.
 /// The note is never stored in `run.prompt`, which holds only what the run was asked.
 pub fn first_message(s: &Snapshot, run: &Run) -> String {
     let untagged = |t: &str| t.replace("<omega-star>", "").replace("</omega-star>", "");
@@ -264,7 +264,7 @@ pub fn first_message(s: &Snapshot, run: &Run) -> String {
         return body;
     }
     format!(
-        "<omega-star>\nOmega Star wrote this note. It is not a message from {}.\n\n{}\n</omega-star>\n\n{body}",
+        "<omega-star>\nOmegaStar wrote this note. It is not a message from {}.\n\n{}\n</omega-star>\n\n{body}",
         s.company.ceo_name,
         untagged(&parts.join("\n\n"))
     )
@@ -360,7 +360,7 @@ fn tidy_frame(s: &Snapshot, reason: TidyReason, plan: Option<&str>) -> String {
     let brief = s.tidy.as_ref().unwrap_or(&none);
     let mut b = String::new();
 
-    b += "## What Omega Star measured\n\n";
+    b += "## What OmegaStar measured\n\n";
     if brief.findings.is_empty() {
         b += "Nothing flagged.\n\n";
     } else {
@@ -408,7 +408,7 @@ missing, write it now, in the right skill, under `## Rules` or your role skill's
 `(taught YYYY-MM-DD)`. Done when you can name, for each item, the skill and heading where it lives, or say why it is not worth \
 keeping (a one-off instruction, or already replaced by a later one). When one is true for your colleagues too (the tools and \
 accounts we use, a fact, our voice, how {ceo} likes to work), also propose it for the company page with `propose_company_line`.\n\
-3. **Tidy.** Bring your family back to the shape `omega-skill-craft` describes, starting with what Omega Star measured.\n\
+3. **Tidy.** Bring your family back to the shape `omega-skill-craft` describes, starting with what OmegaStar measured.\n\
    Do these yourself, now:\n\
    - Compact a diary or state file in `workspace/`: keep the open conditions and the last few days, and turn older entries into \
 one line each. Keep every id, ticket key and outcome that a later run could need.\n\
@@ -430,7 +430,7 @@ follow-up run makes them:\n\
    Done when everything you got to is either fixed, proposed, or fine as it is.\n\n\
 Finish with one or two plain sentences on what you changed, nothing more: no sections, no list of what you checked and left \
 as it is, and no \"nothing needs you\". A change you only describe in the report is lost: only `propose_changes` puts it in \
-front of {ceo}, and Omega Star asks them for you. Do not call `notify` for proposals."
+front of {ceo}, and OmegaStar asks them for you. Do not call `notify` for proposals."
         )
     };
 
@@ -606,7 +606,7 @@ mod tests {
         };
         let one = frame(&s, &came(1));
         assert!(
-            one.starts_with("Bo finished the task you handed them after your run had ended. Omega Star held the report for you, and it is below. This is a new session: your notes in `workspace/` hold where your work stands. Review it now"),
+            one.starts_with("Bo finished the task you handed them after your run had ended. OmegaStar held the report for you, and it is below. This is a new session: your notes in `workspace/` hold where your work stands. Review it now"),
             "{one}"
         );
         assert!(one.contains("Hand out a next task only when it clearly pays off; a report needs no reply."), "{one}");

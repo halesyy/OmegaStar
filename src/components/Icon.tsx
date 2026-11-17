@@ -90,10 +90,10 @@ export const CHANNEL_ICON: Record<ChannelKind, IconName> = {
   github: "pr", linear: "issue", phone: "phone", other: "link",
 };
 
-/** The Omega Star mark: an omega cradling a four-point star, in the current text colour. */
+/** The OmegaStar mark: an omega cradling a four-point star, in the current text colour. */
 export function LogoMark({ size }: { size: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-label="Omega Star" role="img" className="logomark">
+    <svg width={size} height={size} viewBox="0 0 32 32" aria-label="OmegaStar" role="img" className="logomark">
       <path d="M8.5 24.5h4v-2.6A7.6 7.6 0 1 1 19.5 21.9v2.6h4" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
       <path d="M16 9.6c.4 2.55 1.3 3.45 3.85 3.85-2.55.4-3.45 1.3-3.85 3.85-.4-2.55-1.3-3.45-3.85-3.85 2.55-.4 3.45-1.3 3.85-3.85Z" fill="currentColor" />
     </svg>

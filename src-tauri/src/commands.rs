@@ -556,7 +556,7 @@ pub async fn use_signed_in_account(office: O<'_>) -> Result<Company> {
     office.use_signed_in_account().await
 }
 
-/// When Vibe Typer last put dictated words into Omega Star, in milliseconds since the Unix epoch; null when it never
+/// When Vibe Typer last put dictated words into OmegaStar, in milliseconds since the Unix epoch; null when it never
 /// has or cannot be read.
 #[tauri::command]
 pub async fn last_dictation() -> Result<Option<u64>> {

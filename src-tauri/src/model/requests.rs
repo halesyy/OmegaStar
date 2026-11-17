@@ -103,7 +103,7 @@ pub enum DeliverySource {
     Transcript,
 }
 
-/// Omega Star's watch on one delivered question or task. Only facts are stored; when the next check,
+/// OmegaStar's watch on one delivered question or task. Only facts are stored; when the next check,
 /// the nudge and the give-up fall is derived (`watch::plan`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
