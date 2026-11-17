@@ -23,6 +23,7 @@ mod store;
 mod threads;
 mod tidy;
 mod update;
+mod vibe_typer;
 mod watch;
 
 use log::log;
@@ -417,6 +418,7 @@ pub fn run() {
             commands::usage_limits,
             commands::refresh_usage,
             commands::use_signed_in_account,
+            commands::last_dictation,
             commands::check_update,
             commands::install_update,
         ])

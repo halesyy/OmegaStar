@@ -5,6 +5,7 @@ use crate::cards;
 use crate::model::*;
 use crate::office::{self, Office};
 use crate::update;
+use crate::vibe_typer;
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
@@ -553,6 +554,13 @@ pub async fn refresh_usage(office: O<'_>) -> Result<UsageLimits> {
 #[tauri::command]
 pub async fn use_signed_in_account(office: O<'_>) -> Result<Company> {
     office.use_signed_in_account().await
+}
+
+/// When Vibe Typer last put dictated words into Omega Star, in milliseconds since the Unix epoch; null when it never
+/// has or cannot be read.
+#[tauri::command]
+pub async fn last_dictation() -> Result<Option<u64>> {
+    Ok(vibe_typer::last_dictation_here())
 }
 
 #[tauri::command]

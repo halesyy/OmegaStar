@@ -491,6 +491,8 @@ export type Commands = {
   usage_limits: { args: Record<string, never>; ret: UsageLimits };
   refresh_usage: { args: Record<string, never>; ret: UsageLimits };
   use_signed_in_account: { args: Record<string, never>; ret: Company };
+  /** When Vibe Typer last put dictated words into Omega Star (milliseconds since the epoch); null when it never has or cannot be read. */
+  last_dictation: { args: Record<string, never>; ret: number | null };
   check_update: { args: Record<string, never>; ret: string | null };
   install_update: { args: Record<string, never>; ret: null };
 };
