@@ -488,9 +488,6 @@ export function previewTransport(): Transport {
         }),
       };
     },
-    // An invented history: each employee works most days from their hire, a little more as weeks pass, and asks you
-    // less as their skills grow. Most asks get an answer within minutes, the odd one waits past a day, and a few were
-    // replaced by a newer card. Stable from load to load (no randomness).
     team_stats: () => {
       const now = Date.now(), today = new Date();
       const days: TeamStats["days"] = [];
@@ -514,7 +511,6 @@ export function previewTransport(): Transport {
           }
         }
       });
-      // Each employee's newest weekly review that reported a number.
       const numbers = w.employees.flatMap((e) => {
         const score = w.runs.filter((r) => r.employeeId === e.id && r.score).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.score;
         return score ? [{ employeeId: e.id, metric: score.metric, value: score.value, change: score.change }] : [];

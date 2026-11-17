@@ -300,7 +300,8 @@ export type TeamStats = {
   /** One row per employee per local day (`YYYY-MM-DD`) they finished runs. nightMs: the part of workMs from runs that
    *  started between 10 pm and 7 am local. */
   days: { day: string; employeeId: string; runs: number; workMs: number; nightMs: number }[];
-  /** Every card that asked you something (never news): when it reached you, when you answered, and whether it still waits. */
+  /** Every card that asked you something (never news): when its run ended (or began, while it works), when you answered,
+   *  and whether it still waits. */
   asks: { at: string; answeredAt: string | null; open: boolean }[];
   /** Each employee's latest weekly number, from their newest weekly review that reported one. */
   numbers: { employeeId: string; metric: string; value: string; change: string }[];

@@ -41,11 +41,10 @@ export const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-
 export function summarise(stats: TeamStats, range: TeamRange, now = new Date()): TeamSummary {
   const day = (back: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
   const since = new Date(Math.min(now.getTime(), ...stats.staff.map((s) => Date.parse(s.hiredAt))));
-  // Never before the first hire: days before the team existed would read as idle.
-  const lived = Math.round((day(0).getTime() - new Date(since.getFullYear(), since.getMonth(), since.getDate()).getTime()) / DAY) + 1;
-  const span = range === "all" ? lived : Math.min(Number(range), lived);
+  const teamAgeDays = Math.round((day(0).getTime() - new Date(since.getFullYear(), since.getMonth(), since.getDate()).getTime()) / DAY) + 1;
+  const span = range === "all" ? teamAgeDays : Math.min(Number(range), teamAgeDays);
   const days = (from: number, n: number) => Array.from({ length: n }, (_, i) => dayKey(day(from + n - 1 - i)));
-  const before = range !== "all" && lived >= 2 * Number(range) ? new Set(days(Number(range), Number(range))) : null;
+  const before = range !== "all" && teamAgeDays >= 2 * Number(range) ? new Set(days(Number(range), Number(range))) : null;
 
   const byDay = new Map(days(0, span).map((d): [string, TeamPoint] => [d, { day: d, workMs: 0, asks: 0 }]));
   const worked = new Map<string, number>();
@@ -65,7 +64,6 @@ export function summarise(stats: TeamStats, range: TeamRange, now = new Date()):
     if (!p) continue;
     p.asks++; asks++;
     const at = Date.parse(a.at);
-    // A card's time is its run's end, so one answered while its run still worked would read as answered early.
     if (a.answeredAt) { const w = Math.max(0, Date.parse(a.answeredAt) - at); waits.push(w); if (w > DAY) overDay++; }
     else if (a.open) { waits.push(Infinity); if (now.getTime() - at > DAY) overDay++; }
   }

@@ -137,14 +137,15 @@ function Asks({ s }: { s: TeamSummary }) {
   return <p>They asked you <b>{count(s.asks, "thing")}</b>.{after}</p>;
 }
 
-/** The chart's width (the page column's), the room above, between and below its two baselines, and where they sit.
- *  Sized so a six-person office's week fits a laptop screen without scrolling. */
+/** The chart's width, the room above, between and below its two baselines, and where they sit. */
 const W = 772, UP = 96, MID = 22, DOWN = 66, BASE = UP, LOW = BASE + MID, H = LOW + DOWN + 4;
+/** The room the tallest bars leave on each side for their value and the corner labels. */
+const HEAD = 30, FOOT = 32;
 
 /**
  * Hours worked as ink bars rising from the upper baseline, and the times they asked you as coral bars hanging from the
- * lower one: coral is what needs you across the app. Up to ten columns each carry their values and a label; past that
- * only the tallest on each side does, and a few evenly spaced columns carry a date.
+ * lower one. Up to ten columns each carry their values and a label; past that only the tallest on each side does, and a
+ * few evenly spaced columns carry a date.
  */
 function Mirror({ points, per }: { points: TeamPoint[]; per: "day" | "week" }) {
   const n = points.length, step = W / n, dense = n <= 10;
@@ -157,9 +158,8 @@ function Mirror({ points, per }: { points: TeamPoint[]; per: "day" | "week" }) {
     return dense && per === "day" ? `${d.toLocaleDateString(undefined, { weekday: "short" })} ${d.getDate()}` : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
   };
   const when = (p: TeamPoint) => (per === "week" ? `Week of ${short(p)}` : dayDate(p.day).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }));
-  // The end columns' labels sit inside the chart's edges rather than spill past them.
-  const anchor = (i: number) => (dense ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle");
-  const lx = (i: number) => { const x = step * i + (step - bw) / 2; return anchor(i) === "start" ? x : anchor(i) === "end" ? x + bw : x + bw / 2; };
+  const edgeAnchor = (i: number) => (dense ? "middle" : i === 0 ? "start" : i === n - 1 ? "end" : "middle");
+  const lx = (i: number) => { const x = step * i + (step - bw) / 2; return edgeAnchor(i) === "start" ? x : edgeAnchor(i) === "end" ? x + bw : x + bw / 2; };
   const label = `Hours worked and times they asked you, each ${per}, from ${when(points[0])} to ${when(points[n - 1])}`;
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="an-svg" role="img" aria-label={label}>
@@ -169,15 +169,14 @@ function Mirror({ points, per }: { points: TeamPoint[]; per: "day" | "week" }) {
       <line className="an-axis" x1={0} x2={W} y1={LOW - 0.5} y2={LOW - 0.5} />
       {points.map((p, i) => {
         const x = step * i + (step - bw) / 2;
-        // The tallest bars stop short of the corner labels, so a first column's value never runs into them.
-        const hh = p.workMs ? Math.max(2, (p.workMs / maxW) * (UP - 30)) : 0, ah = p.asks ? Math.max(2, (p.asks / maxA) * (DOWN - 32)) : 0;
+        const hh = p.workMs ? Math.max(2, (p.workMs / maxW) * (UP - HEAD)) : 0, ah = p.asks ? Math.max(2, (p.asks / maxA) * (DOWN - FOOT)) : 0;
         return (
           <g key={p.day}>
             {hh ? <rect className="an-ink" x={x} y={BASE - hh} width={bw} height={hh} rx={dense ? 3 : 1}><title>{`${when(p)}: ${hours(p.workMs)} h worked`}</title></rect> : null}
-            {hh && (dense || i === tallW) ? <text className="an-val" x={lx(i)} y={BASE - hh - 6} textAnchor={anchor(i)}>{`${hours(p.workMs)} h`}</text> : null}
-            {ticks.has(i) ? <text className="an-tick" x={lx(i)} y={BASE + 15} textAnchor={anchor(i)}>{short(p)}</text> : null}
+            {hh && (dense || i === tallW) ? <text className="an-val" x={lx(i)} y={BASE - hh - 6} textAnchor={edgeAnchor(i)}>{`${hours(p.workMs)} h`}</text> : null}
+            {ticks.has(i) ? <text className="an-tick" x={lx(i)} y={BASE + 15} textAnchor={edgeAnchor(i)}>{short(p)}</text> : null}
             {ah ? <rect className="an-you" x={x} y={LOW} width={bw} height={ah} rx={dense ? 3 : 1}><title>{`${when(p)}: asked you ${count(p.asks, "time")}`}</title></rect> : null}
-            {ah && (dense || i === tallA) ? <text className="an-val" x={lx(i)} y={LOW + ah + 14} textAnchor={anchor(i)}>{p.asks.toLocaleString()}</text> : null}
+            {ah && (dense || i === tallA) ? <text className="an-val" x={lx(i)} y={LOW + ah + 14} textAnchor={edgeAnchor(i)}>{p.asks.toLocaleString()}</text> : null}
           </g>
         );
       })}
