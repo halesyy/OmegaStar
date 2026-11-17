@@ -22,8 +22,8 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const imageCode = (path: string, alt = "") =>
   `<code data-image-path="${esc(path)}"${alt.trim() ? ` data-alt="${esc(alt.trim())}"` : ""}>${esc(path)}</code>`;
 // A local path an agent mentioned. It opens through Rust on click, so it has no href:
-// DOMPurify drops file: hrefs and a bare /Users/... href would resolve inside the webview.
-const OPEN_PATH = /^(\/|~\/)\S+$/;
+// DOMPurify drops file: and C:\ hrefs and a bare /Users/... href would resolve inside the webview.
+const OPEN_PATH = new RegExp(String.raw`^${ROOT}\S+$`);
 const pathAttrs = (path: string) => `class="md-path" data-open-path="${esc(path)}" title="Open"`;
 // A file URL is percent-encoded (a space is %20), and so is a path in a markdown link or image, by its writer or by
 // marked. A path that does not decode is taken as written.
@@ -34,7 +34,11 @@ const decoded = (s: string) => {
     return s;
   }
 };
-const linkPath = (href: string) => (href.startsWith("file://") ? decoded(href.slice(7)) : /^(\/|~\/)/.test(href) ? decoded(href) : null);
+const LOCAL = new RegExp(`^${ROOT}`);
+/** The local path a link points at, or null for a web link. A file URL of a drive path (`file:///C:/notes.md`) loses
+ *  the slash before its drive, which Windows does not take as part of a path. */
+const linkPath = (href: string) =>
+  href.startsWith("file://") ? decoded(href.slice(7)).replace(/^\/(?=[A-Za-z]:[\\/])/, "") : LOCAL.test(href) ? decoded(href) : null;
 
 const md = new Marked({ gfm: true, breaks: false, async: false });
 md.use({
