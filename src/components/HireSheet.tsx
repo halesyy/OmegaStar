@@ -9,6 +9,7 @@ import { firstName, hueFromName, MOD } from "../lib/format";
 import { AdvancedFields, ClearancePicker, EmployeeManagerSelect } from "./EmployeeFields";
 import { Markdown } from "./Markdown";
 import { SkillPicker } from "./SkillPicker";
+import { ImageField } from "./ImageField";
 import { Icon } from "./Icon";
 import { Avatar, ErrorNote, SheetHead, SlideOver } from "./ui";
 import { newConversationDraft } from "./conversation/NewConversation";
@@ -201,6 +202,7 @@ export function HireSheet({ open, template, proposal, onClose, returnFocus = nul
               {titleMissing ? <span className="field-error">Add a title so the team knows what they do.</span> : null}
             </label>
           </div>
+          <ImageField name={draft.name} hue={hue} image={draft.image} onChange={(image) => set("image", image)} />
           <label className="field">
             <span className="field-label">Reports to</span>
             {snap ? <EmployeeManagerSelect value={draft.managerId} onChange={(v) => set("managerId", v)} snap={snap} selfId={null} /> : null}
@@ -238,15 +240,16 @@ export function HireSheet({ open, template, proposal, onClose, returnFocus = nul
           <span className="msg-label">Preview</span>
           <div className="preview-card">
             <div className="mcard-head">
-              <button
-                type="button" className="preview-av" title="Try another colour" aria-label="Try another avatar colour"
-                onClick={() => { setHueTouched(true); set("hue", (hue + 47) % 360); }}
-              >
-                {/* A hire not made yet: the dashed proposed-hire avatar, with their initials once they have a name. */}
-                {draft.name.trim()
-                  ? <Avatar name={draft.name} hue={hue} size={40} proposed />
-                  : <span className="av av-proposed" style={{ "--h": hue, width: 40, height: 40 } as React.CSSProperties} aria-hidden />}
-              </button>
+              {draft.image ? <Avatar name={draft.name} hue={hue} image={draft.image} size={40} proposed /> : (
+                <button
+                  type="button" className="preview-av" title="Try another colour" aria-label="Try another avatar colour"
+                  onClick={() => { setHueTouched(true); set("hue", (hue + 47) % 360); }}
+                >
+                  {draft.name.trim()
+                    ? <Avatar name={draft.name} hue={hue} size={40} proposed />
+                    : <span className="av av-proposed" style={{ "--h": hue, width: 40, height: 40 } as React.CSSProperties} aria-hidden />}
+                </button>
+              )}
               <div className="stack grow" style={{ minWidth: 0 }}>
                 <span className="card-name">{draft.name.trim() || "Their name"}</span>
                 <span className="card-title">{draft.title.trim() || "Their title"}</span>

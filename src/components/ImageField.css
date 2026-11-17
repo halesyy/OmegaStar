@@ -1,0 +1,12 @@
+.image-field-controls { gap: 8px; flex-wrap: wrap; }
+.image-field-choices {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px;
+  margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-card);
+}
+.image-field-choice {
+  display: grid; place-items: center; min-width: 58px; min-height: 58px; padding: 4px;
+  border: 1px solid transparent; border-radius: var(--r-inner);
+}
+.image-field-choice:hover { background: var(--sunken); }
+.image-field-choice[aria-pressed="true"] { background: var(--sel); border-color: var(--sel); }
+.image-field-choice img { display: block; border-radius: 50%; }
