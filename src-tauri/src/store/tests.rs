@@ -1062,3 +1062,98 @@ fn team_stats_counts_finished_work_per_day_and_keeps_who_left() {
     drop(db);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn team_stats_counts_night_work_by_the_hour_a_run_began() {
+    use chrono::TimeZone;
+    let dir = temp_dir();
+    let db = Store::open(&dir.join("office.db")).unwrap();
+    let ada = employee("Ada", None);
+    db.save_employee(&ada).unwrap();
+    let day = (chrono::Local::now() - chrono::Duration::days(3)).date_naive();
+    for (h, m, ms) in [(6, 59, 1_000u64), (7, 0, 20_000), (21, 59, 300_000), (22, 0, 4_000_000)] {
+        let mut r = run(&ada, RunKind::Manual, RunState::Succeeded);
+        r.created_at = chrono::Local.from_local_datetime(&day.and_hms_opt(h, m, 0).unwrap()).single().unwrap().with_timezone(&Utc);
+        r.duration_ms = Some(ms);
+        assert!(db.insert_run(&r, &r.id).unwrap());
+    }
+
+    let s = db.team_stats().unwrap();
+    let d = s.days.iter().find(|d| d.day == day.format("%Y-%m-%d").to_string()).unwrap();
+    assert_eq!((d.runs, d.work_ms, d.night_ms), (4, 4_321_000, 4_001_000), "begun before 7 am or from 10 pm is night work");
+
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn team_stats_lists_each_card_that_asked_you_and_whether_you_answered() {
+    let dir = temp_dir();
+    let db = Store::open(&dir.join("office.db")).unwrap();
+    let ada = employee("Ada", None);
+    db.save_employee(&ada).unwrap();
+    let ended = Utc::now() - chrono::Duration::hours(30);
+    let answered = ended + chrono::Duration::minutes(8);
+    let answer = |how| Some(CardAnswer { at: answered, how, text: String::new(), held: false });
+    let ask = |how| Card { answer: answer(how), ..Card::new("Go?", None, None, CardAsk::Question) };
+    let mut r = run(&ada, RunKind::Manual, RunState::Succeeded);
+    r.ended_at = Some(ended);
+    r.cards = vec![
+        ask(AnswerHow::Tapped),
+        ask(AnswerHow::Dismissed),
+        ask(AnswerHow::Replaced),
+        ask(AnswerHow::Withdrawn),
+        Card::new("Go?", None, None, CardAsk::Question),
+        Card::new("It shipped.", None, None, CardAsk::News),
+    ];
+    assert!(db.insert_run(&r, &r.id).unwrap());
+    let mut working = run(&ada, RunKind::Manual, RunState::Running);
+    working.cards = vec![Card::new("Which one?", None, None, CardAsk::Choices { choices: vec!["A".into()], recommended: 0 })];
+    assert!(db.insert_run(&working, &working.id).unwrap());
+
+    let s = db.team_stats().unwrap();
+    let seen: Vec<_> = s.asks.iter().map(|a| (a.at, a.answered_at, a.open)).collect();
+    assert_eq!(
+        seen,
+        vec![
+            (ended, Some(answered), false),
+            (ended, Some(answered), false),
+            (ended, None, false),
+            (ended, None, false),
+            (ended, None, true),
+            (working.created_at, None, true),
+        ],
+        "your answers, Later included, carry a time; replaced and withdrawn ones never reached an answer; news is no ask; a run still working counts from when it began"
+    );
+
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn team_stats_keeps_each_employees_newest_weekly_number() {
+    let dir = temp_dir();
+    let db = Store::open(&dir.join("office.db")).unwrap();
+    let (ada, bo) = (employee("Ada", None), employee("Bo", None));
+    for e in [&ada, &bo] {
+        db.save_employee(e).unwrap();
+    }
+    let score = |value: &str, change: &str| Some(Score { metric: "Signups".into(), value: value.into(), change: change.into(), note: String::new() });
+    for (days, s) in [(14, score("30", "first count")), (7, score("42", "+12")), (1, None)] {
+        let mut r = run(&ada, RunKind::Manual, RunState::Succeeded);
+        r.created_at = Utc::now() - chrono::Duration::days(days);
+        r.score = s;
+        assert!(db.insert_run(&r, &r.id).unwrap());
+    }
+    assert!(db.insert_run(&run(&bo, RunKind::Manual, RunState::Succeeded), "bo").unwrap());
+
+    let s = db.team_stats().unwrap();
+    assert_eq!(
+        s.numbers,
+        vec![TeamNumber { employee_id: ada.id.clone(), metric: "Signups".into(), value: "42".into(), change: "+12".into() }],
+        "a later run with no number leaves the last one standing; nobody without one is listed"
+    );
+
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}

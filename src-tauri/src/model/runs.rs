@@ -591,16 +591,19 @@ pub struct RunUsage {
     pub routines: Vec<RoutineUsage>,
 }
 
-/// How the team grew and what it got done, day by day, for the Analytics page. Days are this computer's local dates.
+/// What the team got done and what it asked of you, for the Analytics page, all time: the page slices it by range.
+/// Days are this computer's local dates.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamStats {
-    /// Everyone ever hired, including those who have left, so headcount can be drawn for any day.
+    /// Everyone ever hired, including those who have left, so the page knows the team's size and age.
     pub staff: Vec<StaffSpan>,
     /// One row per employee per day they finished runs.
     pub days: Vec<TeamDay>,
-    /// Skill files changed per day: what the team learned.
-    pub learned: Vec<DayCount>,
+    /// Every card that asked you something (never news), oldest first.
+    pub asks: Vec<TeamAsk>,
+    /// Each employee's latest weekly number, from their newest weekly review that reported one.
+    pub numbers: Vec<TeamNumber>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -621,15 +624,32 @@ pub struct TeamDay {
     pub runs: u32,
     /// Time the runs spent working, in milliseconds.
     pub work_ms: i64,
-    /// Cards the runs raised for you.
-    pub cards: u32,
+    /// The part of `work_ms` from runs begun between 10 pm and 7 am local: work done while you were likely asleep.
+    pub night_ms: i64,
 }
 
+/// One card that asked you something. A card has no time of its own, so `at` is when its run ended, or began if it
+/// has not ended.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct DayCount {
-    pub day: String,
-    pub n: u32,
+pub struct TeamAsk {
+    pub at: Ts,
+    /// When you answered it yourself, Later and No included. None when it is still open, or when a newer card replaced
+    /// it or the employee withdrew it, since then you never answered.
+    pub answered_at: Option<Ts>,
+    /// Still waiting on your answer.
+    pub open: bool,
+}
+
+/// The number an employee answers for, as their newest weekly review reported it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamNumber {
+    pub employee_id: String,
+    pub metric: String,
+    pub value: String,
+    /// Against last week, in the employee's own words, e.g. "+3" or "first count".
+    pub change: String,
 }
 
 /// An employee's finished runs since a time.
