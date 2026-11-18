@@ -196,7 +196,11 @@ export type Card = {
   link: string | null; images: string[];
   backAt: string | null; timesBack: number; parked: boolean;
   proposal: Proposal | null;
+  brief: BriefRow[];
 };
+/** A row of a card's brief: a short label, its text (simple markdown), and which of the card's attachments it shows
+ *  under the text. A card with a brief shows it in place of its why and the run's report. */
+export type BriefRow = { label: string; text: string; shows: "images" | "file" | "link" | null };
 /** A weekly review's one number, for Activity's week in numbers. */
 export type Score = { metric: string; value: string; change: string; note: string };
 /** Your answer on a card. */
