@@ -99,7 +99,7 @@ function UsageDetails({ usage, now, refreshing, refresh }: { usage: UsageLimits 
               <span className="ud-used">used</span>
               {resets ? <span className="ud-resets"><Icon name="clock" size={11} />{several ? resets.replace(/^Resets/, "First reset") : resets}</span> : null}
             </div>
-            {tiles.length ? <div className="ud-tiles">{tiles.map(({ a, w }) => <Tile key={a.name} a={a} w={w} now={now} />)}</div> : null}
+            {tiles.length ? <div className="ud-tiles">{tiles.map(({ a, w }, i) => <Tile key={`${i}-${a.name}`} a={a} w={w} now={now} />)}</div> : null}
           </section>
         );
       })}
@@ -151,7 +151,11 @@ export function UsageCard() {
     setOpen((o) => !o);
   };
 
-  if (usage && !usage.subscription) return <RunsToday />;
+  if (usage && !usage.subscription) {
+    // Its trigger goes with the meters, so the detail must not come back open beside nothing.
+    if (open) setOpen(false);
+    return <RunsToday />;
+  }
 
   const five = usage?.fiveHour ?? null;
   const week = usage?.sevenDay ?? null;

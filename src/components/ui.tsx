@@ -151,7 +151,8 @@ export function Popover({ anchor, open, onClose, children, align = "end", width 
     if (!open || !anchor.current) return;
     const r = anchor.current.getBoundingClientRect();
     if (side === "right") {
-      setPos({ left: r.right + 14, bottom: Math.max(12, window.innerHeight - r.bottom - 6), maxHeight: "calc(100vh - 24px)" });
+      const bottom = Math.max(12, window.innerHeight - r.bottom - 6);
+      setPos({ left: r.right + 14, bottom, maxHeight: window.innerHeight - bottom - 12 });
       return;
     }
     const left = align === "end" ? Math.max(8, r.right - width) : Math.min(window.innerWidth - width - 8, r.left);
