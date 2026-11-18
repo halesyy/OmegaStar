@@ -24,12 +24,12 @@ import "./Inbox.css";
 
 /** What the view menu calls each view. Snoozed is Later, as the button that puts things there. */
 const VIEWS: { id: InboxView; label: string }[] = [
-  { id: "inbox", label: "Needs you" },
+  { id: "inbox", label: "Inbox" },
   { id: "snoozed", label: "Later" },
   { id: "parked", label: "Parked" },
   { id: "archive", label: "Archive" },
 ];
-/** One line under the head of each view but Needs you, where its filters would be. */
+/** One line under the head of each view but the Inbox, where its filters would be. */
 const NOTES: Record<Exclude<InboxView, "inbox">, string> = {
   snoozed: "Each comes back at the time you picked.",
   parked: "Parked cards wait here, without reminders.",
@@ -177,7 +177,7 @@ export function InboxScreen() {
     for (const r of shownRows) lastRows.current.set(r.id, r);
   });
 
-  // The filter by what each needs: only on Needs you, and a filter you emptied by answering stays until you leave it.
+  // The filter by what each needs: only in the Inbox, and a filter you emptied by answering stays until you leave it.
   const counts = useMemo(() => {
     const m = new Map<Word, number>();
     for (const r of inboxRows ?? []) {
@@ -499,7 +499,7 @@ export function InboxScreen() {
     let card: ReactNode;
     if (loadError) {
       card = (
-        <EmptyCard title={`Couldn't load ${view === "archive" ? "the Archive" : view === "parked" ? "Parked" : view === "snoozed" ? "Later" : "what needs you"}`} alert>
+        <EmptyCard title={`Couldn't load ${view === "archive" ? "the Archive" : view === "parked" ? "Parked" : view === "snoozed" ? "Later" : "the Inbox"}`} alert>
           <p>{loadError}</p>
           <div className="ibx-empty-acts"><button type="button" className="btn btn-primary" onClick={reload}><Icon name="refresh" size={14} /> Try again</button></div>
         </EmptyCard>
@@ -940,7 +940,7 @@ function EmptyView({ view, hired, snoozedNext, laterCount, onView, onHire }: {
   return (
     <EmptyCard title={title}>
       <p>{text}</p>
-      <div className="ibx-empty-acts"><button type="button" className="btn" onClick={() => onView("inbox")}>Back to Needs you</button></div>
+      <div className="ibx-empty-acts"><button type="button" className="btn" onClick={() => onView("inbox")}>Back to the Inbox</button></div>
     </EmptyCard>
   );
 }

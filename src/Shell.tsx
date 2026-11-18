@@ -128,7 +128,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
   const memberSelected = route.page === "org" ? route.memberId : null;
   // Your team: every employee, in the chart's order, each a click from their conversation (the one that matters now:
   // what needs you, what they are working on, else their newest). Where each stands is one dot on their face, said in
-  // words in the row's name and tooltip; the Inbox (Needs you) gathers what needs you. People are in the org chart.
+  // words in the row's name and tooltip; the Inbox gathers what needs you. People are in the org chart.
   const open = route.page === "chat" ? route.employeeId : null;
   const employees = snap?.employees ?? [];
   const people = snap?.people ?? [];
@@ -165,7 +165,7 @@ export function Shell({ arriving = false }: { arriving?: boolean }) {
             <span className="kbd side-kbd">{MOD} K</span>
           </button>
           <nav ref={navRef} className="side-nav scroll-fade">
-            <NavItem href="#/inbox" icon="inbox" label="Needs you" active={route.page === "inbox"} badge={inboxCount || null} collapsed={collapsed} />
+            <NavItem href="#/inbox" icon="inbox" label="Inbox" active={route.page === "inbox"} badge={inboxCount || null} collapsed={collapsed} />
             <NavItem href="#/org" icon="org" label="Org chart" active={route.page === "org"} collapsed={collapsed} />
             <NavItem href="#/analytics" icon="chart" label="Analytics" active={route.page === "analytics"} collapsed={collapsed} />
             {team.length ? <div className="side-label">Team</div> : null}
