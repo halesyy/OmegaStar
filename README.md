@@ -18,6 +18,7 @@
   <img alt="Platforms: macOS, Windows and Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square">
   <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-orange?style=flat-square">
   <img alt="Requires Claude Code" src="https://img.shields.io/badge/requires-Claude%20Code-555555?style=flat-square">
+  <a href="https://buymeacoffee.com/futsy"><img alt="Buy Me a Coffee" src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black"></a>
 </p>
 
 <p align="center">
@@ -204,6 +205,14 @@ cargo clippy --all-targets
 Your office lives in the app data directory: `~/Library/Application Support/OmegaStar` on macOS, `%APPDATA%\OmegaStar` on Windows and `~/.local/share/OmegaStar` on Linux. A dev or dogfood build uses `OmegaStar-dev` or `OmegaStar-dogfood` beside it, so it never touches your real office. Set `OMEGASTAR_DATA_DIR` to use another folder. Errors are logged to `omega.log` there.
 
 Each employee has a folder there with a generated `CLAUDE.md` handbook, their own skills and a scratch workspace. A per-run `settings.json` hides skills they weren't granted, and office tools (delegation, requests, schedules) use an MCP endpoint the app serves on 127.0.0.1.
+
+## Support OmegaStar
+
+OmegaStar is free and open source. If it saves you time, you can [buy me a coffee](https://buymeacoffee.com/futsy). It helps keep the updates coming.
+
+<a href="https://buymeacoffee.com/futsy"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support%20OmegaStar-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee"></a>
+
+Not in a position to give? Starring the repository and telling a friend helps too.
 
 ## License
 
