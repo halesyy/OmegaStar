@@ -100,6 +100,16 @@ export function resetsLabel(w: UsageWindow, now = new Date()): string {
   return w.resetsText ? `Resets ${w.resetsText.replace(/\s*\([^)]*\)\s*$/, "")}` : "";
 }
 
+/** Time left until a moment, short: "45m", "2h 14m", "3d", "2d 18h". */
+export function untilShort(isoStr: string, now = Date.now()): string {
+  const m = Math.max(0, Math.round((Date.parse(isoStr) - now) / 60_000));
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
+}
+
 /** When held work starts: "Starts at 9:30 pm when the limit resets" ("when the rate limit eases" for a rate limit), or "Starts Tue at 9:30 pm ..." on another day. */
 export function heldLabel(at: string, rateLimit: boolean, now = new Date()): string {
   const d = new Date(at);

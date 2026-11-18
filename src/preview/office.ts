@@ -2,7 +2,7 @@
 // fitness studios, run by Maren Holt with six AI employees and three real people. Every name, figure and address
 // here is made up. Times are relative to when the page loaded, so "2h ago" stays "2h ago" from one load to the next.
 import type {
-  AppSettings, BackupStatus, Card, CardAsk, Channel, Check, Company, Employee, EmployeeStatus, HireProposal, HumanRequest,
+  AccountUsage, AppSettings, BackupStatus, Card, CardAsk, Channel, Check, Company, Employee, EmployeeStatus, HireProposal, HumanRequest,
   OriginalSkill, OwnSkill, Person, Run, RunBuild, RunEvent, RunKind, Schedule, Score, SetupStatus, SkillHealth, SkillInfo,
   SkillRevision, StagedImport, UsageLimits, Watch,
 } from "../api/types";
@@ -121,7 +121,7 @@ function emptyUsage(): UsageLimits {
   return {
     fiveHour: { percent: 4, resetsAt: ahead(287), resetsText: null },
     sevenDay: { percent: 9, resetsAt: nextDow(2, 10), resetsText: null },
-    observedAt: ago(3), subscription: true, heldUntil: null, heldForRateLimit: false, accountIssue: null, proxyIssue: null,
+    observedAt: ago(3), subscription: true, heldUntil: null, heldForRateLimit: false, accountIssue: null, proxyIssue: null, accounts: [],
   };
 }
 
@@ -220,10 +220,23 @@ export function fullOffice(): World {
   w.update = "0.6.0";
   w.company = { name: "Fernbrook", ceoName: "Maren Holt", title: "Founder", email: "maren@fernbrook.app", reportsTo: "harriet" };
   w.setup = setupStatus(w.company);
+  // Four accounts behind a CLI proxy; the windows average them.
+  const week = nextDow(2, 10);
+  const later = (hours: number) => new Date(Date.parse(week) + hours * 3_600_000).toISOString();
+  const account = (name: string, five: [number, string], wk: [number, string], fable: number): AccountUsage => ({
+    name, fiveHour: { percent: five[0], resetsAt: five[1], resetsText: null }, sevenDay: { percent: wk[0], resetsAt: wk[1], resetsText: null },
+    modelWeeks: [{ model: "Fable", window: { percent: fable, resetsAt: wk[1], resetsText: null } }],
+  });
   w.usage = {
     fiveHour: { percent: 38, resetsAt: ahead(134), resetsText: null },
-    sevenDay: { percent: 61, resetsAt: nextDow(2, 10), resetsText: null },
+    sevenDay: { percent: 61, resetsAt: week, resetsText: null },
     observedAt: ago(4), subscription: true, heldUntil: null, heldForRateLimit: false, accountIssue: null, proxyIssue: null,
+    accounts: [
+      account("maren@fernbrook.app", [72, ahead(134)], [88, week], 30),
+      account("ops@fernbrook.app", [41, ahead(185)], [64, later(20)], 12),
+      account("studio@fernbrook.app", [23, ahead(280)], [52, later(31)], 8),
+      account("spare@fernbrook.app", [16, ahead(298)], [40, later(44)], 2),
+    ],
   };
 
   // ---- people

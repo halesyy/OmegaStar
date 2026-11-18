@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { call, errorMessage } from "../api/client";
-import type { UsageWindow } from "../api/types";
-import { clockHM, relTime, resetsLabel } from "../lib/format";
+import type { AccountUsage, UsageLimits, UsageWindow } from "../api/types";
+import { clockHM, relTime, resetsLabel, untilShort } from "../lib/format";
 import { useNow, useQuery, useUsage } from "../lib/hooks";
 import { toast } from "../lib/toasts";
 import { Icon } from "./Icon";
+import { Avatar, Popover } from "./ui";
 import "./UsageCard.css";
 
 const level = (w: UsageWindow | null) => (!w ? "" : w.percent >= 95 ? "usage-err" : w.percent >= 80 ? "usage-warn" : "");
@@ -12,11 +13,10 @@ const level = (w: UsageWindow | null) => (!w ? "" : w.percent >= 95 ? "usage-err
 const pct = (w: UsageWindow | null) => (w ? `${Math.round(w.percent)}%` : "");
 const said = (w: UsageWindow | null, known: boolean) => (w ? `${pct(w)} used` : known ? "not reported" : "not checked yet");
 
-/** One window: label, meter, percent, each row itself the Refresh: under the pointer its label says so. The tooltip
- *  names the card and holds the reset time and when it was checked; the reset time is on screen once the window runs
- *  high. */
-function Window({ label, w, now, known, checked, refreshing, refresh, near, other }: {
-  label: string; w: UsageWindow | null; now: number; known: boolean; checked: string; refreshing: boolean; refresh: () => void;
+/** One window: label, meter, percent. The tooltip names the card and holds the reset time and when it was checked; the
+ *  reset time is on screen once the window runs high. */
+function Window({ label, w, now, known, checked, near, other }: {
+  label: string; w: UsageWindow | null; now: number; known: boolean; checked: string;
   /** The limit you will reach first: on a short window it may be the only row, so its tooltip names the other too. */
   near: boolean; other: string;
 }) {
@@ -24,16 +24,86 @@ function Window({ label, w, now, known, checked, refreshing, refresh, near, othe
   const lv = level(w);
   const tip = `Claude usage, ${label}: ${said(w, known)}${w && resets ? ` · ${resets}` : ""}${near ? ` · ${other}` : ""} · ${checked}`;
   return (
-    <button className={`usage-row ${lv} ${near ? "usage-near" : ""}`} onClick={refresh} disabled={refreshing} data-tip={tip} aria-label={`${tip}. Refresh`}>
-      <span className="usage-label">
-        <span className="usage-name">{label}</span>
-        <span className="usage-act" aria-hidden>{refreshing ? <Icon name="refresh" size={12} /> : "Refresh"}</span>
-      </span>
+    <span className={`usage-row ${lv} ${near ? "usage-near" : ""}`} data-tip={tip}>
+      <span className="usage-name">{label}</span>
       <span className="usage-bar"><span style={{ transform: `scaleX(${w ? Math.min(100, w.percent) / 100 : 0})` }} /></span>
       <span className="mono num">{pct(w)}</span>
       {/* Until the first reading arrives the row is its meter and nothing else: no placeholder to flash. */}
       {lv && resets ? <span className="usage-sub">{resets}</span> : !w && known ? <span className="usage-sub">Not reported</span> : null}
-    </button>
+    </span>
+  );
+}
+
+/** A limit as the detail shows it: its windows over all accounts, and how to read one account's. */
+type Limit = { label: string; total: UsageWindow; each: (a: AccountUsage) => UsageWindow | null };
+
+/** Windows averaged as the CLI proxy's pool is: full only when every account is, resetting when the first does. */
+function average(ws: (UsageWindow | null)[]): UsageWindow | null {
+  const seen = ws.filter((w): w is UsageWindow => !!w);
+  if (!seen.length) return null;
+  const resets = seen.map((w) => w.resetsAt).filter((t): t is string => !!t).sort((a, b) => Date.parse(a) - Date.parse(b));
+  return { percent: seen.reduce((n, w) => n + w.percent, 0) / seen.length, resetsAt: resets[0] ?? null, resetsText: null };
+}
+
+/** The 5-hour and 7-day limits, then each weekly limit on one model that any account reports. */
+function limits(usage: UsageLimits): Limit[] {
+  const models = [...new Set(usage.accounts.flatMap((a) => a.modelWeeks.map((m) => m.model)))];
+  const all: { label: string; total: UsageWindow | null; each: Limit["each"] }[] = [
+    { label: "5-hour", total: usage.fiveHour, each: (a) => a.fiveHour },
+    { label: "7-day", total: usage.sevenDay, each: (a) => a.sevenDay },
+    ...models.map((m) => {
+      const each = (a: AccountUsage) => a.modelWeeks.find((x) => x.model === m)?.window ?? null;
+      return { label: `7-day · ${m}`, total: average(usage.accounts.map(each)), each };
+    }),
+  ];
+  return all.filter((l): l is Limit => !!l.total);
+}
+
+/** A steady colour per account name, as employees have. */
+const hueOf = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+const hot = (w: UsageWindow) => (w.percent >= 80 ? " ud-hot" : "");
+
+/** One account's share of a limit: its meter fills the tile behind its name, with time left until it resets. */
+function Tile({ a, w, now }: { a: AccountUsage; w: UsageWindow; now: number }) {
+  const left = w.resetsAt ? untilShort(w.resetsAt, now) : "";
+  return (
+    <div className={`ud-tile${hot(w)}`} data-tip={`${a.name}: ${pct(w)} used${w.resetsAt ? ` · ${resetsLabel(w, new Date(now))}` : ""}`}>
+      <span className="ud-fill" style={{ width: `${Math.min(100, w.percent)}%` }} />
+      <Avatar name={a.name} hue={hueOf(a.name)} size={16} />
+      <span className="ud-name">{a.name.split("@")[0]}</span>
+      <span className="ud-pct num">{pct(w)}</span>
+      {left ? <span className="ud-left num"><Icon name="refresh" size={10} />{left}</span> : null}
+    </div>
+  );
+}
+
+/** The detail behind the meters: each limit's total, and each CLI proxy account's share of it. Refresh lives here. */
+function UsageDetails({ usage, now, refreshing, refresh }: { usage: UsageLimits | null; now: number; refreshing: boolean; refresh: () => void }) {
+  const ls = usage ? limits(usage) : [];
+  const several = (usage?.accounts.length ?? 0) > 1;
+  return (
+    <div className={`ud ${refreshing ? "ud-refreshing" : ""}`}>
+      <div className="ud-head">
+        <span className="ud-title">Claude usage</span>
+        <span className="ud-checked">{usage?.observedAt ? `Checked ${relTime(usage.observedAt, now)}` : "Not checked yet"}</span>
+        <button className="btn btn-ghost btn-icon btn-sm" onClick={refresh} disabled={refreshing} aria-label="Refresh" data-tip="Refresh"><Icon name="refresh" size={15} /></button>
+      </div>
+      {ls.map((l) => {
+        const resets = resetsLabel(l.total, new Date(now));
+        const tiles = usage?.accounts.flatMap((a) => { const w = l.each(a); return w ? [{ a, w }] : []; }) ?? [];
+        return (
+          <section key={l.label} className="ud-limit">
+            <div className={`ud-sum${hot(l.total)}`}>
+              <span className="ud-label">{l.label}</span>
+              <span className="ud-big num">{pct(l.total)}</span>
+              <span className="ud-used">used</span>
+              {resets ? <span className="ud-resets"><Icon name="clock" size={11} />{several ? resets.replace(/^Resets/, "First reset") : resets}</span> : null}
+            </div>
+            {tiles.length ? <div className="ud-tiles">{tiles.map(({ a, w }, i) => <Tile key={`${i}-${a.name}`} a={a} w={w} now={now} />)}</div> : null}
+          </section>
+        );
+      })}
+    </div>
   );
 }
 
@@ -69,12 +139,23 @@ function AccountIssue({ message, signedInAs }: { message: string; signedInAs: st
   );
 }
 
-/** Sidebar card: Claude's 5-hour and 7-day usage limits. */
+/** Sidebar card: Claude's 5-hour and 7-day usage limits. A click opens the detail beside it. */
 export function UsageCard() {
   const { usage, refreshing, refresh } = useUsage();
   const now = useNow(60_000);
+  const [open, setOpen] = useState(false);
+  // The meters or the rail's mini meter, whichever was clicked: the detail opens beside it.
+  const anchor = useRef<HTMLElement | null>(null);
+  const toggle = (e: React.MouseEvent<HTMLElement>) => {
+    anchor.current = e.currentTarget;
+    setOpen((o) => !o);
+  };
 
-  if (usage && !usage.subscription) return <RunsToday />;
+  if (usage && !usage.subscription) {
+    // Its trigger goes with the meters, so the detail must not come back open beside nothing.
+    if (open) setOpen(false);
+    return <RunsToday />;
+  }
 
   const five = usage?.fiveHour ?? null;
   const week = usage?.sevenDay ?? null;
@@ -85,11 +166,14 @@ export function UsageCard() {
   const held = usage?.heldUntil && Date.parse(usage.heldUntil) > now ? new Date(usage.heldUntil) : null;
   // A hold from the 7-day limit can end days away, so another day is named.
   const heldDay = held && held.toDateString() !== new Date(now).toDateString() ? `${held.toLocaleDateString(undefined, { weekday: "short" })} ` : "";
+  const summary = `Claude usage: 5-hour ${said(five, known)}, 7-day ${said(week, known)}`;
   return (
     <>
-      <div className={`usage ${refreshing ? "usage-refreshing" : ""}`} aria-label="Claude usage limits">
-        <Window label="5-hour" w={five} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} near={top === five} other={`7-day ${said(week, known)}`} />
-        <Window label="7-day" w={week} now={now} known={known} checked={checked} refreshing={refreshing} refresh={refresh} near={top === week && top !== five} other={`5-hour ${said(five, known)}`} />
+      <div className="usage" aria-label="Claude usage limits">
+        <button className="usage-open" onClick={toggle} aria-haspopup="dialog" aria-expanded={open} aria-label={`${summary}. Show details`}>
+          <Window label="5-hour" w={five} now={now} known={known} checked={checked} near={top === five} other={`7-day ${said(week, known)}`} />
+          <Window label="7-day" w={week} now={now} known={known} checked={checked} near={top === week && top !== five} other={`5-hour ${said(five, known)}`} />
+        </button>
         {held ? <div className="usage-note usage-note-warn">{usage?.heldForRateLimit
           ? <>Claude is turning requests away for now, so work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}.</>
           : <>Work starts again {heldDay}at {clockHM(held.getHours(), held.getMinutes())}, when the limit resets.</>}</div> : null}
@@ -97,10 +181,13 @@ export function UsageCard() {
         {usage?.proxyIssue ? <div className="usage-note usage-note-warn">{usage.proxyIssue}</div> : null}
       </div>
       {/* The rail: the nearer limit as a number over its meter, so it reads as a reading, not a menu glyph. */}
-      <button className={`usage-mini ${level(top)}`} onClick={refresh} data-tip={`Claude usage: 5-hour ${said(five, known)} · 7-day ${said(week, known)}`} aria-label={`Claude usage: 5-hour ${said(five, known)}, 7-day ${said(week, known)}. Refresh`}>
+      <button className={`usage-mini ${level(top)}`} onClick={toggle} aria-haspopup="dialog" aria-expanded={open} data-tip={`Claude usage: 5-hour ${said(five, known)} · 7-day ${said(week, known)}`} aria-label={`${summary}. Show details`}>
         <span className="usage-mini-n num">{pct(top)}</span>
         <span className="usage-mini-bar"><span style={{ transform: `scaleX(${top ? Math.min(100, top.percent) / 100 : 0})` }} /></span>
       </button>
+      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} side="right" width={500} label="Claude usage">
+        <UsageDetails usage={usage} now={now} refreshing={refreshing} refresh={refresh} />
+      </Popover>
     </>
   );
 }

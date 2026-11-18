@@ -1,7 +1,7 @@
 //! The usage limits of a CLI proxy's (CLIProxyAPI) Claude accounts, read through its management API.
 
 use crate::claude::UsageSample;
-use crate::model::{ProxySettings, Ts, UsageWindow};
+use crate::model::{AccountUsage, ModelWeek, ProxySettings, UsageWindow};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -53,7 +53,7 @@ async fn management(client: &reqwest::Client, p: &ProxySettings, path: &str, bod
     Ok(answer)
 }
 
-/// The pool's usage, as if it were one account. An empty sample when there is no management key or
+/// The pool's usage, as if it were one account, and each account's own. An empty sample when there is no management key or
 /// no Claude account, so the office has no limits to wait for.
 pub async fn usage(p: &ProxySettings) -> Result<UsageSample, Failure> {
     if p.management_key.is_empty() {
@@ -85,33 +85,49 @@ pub async fn usage(p: &ProxySettings) -> Result<UsageSample, Failure> {
             continue;
         }
         if let Ok(u) = serde_json::from_str::<Value>(res["body"].as_str().unwrap_or("")) {
-            accounts.push(u);
+            accounts.push(account(f, &u));
         }
     }
     if accounts.is_empty() && !claude.is_empty() {
         return Err(failure("The CLI proxy could not read its Claude accounts' usage."));
     }
-    Ok(pool(&accounts))
+    Ok(pool(accounts))
+}
+
+/// A usage window from the usage API, its use as 0-100 under `key` (`utilization` on a window, `percent` in `limits`).
+fn window(w: &Value, key: &str) -> Option<UsageWindow> {
+    let resets_at = w["resets_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok()).map(|t| t.to_utc());
+    Some(UsageWindow { percent: w[key].as_f64()?.clamp(0.0, 100.0), resets_at, resets_text: None })
+}
+
+/// An account's usage: its auth file names it, the usage API's answer `u` holds its windows. A weekly limit on one
+/// model is only in `limits`, as `weekly_scoped` with the model in its scope.
+fn account(file: &Value, u: &Value) -> AccountUsage {
+    let name = ["email", "label", "name"].iter().filter_map(|k| file[k].as_str()).find(|n| !n.is_empty()).unwrap_or("Claude account");
+    let model_weeks = u["limits"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|l| l["kind"] == "weekly_scoped")
+        .filter_map(|l| {
+            Some(ModelWeek { model: l["scope"]["model"]["display_name"].as_str()?.to_string(), window: window(l, "percent")? })
+        })
+        .collect();
+    AccountUsage { name: name.to_string(), five_hour: window(&u["five_hour"], "utilization"), seven_day: window(&u["seven_day"], "utilization"), model_weeks }
 }
 
 /// Each window's use averaged over the accounts, so it is full only when every account is, and
 /// resetting when the first of them does.
-fn pool(accounts: &[Value]) -> UsageSample {
-    let window = |k: &str| {
-        let seen: Vec<(f64, Option<Ts>)> = accounts
-            .iter()
-            .filter_map(|a| {
-                let resets = a[k]["resets_at"].as_str().and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok());
-                Some((a[k]["utilization"].as_f64()?, resets.map(|t| t.to_utc())))
-            })
-            .collect();
+fn pool(accounts: Vec<AccountUsage>) -> UsageSample {
+    let average = |pick: fn(&AccountUsage) -> &Option<UsageWindow>| {
+        let seen: Vec<&UsageWindow> = accounts.iter().filter_map(|a| pick(a).as_ref()).collect();
         if seen.is_empty() {
             return None;
         }
-        let percent = seen.iter().map(|(p, _)| p).sum::<f64>() / seen.len() as f64;
-        Some(UsageWindow { percent: percent.clamp(0.0, 100.0), resets_at: seen.iter().filter_map(|(_, r)| *r).min(), resets_text: None })
+        let percent = seen.iter().map(|w| w.percent).sum::<f64>() / seen.len() as f64;
+        Some(UsageWindow { percent, resets_at: seen.iter().filter_map(|w| w.resets_at).min(), resets_text: None })
     };
-    UsageSample { five_hour: window("five_hour"), seven_day: window("seven_day") }
+    UsageSample { five_hour: average(|a| &a.five_hour), seven_day: average(|a| &a.seven_day), accounts }
 }
 
 #[cfg(test)]
@@ -126,10 +142,10 @@ pub(crate) async fn fake_proxy() -> String {
             return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "invalid management key" })));
         }
         let files = json!([
-            { "auth_index": "a", "provider": "claude" },
+            { "auth_index": "a", "provider": "claude", "email": "a@example.com", "label": "a label" },
             { "auth_index": "b", "provider": "claude", "disabled": true },
             { "auth_index": "c", "provider": "codex" },
-            { "auth_index": "d", "provider": "claude" },
+            { "auth_index": "d", "provider": "claude", "email": "", "label": "d label" },
         ]);
         (StatusCode::OK, Json(json!({ "files": files })))
     };
@@ -153,17 +169,37 @@ mod tests {
 
     #[test]
     fn the_pool_is_full_only_when_every_account_is() {
-        let accounts = [
-            json!({ "five_hour": { "utilization": 100.0, "resets_at": "2030-01-01T12:00:00+00:00" }, "seven_day": { "utilization": 40.0, "resets_at": null } }),
-            json!({ "five_hour": { "utilization": 20.0, "resets_at": "2030-01-01T10:00:00+00:00" }, "seven_day": null }),
+        let file = json!({ "email": "a@example.com" });
+        let accounts = vec![
+            account(&file, &json!({ "five_hour": { "utilization": 100.0, "resets_at": "2030-01-01T12:00:00+00:00" }, "seven_day": { "utilization": 40.0, "resets_at": null } })),
+            account(&file, &json!({ "five_hour": { "utilization": 20.0, "resets_at": "2030-01-01T10:00:00+00:00" }, "seven_day": null })),
         ];
-        let s = pool(&accounts);
+        let s = pool(accounts);
         let five = s.five_hour.unwrap();
         assert_eq!(five.percent, 60.0);
         assert_eq!(five.resets_at.unwrap().to_rfc3339(), "2030-01-01T10:00:00+00:00");
         let week = s.seven_day.unwrap();
         assert_eq!((week.percent, week.resets_at), (40.0, None), "an account without the window does not count");
-        assert_eq!(pool(&[]), UsageSample::default());
+        assert_eq!(pool(vec![]), UsageSample::default());
+        assert_eq!(s.accounts.len(), 2, "each account is kept as well");
+    }
+
+    #[test]
+    fn a_weekly_limit_on_one_model_is_kept_by_its_name() {
+        let u = json!({
+            "five_hour": { "utilization": 50.0, "resets_at": null },
+            "limits": [
+                { "kind": "session", "percent": 50, "resets_at": null, "scope": null },
+                { "kind": "weekly_scoped", "percent": 95, "resets_at": "2030-01-05T20:59:59.7+00:00", "scope": { "model": { "id": null, "display_name": "Fable" } } },
+                { "kind": "weekly_scoped", "percent": 10, "resets_at": null, "scope": { "model": null, "surface": "x" } },
+            ],
+        });
+        let a = account(&json!({ "label": "spare" }), &u);
+        assert_eq!(a.name, "spare");
+        assert_eq!(a.model_weeks.len(), 1, "a scope that names no model is not a model's limit");
+        assert_eq!((a.model_weeks[0].model.as_str(), a.model_weeks[0].window.percent), ("Fable", 95.0));
+        assert!(a.model_weeks[0].window.resets_at.is_some());
+        assert_eq!(a.seven_day, None);
     }
 
     #[tokio::test]
@@ -172,6 +208,8 @@ mod tests {
         let proxy = |url: &str, key: &str| ProxySettings { url: url.into(), api_key: "api-key".into(), management_key: key.into() };
         let sample = usage(&proxy(&url, "right-key")).await.unwrap();
         assert_eq!(sample.five_hour.map(|w| w.percent), Some(60.0));
+        let each: Vec<(String, Option<f64>)> = sample.accounts.iter().map(|a| (a.name.clone(), a.five_hour.as_ref().map(|w| w.percent))).collect();
+        assert_eq!(each, vec![("a@example.com".into(), Some(90.0)), ("d label".into(), Some(30.0))], "named by email, else by label");
         let wrong = usage(&proxy(&url, "api-key")).await.unwrap_err();
         assert!(wrong.refused && wrong.message.contains("invalid management key"), "{}", wrong.message);
         let away = usage(&proxy("http://127.0.0.1:1", "right-key")).await.unwrap_err();

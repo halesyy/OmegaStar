@@ -1,24 +1,14 @@
-/* Usage limits: two thin meters under Settings, no box and no heading (each row's tooltip names it). Each row is
-   its own Refresh: under the pointer its label says so, and while a refresh runs the labels turn. The reset time
-   shows once a window runs high, in the sidebar's pale coral. */
+/* Usage limits: two thin meters under Settings, no box and no heading (each row's tooltip names it). The meters are
+   one button that opens the detail beside the sidebar, where Refresh lives. The reset time shows once a window runs
+   high, in the sidebar's pale coral. */
 .usage { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; padding: 4px 0 6px; }
 .usage-head { display: flex; align-items: center; justify-content: space-between; height: 28px; padding: 0 10px; font-size: var(--t-sm); font-weight: 600; color: var(--side-muted); }
-/* Turns only while a refresh is under way. */
-.usage-refreshing .usage-act svg { animation: spin 0.9s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.usage-open { display: flex; flex-direction: column; gap: 2px; width: 100%; border-radius: var(--r-input); text-align: left; transition: background var(--d-ui) var(--ease); }
+.usage-open:hover, .usage-open[aria-expanded="true"] { background: color-mix(in oklab, var(--side-fill) 70%, var(--side)); }
 .usage-row {
   display: grid; grid-template-columns: 44px minmax(0, 1fr) minmax(34px, auto); align-items: center; column-gap: 10px; row-gap: 2px; width: 100%;
-  min-height: 24px; padding: 3px 10px; border-radius: var(--r-input); font-size: 11.5px; color: var(--side-muted); text-align: left;
-  transition: background var(--d-ui) var(--ease);
+  min-height: 24px; padding: 3px 10px; font-size: 11.5px; color: var(--side-muted);
 }
-.usage-row:hover:not(:disabled) { background: color-mix(in oklab, var(--side-fill) 70%, var(--side)); }
-.usage-row:disabled { cursor: default; }
-/* The label and Refresh share one slot; the pointer, or a refresh under way, shows the second. */
-.usage-label { display: inline-grid; }
-.usage-label > span { grid-area: 1 / 1; display: inline-flex; align-items: center; transition: opacity var(--d-ui) var(--ease); }
-.usage-act { opacity: 0; color: var(--side-ink); font-weight: 600; }
-.usage-row:hover .usage-name, .usage-row:focus-visible .usage-name, .usage-refreshing .usage-name { opacity: 0; }
-.usage-row:hover .usage-act, .usage-row:focus-visible .usage-act, .usage-refreshing .usage-act { opacity: 1; }
 .usage-row .mono { font: 600 11.5px/1.3 var(--font-ui); font-variant-numeric: tabular-nums; color: var(--side-ink); text-align: right; letter-spacing: 0; }
 .usage-bar { height: 3px; background: var(--side-line); overflow: hidden; }
 .usage-bar span, .usage-mini-bar span { display: block; height: 100%; background: var(--side-ink); transform-origin: 0 0; transition: transform var(--d-panel) var(--ease); }
@@ -39,7 +29,7 @@
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; align-self: center; width: 44px; height: 34px; margin-top: 6px; padding: 0 9px;
   border-radius: var(--r-input); transition: background var(--d-ui) var(--ease);
 }
-.shell-collapsed .usage-mini:hover { background: color-mix(in oklab, var(--side-fill) 70%, var(--side)); }
+.shell-collapsed .usage-mini:hover, .shell-collapsed .usage-mini[aria-expanded="true"] { background: color-mix(in oklab, var(--side-fill) 70%, var(--side)); }
 
 @media (max-height: 760px) {
   .usage { margin-top: 0; padding: 2px 0 4px; }
@@ -62,3 +52,33 @@
 .usage-note-warn::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--err); box-shadow: 0 0 0 1.5px var(--side); vertical-align: 1px; }
 .usage-note-warn:not(:has(.btn)) { display: block; }
 .usage-note-warn:has(.btn)::before { display: none; }
+
+/* The detail: each limit's total, then one tile per CLI proxy account, its meter filling the tile behind its name. */
+.ud { display: flex; flex-direction: column; margin: -2px 2px -6px; }
+.ud-head { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; }
+.ud-title { flex: 1; font-size: var(--t-md); font-weight: 700; color: var(--ink); }
+.ud-checked { font-size: var(--t-sm); color: var(--muted); white-space: nowrap; }
+.ud-refreshing .ud-head .btn svg { animation: ud-spin 0.9s linear infinite; }
+@keyframes ud-spin { to { rotate: 1turn; } }
+.ud-limit { padding: 12px 0; border-top: 1px solid var(--line); }
+.ud-sum { display: flex; align-items: baseline; gap: 6px; }
+.ud-label { margin-right: 4px; font-size: var(--t-sm); font-weight: 700; color: var(--ink); }
+.ud-big { font-size: 20px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; color: var(--ink); }
+.ud-sum.ud-hot .ud-big { color: var(--err-text); }
+.ud-used { font-size: var(--t-sm); color: var(--muted); }
+.ud-resets { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; }
+.ud-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.ud-tile {
+  position: relative; overflow: hidden; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 8px;
+  border-radius: var(--r-input); background: var(--sunken); font-size: var(--t-sm);
+}
+.ud-fill { position: absolute; inset: 0 auto 0 0; background: color-mix(in oklab, var(--ink) 13%, var(--sunken)); }
+.ud-tile.ud-hot .ud-fill { background: color-mix(in oklab, var(--err) 26%, var(--sunken)); }
+.ud-tile > :not(.ud-fill) { position: relative; }
+.ud-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink); }
+.ud-pct { font-weight: 700; color: var(--ink); }
+.ud-left {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 3px; padding: 1px 5px; border-radius: var(--r-inner);
+  background: var(--surface); color: var(--muted); white-space: nowrap;
+}
+.popover:has(> .ud) { overflow: auto; }

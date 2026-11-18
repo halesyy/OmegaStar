@@ -2262,7 +2262,7 @@ mod tests {
         assert_eq!(held_for(&office), Some(5));
         office.hold_for_transient_limit(None);
         assert_eq!(held_for(&office), Some(5), "a run that meets it while held waits with the rest");
-        let room = || claude::UsageSample { five_hour: window(12.0), seven_day: window(30.0) };
+        let room = || claude::UsageSample { five_hour: window(12.0), seven_day: window(30.0), accounts: vec![] };
         office.observe_usage(room(), true);
         assert_eq!(held_for(&office), Some(5), "the usage windows say nothing about a rate limit");
         assert!(office.release_hold(now() + chrono::Duration::minutes(6)));

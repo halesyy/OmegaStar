@@ -544,7 +544,7 @@ fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool,
     let account_issue = old.account_issue.clone();
     let proxy_issue = old.proxy_issue.clone();
     if from_probe && !subscription {
-        return UsageLimits { five_hour: None, seven_day: None, observed_at: Some(now), subscription: false, held_until: old.held_until, held_for_rate_limit: old.held_for_rate_limit, account_issue, proxy_issue };
+        return UsageLimits { five_hour: None, seven_day: None, observed_at: Some(now), subscription: false, held_until: old.held_until, held_for_rate_limit: old.held_for_rate_limit, account_issue, proxy_issue, accounts: vec![] };
     }
     let room = |w: &Option<UsageWindow>| w.as_ref().is_none_or(|w| w.percent < 100.0);
     let held_until = if from_probe && !old.held_for_rate_limit && room(&sample.five_hour) && room(&sample.seven_day) { None } else { old.held_until };
@@ -567,6 +567,8 @@ fn merge_usage(old: &UsageLimits, sample: claude::UsageSample, from_probe: bool,
         held_for_rate_limit: old.held_for_rate_limit,
         account_issue,
         proxy_issue,
+        // A run's own reading is the signed-in account's alone, so the last probe's accounts stand.
+        accounts: if from_probe { sample.accounts } else { old.accounts.clone() },
     }
 }
 
@@ -609,18 +611,18 @@ mod tests {
         let at = Utc::now();
         let issue = AccountIssue { message: "Paused.".into(), signed_in_as: None };
         let old = UsageLimits { held_until: Some(at + chrono::Duration::hours(2)), account_issue: Some(issue.clone()), ..UsageLimits::default() };
-        let from_run = merge_usage(&old, claude::UsageSample { five_hour: window(100.0), seven_day: None }, false, at);
+        let from_run = merge_usage(&old, claude::UsageSample { five_hour: window(100.0), seven_day: None, accounts: vec![] }, false, at);
         assert_eq!((from_run.held_until, from_run.account_issue.as_ref()), (old.held_until, Some(&issue)));
-        let full = merge_usage(&old, claude::UsageSample { five_hour: window(100.0), seven_day: window(40.0) }, true, at);
+        let full = merge_usage(&old, claude::UsageSample { five_hour: window(100.0), seven_day: window(40.0), accounts: vec![] }, true, at);
         assert_eq!((full.held_until, full.account_issue.as_ref()), (old.held_until, Some(&issue)));
-        let room = merge_usage(&old, claude::UsageSample { five_hour: window(12.0), seven_day: window(40.0) }, true, at);
+        let room = merge_usage(&old, claude::UsageSample { five_hour: window(12.0), seven_day: window(40.0), accounts: vec![] }, true, at);
         assert_eq!((room.held_until, room.account_issue), (None, Some(issue)));
-        let no_week = merge_usage(&old, claude::UsageSample { five_hour: window(20.0), seven_day: None }, true, at);
+        let no_week = merge_usage(&old, claude::UsageSample { five_hour: window(20.0), seven_day: None, accounts: vec![] }, true, at);
         assert_eq!(no_week.held_until, None, "an account with no 7-day window is not held for one");
-        let full_week = merge_usage(&old, claude::UsageSample { five_hour: None, seven_day: window(100.0) }, true, at);
+        let full_week = merge_usage(&old, claude::UsageSample { five_hour: None, seven_day: window(100.0), accounts: vec![] }, true, at);
         assert_eq!(full_week.held_until, old.held_until);
         let rate = UsageLimits { held_for_rate_limit: true, ..old.clone() };
-        let room = merge_usage(&rate, claude::UsageSample { five_hour: window(12.0), seven_day: window(40.0) }, true, at);
+        let room = merge_usage(&rate, claude::UsageSample { five_hour: window(12.0), seven_day: window(40.0), accounts: vec![] }, true, at);
         assert_eq!((room.held_until, room.held_for_rate_limit), (old.held_until, true), "room in the windows never ends a rate limit's hold");
     }
 

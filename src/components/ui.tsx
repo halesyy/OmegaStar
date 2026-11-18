@@ -139,18 +139,25 @@ export function ConfirmButton({ label, confirmLabel, question, onConfirm, icon, 
 
 // ---------------------------------------------------------------- Popover
 
-export function Popover({ anchor, open, onClose, children, align = "end", width = 320 }: {
+/** Opens below its anchor, or with `side="right"` beside it, its bottom level with the anchor's (for the sidebar's foot). */
+export function Popover({ anchor, open, onClose, children, align = "end", width = 320, side = "below", label }: {
   anchor: React.RefObject<HTMLElement | null>; open: boolean; onClose: () => void; children: ReactNode; align?: "start" | "end"; width?: number;
+  side?: "below" | "right"; label?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<React.CSSProperties | null>(null);
 
   useLayoutEffect(() => {
     if (!open || !anchor.current) return;
     const r = anchor.current.getBoundingClientRect();
+    if (side === "right") {
+      const bottom = Math.max(12, window.innerHeight - r.bottom - 6);
+      setPos({ left: r.right + 14, bottom, maxHeight: window.innerHeight - bottom - 12 });
+      return;
+    }
     const left = align === "end" ? Math.max(8, r.right - width) : Math.min(window.innerWidth - width - 8, r.left);
     setPos({ top: r.bottom + 6, left });
-  }, [open, anchor, align, width]);
+  }, [open, anchor, align, width, side]);
 
   useEffect(() => {
     if (!open) return;
@@ -167,7 +174,7 @@ export function Popover({ anchor, open, onClose, children, align = "end", width 
 
   if (!open || !pos) return null;
   return createPortal(
-    <div ref={ref} className="popover" style={{ top: pos.top, left: pos.left, width }} role="dialog">
+    <div ref={ref} className="popover" style={{ ...pos, width }} role="dialog" aria-label={label}>
       {children}
     </div>,
     document.body,
