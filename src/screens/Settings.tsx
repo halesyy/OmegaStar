@@ -11,7 +11,7 @@ import { openHelp } from "../lib/help";
 import { Row, SaveRows, States, Stepper, Swap, sentence, useRowSaves, useSettingsSaves } from "./settings/rows";
 import { Group, SectionIndex, SettingsLoading } from "./settings/frame";
 import { PathRow, SkillsDesc } from "./settings/ClaudeCode";
-import { CHANNELS, UpdateRow, aboutDesc } from "./settings/About";
+import { CHANNELS, SupportCard, UpdateRow, aboutDesc } from "./settings/About";
 import { NotificationsGroup, RepliesGroup } from "./settings/Notifications";
 import { BackupsGroup } from "./settings/Backups";
 import { ProxyGroup } from "./settings/Proxy";
@@ -131,7 +131,7 @@ export function SettingsScreen() {
               onSave={(proxy, then) => change("CLI proxy", (x) => ({ ...x, proxy }), () => { status.reload(); then(); })}
             />
 
-            <Group title="About">
+            <Group title="About" foot={<SupportCard />}>
               <Row title="OmegaStar" desc={aboutDesc(st)}>
                 <span className="set-version num">v{st.build.version}</span>
                 <span className="tag">{CHANNELS[st.build.channel]}</span>
