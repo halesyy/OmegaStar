@@ -769,15 +769,19 @@ pub(super) fn take_held(run: &mut Run) -> Option<String> {
 }
 
 /// What your answer on `card` says to the run that raised it: a chore's Done as it is, anything else under the
-/// question it answers, with your own words quoted.
+/// question it answers. Your own words are quoted, and since they close the card even when they decide nothing ("I'll
+/// look later"), the employee hears that it has left your Inbox.
 fn card_reply_text(card: &Card, answer: &CardAnswer) -> String {
     let typed = answer.how == AnswerHow::Typed;
-    let said = if typed { format!("Answered: \"{}\"", answer.text) } else { answer.text.clone() };
+    let said = if typed { format!("Answered: \"{}\"\n{TYPED_CLOSES}", answer.text) } else { answer.text.clone() };
     match card.ask {
         CardAsk::Chore { .. } if !typed => said,
         _ => format!("Your card: \"{}\"\n{said}", claude::clip(&card.message, 300)),
     }
 }
+
+/// What follows your own words on a card: they closed it, so a decision still needed is asked again.
+const TYPED_CLOSES: &str = "This answer closed the card, so it is no longer in their Inbox. If you still need their decision, raise the card again.";
 
 /// A run by id while walking threads. A store error is logged and the run treated as missing, since
 /// the thread walkers take a plain lookup.
