@@ -26,6 +26,14 @@
 /* A note under a section's list. */
 .set-aside { margin-top: var(--sp-3); max-width: 64ch; font-size: var(--t-sm); line-height: 1.5; color: var(--muted); text-wrap: pretty; }
 .set-aside-title { margin-right: 4px; font-weight: 600; color: var(--ink-2); }
+/* A card under About: a code to scan with a phone beside a button to the same page. The code's tile stays white in
+   both themes, as a code must be dark on light to scan. Its 29 modules draw at a whole 3px each, so they stay sharp,
+   inside the four modules of white a code needs around it. */
+.set-support { margin-top: 20px; display: flex; align-items: center; gap: 20px; padding: var(--sp-4); border-radius: 12px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.set-support-qr { flex: none; display: block; width: 111px; height: 111px; padding: 12px; border-radius: 8px; background: #fff; }
+.set-support-text { margin-top: var(--sp-1); max-width: 52ch; font-size: var(--t-sm); line-height: 1.5; color: var(--muted); }
+.set-support-act { margin-top: var(--sp-3); display: flex; align-items: center; gap: var(--sp-3); }
+.set-support-url { font-size: var(--t-sm); color: var(--muted); }
 
 /* ------------------------------------------------ rows: the words in a flexible track, the control in a fixed one.
    Every control is centred on the title's line (18px tall) inside a 32px box that starts 7px above it, so a control
