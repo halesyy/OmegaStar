@@ -187,7 +187,7 @@ button.d-also-row:focus-visible::before { box-shadow: var(--focus); }
 .d-q-radios { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .d-q-words { margin-top: 10px; }
 .d-q-pick { margin-left: 6px; font-size: var(--t-sm); color: var(--muted); }
-.d-q .d-card { margin-top: 12px; }
+.d-q .d-card, .d-q .card-proposal { margin-top: 12px; }
 .d-q-about { margin-top: 12px; }
 .d-q-about .card-about { margin: 0 0 8px; }
 .d-q-about .card-file { margin: 0; }

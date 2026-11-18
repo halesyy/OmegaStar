@@ -247,16 +247,22 @@ export function CardView({ card, runId, index, e, working, onAnswer, actionsSlot
   return (
     <div className="cv-card">
       {about}
-      {proposal?.type === "companyLine" ? (
-        <div className="card-proposal">
-          <p className="card-proposal-head">Adds to the company page under <b>{proposal.section}</b>:</p>
-          <div className="card-proposal-line"><Markdown text={proposal.line} /></div>
-        </div>
-      ) : null}
+      <CardProposal proposal={proposal} />
       {card.file && !fileAbove ? <CardFile runId={runId} index={index} path={card.file} label={proposedVersion(proposal, name)} /> : null}
       {working ? <p className="card-wait">Waiting for {name} to finish</p> : null}
       {ask.type === "items" || split ? answerEl : toSlot(answerEl)}
       {words && !aimer ? <div className="enter-drop">{line(ask.type === "news" ? `Your reply to ${name}, or a question about it` : `Your answer for ${name}, or a question about it`, true)}</div> : null}
+    </div>
+  );
+}
+
+/** The line a company-page proposal adds, and the heading it goes under: what Add it does. */
+export function CardProposal({ proposal }: { proposal: Proposal | null }) {
+  if (proposal?.type !== "companyLine") return null;
+  return (
+    <div className="card-proposal">
+      <p className="card-proposal-head">Adds to the company page under <b>{proposal.section}</b>:</p>
+      <div className="card-proposal-line"><Markdown text={proposal.line} /></div>
     </div>
   );
 }

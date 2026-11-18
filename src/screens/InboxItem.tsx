@@ -19,7 +19,7 @@ import { ProposalActions, ProposalRecord, hireTitle } from "../components/Propos
 import { Avatar, tipWhenCut } from "../components/ui";
 import { CardImages } from "../components/conversation/CardImages";
 import { CardLink, webUrl } from "../components/conversation/CardLink";
-import { CardFile, CardList, CardText, CardView } from "../components/conversation/CardView";
+import { CardFile, CardList, CardProposal, CardText, CardView } from "../components/conversation/CardView";
 import { lines } from "../components/conversation/RowHistory";
 import { ThreadView, useRetry } from "../components/conversation/ThreadView";
 import type { Item } from "../components/conversation/useStatuses";
@@ -517,6 +517,7 @@ function CardSet({ d, e, act, actions }: { d: CardDecision<Item>; e: EmployeeVie
               <div className="d-q-t">{c.card.message}</div>
               {c.card.why ? <div className="d-q-why">{c.card.why}</div> : null}
               {a.type === "choices" && isOpen(c.card) && !on(c) ? (<>
+                <CardProposal proposal={c.card.proposal} />
                 <div className="d-q-picks">
                   <div className="d-q-radios" role="radiogroup" aria-label={c.card.message}>
                     {[...a.choices.map((label, i) => [i, label] as const), ["no", "No"] as const].map(([pick, label]) => (

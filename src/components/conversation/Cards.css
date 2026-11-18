@@ -52,14 +52,14 @@
 :is(.cv-card, .cv-slot) .card-thumb:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--line-strong); }
 :is(.cv-card, .cv-slot) .card-thumb:disabled { cursor: default; }
 :is(.cv-card, .cv-slot) .card-thumb-missing { display: grid; place-items: center; color: var(--muted); cursor: default; }
-:is(.cv-card, .cv-slot) .card-steps, :is(.cv-card, .cv-slot) .card-proposal-line {
+:is(.cv-card, .cv-slot) .card-steps, :is(.cv-card, .cv-slot, .d-q) .card-proposal-line {
   margin: 0; padding-left: 12px; border-left: 2px solid var(--line-strong); font-size: 14px; line-height: 1.55; color: var(--ink-2); overflow-wrap: break-word; white-space: normal;
 }
-:is(.cv-card, .cv-slot) .card-steps .md, :is(.cv-card, .cv-slot) .card-proposal-line .md { font-size: 14px; color: inherit; }
-:is(.cv-card, .cv-slot) .card-proposal { margin: 0; display: flex; flex-direction: column; gap: 6px; }
-:is(.cv-card, .cv-slot) .card-proposal-head { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
-:is(.cv-card, .cv-slot) .card-proposal-head b { font-weight: 650; color: var(--ink-2); }
-:is(.cv-card, .cv-slot) .card-proposal-line { color: var(--ink); }
+:is(.cv-card, .cv-slot) .card-steps .md, :is(.cv-card, .cv-slot, .d-q) .card-proposal-line .md { font-size: 14px; color: inherit; }
+:is(.cv-card, .cv-slot, .d-q) .card-proposal { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+:is(.cv-card, .cv-slot, .d-q) .card-proposal-head { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+:is(.cv-card, .cv-slot, .d-q) .card-proposal-head b { font-weight: 650; color: var(--ink-2); }
+:is(.cv-card, .cv-slot, .d-q) .card-proposal-line { color: var(--ink); }
 :is(.cv-card, .cv-slot, .cv-file-above) .card-file { margin: 0; border: 0; border-radius: var(--r-card); box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--surface); overflow: hidden; }
 :is(.cv-card, .cv-slot, .cv-file-above) .card-file-head { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 6px 0 14px; border-bottom: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted); }
 :is(.cv-card, .cv-slot, .cv-file-above) .card-file-head > svg { flex: none; }
