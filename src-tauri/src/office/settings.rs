@@ -5,8 +5,8 @@ use super::*;
 /// The first transcript sweep, a while after launch, and the time between sweeps.
 const SWEEP_FIRST: Duration = Duration::from_secs(300);
 const SWEEP_EVERY: Duration = Duration::from_secs(24 * 3600);
-/// How long a backup may take before Omega Star gives up on it, so a folder the system holds up fails loudly.
-const BACKUP_LIMIT: Duration = Duration::from_secs(600);
+/// How long a backup may take before OmegaStar gives up on it, so a folder the system holds up fails loudly.
+const BACKUP_LIMIT: Duration = Duration::from_secs(30 * 60);
 
 impl Office {
     pub async fn setup_status(&self, background: bool) -> Result<SetupStatus> {
@@ -206,7 +206,7 @@ impl Office {
         let result = match tokio::time::timeout(limit, write).await {
             Ok(done) => done.unwrap_or_else(|e| Err(AppError::internal(format!("backup task: {e}")))),
             Err(_) => Err(AppError::internal(format!(
-                "The backup took over {} minutes, so Omega Star stopped waiting. Check that the backup folder is reachable and Omega Star is allowed to use it.",
+                "The backup took over {} minutes, so OmegaStar stopped waiting. Check that the backup folder is reachable and OmegaStar is allowed to use it.",
                 limit.as_secs() / 60
             ))),
         };
