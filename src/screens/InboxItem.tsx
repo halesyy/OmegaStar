@@ -479,8 +479,8 @@ function recommends(card: Card): string | null {
 }
 
 /**
- * A run's several questions, one under another. A choice shows its choices with the employee's pick already chosen;
- * change any, then one Send answers them all, after an Undo window. Reply in words answers a choice in your own words
+ * A run's several questions, one under another. A choice shows its choices, and No, with the employee's pick already
+ * chosen; change any, then one Send answers them all, after an Undo window. Reply in words answers a choice in your own words
  * instead, or asks about it first. A question that needs words, a list or a to-do is answered on its own card, and Send
  * waits for it. While the run is still working nothing is answered yet.
  */
@@ -489,7 +489,7 @@ function CardSet({ d, e, act, actions }: { d: CardDecision<Item>; e: EmployeeVie
   const going = usePendingAnswers();
   const on = (c: OpenCard) => going.some((p) => p.runId === c.run.id && p.index === c.index);
   const choices = d.cards.filter((c) => c.card.ask.type === "choices" && isOpen(c.card) && !on(c));
-  const [picks, setPicks] = useState<Record<number, number>>(() =>
+  const [picks, setPicks] = useState<Record<number, number | "no">>(() =>
     Object.fromEntries(choices.map((c) => [c.index, c.card.ask.type === "choices" ? c.card.ask.recommended : 0])));
   const working = d.cards.some((c) => isLive(c.run));
   // Cards answered on their own (words, a list, a to-do) must be in before Send.
@@ -504,7 +504,8 @@ function CardSet({ d, e, act, actions }: { d: CardDecision<Item>; e: EmployeeVie
     try { return await askAboutCard(c.run.id, c.index, who, text); } finally { setAsking(false); }
   };
   const n = choices.length;
-  const send = () => act.answerMany(choices.map((c) => ({ card: c, reply: { type: "choice", index: picks[c.index] ?? 0 } })), [d.id]);
+  const reply = (pick: number | "no" = 0): CardReply => (pick === "no" ? { type: "reject" } : { type: "choice", index: pick });
+  const send = () => act.answerMany(choices.map((c) => ({ card: c, reply: reply(picks[c.index]) })), [d.id]);
   const label = n === 2 ? "Send both answers" : n === 1 ? "Send the answer" : `Send ${n} answers`;
   return (
     <>
@@ -518,10 +519,10 @@ function CardSet({ d, e, act, actions }: { d: CardDecision<Item>; e: EmployeeVie
               {a.type === "choices" && isOpen(c.card) && !on(c) ? (<>
                 <div className="d-q-picks">
                   <div className="d-q-radios" role="radiogroup" aria-label={c.card.message}>
-                    {a.choices.map((label, i) => (
+                    {[...a.choices.map((label, i) => [i, label] as const), ["no", "No"] as const].map(([pick, label]) => (
                       <button
-                        key={i} type="button" className="chip" role="radio" aria-checked={picks[c.index] === i} aria-pressed={picks[c.index] === i}
-                        disabled={working} onClick={() => setPicks((p) => ({ ...p, [c.index]: i }))}
+                        key={pick} type="button" className="chip" role="radio" aria-checked={picks[c.index] === pick} aria-pressed={picks[c.index] === pick}
+                        disabled={working} onClick={() => setPicks((p) => ({ ...p, [c.index]: pick }))}
                       >
                         {label}
                       </button>
