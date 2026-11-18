@@ -362,4 +362,31 @@ mod tests {
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
+
+    /// `r` with a card nobody has answered.
+    fn asking(mut r: Run) -> Run {
+        let card = Card::new("Add to the company page?", None, Some("company:tools".into()), CardAsk::Choices { choices: vec!["Add it".into()], recommended: 0 });
+        r.needs_you.push(card.message.clone());
+        r.cards = vec![card];
+        r
+    }
+
+    #[tokio::test]
+    async fn approving_waits_for_a_card_the_tidy_raised() {
+        let dir = temp_path("tidy-card");
+        let e = fixtures::employee();
+        let open = asking(waiting(&e));
+        let office = held(&dir, &e, &[&open]).await;
+        assert_eq!(office.approve_tidy(&open.id).unwrap_err().message, "Answer the card first, or dismiss it.");
+        assert_eq!(office.conversations().unwrap().inbox, vec![open.id.clone()], "the card is still yours to answer");
+        office.answer_card(&open.id, 0, CardReply::Reject).unwrap();
+        for told in office.thread(&open.id).unwrap().replies {
+            start(&office, &told);
+            finish(&office, &told.id);
+        }
+        office.approve_tidy(&open.id).unwrap();
+        assert!(office.conversations().unwrap().inbox.is_empty(), "nothing in it waits on you now");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
