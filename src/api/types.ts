@@ -378,7 +378,10 @@ export type UsageLimits = {
   heldForRateLimit: boolean;   // the hold is a rate limit's, which eases then
   accountIssue: { message: string; signedInAs: string | null } | null;   // routines wait for the right account
   proxyIssue: string | null;   // why the CLI proxy could not report its accounts' usage
+  accounts: AccountUsage[];    // a CLI proxy's accounts one by one, which the windows above average; empty without one
 };
+/** One CLI proxy account's own windows; `modelWeeks` are weekly limits on one model, such as Fable. */
+export type AccountUsage = { name: string; fiveHour: UsageWindow | null; sevenDay: UsageWindow | null; modelWeeks: { model: string; window: UsageWindow }[] };
 
 export type ApiError = { code: string; message: string };
 

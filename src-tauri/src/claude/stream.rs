@@ -91,6 +91,8 @@ pub struct Parsed {
 pub struct UsageSample {
     pub five_hour: Option<UsageWindow>,
     pub seven_day: Option<UsageWindow>,
+    /// A CLI proxy's accounts, one by one; empty for a single account.
+    pub accounts: Vec<AccountUsage>,
 }
 
 fn percent_of(utilization: f64) -> f64 {
@@ -350,7 +352,7 @@ pub fn parse_line(line: &str, home: &Path) -> Parsed {
                     resets_text: None,
                 })
             };
-            let sample = UsageSample { five_hour: window("five_hour"), seven_day: window("seven_day") };
+            let sample = UsageSample { five_hour: window("five_hour"), seven_day: window("seven_day"), accounts: vec![] };
             if sample.five_hour.is_some() || sample.seven_day.is_some() {
                 p.usage = Some(sample);
             }

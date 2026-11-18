@@ -303,12 +303,35 @@ pub struct UsageLimits {
     pub account_issue: Option<AccountIssue>,
     /// Why the CLI proxy could not report its accounts' usage, when it could not.
     pub proxy_issue: Option<String>,
+    /// Each of a CLI proxy's accounts, whose readings the windows above average. Empty without a proxy.
+    pub accounts: Vec<AccountUsage>,
+}
+
+/// One CLI proxy account's own usage windows.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountUsage {
+    /// The account's email, or the proxy's label for it.
+    pub name: String,
+    pub five_hour: Option<UsageWindow>,
+    pub seven_day: Option<UsageWindow>,
+    /// Weekly limits on one model, such as Fable, beside the 7-day limit on all of them.
+    pub model_weeks: Vec<ModelWeek>,
+}
+
+/// A weekly limit on one model.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelWeek {
+    /// The model's display name, e.g. "Fable".
+    pub model: String,
+    pub window: UsageWindow,
 }
 
 impl Default for UsageLimits {
     fn default() -> Self {
         // Unknown until the first probe; assume a subscription so the UI waits rather than switching to spend.
-        UsageLimits { five_hour: None, seven_day: None, observed_at: None, subscription: true, held_until: None, held_for_rate_limit: false, account_issue: None, proxy_issue: None }
+        UsageLimits { five_hour: None, seven_day: None, observed_at: None, subscription: true, held_until: None, held_for_rate_limit: false, account_issue: None, proxy_issue: None, accounts: vec![] }
     }
 }
 
