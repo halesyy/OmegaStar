@@ -531,7 +531,7 @@ impl Office {
             let db = self.db();
             let original = db.run(run_id)?.ok_or_else(|| AppError::not_found("run not found"))?.run;
             let t = Self::thread_in(&db, run_id)?;
-            let stays = yours(&t) || std::iter::once(&t.root).chain(&t.replies).any(Run::has_news);
+            let stays = yours(&t) || std::iter::once(&t.root).chain(&t.replies).any(|r| r.has_open_card() || r.has_news());
             if original.denials.is_empty() {
                 return Err(AppError::conflict("nothing was blocked in that run"));
             }
@@ -566,7 +566,8 @@ Approval covers only what is listed, so if something else is blocked, stop and s
             rules.join(", ")
         );
         // Decided, so it leaves the Inbox: the retry comes back only if it needs you again. A conversation you are
-        // in goes on instead, and news you have not seen keeps the thread where you will see it.
+        // in goes on instead, and a card you have not answered or news you have not seen keeps the thread where you
+        // will see it.
         self.reply_with(run_id, &text, !stays, rules, vec![], ReplyBy::App)
     }
 
@@ -1723,6 +1724,20 @@ mod tests {
         office.approve_blocked(&blocked.id, vec!["Bash(git push:*)".into()], false).unwrap();
         let s = office.db().run(&blocked.id).unwrap().unwrap().run;
         assert!(s.archived_at.is_none() && s.has_news(), "the retry goes, and the news waits to be seen");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn approving_a_block_keeps_a_card_you_have_not_answered() {
+        let dir = temp_dir("approve-card");
+        let e = employee_named("Cy");
+        let mut blocked = carded(&e);
+        blocked.denials = vec![Denial { tool: "Bash".into(), brief: "git push".into(), suggested_rule: "Bash(git push:*)".into() }];
+        let office = held_office(&dir, &e, &[&blocked]).await;
+        office.approve_blocked(&blocked.id, vec!["Bash(git push:*)".into()], false).unwrap();
+        let s = office.db().run(&blocked.id).unwrap().unwrap().run;
+        assert!(s.archived_at.is_none() && s.has_open_card(), "the retry goes, and the card waits for your answer");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
