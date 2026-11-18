@@ -164,6 +164,7 @@ impl Store {
         let store = Store { conn };
         store.migrate_cards()?;
         store.drop_unrecorded_revisions()?;
+        store.surface_hidden_cards()?;
         if store.meta::<Ts>("skill_use_since")?.is_none() {
             store.set_meta("skill_use_since", &chrono::Utc::now())?;
         }
@@ -198,6 +199,33 @@ impl Store {
                 log!("deleted {n} skill revisions of dependency and data files, which skills no longer record");
             }
             self.set_meta("unrecorded_revisions_dropped", &true)
+        })
+    }
+
+    /// Once: an approved tidy filed with a card you never answered comes back to the Inbox. Older builds filed a tidy
+    /// the moment you approved it, whatever else it asked, so the card left your Inbox while its employee was still
+    /// told it waited on you. Your approval answered the tidy's own flags, so only its cards keep it there.
+    fn surface_hidden_cards(&self) -> Result<()> {
+        if self.meta::<bool>("hidden_cards_surfaced")?.unwrap_or(false) {
+            return Ok(());
+        }
+        self.tx(|| {
+            let filed = self.runs_where(
+                concat!("WHERE json_valid(data) AND json_extract(data, '$.approvedAt') IS NOT NULL AND json_extract(data, '$.archivedAt') IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM ", cards!(), " WHERE json_extract(c.value, '$.answer') IS NULL)"),
+                &[],
+            )?;
+            let mut n = 0;
+            for mut r in filed.into_iter().filter(Run::has_open_card) {
+                r.needs_you.retain(|m| r.cards.iter().any(|c| c.message == *m));
+                r.archived_at = None;
+                self.save_run(&r)?;
+                n += 1;
+            }
+            if n > 0 {
+                log!("brought back {n} approved tidies that were filed with a card you never answered");
+            }
+            self.set_meta("hidden_cards_surfaced", &true)
         })
     }
 
