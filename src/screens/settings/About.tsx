@@ -44,7 +44,7 @@ export function SupportCard() {
   return (
     <div className="set-support">
       <img
-        className="set-support-qr" src={supportQr} width={120} height={120}
+        className="set-support-qr" src={supportQr} width={111} height={111}
         alt="QR code for OmegaStar's Buy Me a Coffee page, to donate from your phone. The Buy me a coffee button beside it opens the same page."
       />
       <div>
