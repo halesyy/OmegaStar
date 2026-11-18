@@ -76,8 +76,7 @@ impl Office {
             return db.tx(|| {
                 for (mut s, last) in db.all_schedules()? {
                     let unflagged = lost_review_flag(&s);
-                    // Builds up to 0.6.5 wrote the name as "Omega Star".
-                    let seeded = s.instruction.replace("Omega Star", "OmegaStar");
+                    let seeded = s.instruction.replace(crate::OLD_PRODUCT_NAME, "OmegaStar");
                     if unflagged || (s.review && s.instruction != new && (seeded == old || seeded == new)) {
                         if unflagged {
                             log!("schedule {} is the weekly review again: an older build saved it without its flag", s.id);

@@ -39,6 +39,9 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
+/// The product's name up to 0.6.5, which an install made then still carries until it is moved to OmegaStar.
+pub(crate) const OLD_PRODUCT_NAME: &str = "Omega Star";
+
 struct TauriSink {
     app: AppHandle,
     pause_item: OnceLock<MenuItem<Wry>>,
