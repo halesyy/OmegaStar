@@ -5,7 +5,7 @@
 #   scripts/side-by-side.sh [name] [--copy-live]
 #
 # name         defaults to the current branch. The copy keeps its office in
-#              ~/Library/Application Support/OmegaStar-dev-<name> and shows in the Dock as "Omega Star (<name>)",
+#              ~/Library/Application Support/OmegaStar-dev-<name> and shows in the Dock as "OmegaStar (<name>)",
 #              the name in lower case with dashes.
 # --copy-live  starts from a fresh sandbox copy of the release office (scripts/office-copy.sh), replacing this
 #              name's earlier copy. Without it, the copy keeps its own office from run to run.
@@ -37,7 +37,7 @@ data="$HOME/Library/Application Support/OmegaStar-dev-$slug"
 # A port of its own between 1430 and 1929, from the name, so copies started together don't collide. 1420 stays the
 # plain `npm run tauri dev` port.
 port=$(( 1430 + $(printf '%s' "$slug" | cksum | cut -d' ' -f1) % 250 * 2 ))
-config=$(printf '{"identifier":"com.abramindustries.omegastar.dev.%s","productName":"Omega Star (%s)","build":{"devUrl":"http://localhost:%s"}}' "$slug" "$slug" "$port")
+config=$(printf '{"identifier":"com.abramindustries.omegastar.dev.%s","productName":"OmegaStar (%s)","build":{"devUrl":"http://localhost:%s"}}' "$slug" "$slug" "$port")
 
 if [ "$copy_live" = 1 ]; then
   scripts/office-copy.sh "$data" --replace

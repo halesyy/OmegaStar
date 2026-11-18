@@ -246,9 +246,16 @@ pub struct BackupSettings {
     pub keep: u32,
 }
 
+/// The backup folder in `base`: the one an older release made under the old name when it is there, else
+/// "OmegaStar Backups".
+fn default_backup_dir(base: &std::path::Path) -> std::path::PathBuf {
+    let old = base.join(format!("{} Backups", crate::OLD_PRODUCT_NAME));
+    if old.exists() { old } else { base.join("OmegaStar Backups") }
+}
+
 impl Default for BackupSettings {
     fn default() -> Self {
-        let dir = dirs::document_dir().or_else(dirs::home_dir).unwrap_or_default().join("Omega Star Backups");
+        let dir = default_backup_dir(&dirs::document_dir().or_else(dirs::home_dir).unwrap_or_default());
         BackupSettings { frequency: BackupFrequency::Off, dir: dir.to_string_lossy().into_owned(), keep: 7 }
     }
 }
@@ -346,6 +353,16 @@ pub struct AccountIssue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backups_keep_going_to_a_folder_an_older_release_made() {
+        let base = std::env::temp_dir().join(format!("omegastar-docs-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        assert_eq!(default_backup_dir(&base), base.join("OmegaStar Backups"));
+        std::fs::create_dir(base.join("Omega Star Backups")).unwrap();
+        assert_eq!(default_backup_dir(&base), base.join("Omega Star Backups"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn a_proxy_key_goes_in_a_header_so_runs_keep_the_claude_ai_sign_in() {

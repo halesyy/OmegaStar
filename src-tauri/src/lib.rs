@@ -39,6 +39,9 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
+/// The product's name up to 0.6.5.
+pub(crate) const OLD_PRODUCT_NAME: &str = "Omega Star";
+
 struct TauriSink {
     app: AppHandle,
     pause_item: OnceLock<MenuItem<Wry>>,
@@ -202,6 +205,66 @@ fn autostart() -> tauri::plugin::TauriPlugin<Wry> {
     b.build()
 }
 
+/// Where an older release wrote the login item under the old name, in `home`.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn old_login_item(home: &std::path::Path) -> std::path::PathBuf {
+    if cfg!(target_os = "macos") {
+        home.join("Library/LaunchAgents").join(format!("{OLD_PRODUCT_NAME}.plist"))
+    } else {
+        home.join(".config/autostart").join(format!("{OLD_PRODUCT_NAME}.desktop"))
+    }
+}
+
+/// Moves a login item an older release wrote under the old name to this release's name: `enable` writes the new
+/// one, then the old file goes. An item the desktop's own settings turned off is removed and stays off. Returns
+/// whether there was one to move.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn carry_login_item(home: &std::path::Path, enable: impl FnOnce() -> Result<(), String>) -> Result<bool, String> {
+    let old = old_login_item(home);
+    if !old.exists() {
+        return Ok(false);
+    }
+    let off = std::fs::read_to_string(&old).is_ok_and(|text| {
+        let mut keys = text.lines().filter_map(|l| l.split_once('=')).map(|(key, value)| (key.trim(), value.trim()));
+        keys.any(|line| matches!(line, ("Hidden", "true" | "1") | ("X-GNOME-Autostart-enabled", "false" | "0")))
+    });
+    if !off {
+        enable()?;
+    }
+    std::fs::remove_file(&old).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// The bundle the app runs from and the name it moves to, when `exe` is the binary of a bundle named exactly
+/// `Omega Star.app`.
+#[cfg(target_os = "macos")]
+fn renamed_bundle(exe: &std::path::Path) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let contents = exe.parent().filter(|p| p.ends_with("MacOS"))?.parent().filter(|p| p.ends_with("Contents"))?;
+    let bundle = contents.parent().filter(|p| p.ends_with(format!("{OLD_PRODUCT_NAME}.app")))?;
+    Some((bundle.to_path_buf(), bundle.with_file_name("OmegaStar.app")))
+}
+
+/// Renames a bundle the updater left under the old name and opens it again from there, so Finder, the Dock and
+/// Spotlight say OmegaStar. `open` starts it outside this process, since launchd ends a login item's children
+/// with it. A start that finds another start renamed the bundle first leaves the opening to that one.
+#[cfg(target_os = "macos")]
+fn reopen_renamed() {
+    let Some((old, new)) = std::env::current_exe().ok().as_deref().and_then(renamed_bundle) else { return };
+    let renamed = !new.exists() && std::fs::rename(&old, &new).inspect_err(|e| log!("could not rename the app to OmegaStar: {e}")).is_ok();
+    if old.exists() {
+        return;
+    }
+    if !renamed {
+        std::process::exit(0);
+    }
+    let open = std::process::Command::new("/usr/bin/open").arg("-n").arg(&new).arg("--args").args(std::env::args_os().skip(1)).status();
+    if open.is_ok_and(|s| s.success()) {
+        std::process::exit(0);
+    }
+    log!("could not open OmegaStar after renaming it, so it runs on under its old name");
+    let _ = std::fs::rename(&new, &old);
+}
+
 /// Keys for the login item: launchd starts OmegaStar again when the copy it started dies of a crash
 /// signal (a panic aborts), and only then, at most once a minute. A Quit, a force quit or a start that
 /// could not open the office stays down, and a restarted copy meets the single-instance check like any
@@ -253,6 +316,8 @@ fn visual_page(app: &AppHandle, req: &tauri::http::Request<Vec<u8>>) -> tauri::h
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     log::catch_crashes();
+    #[cfg(target_os = "macos")]
+    reopen_renamed();
     let background = std::env::args().any(|a| a == "--background");
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
@@ -317,10 +382,18 @@ pub fn run() {
             office.spawn_watch_monitor();
             office.spawn_transcript_sweep();
             office.spawn_transcript_compaction();
-            // A login item set up by an older release does not restart after a crash yet. Other builds leave
-            // the release's login item alone.
-            #[cfg(target_os = "macos")]
+            // Other builds leave the release's login item alone.
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             if model::BuildChannel::current() == model::BuildChannel::Release {
+                if let Some(home) = dirs::home_dir() {
+                    let enable = || tauri_plugin_autostart::ManagerExt::autolaunch(app.handle()).enable().map_err(|e| e.to_string());
+                    match carry_login_item(&home, enable) {
+                        Ok(true) => log!("moved the login item off the name Omega Star"),
+                        Ok(false) => {}
+                        Err(e) => log!("could not move the login item to the name OmegaStar: {e}"),
+                    }
+                }
+                #[cfg(target_os = "macos")]
                 keep_alive_after_crash(app.handle());
             }
             build_tray(app, office.clone(), &sink)?;
@@ -434,17 +507,19 @@ pub fn run() {
         });
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod tests {
     use super::*;
 
     /// The plist the autostart plugin writes.
+    #[cfg(target_os = "macos")]
     const PLUGIN_PLIST: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
 \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n  <dict>\n  <key>Label</key>\n  <string>Acme Office</string>\n  \
 <key>ProgramArguments</key>\n  <array><string>/Applications/Acme Office.app/Contents/MacOS/acme-office</string><string>--background</string></array>\n  \
 <key>RunAtLoad</key>\n  <true/>\n  </dict>\n</plist>";
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn the_login_item_restarts_only_after_a_crash() {
         let text = with_keep_alive(PLUGIN_PLIST).unwrap();
         assert_eq!(with_keep_alive(&text), None, "added once");
@@ -462,5 +537,49 @@ mod tests {
         assert_eq!(plist["RunAtLoad"], true);
         assert_eq!(plist["ProgramArguments"], serde_json::json!(["/Applications/Acme Office.app/Contents/MacOS/acme-office", "--background"]));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_login_item_under_the_old_name_moves_to_the_new_one() {
+        let home = std::env::temp_dir().join(format!("omegastar-home-{}", uuid::Uuid::new_v4()));
+        let old = old_login_item(&home);
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        let text = if cfg!(target_os = "macos") {
+            "<plist version=\"1.0\">\n  <dict>\n  <key>Label</key>\n  <string>Omega Star</string>\n  <key>ProgramArguments</key>\n  \
+<array><string>/Applications/Omega Star.app/Contents/MacOS/omega-star</string><string>--background</string></array>\n  </dict>\n</plist>"
+        } else {
+            "[Desktop Entry]\nType=Application\nVersion=1.0\nName=Omega Star\nExec=/home/alex/Apps/Omega.Star_0.6.5_amd64.AppImage --background\n"
+        };
+        std::fs::write(&old, text).unwrap();
+        let new = old.with_file_name("OmegaStar");
+        assert_eq!(carry_login_item(&home, || std::fs::write(&new, "new").map_err(|e| e.to_string())), Ok(true));
+        assert!(!old.exists() && new.exists());
+        assert_eq!(carry_login_item(&home, || panic!("nothing to move")), Ok(false), "a second start finds nothing");
+
+        std::fs::write(&old, "old").unwrap();
+        assert_eq!(carry_login_item(&home, || Err("no app path".into())), Err("no app path".into()));
+        assert!(old.exists(), "the old one stays when the new one could not be written");
+
+        for off in ["X-GNOME-Autostart-enabled=false", "X-GNOME-Autostart-enabled = 0", "Hidden = true"] {
+            std::fs::write(&old, format!("{text}\n{off}\n")).unwrap();
+            assert_eq!(carry_login_item(&home, || panic!("it was turned off")), Ok(true), "{off}");
+            assert!(!old.exists(), "an item the desktop turned off goes and no new one is written");
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn only_a_bundle_named_omega_star_is_renamed() {
+        let pair = renamed_bundle(std::path::Path::new("/Applications/Omega Star.app/Contents/MacOS/omega-star"));
+        assert_eq!(pair, Some(("/Applications/Omega Star.app".into(), "/Applications/OmegaStar.app".into())));
+        for exe in [
+            "/Applications/OmegaStar.app/Contents/MacOS/omega-star",
+            "/Applications/Omega Star Dogfood.app/Contents/MacOS/omega-star",
+            "/Users/alex/code/omegastar/src-tauri/target/release/omega-star",
+            "/Volumes/Omega Star.app/Helpers/Contents/MacOS/omega-star",
+        ] {
+            assert_eq!(renamed_bundle(std::path::Path::new(exe)), None, "{exe}");
+        }
     }
 }
