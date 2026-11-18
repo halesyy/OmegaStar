@@ -28,7 +28,7 @@ const LOG: &str = "omega.log";
 /// Files larger than this are left out, except run transcripts.
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 /// Dependency, build and cache folders, left out wherever they are in the office folder.
-const BULK_DIRS: [&str; 13] = ["node_modules", "target", ".gradle", "DerivedData", "Pods", "__pycache__", ".venv", ".cache", ".next", ".turbo", "build", "builds", "dist"];
+const BULK_DIRS: [&str; 12] = ["node_modules", "target", ".gradle", "DerivedData", "Pods", "__pycache__", ".venv", ".cache", ".next", ".turbo", "build", "dist"];
 const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, app bundles, and dependency, build and cache folders (such as node_modules, target, build and dist) are not in this backup.";
 const GB: u64 = 1024 * 1024 * 1024;
 pub const RESTORE_STEPS: &str = "Quit OmegaStar from the tray, replace the contents of the office folder with the contents \
@@ -463,6 +463,7 @@ mod tests {
         }
         put(&ws.join("build"), "a file, not a folder");
         put(&ws.join("plans/build-plan.md"), "keep me");
+        put(&ws.join("builds/new-login/notes.md"), "keep me");
         put(&office.join("employees/e1/skills/e1-notes/SKILL.md"), "keep me");
         let out = temp_office("names-out");
         let snapshot = out.join("snapshot.db");
@@ -474,7 +475,7 @@ mod tests {
         let zip = zip::ZipArchive::new(File::open(&dest).unwrap()).unwrap();
         let owned: Vec<_> = zip.file_names().collect::<zip::result::ZipResult<_>>().unwrap();
         let names: Vec<&str> = owned.iter().map(|n| n.as_ref()).collect();
-        for kept in ["employees/e1/workspace/build", "employees/e1/workspace/plans/build-plan.md", "employees/e1/skills/e1-notes/SKILL.md"] {
+        for kept in ["employees/e1/workspace/build", "employees/e1/workspace/plans/build-plan.md", "employees/e1/workspace/builds/new-login/notes.md", "employees/e1/skills/e1-notes/SKILL.md"] {
             assert!(names.contains(&kept), "{kept} kept: {names:?}");
         }
         assert!(!names.iter().any(|n| n.ends_with("out.txt")), "{names:?}");
