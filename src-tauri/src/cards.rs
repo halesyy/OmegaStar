@@ -164,7 +164,12 @@ Put the reason in why, at most {WHY_CHARS}."
     card.file = file.map(String::from);
     card.link = text("link").map(web_link).transpose()?;
     card.images = images;
-    card.brief = list("brief").map(|rows| brief(rows, &card)).transpose()?.unwrap_or_default();
+    card.brief = match args.get("brief") {
+        None | Some(Value::Null) => vec![],
+        Some(Value::Array(rows)) if rows.is_empty() => vec![],
+        Some(Value::Array(rows)) => brief(rows, &card)?,
+        Some(_) => return Err(AppError::invalid("brief is a list of rows, e.g. [{\"label\": \"The fix\", \"text\": \"...\"}], not text.")),
+    };
     Ok(card)
 }
 
@@ -180,6 +185,9 @@ fn brief(raw: &[Value], card: &Card) -> Result<Vec<BriefRow>> {
     }
     let mut rows: Vec<BriefRow> = vec![];
     for r in raw {
+        if !r.is_object() || r.get("shows").is_some_and(|v| !v.is_string() && !v.is_null()) {
+            return Err(AppError::invalid("Each brief row is {\"label\": \"...\", \"text\": \"...\"}, with shows, if given, one of images, file or link."));
+        }
         let field = |k: &str| r.get(k).and_then(Value::as_str).map(str::trim).unwrap_or("");
         let label = one_line(field("label"));
         if label.is_empty() || label.chars().count() > BRIEF_LABEL_CHARS {
@@ -671,6 +679,9 @@ mod tests {
         assert_eq!(card(&asked(json!({ "choices": go, "brief": shows("file"), "file": "draft.md" }))).unwrap().brief[1].shows, Some(Shows::File));
         let twice = json!([{ "label": "Who", "text": "Tim", "shows": "file" }, { "label": "Draft", "text": "Here.", "shows": "file" }]);
         assert_eq!(brief_err(twice), "One brief row at most shows each attachment: 'Who' and 'Draft' both show it.");
+        assert!(brief_err(json!("The fix: show it.")).starts_with("brief is a list of rows"));
+        assert!(brief_err(json!([row("Who", "Tim"), "Draft"])).starts_with("Each brief row is"));
+        assert!(brief_err(json!([row("Who", "Tim"), { "label": "Draft", "text": "Here.", "shows": true }])).starts_with("Each brief row is"));
     }
 
     #[test]
