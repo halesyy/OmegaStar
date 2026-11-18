@@ -769,15 +769,19 @@ pub(super) fn take_held(run: &mut Run) -> Option<String> {
 }
 
 /// What your answer on `card` says to the run that raised it: a chore's Done as it is, anything else under the
-/// question it answers, with your own words quoted.
+/// question it answers. Your own words are quoted, and since they close the card even when they decide nothing ("I'll
+/// look later"), the employee hears that it has left your Inbox.
 fn card_reply_text(card: &Card, answer: &CardAnswer) -> String {
     let typed = answer.how == AnswerHow::Typed;
-    let said = if typed { format!("Answered: \"{}\"", answer.text) } else { answer.text.clone() };
+    let said = if typed { format!("Answered: \"{}\"\n{TYPED_CLOSES}", answer.text) } else { answer.text.clone() };
     match card.ask {
         CardAsk::Chore { .. } if !typed => said,
         _ => format!("Your card: \"{}\"\n{said}", claude::clip(&card.message, 300)),
     }
 }
+
+/// What follows your own words on a card: they closed it, so a decision still needed is asked again.
+const TYPED_CLOSES: &str = "This answer closed the card, so it is no longer in their Inbox. If you still need their decision, raise the card again.";
 
 /// A run by id while walking threads. A store error is logged and the run treated as missing, since
 /// the thread walkers take a plain lookup.
@@ -1631,12 +1635,12 @@ mod tests {
         let stored = |r: &Run| office.db().run(&r.id).unwrap().unwrap().run;
         let replies = office.answer_card(&report.id, 1, CardReply::Text { text: " Only on Friday. ".into() }).unwrap();
         assert_eq!(replies.len(), 1, "the other run has nothing else to ask, so it hears it now");
-        assert!(replies[0].prompt.ends_with("Your card: \"Post the recap?\"\nAnswered: \"Only on Friday.\""), "{}", replies[0].prompt);
+        assert!(replies[0].prompt.ends_with("Your card: \"Post the recap?\"\nAnswered: \"Only on Friday.\"\nThis answer closed the card, so it is no longer in their Inbox. If you still need their decision, raise the card again."), "{}", replies[0].prompt);
         let s = stored(&report);
         assert_eq!(s.cards[1].answer.as_ref().map(|a| (a.how, a.text.as_str(), a.held)), Some((AnswerHow::Typed, "Only on Friday.", true)));
         assert!(s.cards[0].is_open(), "it answers that card only");
         let replies = office.answer_card(&report.id, 0, CardReply::Choice { index: 1 }).unwrap();
-        let both = "Your card: \"Boost the post?\"\nChose: Go.\n\nYour card: \"Post the recap?\"\nAnswered: \"Only on Friday.\"";
+        let both = "Your card: \"Boost the post?\"\nChose: Go.\n\nYour card: \"Post the recap?\"\nAnswered: \"Only on Friday.\"\nThis answer closed the card, so it is no longer in their Inbox. If you still need their decision, raise the card again.";
         assert!(replies[0].prompt.ends_with(both), "{}", replies[0].prompt);
         assert_eq!(office.answer_card(&same.id, 0, CardReply::Text { text: "Again.".into() }).unwrap_err().message, "That card was already answered.");
         drop(office);
@@ -1889,7 +1893,7 @@ mod tests {
         let report = with_news(&e, false);
         let office = held_office(&dir, &e, &[&report]).await;
         let told = office.answer_card(&report.id, 0, CardReply::Text { text: " Does it cover the outlet store? ".into() }).unwrap();
-        assert!(matches!(&told[..], [r] if r.prompt.ends_with("Answered: \"Does it cover the outlet store?\"")), "{told:?}");
+        assert!(matches!(&told[..], [r] if r.prompt.ends_with("Answered: \"Does it cover the outlet store?\"\nThis answer closed the card, so it is no longer in their Inbox. If you still need their decision, raise the card again.")), "{told:?}");
         assert!(office.db().run(&report.id).unwrap().unwrap().run.archived_at.is_some(), "it counts as seen");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
