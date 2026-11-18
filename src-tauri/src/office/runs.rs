@@ -1366,20 +1366,17 @@ fn error_class(run: &Run, limit: Option<Limit>) -> &'static str {
 
 /// The decision and item cards still waiting on you that `newer` replaces, put off with Later too, marked Replaced and
 /// saved, so none comes back: those of the same routine's earlier runs, which also leave the Inbox unless you replied
-/// to them, wrote into them or have not seen their news, or they still wait in the queue; and the employee's earlier
-/// cards about the same thing as one of its own, in its thread or anywhere else. A card about something else stays
-/// open, so answers that come back into one conversation leave each other's cards alone. A due check's run replaces
-/// nothing of its routine. Call inside a transaction.
+/// to them, wrote into them, have not seen their news or still owe their conversation an answer, or they still wait in
+/// the queue; and the employee's earlier cards about the same thing as one of its own, in its thread or anywhere else.
+/// A card about something else stays open, so answers that come back into one conversation leave each other's cards
+/// alone. A due check's run replaces nothing of its routine. Call inside a transaction.
 fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
     let decision = |c: &Card| (c.is_open() || c.put_off()) && !matches!(c.ask, CardAsk::Chore { .. });
     // What still needs you, or has yet to run, stays where it is.
     let files = |r: &Run| r.replied_at.is_none() && !r.steered && !r.has_news() && r.state.is_finished();
     let mut out: Vec<(Run, bool)> = vec![];
     if let (RunKind::Scheduled { schedule_id, .. }, None) = (&newer.kind, newer.kind.check_id()) {
-        for mut r in db.open_cards_of_schedule(schedule_id, newer.created_at)?.into_iter().filter(|r| r.id != newer.id && r.cards.iter().any(decision)) {
-            if files(&r) {
-                r.archived_at = Some(at);
-            }
+        for r in db.open_cards_of_schedule(schedule_id, newer.created_at)?.into_iter().filter(|r| r.id != newer.id && r.cards.iter().any(decision)) {
             out.push((r, true));
         }
     }
@@ -1399,11 +1396,15 @@ fn replace_older_cards_in(db: &Store, newer: &Run, at: Ts) -> Result<Vec<Run>> {
             c.answer = Some(CardAnswer { at, how: AnswerHow::Replaced, text: String::new(), held: false });
             (c.back_at, c.parked) = (None, false);
         }
-        // A run whose cards all went to a newer one has nothing left to ask, unless you replied to it or wrote into it.
-        if !*all && !r.has_open_card() && files(r) && !thread.contains(&r.id) {
-            r.archived_at = Some(at);
-        }
         db.save_run(r)?;
+    }
+    // A run whose cards all went to a newer one has nothing left to ask, unless you replied to it or wrote into it, or
+    // another turn of its conversation still asks.
+    for (r, all) in &mut out {
+        if files(r) && (*all || !thread.contains(&r.id)) && threads::open_card(&Office::thread_in(db, &r.id)?).is_none() {
+            r.archived_at = Some(at);
+            db.save_run(r)?;
+        }
     }
     Ok(out.into_iter().map(|(r, _)| r).collect())
 }
@@ -2474,6 +2475,71 @@ mod tests {
         assert_eq!(how(&asked).map(|h| h.0), Some(AnswerHow::Replaced));
         assert!(saved(&asked).archived_at.is_some());
         assert_eq!(how(&other), None, "another key is another question");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_replaced_routine_run_stays_while_its_chore_waits() {
+        let dir = temp_dir("cards-chore");
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let e = fixtures::employee();
+        db.save_employee(&e).unwrap();
+        let scheduled = |ago: i64, chore: bool| {
+            let at = now() - chrono::Duration::minutes(ago);
+            let kind = RunKind::Scheduled { schedule_id: "s1".into(), slot: at, label: "Drafts".into(), quiet: true, model: None, effort: None, review: false };
+            let mut r = Run::new(&e.id, kind, "go".into(), at);
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(at);
+            r.cards = vec![Card::new("Post these?", None, Some("ask:drafts".into()), CardAsk::Choices { choices: vec!["Post".into()], recommended: 0 })];
+            if chore {
+                r.cards.push(Card::new("Reconnect Chrome", None, None, CardAsk::Chore { subject: "chrome".into(), url: None }));
+            }
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r
+        };
+        let older = scheduled(60, true);
+        let newer = scheduled(10, false);
+        db.tx(|| replace_older_cards_in(&db, &newer, now())).unwrap();
+        let saved = db.run(&older.id).unwrap().unwrap().run;
+        assert_eq!(saved.cards[0].answer.as_ref().map(|a| a.how), Some(AnswerHow::Replaced));
+        assert!(saved.has_open_card() && saved.archived_at.is_none(), "its chore still waits on you, so it stays in the Inbox");
+        drop(db);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_replaced_routine_run_stays_while_a_later_turn_asks() {
+        let dir = temp_dir("cards-turn");
+        let db = Store::open(&dir.join("office.db")).unwrap();
+        let e = fixtures::employee();
+        db.save_employee(&e).unwrap();
+        let ask = |text: &str, key: &str| Card::new(text, None, Some(key.into()), CardAsk::Choices { choices: vec!["Go".into()], recommended: 0 });
+        let ended = |kind: RunKind, ago: i64, card: Card| {
+            let at = now() - chrono::Duration::minutes(ago);
+            let mut r = Run::new(&e.id, kind, "go".into(), at);
+            r.state = RunState::Succeeded;
+            r.ended_at = Some(at);
+            r.cards = vec![card];
+            r
+        };
+        let scheduled = |ago: i64| {
+            let slot = now() - chrono::Duration::minutes(ago);
+            let kind = RunKind::Scheduled { schedule_id: "s1".into(), slot, label: "Drafts".into(), quiet: true, model: None, effort: None, review: false };
+            let r = ended(kind, ago, ask("Post these?", "ask:drafts"));
+            assert!(db.insert_run(&r, &r.id).unwrap());
+            r
+        };
+        let older = scheduled(60);
+        let came = RunKind::Answered { asked_run_id: "asked".into(), from: e.id.clone(), task: false, chat: false, thread: Some(older.id.clone()) };
+        let turn = ended(came, 50, ask("Pay the invoice?", "ask:invoice"));
+        assert!(db.insert_run(&turn, &older.id).unwrap());
+        let newer = scheduled(10);
+        db.tx(|| replace_older_cards_in(&db, &newer, now())).unwrap();
+        let saved = db.run(&older.id).unwrap().unwrap().run;
+        assert_eq!(saved.cards[0].answer.as_ref().map(|a| a.how), Some(AnswerHow::Replaced));
+        assert!(db.run(&turn.id).unwrap().unwrap().run.has_open_card(), "another question, so the newer run leaves it open");
+        assert!(saved.archived_at.is_none(), "a later turn of its conversation still asks you, so it stays in the Inbox");
         drop(db);
         let _ = fs::remove_dir_all(&dir);
     }

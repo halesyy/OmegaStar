@@ -509,6 +509,37 @@ fn revisions_of_dependency_and_data_files_are_dropped_once() {
 }
 
 #[test]
+fn an_approved_tidy_filed_with_an_open_card_comes_back_once() {
+    let dir = temp_dir();
+    let db = Store::open(&dir.join("office.db")).unwrap();
+    let ada = employee("Ada", None);
+    db.save_employee(&ada).unwrap();
+    let filed = |answer: Option<CardAnswer>| {
+        let mut r = run(&ada, RunKind::Tidy { reason: TidyReason::Auto, signature: vec![], plan: None }, RunState::Succeeded);
+        let card = Card { answer, ..Card::new("Add to the company page?", None, Some("company:tools".into()), CardAsk::Question) };
+        r.needs_you = vec![card.message.clone(), "Proposes bigger changes that need your OK.".into()];
+        r.cards = vec![card];
+        r.proposed = Some("Split the pricing skill.".into());
+        r.approved_at = Some(Utc::now());
+        r.archived_at = r.approved_at;
+        assert!(db.insert_run(&r, &r.id).unwrap());
+        r.id
+    };
+    let (hidden, answered) = (filed(None), filed(Some(CardAnswer { at: Utc::now(), how: AnswerHow::Tapped, text: "Chose: Add it.".into(), held: false })));
+    db.conn.execute("DELETE FROM meta WHERE key = 'hidden_cards_surfaced'", []).unwrap();
+    db.surface_hidden_cards().unwrap();
+    let get = |id: &str| db.run(id).unwrap().unwrap().run;
+    assert!(get(&hidden).archived_at.is_none(), "the card you never saw is back in the Inbox");
+    assert_eq!(get(&hidden).needs_you, vec!["Add to the company page?".to_string()], "and only it asks you: the plan is approved");
+    assert!(get(&answered).archived_at.is_some(), "one you answered stays filed");
+    let late = filed(None);
+    db.surface_hidden_cards().unwrap();
+    assert!(get(&late).archived_at.is_some(), "it runs once");
+    drop(db);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn open_cards_are_found_by_chore_and_by_schedule() {
     let dir = temp_dir();
     let db = Store::open(&dir.join("office.db")).unwrap();

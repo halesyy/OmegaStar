@@ -78,8 +78,12 @@ impl Office {
             if run.archived_at.is_some() {
                 return Err(AppError::conflict("that tidy is archived, so reopen it to approve it"));
             }
-            if Self::thread_in(&db, run_id)?.replies.iter().any(|r| !r.state.is_finished()) {
+            let t = Self::thread_in(&db, run_id)?;
+            if t.replies.iter().any(|r| !r.state.is_finished()) {
                 return Err(AppError::conflict("wait for their answer: the plan may change"));
+            }
+            if threads::open_card(&t).is_some() {
+                return Err(AppError::conflict("Answer the card first, or dismiss it."));
             }
             (run, plan)
         };
@@ -359,6 +363,48 @@ mod tests {
         }
         assert!(office.run(&revised.id).unwrap().archived_at.is_none());
         assert!(office.run(&asked.id).unwrap().archived_at.is_some(), "an answer alone stays filed");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `r` with a card nobody has answered.
+    fn asking(mut r: Run) -> Run {
+        let card = Card::new("Add to the company page?", None, Some("company:tools".into()), CardAsk::Choices { choices: vec!["Add it".into()], recommended: 0 });
+        r.needs_you.push(card.message.clone());
+        r.cards = vec![card];
+        r
+    }
+
+    #[tokio::test]
+    async fn approving_waits_for_a_card_the_tidy_raised() {
+        let dir = temp_path("tidy-card");
+        let e = fixtures::employee();
+        let open = asking(waiting(&e));
+        let office = held(&dir, &e, &[&open]).await;
+        assert_eq!(office.approve_tidy(&open.id).unwrap_err().message, "Answer the card first, or dismiss it.");
+        assert_eq!(office.conversations().unwrap().inbox, vec![open.id.clone()], "the card is still yours to answer");
+        office.answer_card(&open.id, 0, CardReply::Reject).unwrap();
+        for told in office.thread(&open.id).unwrap().replies {
+            start(&office, &told);
+            finish(&office, &told.id);
+        }
+        office.approve_tidy(&open.id).unwrap();
+        assert!(office.conversations().unwrap().inbox.is_empty(), "nothing in it waits on you now");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn an_approved_tidy_brought_back_for_its_card_is_filed_by_your_answer() {
+        let dir = temp_path("tidy-back");
+        let e = fixtures::employee();
+        let mut back = asking(waiting(&e));
+        back.approved_at = Some(now());
+        back.needs_you.retain(|m| m != PROPOSES);
+        let office = held(&dir, &e, &[&back]).await;
+        assert_eq!(office.conversations().unwrap().inbox, vec![back.id.clone()], "its card waits on you");
+        office.answer_card(&back.id, 0, CardReply::Reject).unwrap();
+        assert!(office.conversations().unwrap().inbox.is_empty(), "answered, it is filed again");
         drop(office);
         let _ = fs::remove_dir_all(&dir);
     }
