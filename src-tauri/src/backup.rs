@@ -29,7 +29,7 @@ const LOG: &str = "omega.log";
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 /// Dependency, build and cache folders, left out wherever they are in the office folder.
 const BULK_DIRS: [&str; 12] = ["node_modules", "target", ".gradle", "DerivedData", "Pods", "__pycache__", ".venv", ".cache", ".next", ".turbo", "build", "dist"];
-const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, app bundles, and dependency, build and cache folders (such as node_modules, target, build and dist) are not in this backup.";
+const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, app bundles, Python environments, and dependency, build and cache folders (such as node_modules, target, build and dist) are not in this backup.";
 const GB: u64 = 1024 * 1024 * 1024;
 pub const RESTORE_STEPS: &str = "Quit OmegaStar from the tray, replace the contents of the office folder with the contents \
 of this zip, then start OmegaStar.";
@@ -156,14 +156,14 @@ fn entry_name(root: &Path, p: &Path) -> Option<String> {
 }
 
 /// Bulk that backups leave out: dependency, build and cache folders (by name, or marked with a
-/// CACHEDIR.TAG), app bundles, and files over MAX_FILE_BYTES that aren't under `runs/` (transcripts
-/// are the office's record and compress well).
+/// CACHEDIR.TAG), Python environments (by their pyvenv.cfg), app bundles, and files over
+/// MAX_FILE_BYTES that aren't under `runs/` (transcripts are the office's record and compress well).
 fn left_out(path: &Path, rel: &str, is_dir: bool, len: u64) -> bool {
     if !is_dir {
         return len > MAX_FILE_BYTES && !rel.starts_with("runs/");
     }
     let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-    BULK_DIRS.contains(&name.as_ref()) || name.ends_with(".app") || path.join("CACHEDIR.TAG").is_file()
+    BULK_DIRS.contains(&name.as_ref()) || name.ends_with(".app") || path.join("CACHEDIR.TAG").is_file() || path.join("pyvenv.cfg").is_file()
 }
 
 /// One entry of a folder, as backups see it.
@@ -430,6 +430,8 @@ mod tests {
         put(&ws.join("Tool.app/Contents/Info.plist"), "x");
         put(&ws.join("scratch/CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55");
         put(&ws.join("scratch/debug/out"), "x");
+        put(&ws.join("env-tools/pyvenv.cfg"), "home = /usr/bin");
+        put(&ws.join("env-tools/lib/site-packages/pkg.py"), "x");
         big(&ws.join("data.bin"));
         big(&office.join("runs/r1/transcript.jsonl"));
         put(&office.join(RUNNING_MARKER), "");
@@ -439,13 +441,13 @@ mod tests {
         let dest = out.join("backup.zip");
 
         let s = write_archive(&office, &snapshot, &dest, serde_json::json!({})).unwrap();
-        assert_eq!(s.left_out, 4);
+        assert_eq!(s.left_out, 5);
         let zip = zip::ZipArchive::new(File::open(&dest).unwrap()).unwrap();
         let owned: Vec<_> = zip.file_names().collect::<zip::result::ZipResult<_>>().unwrap();
         let names: Vec<&str> = owned.iter().map(|n| n.as_ref()).collect();
         assert!(names.contains(&"employees/e1/notes.md"), "{names:?}");
         assert!(names.contains(&"runs/r1/transcript.jsonl"), "transcripts are kept: {names:?}");
-        for gone in ["node_modules", "Tool.app", "scratch", "data.bin", RUNNING_MARKER] {
+        for gone in ["node_modules", "Tool.app", "scratch", "env-tools", "data.bin", RUNNING_MARKER] {
             assert!(!names.iter().any(|n| n.contains(gone)), "{gone} left out: {names:?}");
         }
 
