@@ -29,7 +29,7 @@ const LOG: &str = "omega.log";
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 /// Dependency, build and cache folders, left out wherever they are in the office folder.
 const BULK_DIRS: [&str; 12] = ["node_modules", "target", ".gradle", "DerivedData", "Pods", "__pycache__", ".venv", ".cache", ".next", ".turbo", "build", "dist"];
-const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, app bundles, Python environments, dependency, build and cache folders (such as node_modules, target, build and dist), and git clones with nothing unpushed (listed under clones, to clone again) are not in this backup.";
+const LEFT_OUT_NOTE: &str = "Files over 10 MB outside runs/, app bundles, Python environments, and dependency, build and cache folders (such as node_modules, target, build and dist) are not in this backup.";
 const GB: u64 = 1024 * 1024 * 1024;
 pub const RESTORE_STEPS: &str = "Quit OmegaStar from the tray, replace the contents of the office folder with the contents \
 of this zip, then start OmegaStar.";
@@ -116,8 +116,6 @@ pub struct Summary {
     pub skipped: u32,
     /// Large files and build folders left out on purpose.
     pub left_out: u32,
-    /// Git clones left out because everything in them is pushed: their folder and where to clone them from.
-    pub clones: Vec<serde_json::Value>,
     /// The zip's size.
     pub bytes: u64,
 }
@@ -158,8 +156,8 @@ fn entry_name(root: &Path, p: &Path) -> Option<String> {
 }
 
 /// Bulk that backups leave out: dependency, build and cache folders (by name, or marked with a
-/// CACHEDIR.TAG), Python environments (whatever their name, by their pyvenv.cfg), app bundles, and files over MAX_FILE_BYTES that aren't under `runs/` (transcripts
-/// are the office's record and compress well).
+/// CACHEDIR.TAG), Python environments (by their pyvenv.cfg), app bundles, and files over
+/// MAX_FILE_BYTES that aren't under `runs/` (transcripts are the office's record and compress well).
 fn left_out(path: &Path, rel: &str, is_dir: bool, len: u64) -> bool {
     if !is_dir {
         return len > MAX_FILE_BYTES && !rel.starts_with("runs/");
@@ -168,36 +166,11 @@ fn left_out(path: &Path, rel: &str, is_dir: bool, len: u64) -> bool {
     BULK_DIRS.contains(&name.as_ref()) || name.ends_with(".app") || path.join("CACHEDIR.TAG").is_file() || path.join("pyvenv.cfg").is_file()
 }
 
-/// Where a git clone can be cloned again from, when nothing in it would be lost: a remote, every
-/// branch pushed, no stash, and no changed, new or ignored file. `None` keeps it in the backup,
-/// including when git can't answer.
-fn pushed_clone(path: &Path) -> Option<String> {
-    if !path.join(".git").is_dir() {
-        return None;
-    }
-    let git = |args: &[&str]| {
-        let mut c = std::process::Command::new("git");
-        if let Some(p) = crate::claude::child_path() {
-            c.env("PATH", p);
-        }
-        #[cfg(windows)]
-        std::os::windows::process::CommandExt::creation_flags(&mut c, 0x0800_0000);
-        let out = c.arg("-C").arg(path).args(args).stdin(std::process::Stdio::null()).output().ok()?;
-        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
-    };
-    let remote = git(&["remote", "get-url", "origin"]).filter(|r| !r.is_empty())?;
-    let nothing_to_lose = [&["status", "--porcelain", "--ignored"][..], &["stash", "list"], &["rev-list", "--branches", "--not", "--remotes"]]
-        .iter()
-        .all(|args| git(args).is_some_and(|out| out.is_empty()));
-    nothing_to_lose.then_some(remote)
-}
-
 /// One entry of a folder, as backups see it.
 enum Item {
     Dir { path: PathBuf, name: String, meta: Option<fs::Metadata> },
     File { path: PathBuf, name: String },
     LeftOut,
-    Clone { name: String, remote: String },
     Unreadable,
 }
 
@@ -230,8 +203,6 @@ fn items(root: &Path, dir: &Path) -> Option<Vec<Item>> {
         let len = meta.as_ref().map_or(0, |m| m.len());
         if (ft.is_dir() || ft.is_file()) && left_out(&path, &name, ft.is_dir(), len) {
             out.push(Item::LeftOut);
-        } else if let Some(remote) = ft.is_dir().then(|| pushed_clone(&path)).flatten() {
-            out.push(Item::Clone { name, remote });
         } else if ft.is_dir() {
             out.push(Item::Dir { path, name, meta });
         } else if ft.is_file() {
@@ -250,10 +221,6 @@ fn walk<W: Write + std::io::Seek>(root: &Path, dir: &Path, zip: &mut ZipWriter<W
         match item {
             Item::Unreadable => s.skipped += 1,
             Item::LeftOut => s.left_out += 1,
-            Item::Clone { name, remote } => {
-                s.left_out += 1;
-                s.clones.push(serde_json::json!({ "folder": name, "remote": remote }));
-            }
             Item::Dir { path, name, meta } => {
                 zip.add_directory(format!("{name}/"), options(meta.as_ref()))?;
                 walk(root, &path, zip, s)?;
@@ -348,7 +315,6 @@ pub fn write_archive(data_dir: &Path, db_snapshot: &Path, dest: &Path, mut manif
     manifest["files"] = s.files.into();
     manifest["skipped"] = s.skipped.into();
     manifest["leftOut"] = s.left_out.into();
-    manifest["clones"] = s.clones.clone().into();
     manifest["leftOutNote"] = LEFT_OUT_NOTE.into();
     zip.start_file("backup.json", options(None))?;
     zip.write_all(serde_json::to_string_pretty(&manifest)?.as_bytes())?;
@@ -464,6 +430,8 @@ mod tests {
         put(&ws.join("Tool.app/Contents/Info.plist"), "x");
         put(&ws.join("scratch/CACHEDIR.TAG"), "Signature: 8a477f597d28d172789f06886806bc55");
         put(&ws.join("scratch/debug/out"), "x");
+        put(&ws.join("env-tools/pyvenv.cfg"), "home = /usr/bin");
+        put(&ws.join("env-tools/lib/site-packages/pkg.py"), "x");
         big(&ws.join("data.bin"));
         big(&office.join("runs/r1/transcript.jsonl"));
         put(&office.join(RUNNING_MARKER), "");
@@ -473,13 +441,13 @@ mod tests {
         let dest = out.join("backup.zip");
 
         let s = write_archive(&office, &snapshot, &dest, serde_json::json!({})).unwrap();
-        assert_eq!(s.left_out, 4);
+        assert_eq!(s.left_out, 5);
         let zip = zip::ZipArchive::new(File::open(&dest).unwrap()).unwrap();
         let owned: Vec<_> = zip.file_names().collect::<zip::result::ZipResult<_>>().unwrap();
         let names: Vec<&str> = owned.iter().map(|n| n.as_ref()).collect();
         assert!(names.contains(&"employees/e1/notes.md"), "{names:?}");
         assert!(names.contains(&"runs/r1/transcript.jsonl"), "transcripts are kept: {names:?}");
-        for gone in ["node_modules", "Tool.app", "scratch", "data.bin", RUNNING_MARKER] {
+        for gone in ["node_modules", "Tool.app", "scratch", "env-tools", "data.bin", RUNNING_MARKER] {
             assert!(!names.iter().any(|n| n.contains(gone)), "{gone} left out: {names:?}");
         }
 
@@ -516,73 +484,6 @@ mod tests {
 
         let _ = fs::remove_dir_all(&office);
         let _ = fs::remove_dir_all(&out);
-    }
-
-    fn zipped(office: &Path) -> (Summary, Vec<String>, serde_json::Value) {
-        let out = temp_office("zipped");
-        let snapshot = out.join("snapshot.db");
-        put(&snapshot, "db");
-        let dest = out.join("backup.zip");
-        let s = write_archive(office, &snapshot, &dest, serde_json::json!({})).unwrap();
-        let mut zip = zip::ZipArchive::new(File::open(&dest).unwrap()).unwrap();
-        let names = zip.file_names().map(|n| n.map(String::from)).collect::<zip::result::ZipResult<_>>().unwrap();
-        let manifest = serde_json::from_reader(zip.by_name("backup.json").unwrap()).unwrap();
-        let _ = fs::remove_dir_all(&out);
-        (s, names, manifest)
-    }
-
-    #[test]
-    fn python_environments_are_left_out_whatever_their_name() {
-        let office = temp_office("venvs");
-        let ws = office.join("employees/e1/workspace");
-        put(&ws.join("venv-seabed/pyvenv.cfg"), "home = /usr/bin");
-        put(&ws.join("venv-seabed/lib/site-packages/pkg.py"), "x");
-        put(&ws.join("venvs/tcgt/pyvenv.cfg"), "home = /usr/bin");
-        put(&ws.join("venvs/notes.md"), "keep me");
-
-        let (s, names, _) = zipped(&office);
-        assert_eq!(s.left_out, 2);
-        assert!(names.contains(&"employees/e1/workspace/venvs/notes.md".to_string()), "{names:?}");
-        assert!(!names.iter().any(|n| n.contains("pyvenv.cfg") || n.contains("site-packages")), "{names:?}");
-        let _ = fs::remove_dir_all(&office);
-    }
-
-    #[test]
-    fn a_clone_is_left_out_only_when_everything_in_it_is_pushed() {
-        let git = |dir: &Path, args: &[&str]| {
-            let ok = std::process::Command::new("git").arg("-C").arg(dir).args(args).output().map(|o| o.status.success());
-            assert!(ok.unwrap_or(false), "git {args:?}");
-        };
-        let office = temp_office("clones");
-        let upstream = temp_office("clones-upstream");
-        git(&upstream, &["init", "-q", "--bare"]);
-        let url = upstream.to_string_lossy().into_owned();
-        let repos = office.join("employees/e1/workspace/repos");
-        for name in ["pushed", "ahead", "edited", "ignored"] {
-            let r = repos.join(name);
-            fs::create_dir_all(&r).unwrap();
-            git(&r, &["init", "-q"]);
-            git(&r, &["remote", "add", "origin", &url]);
-            put(&r.join(".gitignore"), "data/\n");
-            put(&r.join("README.md"), name);
-            git(&r, &["add", "."]);
-            git(&r, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "first"]);
-            git(&r, &["push", "-q", "origin", &format!("HEAD:refs/heads/{name}")]);
-            git(&r, &["fetch", "-q", "origin"]);
-        }
-        git(&repos.join("ahead"), &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "not pushed"]);
-        put(&repos.join("edited/README.md"), "changed");
-        put(&repos.join("ignored/data/rows.csv"), "only here");
-
-        let (s, names, manifest) = zipped(&office);
-        assert!(!names.iter().any(|n| n.contains("repos/pushed")), "{names:?}");
-        for kept in ["ahead", "edited", "ignored"] {
-            assert!(names.contains(&format!("employees/e1/workspace/repos/{kept}/README.md")), "{kept} kept: {names:?}");
-        }
-        assert_eq!(s.left_out, 1);
-        assert_eq!(manifest["clones"], serde_json::json!([{ "folder": "employees/e1/workspace/repos/pushed", "remote": url }]));
-        let _ = fs::remove_dir_all(&office);
-        let _ = fs::remove_dir_all(&upstream);
     }
 
     #[test]
