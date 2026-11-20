@@ -379,7 +379,8 @@ mod tests {
             assert!(!h.contains(gone), "{gone}: {h}");
         }
         assert_eq!(h.matches("is a `check_later` with a date").count(), 1, "{h}");
-        assert!(h.contains("`/office/employees/CLAUDE.md`"), "the company page by its path: {h}");
+        let page = std::path::Path::new("/office/employees").join("CLAUDE.md");
+        assert!(h.contains(&format!("`{}`", page.display())), "the company page by its path: {h}");
         assert!(h.contains("goes to Pat's Inbox. A quiet schedule's report"), "{h}");
 
         let mut s = snap();
