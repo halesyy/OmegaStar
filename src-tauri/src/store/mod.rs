@@ -349,6 +349,13 @@ impl Store {
     pub fn set_transcripts_compacted(&self) -> Result<()> {
         self.set_meta("transcriptsCompacted", &true)
     }
+    /// Whether the runs saved before runs kept their tokens have had them counted from their transcripts.
+    pub fn old_tokens_counted(&self) -> Result<bool> {
+        Ok(self.meta::<bool>("oldTokensCounted")?.unwrap_or(false))
+    }
+    pub fn set_old_tokens_counted(&self) -> Result<()> {
+        self.set_meta("oldTokensCounted", &true)
+    }
 
     /// Whether the sidebar asks you to star OmegaStar on GitHub now.
     pub fn star_ask_due(&self) -> Result<bool> {

@@ -353,6 +353,23 @@ impl Store {
         self.runs_where("WHERE id IN (SELECT value FROM json_each(?))", &[&ids])
     }
 
+    /// The ids of finished runs with no tokens counted: from builds that kept none, or that used none.
+    pub fn runs_without_tokens(&self) -> Result<Vec<String>> {
+        let mut st = self.conn.prepare(concat!(
+            "SELECT id FROM runs WHERE state NOT IN ",
+            active!(),
+            " AND json_valid(data) AND IFNULL(json_array_length(data, '$.tokens'), 0) = 0"
+        ))?;
+        let ids = st.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(ids)
+    }
+
+    /// Sets a run's tokens in place, leaving the rest of the run as it is now.
+    pub fn set_run_tokens(&self, id: &str, tokens: &[ModelTokens]) -> Result<()> {
+        self.conn.execute("UPDATE runs SET data = json_set(data, '$.tokens', json(?2)) WHERE id = ?1", params![id, to_json(&tokens)?])?;
+        Ok(())
+    }
+
     /// A conversation with you is working: one you started, a reply, or a turn of an older build's chat, of
     /// one employee or of anyone. An answer coming back into a conversation is not one: nobody may be watching.
     pub fn ceo_conversation_running(&self, employee_id: Option<&str>) -> Result<bool> {

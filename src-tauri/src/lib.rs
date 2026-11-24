@@ -382,6 +382,7 @@ pub fn run() {
             office.spawn_watch_monitor();
             office.spawn_transcript_sweep();
             office.spawn_transcript_compaction();
+            office.spawn_token_count();
             // Other builds leave the release's login item alone.
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             if model::BuildChannel::current() == model::BuildChannel::Release {

@@ -1098,6 +1098,35 @@ impl Office {
         }
         saved
     }
+
+    /// Counts the tokens of finished runs from builds that kept none, from each run's own transcript, one at a
+    /// time and pausing between them. A run whose transcript is gone, or that used none, is left without.
+    /// Returns how many runs it counted.
+    pub(super) fn count_old_tokens(&self) -> Result<usize> {
+        let (ids, mut counted) = (self.db().runs_without_tokens()?, 0);
+        for id in ids {
+            let tokens = transcript_tokens(&self.transcript_path(&id));
+            if !tokens.is_empty() {
+                self.db().set_run_tokens(&id, &tokens)?;
+                counted += 1;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(counted)
+    }
+}
+
+/// The tokens a transcript's top-level results say were used, model by model, read a line at a time.
+fn transcript_tokens(path: &Path) -> Vec<ModelTokens> {
+    use std::io::BufRead;
+    let mut total = vec![];
+    let Ok(file) = File::open(path) else { return total };
+    for line in std::io::BufReader::new(file).lines().map_while(std::io::Result::ok) {
+        if line.contains("\"model_usage_since_last_result\"") {
+            add_tokens(&mut total, &claude::parse_line(&line, path).tokens);
+        }
+    }
+    total
 }
 
 /// Rewrites a transcript without its image data (`claude::without_images`) through a copy beside it, swapped in
@@ -1979,6 +2008,33 @@ mod tests {
         let mut later = Run { replied_at: Some(at + chrono::Duration::minutes(1)), ..taken };
         keep_yours(&mut later, &stored);
         assert_eq!(later.replied_at, Some(at + chrono::Duration::minutes(1)), "the newer reply");
+    }
+
+    #[tokio::test]
+    async fn old_runs_get_their_tokens_counted_from_their_transcripts() {
+        let dir = temp_path("old-tokens");
+        let ada = fixtures::employee();
+        let office = claiming_office(&dir, &[&ada]).await;
+        let old = queue(&office, &ada, RunKind::Manual, None, RunState::Succeeded);
+        let working = queue(&office, &ada, RunKind::Manual, None, RunState::Running);
+        let gone = queue(&office, &ada, RunKind::Manual, None, RunState::Succeeded);
+        let result = |usage: &str, nested: &str| {
+            format!(r#"{{"type":"result","subtype":"success","is_error":false,"num_turns":1,"duration_ms":10,"result":"Done.","permission_denials":[]{nested},"model_usage_since_last_result":{usage}}}"#)
+        };
+        let opus = |n: u64| format!(r#"{{"claude-opus-4-5":{{"inputTokens":{n},"cacheReadInputTokens":90000,"outputTokens":0}}}}"#);
+        // Two attempts' results, and a sub-agent's, which its parent's result already holds.
+        let text = [result(&opus(100), ""), result(&opus(7), r#","parent_tool_use_id":"toolu_sub""#), result(&opus(20), "")].join("\n") + "\n";
+        for r in [&old, &working] {
+            fs::create_dir_all(office.run_dir(&r.id)).unwrap();
+            fs::write(office.transcript_path(&r.id), &text).unwrap();
+        }
+        assert_eq!(office.count_old_tokens().unwrap(), 1);
+        assert_eq!(office.run(&old.id).unwrap().tokens, vec![ModelTokens { model: "claude-opus-4-5".into(), tokens: 120 }]);
+        assert_eq!(office.run(&working.id).unwrap().tokens, vec![], "a run still working counts its own");
+        assert_eq!(office.run(&gone.id).unwrap().tokens, vec![], "a run whose transcript is gone keeps none");
+        assert_eq!(office.count_old_tokens().unwrap(), 0, "safe to repeat");
+        drop(office);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

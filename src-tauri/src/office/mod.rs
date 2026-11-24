@@ -416,6 +416,29 @@ impl Office {
         });
     }
 
+    /// Once per office, five minutes after launch: counts the tokens of the runs older builds kept none for, in the
+    /// background (`count_old_tokens`). A launch that stops it before the end starts it again.
+    pub fn spawn_token_count(&self) {
+        let office = self.clone();
+        self.0.rt.spawn(async move {
+            if office.db().old_tokens_counted().unwrap_or(true) {
+                return;
+            }
+            tokio::time::sleep(COMPACT_FIRST).await;
+            let counting = office.clone();
+            match tokio::task::spawn_blocking(move || counting.count_old_tokens()).await {
+                Ok(Ok(n)) => {
+                    log!("counted the tokens of {n} runs from before runs kept them");
+                    if let Err(e) = office.db().set_old_tokens_counted() {
+                        log!("could not record that old runs' tokens were counted: {e}");
+                    }
+                }
+                Ok(Err(e)) => log!("counting old runs' tokens failed: {e}"),
+                Err(e) => log!("counting old runs' tokens failed: {e}"),
+            }
+        });
+    }
+
     /// Looks for employees due a tidy every ten minutes, starting two minutes after launch.
     pub fn spawn_tidy_monitor(&self) {
         let office = self.clone();
