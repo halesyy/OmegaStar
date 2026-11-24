@@ -1,8 +1,8 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { call } from "../api/client";
 import type { EmployeeView, NewAttachment } from "../api/types";
 import { firstName, typing } from "../lib/format";
-import { refreshOrg, useOrg, useThread } from "../lib/hooks";
+import { cachedThread, prefetchThread, refreshOrg, useOrg, useThread } from "../lib/hooks";
 import { lastMoved, useMarkSeen } from "../lib/marks";
 import { navigate, type Route } from "../lib/router";
 import { parseThreadFocus, threadFocus } from "../lib/threads";
@@ -17,6 +17,7 @@ import "./Conversation.css";
  *  place you talk to an employee. */
 export function ConversationScreen({ route }: { route: Extract<Route, { page: "chat" }> }) {
   const { snap, error } = useOrg();
+  const shown = useHeld(route.employeeId, parseThreadFocus(route.focus));
   if (!snap) {
     return error ? (
       <div className="convo"><div className="thread-error"><ErrorNote title="Couldn't open this conversation" text={error} onRetry={refreshOrg} /></div></div>
@@ -27,7 +28,7 @@ export function ConversationScreen({ route }: { route: Extract<Route, { page: "c
       </div>
     );
   }
-  const e = snap.employees.find((x) => x.id === route.employeeId);
+  const e = snap.employees.find((x) => x.id === shown.employeeId);
   if (!e) {
     return (
       <div className="convo empty">
@@ -37,8 +38,8 @@ export function ConversationScreen({ route }: { route: Extract<Route, { page: "c
       </div>
     );
   }
-  const rootId = parseThreadFocus(route.focus);
-  if (rootId) return <ThreadConversation key={rootId} e={e} rootId={rootId} />;
+  const rootId = shown.rootId;
+  if (rootId) return <ThreadConversation key={rootId} e={e} rootId={rootId} busy={shown.holding} />;
   return (
     <ConversationFrame title="New conversation" picker={<ConversationPicker e={e} rootId={null} title="New conversation" />} menu={<ConversationMenu e={e} rootId={null} s={null} />}>
       <NewConversation key={e.id} e={e} />
@@ -46,8 +47,33 @@ export function ConversationScreen({ route }: { route: Extract<Route, { page: "c
   );
 }
 
-/** The thread or conversation with `rootId`: its header, its menu, and E to archive it. */
-function ThreadConversation({ e, rootId }: { e: EmployeeView; rootId: string }) {
+/** Longest the thread on screen stays up while the one you switched to is read: past it, the new one shows loading. */
+const HOLD_MS = 1500;
+
+/**
+ * Which conversation to show. Switching from one thread to another you have not opened lately keeps the one on screen
+ * until the new one is read, so the talk never blanks; one opened lately shows at once (it refreshes in place), and so
+ * does a new conversation. `holding` while the old one stays up.
+ */
+function useHeld(employeeId: string, rootId: string | null): { employeeId: string; rootId: string | null; holding: boolean } {
+  const [ready, setReady] = useState({ employeeId, rootId });
+  const same = ready.employeeId === employeeId && ready.rootId === rootId;
+  const instant = same || !rootId || !ready.rootId || !!cachedThread(rootId);
+  useEffect(() => {
+    if (same) return;
+    if (instant || !rootId) { setReady({ employeeId, rootId }); return; }
+    let live = true;
+    const go = () => { if (live) setReady({ employeeId, rootId }); };
+    const h = window.setTimeout(go, HOLD_MS);
+    void prefetchThread(rootId).then(go);
+    return () => { live = false; window.clearTimeout(h); };
+  }, [employeeId, rootId, same, instant]);
+  return instant ? { employeeId, rootId, holding: false } : { ...ready, holding: true };
+}
+
+/** The thread or conversation with `rootId`: its header, its menu, and E to archive it. `busy`: another is being opened
+ *  in its place. */
+function ThreadConversation({ e, rootId, busy = false }: { e: EmployeeView; rootId: string; busy?: boolean }) {
   const thread = useThread(rootId);
   const s = useThreadState(rootId);
   const runs = thread.turns?.map((t) => t.run) ?? s.runs;
@@ -65,6 +91,8 @@ function ThreadConversation({ e, rootId }: { e: EmployeeView; rootId: string }) 
   archiveRef.current = archive;
   const { ready, carded } = s;
   useEffect(() => {
+    // Not while another conversation is opening in its place: E must never archive the one you are leaving.
+    if (busy) return;
     const onKey = (ev: KeyboardEvent) => {
       if (ev.ctrlKey || ev.metaKey || ev.altKey || typing(ev.target) || document.querySelector(".popover")) return;
       if (ev.key.toLowerCase() !== "e" || !ready || carded) return;
@@ -73,11 +101,11 @@ function ThreadConversation({ e, rootId }: { e: EmployeeView; rootId: string }) 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ready, carded]);
+  }, [ready, carded, busy]);
 
   const title = s.title || "Conversation";
   return (
-    <ConversationFrame title={title} picker={<ConversationPicker e={e} rootId={rootId} title={title} />} state={<QuietState s={s} />} menu={<ConversationMenu e={e} rootId={rootId} s={s} />}>
+    <ConversationFrame title={title} busy={busy} picker={<ConversationPicker e={e} rootId={rootId} title={title} />} state={<QuietState s={s} />} menu={<ConversationMenu e={e} rootId={rootId} s={s} />}>
       <ThreadView e={e} rootId={rootId} thread={thread} row={s.row?.thread ?? null} onSendDone={s.archived ? null : sendDone} />
     </ConversationFrame>
   );
@@ -85,9 +113,11 @@ function ThreadConversation({ e, rootId }: { e: EmployeeView; rootId: string }) 
 
 /** One quiet band over the talk: the conversation's title, which switches to another, a word when it is put away, and
  *  one menu for the rest. Who it is with is the sidebar's open row and each reply's name. */
-function ConversationFrame({ title, picker, state, menu, children }: { title: string; picker: ReactNode; state?: ReactNode; menu: ReactNode; children: ReactNode }) {
+function ConversationFrame({ title, picker, state, menu, busy = false, children }: { title: string; picker: ReactNode; state?: ReactNode; menu: ReactNode; busy?: boolean; children: ReactNode }) {
   return (
-    <div className="convo" aria-label={title}>
+    // While another conversation opens in its place, the one on screen takes no clicks, typing or focus, so nothing
+    // you do lands in the thread you are leaving.
+    <div className="convo" aria-label={title} aria-busy={busy || undefined} inert={busy || undefined}>
       <header className="convo-head">
         {picker}
         {state}

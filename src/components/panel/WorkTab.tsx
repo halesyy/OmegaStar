@@ -2,13 +2,13 @@ import { useMemo, useState } from "react";
 import { call } from "../../api/client";
 import type { EmployeeView, Run, ScheduleDraft } from "../../api/types";
 import { dayHeading, firstName, shortAge } from "../../lib/format";
-import { refreshOrg, useOrg, useQuery } from "../../lib/hooks";
-import { isLive, threadFocus } from "../../lib/threads";
+import { prefetchThread, refreshOrg, useOrg, useQuery } from "../../lib/hooks";
+import { conversationOf, isLive, threadFocus } from "../../lib/threads";
 import { workTitle } from "../../lib/workTitle";
 import { kindIcon, RunRow } from "../RunRow";
 import { ErrorNote, Section, Skeleton, StatePill } from "../ui";
 import { chatWord } from "../conversation/ConversationHeader";
-import { useRecentChats } from "../conversation/useStatuses";
+import { useRecentChats, type Chat } from "../conversation/useStatuses";
 import { blankSchedule, ScheduleEditor, Schedules } from "./Schedules";
 import { Icon } from "../Icon";
 import { openChat, openRun } from "../../lib/router";
@@ -33,10 +33,12 @@ export function WorkTab({ e }: { e: EmployeeView }) {
   const sched = useQuery(() => call("schedules", { employeeId: e.id }), [e.id], ["org:changed"]);
   // The run that needs a look, said once: here at the top, not again in the history below.
   const failed = e.presence === "attention" && e.lastRun ? e.lastRun : null;
-  // Anything going right now, conversations included: asking for work in one is how most of it starts.
-  // Everything else is history.
-  const live = useMemo(() => (q.data ?? []).filter(isLive), [q.data]);
-  const groups = useMemo(() => groupByDay((q.data ?? []).filter((r) => !live.includes(r) && r.id !== failed?.id)), [q.data, live, failed]);
+  const chats = useRecentChats(e);
+  // Anything going right now, except a turn of a conversation listed above, which says Working there. Everything
+  // else is history.
+  const listed = useMemo(() => new Set((chats ?? []).map((c) => c.rootId)), [chats]);
+  const live = useMemo(() => (q.data ?? []).filter((r) => isLive(r) && !listed.has(conversationOf(r) ?? r.id)), [q.data, listed]);
+  const groups = useMemo(() => groupByDay((q.data ?? []).filter((r) => !isLive(r) && r.id !== failed?.id)), [q.data, failed]);
 
   if (editing) return <ScheduleEditor e={e} initial={editing} onDone={() => { setEditing(null); refreshOrg(); }} />;
   const employees = snap?.employees ?? [];
@@ -62,7 +64,7 @@ export function WorkTab({ e }: { e: EmployeeView }) {
   return (
     <div className="tab-scroll">
       {failed ? <NeedsALook e={e} run={failed} /> : null}
-      <Chats e={e} />
+      <Chats e={e} chats={chats} />
       <Schedules e={e} onEdit={setEditing} />
       <Section title="Runs">
         {q.error ? <ErrorNote text={q.error} onRetry={q.reload} /> : null}
@@ -91,8 +93,7 @@ export function WorkTab({ e }: { e: EmployeeView }) {
 
 /** The employee's open conversations and the last three days', newest first, on the run list's grid: each with its
  *  latest report line and where it stands. Nothing when there are none. */
-function Chats({ e }: { e: EmployeeView }) {
-  const chats = useRecentChats(e);
+function Chats({ e, chats }: { e: EmployeeView; chats: Chat[] | null }) {
   if (!chats?.length) return null;
   return (
     <Section title="Conversations">
@@ -100,7 +101,7 @@ function Chats({ e }: { e: EmployeeView }) {
         {chats.map((c) => {
           const w = chatWord(c);
           return (
-            <button key={c.rootId} className="runrow" onClick={() => openChat(e.id, threadFocus(c.rootId))}>
+            <button key={c.rootId} className="runrow" onPointerEnter={() => void prefetchThread(c.rootId)} onClick={() => openChat(e.id, threadFocus(c.rootId))}>
               <span className="runrow-lead runrow-icon"><Icon name={c.root ? kindIcon(c.root) : "chat"} size={14} /></span>
               <span className="runrow-title"><span className="runrow-label">{c.title}</span></span>
               <span className="runrow-detail">{c.line}</span>

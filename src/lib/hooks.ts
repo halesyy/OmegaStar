@@ -199,8 +199,9 @@ type LiveRuns = { runs: LiveRun[] | null; error: string | null; reload: () => vo
  * Runs with their transcripts, kept current by `run:updated` and `run:event`. `load` lists them; `belongs`
  * admits runs that arrive later, so a new turn of a conversation joins as soon as it is created.
  */
-function useLiveRuns(load: () => Promise<LiveRun[]>, belongs: (r: Run) => boolean, deps: unknown[]): LiveRuns {
-  const [runs, setRuns] = useState<LiveRun[] | null>(null);
+function useLiveRuns(load: () => Promise<LiveRun[]>, belongs: (r: Run) => boolean, deps: unknown[], seed?: () => LiveRun[] | null): LiveRuns {
+  // What was last seen shows at once while the fresh copy loads.
+  const [runs, setRuns] = useState<LiveRun[] | null>(() => seed?.() ?? null);
   const [error, setError] = useState<string | null>(null);
   const seq = useRef(0);
   const loadRef = useRef(load);
@@ -217,9 +218,15 @@ function useLiveRuns(load: () => Promise<LiveRun[]>, belongs: (r: Run) => boolea
   }, []);
 
   const depKey = JSON.stringify(deps);
+  const shownKey = useRef(depKey);
+  const seedRef = useRef(seed);
+  seedRef.current = seed;
   useEffect(() => {
-    setRuns(null);
-    setError(null);
+    if (shownKey.current !== depKey) {
+      shownKey.current = depKey;
+      setRuns(seedRef.current?.() ?? null);
+      setError(null);
+    }
     reload();
   }, [depKey, reload]);
 
@@ -260,11 +267,49 @@ export type Conversation = { turns: LiveRun[] | null; error: string | null; relo
  *  colleague brought back into it. A turn that comes later joins as it is created. */
 export function useThread(rootId: string): Conversation {
   const { runs, ...rest } = useLiveRuns(
-    () => call("thread", { runId: rootId }).then((t) => details([t.root.id, ...t.replies.map((r) => r.id)])),
+    () => loadThread(rootId),
     (r) => r.id === rootId || (r.kind.type === "reply" && r.kind.toRunId === rootId) || (r.kind.type === "answered" && r.kind.thread === rootId),
     [rootId],
+    () => cachedThread(rootId),
   );
+  useEffect(() => { if (runs) remember(rootId, runs); }, [rootId, runs]);
   return { turns: runs, ...rest };
+}
+
+// The conversations opened lately, as last seen, so switching back to one shows it at once while it refreshes.
+const THREADS_KEPT = 12;
+const seenThreads = new Map<string, LiveRun[]>();
+const threadReads = new Map<string, Promise<LiveRun[]>>();
+
+function remember(rootId: string, runs: LiveRun[]) {
+  seenThreads.delete(rootId);
+  seenThreads.set(rootId, runs);
+  for (const old of seenThreads.keys()) {
+    if (seenThreads.size <= THREADS_KEPT) break;
+    seenThreads.delete(old);
+  }
+}
+
+/** A thread's turns read fresh, sharing a read already under way. */
+function loadThread(rootId: string): Promise<LiveRun[]> {
+  const going = threadReads.get(rootId);
+  if (going) return going;
+  const p = call("thread", { runId: rootId })
+    .then((t) => details([t.root.id, ...t.replies.map((r) => r.id)]))
+    .then((rs) => { remember(rootId, rs); return rs; })
+    .finally(() => threadReads.delete(rootId));
+  threadReads.set(rootId, p);
+  return p;
+}
+
+/** The thread as last seen, when it was opened lately. */
+export function cachedThread(rootId: string): LiveRun[] | null {
+  return seenThreads.get(rootId) ?? null;
+}
+
+/** Reads a thread ahead of opening it (on hover, or while the one on screen stays up), unless it is at hand. */
+export function prefetchThread(rootId: string): Promise<unknown> {
+  return seenThreads.has(rootId) ? Promise.resolve() : loadThread(rootId).then(() => {}, () => {});
 }
 
 // ---------------------------------------------------------------- forms

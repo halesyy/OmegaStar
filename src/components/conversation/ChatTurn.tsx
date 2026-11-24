@@ -1,4 +1,4 @@
-import { Fragment, useMemo, type ReactNode } from "react";
+import { Fragment, useMemo, type MouseEvent, type ReactNode } from "react";
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, Run } from "../../api/types";
 import { firstName, heldLabel, threadTitle, timeOrDay, dateLong } from "../../lib/format";
@@ -21,7 +21,9 @@ const isImage = (name: string) => /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(name)
 
 /** A name in a conversation that opens that employee's page, where their conversations lead. */
 export function WhoName({ e }: { e: EmployeeView }) {
-  return <button type="button" className="who-name" onClick={() => openMember(e.id, "work")} data-tip={`Open ${firstName(e.name)}'s page`}>{firstName(e.name)}</button>;
+  // Not the click's default: inside a summary it would also fold the details open or shut.
+  const open = (ev: MouseEvent) => { ev.preventDefault(); openMember(e.id, "work"); };
+  return <button type="button" className="who-name" onClick={open} data-tip={`Open ${firstName(e.name)}'s page`}>{firstName(e.name)}</button>;
 }
 
 /** Who a reply is from and when it finished, or "up next". While it runs, its work line says so, not this. `from`: the
@@ -69,8 +71,8 @@ export function Turn({ turn, e, footer, earlier = false, latestMine = false }: {
   // A colleague's report or answer that came back, or a check that came due: OmegaStar wrote the prompt, so it is not
   // shown as yours.
   const came = turn.run.kind.type === "answered" ? turn.run.kind : null;
-  const fromName = came ? snap?.employees.find((x) => x.id === came.from)?.name : undefined;
-  const who = fromName ? firstName(fromName) : "A colleague";
+  const fromE = came ? snap?.employees.find((x) => x.id === came.from) : undefined;
+  const who = fromE ? <WhoName e={fromE} /> : "A colleague";
   // Your messages in this turn, in order; the last of them is your latest when `latestMine`.
   const mine = [turn.run.prompt && !came && !turn.run.check ? "prompt" : null, ...parts.map((p, i) => (p.said !== null ? `said:${i}` : null))].filter(Boolean) as string[];
   const lastMine = latestMine ? mine[mine.length - 1] : null;
@@ -97,7 +99,7 @@ export function Turn({ turn, e, footer, earlier = false, latestMine = false }: {
       ) : null}
       {came ? (
         <details className="msg-came">
-          <summary><Icon name="reply" size={14} /> {came.task ? `${who}'s report came back` : `${who} answered`}<Icon name="chevronDown" size={13} className="msg-came-chev" /></summary>
+          <summary><Icon name="reply" size={14} /> {who}{came.task ? "'s report came back" : " answered"}<Icon name="chevronDown" size={13} className="msg-came-chev" /></summary>
           <div className="msg-came-body"><Markdown text={turn.run.prompt} /></div>
         </details>
       ) : turn.run.check ? (

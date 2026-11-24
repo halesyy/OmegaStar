@@ -2,21 +2,20 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, Run, Thread } from "../../api/types";
 import { askComposer } from "../../lib/composer";
-import { firstName, shortAge, threadTitle, whenInline } from "../../lib/format";
-import { useOrg, useQuery } from "../../lib/hooks";
+import { firstName, shortAge, whenInline } from "../../lib/format";
+import { cachedThread, prefetchThread, useOrg, useQuery } from "../../lib/hooks";
 import { setMark } from "../../lib/marks";
 import { openChat, openMember } from "../../lib/router";
 import { snoozePresets, threadStatus, type Status } from "../../lib/status";
 import { toast } from "../../lib/toasts";
 import { doneHeld, isLive, rowThreads, threadFocus } from "../../lib/threads";
-import { kindNames } from "../../lib/workTitle";
 import { kindIcon } from "../RunRow";
 import { Icon, type IconName } from "../Icon";
 import { isCut, Popover, tipWhenCut } from "../ui";
 import { LaterPreset } from "./LaterMenu";
 import { newConversationDraft, TEACH_PREFIX } from "./NewConversation";
 import { markDone, reopen, WHERE_ARE_WE } from "./ThreadView";
-import { employeeItems, useRecentChats, useStatuses, type Chat, type Item } from "./useStatuses";
+import { chatTitle, employeeItems, useRecentChats, useStatuses, type Chat, type Item } from "./useStatuses";
 
 /** Where a conversation stands, for its header and its actions: its runs, its state, and whether it can be archived. */
 export type ThreadState = {
@@ -34,7 +33,9 @@ export function useThreadState(rootId: string | null): ThreadState {
   const { snap } = useOrg();
   const { items, filed, ctx } = useStatuses();
   const q = useQuery<Thread | null>(() => (rootId ? call("thread", { runId: rootId }) : Promise.resolve(null)), [rootId], ["run:updated"]);
-  const t = q.data ?? null;
+  // Until it is read, the thread as last opened: the header keeps its title as you switch back to it.
+  const seen = q.data === undefined && rootId ? cachedThread(rootId) : null;
+  const t = q.data ?? (seen?.length ? { root: seen[0].run, replies: seen.slice(1).map((x) => x.run), related: [] } : null);
   const root = t?.root ?? null;
   const runs = t ? [t.root, ...t.replies] : [];
   const inRow = rootId ? items?.find((i) => rowThreads(i.thread).some((x) => x.root.id === rootId)) ?? null : null;
@@ -43,7 +44,7 @@ export function useThreadState(rootId: string | null): ThreadState {
   const status = own ? threadStatus(own, !!(rootId && filed?.has(rootId)), ctx) : row?.status ?? null;
   return {
     root, runs, status, row,
-    title: root ? threadTitle(root, kindNames(root, snap?.employees ?? [], snap?.people ?? [])) : row?.title ?? "",
+    title: root ? chatTitle(root, snap?.employees ?? [], snap?.people ?? []) : row?.title ?? "",
     archived: !!root?.archivedAt,
     ready: !!root?.endedAt && !root.archivedAt && !runs.some(isLive),
     carded: own ? doneHeld(own, inRow?.thread ?? own) : false,
@@ -136,7 +137,8 @@ function PickerMenu({ e, rootId, title, onGo }: { e: EmployeeView; rootId: strin
       {list.map((c) => {
         const w = chatWord(c);
         return (
-          <button key={c.rootId} type="button" role="menuitemradio" aria-checked={c.rootId === rootId} className="menu-item" onClick={() => onGo(threadFocus(c.rootId))}>
+          <button key={c.rootId} type="button" role="menuitemradio" aria-checked={c.rootId === rootId} className="menu-item"
+            onPointerEnter={() => void prefetchThread(c.rootId)} onFocus={() => void prefetchThread(c.rootId)} onClick={() => onGo(threadFocus(c.rootId))}>
             <Icon name={c.root ? kindIcon(c.root) : "chat"} size={14} />
             <span className="grow trunc" onPointerEnter={tipWhenCut}>{c.title}</span>
             {w ? <span className={`convo-menu-state ${w.state === "needsYou" ? "status-attn" : w.state === "working" ? "status-live" : ""}`}>{w.word}</span>

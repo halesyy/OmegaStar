@@ -2,7 +2,7 @@
 // read of the office, your marks, and a clock that ticks when a snooze ends.
 import { useEffect, useMemo, useState } from "react";
 import { call, subscribe } from "../../api/client";
-import type { EmployeeView, OrgSnapshot, Run, Thread } from "../../api/types";
+import type { EmployeeView, OrgSnapshot, PersonView, Run, Thread } from "../../api/types";
 import { threadTitle } from "../../lib/format";
 import { refreshConversations, useConversations, useOrg } from "../../lib/hooks";
 import { pruneMarks, seenSince, useMarks, type Marks } from "../../lib/marks";
@@ -59,6 +59,12 @@ const STARTS: Run["kind"]["type"][] = ["task", "chat", "manual", "asked", "deleg
  *  open, whether work in it is going on, the first line of its latest report, and when it started. */
 export type Chat = { rootId: string; root: Run | null; title: string; status: Status | null; live: boolean; line: string; at: string };
 
+/** A conversation's name, as its header and the lists of conversations show it. A run you started by hand is named by
+ *  what you asked, not "Manual run", so the lists can be scanned. */
+export function chatTitle(root: Run, employees: EmployeeView[], people: PersonView[]): string {
+  return root.kind.type === "manual" ? workTitle(root, employees, people) : threadTitle(root, kindNames(root, employees, people));
+}
+
 /** The first line of a report, without its markdown. */
 const reportLine = (r: Run | undefined) => r?.summary?.replace(/[*_`#>|]/g, "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
 
@@ -97,8 +103,7 @@ export function useRecentChats(e: EmployeeView): Chat[] | null {
   const recent = useRecentRuns(e.id);
   return useMemo(() => {
     if (!items || !snap) return null;
-    // A run you started by hand is named by what you asked, not "Manual run", so the list can be scanned.
-    const name = (root: Run) => (root.kind.type === "manual" ? workTitle(root, snap.employees, snap.people) : threadTitle(root, kindNames(root, snap.employees, snap.people)));
+    const name = (root: Run) => chatTitle(root, snap.employees, snap.people);
     const open: Chat[] = employeeItems(items, e.id).map((i) => ({
       rootId: i.thread.root.id, root: i.thread.root, title: name(i.thread.root), status: i.status, live: threadBusy(i.thread),
       line: reportLine(latestFinished(i.thread)), at: i.thread.root.createdAt,
