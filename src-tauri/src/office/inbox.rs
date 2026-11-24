@@ -23,7 +23,7 @@ impl Office {
         self.db().open_asks()
     }
 
-    /// Weekly reviews from the last eight days, for Activity's Numbers.
+    /// Weekly reviews from the last eight days, for Analytics.
     pub fn week_reviews(&self) -> Result<Vec<Run>> {
         self.db().review_runs(now() - chrono::Duration::days(8))
     }

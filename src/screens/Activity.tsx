@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call } from "../api/client";
-import type { EmployeeUsage, EmployeeView, PersonView, RoutineUsage, Run, RunUsage, SkillRevision } from "../api/types";
-import { changeWords, dayHeading, firstName, listNames, MOD, plural, runKindLabel, shortAge, timeOrDay } from "../lib/format";
+import type { EmployeeView, PersonView, Run, SkillRevision } from "../api/types";
+import { dayHeading, firstName, listNames, MOD, runKindLabel, shortAge, timeOrDay } from "../lib/format";
 import { refreshOrg, useNow, useOrg, useQuery, useRunDetail, type Query } from "../lib/hooks";
 import { curve, ms, reducedMotion } from "../lib/motion";
-import { navigate, openChat, openMember, openRun, type ActivityView } from "../lib/router";
+import { navigate, openMember, openRun, type ActivityView } from "../lib/router";
 import { useScrollFade } from "../lib/scrollFade";
-import { blocked, isLive, threadFocus } from "../lib/threads";
+import { blocked, isLive } from "../lib/threads";
 import { workLabel } from "../lib/workTitle";
 import { useShell } from "../Shell";
 import { Age, RunRow } from "../components/RunRow";
@@ -20,8 +20,6 @@ import { Avatar, PageHeader, Popover, Roll, Section, Skeleton } from "../compone
 import { EmptyPage, ErrorCard } from "./ActivityParts";
 import "./Activity.css";
 
-/** How far back the week's numbers look: a week, with a day's slack for a review that ran late. */
-const WEEK_MS = 8 * 24 * 3600 * 1000;
 /** Wide enough for the history beside a work column. */
 const WIDE = 1040;
 
@@ -42,8 +40,8 @@ function useWide(px: number): [(el: HTMLElement | null) => void, boolean] {
 }
 
 /**
- * Everything that happened, in three views: the runs your employees did, the numbers (what they did and used today or
- * this week), and the changes they (and you) made to their skills. What needs you is the Inbox's, never repeated here.
+ * Everything that happened, in two views: the runs your employees did, and the changes they (and you) made to their
+ * skills. What needs you is the Inbox's, and what they used is on Analytics.
  * In a wide window the live work and what is coming up get the work column beside them; in a narrow one the live work
  * sits above the runs.
  */
@@ -59,7 +57,6 @@ export function ActivityScreen({ view }: { view: ActivityView }) {
   const [page, wide] = useWide(WIDE);
 
   // Every view's data loads with the page, so switching views shows what is there at once, never a skeleton between.
-  const numbersData = useNumbersData();
   const changes = useChanges(employees);
   const swapKey = `${view}~${who ?? ""}`;
 
@@ -75,7 +72,6 @@ export function ActivityScreen({ view }: { view: ActivityView }) {
   else if (!snap) body = <PageSkeleton view={view} wide={wide} />;
   else if (!hired) body = <FirstUse view={view} />;
   else if (view === "runs") body = <Runs q={runs} who={who} name={name} employees={employees} people={people} wide={wide} />;
-  else if (view === "numbers") body = <Numbers data={numbersData} who={who} employees={employees} />;
   else body = <SkillChanges q={changes} who={who} name={name} employees={employees} people={people} runs={runs.data} />;
 
   return (
@@ -84,7 +80,6 @@ export function ActivityScreen({ view }: { view: ActivityView }) {
         {hired && (snap || !error) ? <WhoPicker who={who} employees={employees} onPick={setWho} loading={!snap} /> : null}
         <div className="seg" role="group" aria-label="Show">
           <button aria-pressed={view === "runs"} onClick={() => go("runs")}>Runs</button>
-          <button aria-pressed={view === "numbers"} onClick={() => go("numbers")}>Numbers</button>
           <button aria-pressed={view === "skills"} onClick={() => go("skills")}>Skill changes</button>
         </div>
       </PageHeader>
@@ -501,216 +496,6 @@ function QuietRuns({ runs, employee, employees, people }: { runs: Run[]; employe
   );
 }
 
-// ---------------------------------------------------------------- numbers
-
-/** Local midnight `daysBack` days ago, as the backend takes a time; it changes only when the day does. */
-function dayStart(now: number, daysBack = 0): string {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - daysBack);
-  return d.toISOString();
-}
-
-/** Usage in US dollars at API list price, without its sign: "12.40", "<0.01", or "0" when no run recorded a cost. */
-const dollars = (n: number) => (n <= 0 ? "0" : n < 0.01 ? "<0.01" : n.toFixed(2));
-
-/** What a routine's runs did, as a sentence: "1 of 5 runs did something". One run's count is beside it already. */
-function routineWords(r: RoutineUsage): string {
-  if (r.runs === 1) return r.useful ? "It did something" : "It did nothing";
-  if (r.useful === r.runs) return `All ${r.runs} runs did something`;
-  if (r.useful === 0) return `None of ${r.runs} runs did anything`;
-  return `${r.useful} of ${r.runs} runs did something`;
-}
-
-type Span = "today" | "week";
-
-type NumbersData = { starts: string[]; usage: Query<RunUsage[]>; reviews: Query<Run[]>; now: number };
-
-/** What Numbers shows, loaded with the page: what was used since each of the last seven midnights (today's numbers are
- *  the first, the week's the last), and the weekly reviews. */
-function useNumbersData(): NumbersData {
-  const now = useNow(60_000);
-  const today = dayStart(now);
-  const starts = useMemo(() => Array.from({ length: 7 }, (_, i) => dayStart(Date.parse(today), i)), [today]);
-  const usage = useQuery(() => Promise.all(starts.map((since) => call("run_usage", { since }))), [starts], ["run:updated"]);
-  const reviews = useQuery(() => call("week_reviews"), [], ["run:updated"]);
-  return { starts, usage, reviews, now };
-}
-
-const NO_USAGE = (employeeId: string): EmployeeUsage => ({ employeeId, runs: 0, decisions: 0, handoffs: 0, failed: 0, costUsd: 0 });
-
-/**
- * Each employee's numbers on one grid that keeps its shape between Today and This week: the same people in the same
- * rows (anyone who ran this week), their values rolling between the two, and each person's routines opening under them
- * for the week and closing for today. What it all used is the one big number, with the last seven days under it. The
- * table ends on a line that says what it covered.
- */
-function Numbers({ data, who, employees }: { data: NumbersData; who: string | null; employees: EmployeeView[] }) {
-  const { starts, usage, reviews, now } = data;
-  const [span, setSpanNow] = useState<Span>("today");
-  // The notes change with the span; they fade into place once it has changed, never on the first paint.
-  const [moved, setMoved] = useState(false);
-  const setSpan = (s: Span) => { if (s !== span) { setSpanNow(s); setMoved(true); } };
-  const [closed, setClosed] = useState<Set<string>>(() => new Set());
-  const week = usage.data?.[6];
-  const shown = usage.data ? (span === "today" ? usage.data[0] : usage.data[6]) : undefined;
-
-  const latest = new Map<string, Run>();
-  for (const r of reviews.data ?? []) {
-    if (r.kind.type !== "scheduled" || !r.kind.review || r.state !== "succeeded" || now - Date.parse(r.createdAt) > WEEK_MS) continue;
-    const had = latest.get(r.employeeId);
-    if (!had || had.createdAt < r.createdAt) latest.set(r.employeeId, r);
-  }
-  const rows = employees.filter((e) => (who === null || e.id === who) && week?.employees.some((y) => y.employeeId === e.id)).map((e) => {
-    const x = shown?.employees.find((y) => y.employeeId === e.id) ?? NO_USAGE(e.id);
-    const routines = (week?.routines ?? []).filter((r) => r.employeeId === e.id).sort((a, b) => b.costUsd - a.costUsd);
-    return { e, x, routines, review: latest.get(e.id) };
-  });
-  const total = rows.reduce((s, r) => s + r.x.costUsd, 0);
-  const runsTotal = rows.reduce((s, r) => s + r.x.runs, 0);
-  const people = rows.filter((r) => r.x.runs > 0).length;
-  // What each day used, from the cumulative totals: a day is what its midnight saw less what the next one did.
-  const spent = (d: number) => (usage.data?.[d]?.employees ?? []).filter((x) => who === null || x.employeeId === who).reduce((s, x) => s + x.costUsd, 0);
-  const days = usage.data ? starts.map((at, i) => ({ at, cost: Math.max(0, spent(i) - (i ? spent(i - 1) : 0)) })).reverse() : null;
-  const toggle = (id: string) => setClosed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-
-  let list: ReactNode;
-  if (usage.error && !usage.data) list = <ErrorCard title="Couldn't load the numbers" text={usage.error} onRetry={usage.reload} />;
-  else if (!usage.data) list = <div className="num-list" aria-hidden>{[64, 48, 72, 56].map((w, i) => <div key={i} className="num-skel"><Skeleton h={20} w={20} r={10} /><Skeleton h={12} w={`${w}%`} /><Skeleton h={12} w={44} /></div>)}</div>;
-  else if (!rows.length) list = <EmptyPage title="Nothing has run this week" text="Each employee's runs and what they used show up here once they work." />;
-  else {
-    list = (
-      <>
-        <div className="num-list">
-          {rows.map(({ e, x, routines, review }) => {
-            const open = span === "week" && routines.length > 0 && !closed.has(e.id);
-            return (
-              <div key={e.id} className="num-group" data-open={open}>
-                <div className="num-row">
-                  <button className="num-main" onClick={() => (span === "week" && review ? openChat(e.id, threadFocus(review.id)) : openMember(e.id, "work"))}>
-                    <Avatar name={e.name} hue={e.hue} image={e.image} size={20} />
-                    <b className="num-who">{firstName(e.name)}</b>
-                    <span className="num-what"><span key={span} className={`num-what-in ${moved ? "enter-fade" : ""}`}>{span === "today" ? <TodayWhat u={x} /> : <WeekWhat review={review} />}</span></span>
-                    <span className="num-runs num"><Roll value={x.runs} /> {x.runs === 1 ? "run" : "runs"}</span>
-                    <span className="num-cost num">$<Roll value={dollars(x.costUsd)} /></span>
-                  </button>
-                  {/* The chevron's slot is held in both spans, so a row is one height whichever is shown. */}
-                  <span className="num-fold-slot">
-                    {span === "week" && routines.length ? (
-                      <button className="num-fold" aria-expanded={open} aria-label={`${firstName(e.name)}'s routines`} data-tip={open ? "Hide routines" : `Show ${plural(routines.length, "routine")}`} onClick={() => toggle(e.id)}>
-                        <Icon name="chevronDown" size={14} />
-                      </button>
-                    ) : null}
-                  </span>
-                </div>
-                {routines.length ? (
-                  <div className="collapse" data-open={open} inert={!open}>
-                    <div>
-                      <div className="num-subs">
-                        {routines.map((r) => (
-                          <button key={r.scheduleId} className="num-sub" onClick={() => openMember(e.id, "work")}>
-                            <span className="num-sub-name">{r.label}</span>
-                            <span className="num-sub-what" data-tip="A run did something when it raised a card, handed work to a colleague, changed a skill or failed.">{routineWords(r)}</span>
-                            <span className="num-runs num">{plural(r.runs, "run")}</span>
-                            <span className="num-cost num">${dollars(r.costUsd)}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        <p className="act-foot">
-          <Roll value={people === 0 ? `Nobody has run anything ${span === "today" ? "today" : "this week"} yet.` : `${plural(people, "person", "people")} ran ${plural(runsTotal, "run")} ${span === "today" ? "today" : "this week"}.`} />
-        </p>
-      </>
-    );
-  }
-
-  return (
-    <section className="numbers" aria-label="Numbers">
-      <div className="num-head">
-        <span className="num-total-value num">{usage.data ? <>$<Roll value={dollars(total)} /></> : <Skeleton h={30} w={120} />}</span>
-        <SpanPicker span={span} onPick={setSpan} />
-        <span className="num-total-label"><Roll value={span === "today" ? "Used today, at API list price" : "Used this week, at API list price"} /></span>
-        <DaySpend days={days} span={span} />
-      </div>
-      {list}
-    </section>
-  );
-}
-
-/** Today or This week: a quiet control that fits its words, as the Inbox's own view control is, so it never reads as a
- *  second set of tabs under the page's. */
-function SpanPicker({ span, onPick }: { span: Span; onPick: (s: Span) => void }) {
-  const [open, setOpen] = useState(false);
-  const anchor = useRef<HTMLButtonElement>(null);
-  const pick = (s: Span) => { setOpen(false); onPick(s); anchor.current?.focus(); };
-  const label = (s: Span) => (s === "today" ? "Today" : "This week");
-  return (
-    <span className="num-span">
-      <button ref={anchor} type="button" className="btn btn-ghost btn-sm act-who" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <Roll value={label(span)} /> <Icon name="chevronDown" size={13} />
-      </button>
-      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} width={180}>
-        <div className="menu" role="menu" aria-label="Which numbers">
-          {(["today", "week"] as Span[]).map((s) => (
-            <button key={s} type="button" role="menuitem" className="menu-item" aria-checked={span === s} onClick={() => pick(s)}>
-              <span className="act-who-mark">{span === s ? <Icon name="check" size={13} /> : null}</span>{label(s)}
-            </button>
-          ))}
-        </div>
-      </Popover>
-    </span>
-  );
-}
-
-/** The last seven days' spend across the column: seven thin bars on one baseline, today last (labelled with its figure
- *  when the big number above is the week's). The days the figure above covers are in ink; the rest are quiet. Each bar says its day and amount on hover. */
-function DaySpend({ days, span }: { days: { at: string; cost: number }[] | null; span: Span }) {
-  const max = Math.max(0.01, ...(days ?? []).map((d) => d.cost));
-  return (
-    <div className="num-days" aria-label="What each of the last seven days used">
-      {(days ?? Array.from({ length: 7 }, (_, i) => ({ at: String(i), cost: 0 }))).map((d, i) => {
-        const day = days ? new Date(d.at).toLocaleDateString(undefined, { weekday: "short" }) : "";
-        const on = span === "week" || i === 6;
-        return (
-          <div key={d.at} className="num-day" data-on={on} data-tip={days ? `${day}: $${dollars(d.cost)}` : undefined} aria-label={days ? `${day}, $${dollars(d.cost)}` : undefined}>
-            {/* On Today the big figure already says it; for the week, today's bar names its own. */}
-            <span className="num-day-figure num">{i === 6 && days && span === "week" ? <>$<Roll value={dollars(d.cost)} /></> : null}</span>
-            <span className="num-bar-track"><span className="num-bar" style={{ "--v": `${days ? Math.max(4, (d.cost / max) * 100) : 0}%` } as React.CSSProperties} /></span>
-            <span className="num-day-label">{i === 6 && days ? "Today" : day}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function TodayWhat({ u }: { u: EmployeeUsage }) {
-  const parts = [u.decisions ? plural(u.decisions, "decision") : null, u.handoffs ? plural(u.handoffs, "hand-off") : null].filter(Boolean);
-  if (!parts.length && !u.failed) return <span className="muted">{u.runs ? "Nothing to note" : "Nothing today"}</span>;
-  return (
-    <>
-      {parts.join(" · ")}
-      {u.failed ? <span className="num-failed">{parts.length ? " · " : ""}{u.failed} failed</span> : null}
-    </>
-  );
-}
-
-function WeekWhat({ review }: { review: Run | undefined }) {
-  const s = review?.score;
-  if (!s) return <span className="muted">{review ? "Reviewed the week" : "No weekly number yet"}</span>;
-  return (
-    <>
-      {s.metric} <b className="num-value">{s.value}</b><span className="muted">, {changeWords(s.change)}</span>
-    </>
-  );
-}
-
 // ---------------------------------------------------------------- skill changes
 
 type Change = { r: SkillRevision; e: EmployeeView };
@@ -855,10 +640,9 @@ function FirstUse({ view }: { view: ActivityView }) {
   const shell = useShell();
   return (
     <EmptyPage
-      title={view === "skills" ? "No skill changes yet" : view === "numbers" ? "No numbers yet" : "Nothing has run yet"}
+      title={view === "skills" ? "No skill changes yet" : "Nothing has run yet"}
       text={view === "skills"
         ? "Once you hire someone, every change to their skills shows up here, and any of them can be undone."
-        : view === "numbers" ? "Once you hire someone, what each of them does and uses shows up here, today and over the week."
         : "Once you hire someone, their runs show up here the moment they start: on a schedule, when you press Run now, or when a colleague hands one over."}
       action={<button className="btn btn-primary" onClick={(ev) => shell.hire(null, ev.currentTarget)}><Icon name="plus" size={14} strokeWidth={1.8} /> Hire an employee</button>}
     />

@@ -12,6 +12,16 @@
 .an-row { display: grid; grid-template-columns: 20px 120px minmax(0, 1fr) 72px 170px 48px; align-items: center; column-gap: 12px; min-height: 40px; }
 .an-row + .an-row { box-shadow: inset 0 1px 0 var(--line); }
 .an-row.an-head { min-height: 26px; font-size: var(--t-sm); font-weight: 500; color: var(--muted); }
+/* A person's row opens their review: one hover fill, reaching just past the column so its text and rule stay on the
+   header's. */
+.an-rows button.an-row {
+  position: relative; width: calc(100% + 16px); margin: 0 -8px; padding: 0 8px; box-shadow: none; text-align: left;
+  border-radius: var(--r-inner); transition: background var(--d-ui) var(--ease);
+}
+.an-rows button.an-row::before { content: ""; position: absolute; top: 0; left: 8px; right: 8px; height: 1px; background: var(--line); pointer-events: none; }
+.an-rows button.an-row:hover { background: var(--sunken); }
+.an-rows button.an-row:focus-visible { outline: none; box-shadow: var(--focus); }
+.an-quiet { font-size: var(--t-sm); color: var(--muted); }
 .an-r { justify-self: end; }
 .an-name { font-size: var(--t-base); font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .an-metric { font-size: var(--t-base); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -19,6 +29,50 @@
 .an-value { justify-self: end; max-width: 100%; font-size: var(--t-md); font-weight: 700; letter-spacing: -0.02em; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .an-change { font-size: var(--t-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .an-hours { justify-self: end; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; }
+
+/* What each person used: one grid, a person's routines open under them. */
+.num-list { display: flex; flex-direction: column; margin: 0 -12px; }
+.num-group { position: relative; }
+.num-group + .num-group::before {
+  content: ""; position: absolute; z-index: 1; top: 0; left: 12px; right: 12px; height: 1px; background: var(--line); pointer-events: none;
+}
+/* The whole row is one hover fill, between its rules with equal room above and below, the chevron inside it and as far
+   from its edge as the avatar is from the other. */
+.num-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; margin: 6px 0; padding-right: 5px;
+  border-radius: var(--r-inner); transition: background var(--d-ui) var(--ease);
+}
+.num-row:hover { background: var(--sunken); }
+/* An open group is read as one: its person line does not light on its own over the routines under it. */
+.num-group[data-open="true"] .num-row:hover { background: none; }
+.num-main, .num-skel {
+  display: grid; grid-template-columns: 20px 96px minmax(0, 1fr) 64px 72px; align-items: center; column-gap: 12px;
+  min-height: 40px; padding: 8px 12px; border-radius: var(--r-inner); text-align: left;
+}
+.num-skel { grid-template-columns: 20px minmax(0, 1fr) 44px; padding-right: 45px; margin: 6px 0; }
+.num-main:focus-visible { outline: none; box-shadow: var(--focus); }
+.num-who { font-size: var(--t-base); font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-what { min-width: 0; display: grid; font-size: 13px; color: var(--ink-2); }
+.num-what-in { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-failed { color: var(--err-text); }
+.num-runs { justify-self: end; display: inline-flex; gap: 0.25em; font-size: var(--t-sm); color: var(--muted); white-space: nowrap; }
+.num-cost { justify-self: end; display: inline-flex; font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+.num-fold, .num-fold-slot { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-inner); color: var(--muted); }
+.num-fold:hover { color: var(--ink); }
+.num-fold:focus-visible { outline: none; box-shadow: var(--focus); }
+.num-fold svg { transition: transform var(--d-ui) var(--ease); }
+.num-fold[aria-expanded="true"] svg { transform: rotate(180deg); }
+.num-subs { padding: 0 0 8px; }
+.num-sub {
+  width: 100%; display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) 64px 72px; align-items: baseline; column-gap: 12px;
+  padding: 5px 45px 5px 152px; text-align: left; border-radius: var(--r-inner); transition: background var(--d-ui) var(--ease);
+}
+.num-sub:hover { background: var(--sunken); }
+.num-sub:focus-visible { outline: none; box-shadow: var(--focus); }
+.num-sub-name { font-size: 13px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-sub-what { font-size: var(--t-sm); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.num-sub .num-cost { font-weight: 500; color: var(--ink-2); }
+
 @media (max-width: 760px) {
   .an-row { grid-template-columns: 20px 96px minmax(0, 1fr) 64px 48px; }
   .an-change { display: none; }

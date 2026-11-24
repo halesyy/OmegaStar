@@ -1,11 +1,14 @@
 import { useMemo, useState } from "react";
 import { call } from "../api/client";
-import { changeWords } from "../lib/format";
-import { useOrg, useQuery } from "../lib/hooks";
+import type { EmployeeUsage, EmployeeView, RoutineUsage, Run, RunUsage } from "../api/types";
+import { changeWords, firstName, plural } from "../lib/format";
+import { useNow, useOrg, useQuery, type Query } from "../lib/hooks";
+import { openChat, openMember } from "../lib/router";
 import { RANGES, summarise, type TeamPoint, type TeamRange, type TeamSummary } from "../lib/teamStats";
+import { threadFocus } from "../lib/threads";
 import { useShell } from "../Shell";
 import { Icon } from "../components/Icon";
-import { Avatar, ErrorNote, PageColumn, Section, Skeleton } from "../components/ui";
+import { Avatar, ErrorNote, PageColumn, Roll, Section, Skeleton } from "../components/ui";
 import { EmptyPage } from "./ActivityParts";
 import "./Analytics.css";
 
@@ -39,10 +42,34 @@ function shareWords(f: number): string {
 /** Midday on a `YYYY-MM-DD` day, so no time zone shift lands it on the day before. */
 const dayDate = (day: string) => new Date(`${day}T12:00:00`);
 
+/** Local midnight `daysBack` days ago, as the backend takes a time; it changes only when the day does. */
+function dayStart(now: number, daysBack = 0): string {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - daysBack);
+  return d.toISOString();
+}
+
+/** Usage in US dollars at API list price, without its sign: "12.40", "<0.01", or "0" when no run recorded a cost. */
+const dollars = (n: number) => (n <= 0 ? "0" : n < 0.01 ? "<0.01" : n.toFixed(2));
+
+/** What the team used since the range began (the same days the chart shows), and each person's review of this week. */
+function useSpend(range: TeamRange): { usage: Query<RunUsage>; reviews: Map<string, Run> } {
+  const today = dayStart(useNow(60_000));
+  const since = range === "all" ? new Date(0).toISOString() : dayStart(Date.parse(today), Number(range) - 1);
+  const usage = useQuery(() => call("run_usage", { since }), [since], ["run:updated"]);
+  const week = useQuery(() => call("week_reviews"), [], ["run:updated"]);
+  // The office sends the last eight days' reviews oldest first, so each person's newest is the one that stays.
+  const reviews = new Map<string, Run>();
+  for (const r of week.data ?? []) if (r.state === "succeeded") reviews.set(r.employeeId, r);
+  return { usage, reviews };
+}
+
 /**
- * The Analytics page, in the sidebar under the Org chart: what the team got done, what it asked of you, and the number
- * each person answers for, over the last week, month or all time. It only shows, it changes nothing. Two sentences carry
- * the range; one mirrored chart shows hours above the line and asks below; hairline rows show each person.
+ * The Analytics page, in the sidebar under the Org chart: what the team got done, what it asked of you, what it used, and
+ * the number each person answers for, over the last week, month or all time. It only shows, it changes nothing. Three
+ * sentences carry the range; one mirrored chart shows hours above the line and asks below; hairline rows show each
+ * person, their number opening their weekly review, and what each used, with their routines under them.
  */
 export function AnalyticsScreen() {
   const q = useQuery(() => call("team_stats"), [], ["org:changed"]);
@@ -50,6 +77,8 @@ export function AnalyticsScreen() {
   const shell = useShell();
   const [range, setRange] = useState<TeamRange>("7");
   const s = useMemo(() => (q.data ? summarise(q.data, range) : null), [q.data, range]);
+  const { usage, reviews } = useSpend(range);
+  const employees = snap?.employees ?? [];
   const ranges = (
     <div className="seg" role="group" aria-label="How far back">
       {RANGES.map((r) => <button key={r.id} aria-pressed={range === r.id} onClick={() => setRange(r.id)}>{r.label}</button>)}
@@ -72,6 +101,7 @@ export function AnalyticsScreen() {
           <div className="an-lede">
             <Work s={s} range={range} />
             <Asks s={s} />
+            {usage.data && snap ? <Used u={usage.data} employees={employees} /> : null}
           </div>
           {s.workMs || s.asks ? <Mirror points={s.points} per={s.per} /> : null}
           <Section title="The number each person answers for">
@@ -80,19 +110,25 @@ export function AnalyticsScreen() {
                 <span /><span /><span>Their number</span><span className="an-r">Now</span><span>Against last week</span><span className="an-r">Worked</span>
               </div>
               {s.people.map((p) => {
-                const e = snap?.employees.find((x) => x.id === p.employeeId);
+                const e = employees.find((x) => x.id === p.employeeId);
+                const review = reviews.get(p.employeeId);
+                // A row opens this week's review, where the number came from; with none, their page.
                 return (
-                  <div className="an-row" key={p.employeeId}>
+                  <button type="button" className="an-row" key={p.employeeId} data-tip={review ? "Open this week's review" : undefined}
+                    onClick={() => (review ? openChat(p.employeeId, threadFocus(review.id)) : openMember(p.employeeId, "work"))}>
                     {e ? <Avatar name={e.name} hue={e.hue} image={e.image} size={20} /> : <span />}
                     <span className="an-name" title={p.name}>{p.name}</span>
                     {p.number ? <span className="an-metric" title={p.number.metric}>{p.number.metric}</span> : <span className="an-metric an-none">No weekly number yet</span>}
                     <span className="an-value num" title={p.number?.value}>{p.number?.value || "–"}</span>
                     <span className="an-change" title={p.number ? changeWords(p.number.change) : undefined}>{p.number ? changeWords(p.number.change) : ""}</span>
                     <span className="an-hours num">{hours(p.workMs)}{NBSP}h</span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
+          </Section>
+          <Section title="What each person used">
+            <Spend usage={usage} employees={employees} />
           </Section>
         </>
       ) : null}
@@ -136,6 +172,92 @@ function Asks({ s }: { s: TeamSummary }) {
     after = <> It has waited more than a day.</>;
   }
   return <p>They asked you <b>{count(s.asks, "thing")}</b>.{after}</p>;
+}
+
+/** The third sentence: what all their runs in the range cost at API approximate price (a rough guide, not a bill). */
+function Used({ u, employees }: { u: RunUsage; employees: EmployeeView[] }) {
+  const total = u.employees.filter((x) => employees.some((e) => e.id === x.employeeId)).reduce((n, x) => n + x.costUsd, 0);
+  return <p>Their runs used <b>${dollars(total)}</b> (API approximate price).</p>;
+}
+
+/** What a routine's runs did, as a sentence: "1 of 5 runs did something". One run's count is beside it already. */
+function routineWords(r: RoutineUsage): string {
+  if (r.runs === 1) return r.useful ? "It did something" : "It did nothing";
+  if (r.useful === r.runs) return `All ${r.runs} runs did something`;
+  if (r.useful === 0) return `None of ${r.runs} runs did anything`;
+  return `${r.useful} of ${r.runs} runs did something`;
+}
+
+/**
+ * Each person who ran something in the range, on one grid: what their runs raised, how many, and what they used, with
+ * their routines open under them (each with what its runs did). A chevron folds a person's routines away.
+ */
+function Spend({ usage, employees }: { usage: Query<RunUsage>; employees: EmployeeView[] }) {
+  const [closed, setClosed] = useState<Set<string>>(() => new Set());
+  const toggle = (id: string) => setClosed((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  if (usage.error && !usage.data) return <ErrorNote title="Couldn't load what they used" text={usage.error} onRetry={usage.reload} />;
+  if (!usage.data) return <div className="num-list" aria-hidden>{[64, 48, 72, 56].map((w, i) => <div key={i} className="num-skel"><Skeleton h={20} w={20} r={10} /><Skeleton h={12} w={`${w}%`} /><Skeleton h={12} w={44} /></div>)}</div>;
+  const u = usage.data;
+  const rows = employees.flatMap((e) => {
+    const x = u.employees.find((y) => y.employeeId === e.id);
+    return x ? [{ e, x, routines: u.routines.filter((r) => r.employeeId === e.id).sort((a, b) => b.costUsd - a.costUsd) }] : [];
+  });
+  if (!rows.length) return <p className="an-quiet">Nobody ran anything in this time.</p>;
+  return (
+    <div className="num-list">
+      {rows.map(({ e, x, routines }) => {
+        const open = routines.length > 0 && !closed.has(e.id);
+        return (
+          <div key={e.id} className="num-group" data-open={open}>
+            <div className="num-row">
+              <button className="num-main" onClick={() => openMember(e.id, "work")}>
+                <Avatar name={e.name} hue={e.hue} image={e.image} size={20} />
+                <b className="num-who">{firstName(e.name)}</b>
+                <span className="num-what"><span className="num-what-in"><Raised u={x} /></span></span>
+                <span className="num-runs num"><Roll value={x.runs} /> {x.runs === 1 ? "run" : "runs"}</span>
+                <span className="num-cost num">$<Roll value={dollars(x.costUsd)} /></span>
+              </button>
+              <span className="num-fold-slot">
+                {routines.length ? (
+                  <button className="num-fold" aria-expanded={open} aria-label={`${firstName(e.name)}'s routines`} data-tip={open ? "Hide routines" : `Show ${plural(routines.length, "routine")}`} onClick={() => toggle(e.id)}>
+                    <Icon name="chevronDown" size={14} />
+                  </button>
+                ) : null}
+              </span>
+            </div>
+            {routines.length ? (
+              <div className="collapse" data-open={open} inert={!open}>
+                <div>
+                  <div className="num-subs">
+                    {routines.map((r) => (
+                      <button key={r.scheduleId} className="num-sub" onClick={() => openMember(e.id, "work")}>
+                        <span className="num-sub-name">{r.label}</span>
+                        <span className="num-sub-what" data-tip="A run did something when it raised a card, handed work to a colleague, changed a skill or failed.">{routineWords(r)}</span>
+                        <span className="num-runs num">{plural(r.runs, "run")}</span>
+                        <span className="num-cost num">${dollars(r.costUsd)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** What a person's runs raised: their decisions, hand-offs and failures. */
+function Raised({ u }: { u: EmployeeUsage }) {
+  const parts = [u.decisions ? plural(u.decisions, "decision") : null, u.handoffs ? plural(u.handoffs, "hand-off") : null].filter(Boolean);
+  if (!parts.length && !u.failed) return <span className="muted">Nothing to note</span>;
+  return (
+    <>
+      {parts.join(" · ")}
+      {u.failed ? <span className="num-failed">{parts.length ? " · " : ""}{u.failed} failed</span> : null}
+    </>
+  );
 }
 
 /** The chart's width, the room above, between and below its two baselines, and where they sit. */

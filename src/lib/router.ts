@@ -6,7 +6,7 @@ import { conversationOf, threadFocus } from "./threads";
 /** An employee panel's tabs. People and you have a single page, so no tab. You talk to an employee in the
  *  conversation, not on their page. */
 export type PanelTab = "work" | "skills" | "profile";
-export type ActivityView = "runs" | "numbers" | "skills";
+export type ActivityView = "runs" | "skills";
 /** The Inbox's tabs. */
 export type InboxView = "inbox" | "snoozed" | "parked" | "archive";
 const INBOX_VIEWS: InboxView[] = ["inbox", "snoozed", "parked", "archive"];
@@ -33,7 +33,8 @@ function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   switch (parts[0]) {
     case "inbox": return { page: "inbox", view: INBOX_VIEWS.find((v) => v === parts[1]) ?? "inbox", item: parts[2] ?? null };
-    case "activity": return { page: "activity", view: parts[1] === "skills" || parts[1] === "numbers" ? parts[1] : "runs" };
+    // An old link to Activity's Numbers is Analytics, where what the team used now lives.
+    case "activity": return parts[1] === "numbers" ? { page: "analytics" } : { page: "activity", view: parts[1] === "skills" ? "skills" : "runs" };
     case "settings": return { page: "settings" };
     case "analytics": return { page: "analytics" };
     case "run": if (parts[1]) return { page: "run", runId: parts[1] }; break;
