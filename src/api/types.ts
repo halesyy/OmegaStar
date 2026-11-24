@@ -423,6 +423,7 @@ export type Commands = {
   report_file: { args: { path: string }; ret: string };
   runs: { args: { employeeId: string | null; limit: number }; ret: Run[] };
   /** The newest runs whose instruction, report or a card's question contains `query`, ignoring case. */
+  runs_since: { args: { employeeId: string; since: string }; ret: Run[] };
   search_runs: { args: { query: string; limit: number }; ret: Run[] };
   /** What each employee's runs and each routine did and used since `since`. */
   run_usage: { args: { since: string }; ret: RunUsage };

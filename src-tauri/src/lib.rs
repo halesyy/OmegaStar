@@ -435,6 +435,7 @@ pub fn run() {
             commands::open_report_path,
             commands::report_file,
             commands::runs,
+            commands::runs_since,
             commands::search_runs,
             commands::run_usage,
             commands::team_stats,

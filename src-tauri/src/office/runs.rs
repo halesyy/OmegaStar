@@ -94,6 +94,11 @@ impl Office {
         self.db().recent_runs(employee_id, limit.clamp(1, 1000))
     }
 
+    /// An employee's runs since `since`, newest first, for the lists of their recent conversations.
+    pub fn runs_since(&self, employee_id: &str, since: Ts) -> Result<Vec<Run>> {
+        self.db().runs_since(employee_id, since, 1000)
+    }
+
     /// The newest runs whose instruction, report or a card's question contains `query`, for the command palette.
     pub fn search_runs(&self, query: &str, limit: u32) -> Result<Vec<Run>> {
         self.db().search_runs(query, limit.clamp(1, 200))

@@ -247,6 +247,11 @@ pub async fn runs(office: O<'_>, employee_id: Option<String>, limit: u32) -> Res
 }
 
 #[tauri::command]
+pub async fn runs_since(office: O<'_>, employee_id: String, since: Ts) -> Result<Vec<Run>> {
+    office.runs_since(&employee_id, since)
+}
+
+#[tauri::command]
 pub async fn search_runs(office: O<'_>, query: String, limit: u32) -> Result<Vec<Run>> {
     office.search_runs(&query, limit)
 }

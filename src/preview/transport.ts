@@ -476,6 +476,7 @@ export function previewTransport(): Transport {
       return text;
     },
     runs: ({ employeeId, limit }) => w.runs.filter((r) => !employeeId || r.employeeId === employeeId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit),
+    runs_since: ({ employeeId, since }) => w.runs.filter((r) => r.employeeId === employeeId && r.createdAt >= since).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     search_runs: ({ query, limit }) => {
       const q = query.toLowerCase();
       return w.runs.filter((r) => [r.prompt, r.summary ?? "", ...r.cards.map((c) => c.message)].some((t) => t.toLowerCase().includes(q))).slice(0, limit);

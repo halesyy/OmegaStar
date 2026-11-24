@@ -103,6 +103,15 @@ impl Store {
         }
     }
 
+    /// An employee's runs created since `since`, newest first, at most `limit`: the last few days' conversations
+    /// however busy their schedules keep them.
+    pub fn runs_since(&self, employee_id: &str, since: Ts, limit: u32) -> Result<Vec<Run>> {
+        self.runs_where(
+            "WHERE employee_id = ? AND created_at >= ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            &[&employee_id, &ms(since), &limit],
+        )
+    }
+
     pub fn children(&self, parent_run_id: &str) -> Result<Vec<Run>> {
         self.runs_where("WHERE parent_run_id = ? ORDER BY created_at, rowid", &[&parent_run_id])
     }

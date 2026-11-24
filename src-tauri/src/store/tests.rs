@@ -1278,3 +1278,33 @@ fn answering_the_star_ask_before_it_is_due_keeps_it_away() {
     drop(db);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn runs_since_reads_by_time_not_by_count() {
+    let dir = temp_dir();
+    let db = Store::open(&dir.join("office.db")).unwrap();
+    let ada = employee("Ada", None);
+    let bo = employee("Bo", None);
+    db.save_employee(&ada).unwrap();
+    db.save_employee(&bo).unwrap();
+    let now = Utc::now();
+    let at = |e: &Employee, hours: i64| {
+        let mut r = Run::new(&e.id, RunKind::Chat, "go".into(), now - chrono::Duration::hours(hours));
+        r.state = RunState::Succeeded;
+        db.insert_run(&r, &r.id).unwrap();
+        r.id
+    };
+    let old = at(&ada, 80);
+    let yesterday = at(&ada, 24);
+    // A busy day of routines after it does not push yesterday's conversation out.
+    let busy: Vec<String> = (0..30).map(|_| at(&ada, 1)).collect();
+    let others = at(&bo, 1);
+
+    let got: Vec<String> = db.runs_since(&ada.id, now - chrono::Duration::days(3), 1000).unwrap().into_iter().map(|r| r.id).collect();
+    assert_eq!(got.len(), 31);
+    assert_eq!(got.last(), Some(&yesterday), "newest first");
+    assert!(busy.iter().all(|id| got.contains(id)));
+    assert!(!got.contains(&old) && !got.contains(&others));
+    assert_eq!(db.runs_since(&ada.id, now - chrono::Duration::days(3), 5).unwrap().len(), 5, "capped");
+    let _ = std::fs::remove_dir_all(&dir);
+}
