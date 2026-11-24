@@ -343,6 +343,7 @@ export type AppSettings = {
   maxConcurrentRuns: number; claudePath: string | null; dataDir: string; paused: boolean; backup: BackupSettings; watch: WatchSettings; proxy: ProxySettings;
   transcriptDays: number | null;   // days a finished run's transcript is kept; null: forever
   notifications: NotificationSettings;
+  quickAsk: boolean;               // a shortcut opens a small box over any app to message someone; off by default
 };
 
 /** all: each as it comes. batched: an employee's decisions in the 90 seconds after their first show as one. off: none. */

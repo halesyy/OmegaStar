@@ -59,6 +59,9 @@ pub struct AppSettings {
     pub transcript_days: Option<u32>,
     /// Absent from settings saved before notifications could be batched.
     pub notifications: NotificationSettings,
+    /// A shortcut that opens a small box from any app, to message someone on the team (`quick_ask`). Off unless you
+    /// turn it on, so the shortcut stays free for other apps.
+    pub quick_ask: bool,
 }
 
 impl Default for AppSettings {
@@ -73,6 +76,7 @@ impl Default for AppSettings {
             proxy: ProxySettings::default(),
             transcript_days: None,
             notifications: NotificationSettings::default(),
+            quick_ask: false,
         }
     }
 }
@@ -353,6 +357,12 @@ pub struct AccountIssue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_saved_before_quick_ask_leave_its_shortcut_off() {
+        let s: AppSettings = serde_json::from_str(r#"{"maxConcurrentRuns":3,"paused":false}"#).unwrap();
+        assert!(!s.quick_ask);
+    }
 
     #[test]
     fn backups_keep_going_to_a_folder_an_older_release_made() {

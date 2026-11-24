@@ -105,6 +105,7 @@ const SETTINGS: AppSettings = {
   proxy: { url: "", apiKey: "", managementKey: "" },
   transcriptDays: 90,
   notifications: { mode: "batched", quiet: { startMinute: 22 * 60, endMinute: 7 * 60 } },
+  quickAsk: false,
 };
 
 const CATALOG: SkillInfo[] = [

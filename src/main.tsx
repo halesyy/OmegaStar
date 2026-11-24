@@ -9,6 +9,7 @@ import "./design/base.css";
 import { applyChrome } from "./lib/chrome";
 import { applyTheme } from "./lib/theme";
 import App from "./App";
+import { QuickAsk } from "./screens/QuickAsk";
 
 applyTheme();
 applyChrome();
@@ -23,9 +24,11 @@ const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement)
 if (import.meta.env.DEV && new URLSearchParams(location.search).get("preview") === "parts") {
   void import("./preview/Parts").then(({ Parts }) => root.render(<React.StrictMode><Parts /></React.StrictMode>));
 } else {
+  // The quick ask box's own window (src-tauri/src/quick_ask.rs) shows just the box.
+  const quickAsk = new URLSearchParams(location.search).get("window") === "quick-ask";
   root.render(
     <React.StrictMode>
-      <App />
+      {quickAsk ? <QuickAsk /> : <App />}
     </React.StrictMode>,
   );
 }

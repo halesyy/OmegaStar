@@ -16,6 +16,7 @@ mod org;
 mod own_skills;
 mod power;
 mod proxy;
+mod quick_ask;
 mod reader;
 mod sandbox;
 mod schedule;
@@ -132,6 +133,7 @@ impl EventSink for TauriSink {
             let _ = item.set_text(pause_label(s.paused));
         }
         self.notices().set(s.notifications.clone());
+        quick_ask::apply(&self.app, s.quick_ask);
     }
 }
 
@@ -340,6 +342,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(quick_ask::plugin())
         .register_uri_scheme_protocol("omega-visual", |ctx, req| visual_page(ctx.app_handle(), &req))
         .setup(move |app| {
             let data_dir = office::default_data_dir();
@@ -404,9 +407,16 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                // The quick ask box goes when you click away from it, as a menu does.
+                WindowEvent::Focused(false) if window.label() == quick_ask::WINDOW => {
+                    let _ = window.hide();
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![

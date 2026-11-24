@@ -5,6 +5,8 @@ const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDat
 
 /** The key shortcuts go with: ⌘ on a Mac, Ctrl elsewhere. */
 export const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+/** The quick ask shortcut as its keys show, as `SHORTCUT` in src-tauri/src/quick_ask.rs sets it. */
+export const QUICK_ASK_KEYS = MOD === "⌘" ? "⌘⇧I" : "Alt+Shift+I";
 
 export const typing = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 

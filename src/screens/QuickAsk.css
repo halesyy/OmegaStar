@@ -1,0 +1,36 @@
+/* The quick ask box: drawn like the command menu, filling its own small window. The names in the message show as
+   chips: the mirror behind the field draws them, in step with what is typed, and sets the field's height. */
+html:has(.qa), html:has(.qa) body { background: var(--surface); overflow: hidden; }
+.qa { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line-strong); overflow: hidden; }
+.qa-field { position: relative; margin: 14px 16px 10px; font-size: var(--t-md); line-height: 1.5; }
+.qa-mirror, .qa-field textarea {
+  font: inherit; letter-spacing: inherit; padding: 0; margin: 0; border: 0;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.qa-mirror { color: transparent; min-height: 1.5em; }
+.qa-field textarea {
+  position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: hidden;
+  background: transparent; color: var(--ink); outline: none;
+}
+.qa-field textarea:focus-visible { box-shadow: none; }
+.qa-field textarea::placeholder { color: var(--muted); }
+.qa-chip { color: transparent; background: var(--accent-soft); border-radius: 3px; box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent-line); }
+
+.qa-people { padding: 0 6px 6px; border-top: 1px solid var(--line); padding-top: 6px; }
+.qa-person {
+  width: 100%; display: grid; grid-template-columns: 20px auto minmax(0, 1fr); align-items: center; gap: 10px;
+  height: 32px; padding: 0 10px; border-radius: var(--r-inner); text-align: left; color: var(--ink); font-size: var(--t-base);
+}
+.qa-person[aria-selected="true"] { background: var(--sunken); }
+.qa-person-name { font-weight: 600; white-space: nowrap; }
+.qa-person-title { color: var(--muted); font-size: var(--t-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.qa-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 36px; padding: 0 16px;
+  border-top: 1px solid var(--line); font-size: var(--t-sm); color: var(--muted);
+}
+.qa-to { display: inline-flex; align-items: center; gap: 6px; }
+.qa-to b { color: var(--ink); font-weight: 600; }
+.qa-sent { color: var(--ok-text); font-weight: 600; }
+.qa-error { color: var(--err-text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qa-keys { display: inline-flex; align-items: center; gap: 5px; flex: none; }

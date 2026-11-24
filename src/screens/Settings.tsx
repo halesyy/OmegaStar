@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { call, errorMessage } from "../api/client";
 import { rescanSkills, useQuery, useSkillScan } from "../lib/hooks";
-import { capitalize, plural } from "../lib/format";
+import { capitalize, plural, QUICK_ASK_KEYS } from "../lib/format";
 import { setTheme, useTheme, type ThemePref } from "../lib/theme";
 import { CopyCommand } from "../components/CopyCommand";
 import { Icon } from "../components/Icon";
@@ -98,6 +98,9 @@ export function SettingsScreen() {
               </Row>
               <Row title="Pause all schedules" desc={<Swap on={String(s.paused)}>{s.paused ? "Nobody runs on a schedule until you resume. Manual runs and conversations still work." : "Stop every schedule at once, for a holiday or a noisy week."}</Swap>}>
                 <Switch checked={s.paused} onChange={(v) => change("Pause all schedules", (x) => ({ ...x, paused: v }))} label="Pause schedules" />
+              </Row>
+              <Row title="Quick ask from anywhere" desc={<Swap on={String(s.quickAsk)}>{s.quickAsk ? <>Press <span className="kbd">{QUICK_ASK_KEYS}</span> in any app for a small box. Name someone, say what you need, and it starts a conversation with them.</> : "A shortcut that opens a small box over any app, to message someone on your team."}</Swap>}>
+                <Switch checked={s.quickAsk} onChange={(v) => change("Quick ask from anywhere", (x) => ({ ...x, quickAsk: v }))} label="Quick ask from anywhere" />
               </Row>
               <Row title="Runs at the same time" desc="Across the office, and for any one employee. Extra work waits its turn. What you type to an employee is never held up; card answers and approvals wait like other work.">
                 <Stepper

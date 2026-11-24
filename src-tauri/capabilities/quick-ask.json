@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick-ask",
+  "description": "The quick ask box: it hides itself, and grows to fit what it shows",
+  "windows": ["quick-ask"],
+  "permissions": ["core:default", "core:window:allow-hide", "core:window:allow-set-size"]
+}

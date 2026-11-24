@@ -13,7 +13,7 @@ the page loads.
 ## The URL
 
 ```
-http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts=1][&dictated=1][&chrome=mac]#<route>
+http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts=1][&dictated=1][&chrome=mac][&window=quick-ask&ask=<text>]#<route>
 ```
 
 `?preview=parts` is not an office: it is every shared part on one page, from the real components (`Parts.tsx`; add
@@ -26,6 +26,8 @@ http://localhost:1420/?preview=<state>&theme=<theme>[&sidebar=collapsed][&toasts
 | `sidebar` | `collapsed` (the rail at every size), `expanded` (the full sidebar at every size); saved | the app's rule: the rail below 1180 px |
 | `toasts` | `1`: three toasts show once the office loads (the two that report something done leave after 4 seconds; the failure stays until dismissed) | off |
 | `dictated` | `1`: every message you send counts as just dictated with Vibe Typer, so its reward plays as it goes | off: every message counts as typed |
+| `window` | `quick-ask`: the quick ask box alone, as its own window shows it (open it at about 560 px wide) | the app |
+| `ask` | with `window=quick-ask`: a message already typed in the box, the caret at its end (`@` lists the team) | empty |
 | `chrome` | `mac`: the macOS overlay title bar's room at the top of the sidebar (no traffic lights are drawn) | the browser's |
 
 ### States
