@@ -43,9 +43,9 @@ function useWide(px: number): [(el: HTMLElement | null) => void, boolean] {
 
 /**
  * Everything that happened, in three views: the runs your employees did, the numbers (what they did and used today or
- * this week), and the changes they (and you) made to their skills. The runs open on what needs you. In a wide window
- * the live work and what is coming up get the work column beside them; in a narrow one the live work sits under what
- * needs you.
+ * this week), and the changes they (and you) made to their skills. What needs you is the Inbox's, never repeated here.
+ * In a wide window the live work and what is coming up get the work column beside them; in a narrow one the live work
+ * sits above the runs.
  */
 export function ActivityScreen({ view }: { view: ActivityView }) {
   const { snap, error } = useOrg();
@@ -319,8 +319,8 @@ function ComingUp({ who, employees, people, waitingOnly = false }: { who: string
   );
 }
 
-/** What the team is waiting on someone else for, folded to one line under what needs you: real people first (each
- *  answered or chased in place), then colleagues. */
+/** What the team is waiting on someone else for, folded to one line above the runs: real people first (each answered
+ *  or chased in place), then colleagues. */
 function Waiting({ who, employees, people }: { who: string | null; employees: EmployeeView[]; people: PersonView[] }) {
   const requests = useQuery(() => call("requests", { personId: null, employeeId: who, state: "open" }), [who], ["request:updated", "org:changed"]);
   const asks = useQuery(() => call("open_asks"), [], ["run:updated"]);
@@ -365,8 +365,8 @@ type Filter = "all" | "needsYou" | "failed" | "conversations" | "handoffs" | "ro
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
-  // Runs that asked you something (a decision, a sign-in, an OK). Not "Needs you": that is the section above, the
-  // blocked and failed runs still waiting on you, and one word means one set on this page.
+  // Runs that asked you something (a decision, a sign-in, an OK). Not "Needs you": that is the Inbox's word for what
+  // still waits on you, and one word means one set in the app.
   { id: "needsYou", label: "Asked you" },
   { id: "failed", label: "Failed" },
   { id: "conversations", label: "Conversations" },
@@ -389,39 +389,11 @@ function shows(r: Run, f: Filter): boolean {
   }
 }
 
-/**
- * The finished runs that still need the owner: blocked on something only you can allow, or failed and not yet put
- * right. A routine that failed several times running is one item (its newest run), and a routine whose next run
- * succeeded no longer needs you. Newest first.
- */
-function needingYou(runs: Run[]): Run[] {
-  const out: Run[] = [];
-  const seen = new Set<string>();
-  const routines = new Map<string, Run[]>();
-  for (const r of runs) if (r.kind.type === "scheduled") routines.set(r.kind.scheduleId, [...(routines.get(r.kind.scheduleId) ?? []), r]);
-  for (const r of runs) {
-    if (r.archivedAt) continue;
-    const failed = (r.state === "failed" || r.state === "lost") && !r.limited;
-    if (!(blocked(r) && r.state === "succeeded") && !failed) continue;
-    if (r.kind.type === "scheduled") {
-      const id = r.kind.scheduleId;
-      if (seen.has(id)) continue;
-      const newer = (routines.get(id) ?? []).filter((x) => x.createdAt > r.createdAt && !isLive(x));
-      if (newer.some((x) => x.state === "succeeded" && !x.denials.length)) continue;
-      seen.add(id);
-    }
-    out.push(r);
-  }
-  return out;
-}
-
 function Runs({ q, who, name, employees, people, wide }: { q: Query<Run[]>; who: string | null; name: string | null; employees: EmployeeView[]; people: PersonView[]; wide: boolean }) {
   const [filter, setFilter] = useState<Filter>("all");
   const mine = useMemo(() => (q.data ?? []).filter((r) => who === null || r.employeeId === who), [q.data, who]);
-  const needs = useMemo(() => needingYou(mine), [mine]);
-  // Each run is listed once: what is going on now is under Live work, what needs you leads, the days hold the rest.
-  const lead = useMemo(() => new Set(needs.map((r) => r.id)), [needs]);
-  const past = useMemo(() => mine.filter((r) => !isLive(r) && !lead.has(r.id)), [mine, lead]);
+  // Each run is listed once: what is going on now is under Live work, the days hold the rest.
+  const past = useMemo(() => mine.filter((r) => !isLive(r)), [mine]);
   const runs = useMemo(() => past.filter((r) => shows(r, filter)), [past, filter]);
   const groups = useMemo(() => groupByDay(runs), [runs]);
   const handedOn = useMemo(() => new Set((q.data ?? []).flatMap((r) => (r.kind.type === "delegated" || r.kind.type === "asked" ? [r.kind.parentRunId] : []))), [q.data]);
@@ -429,14 +401,9 @@ function Runs({ q, who, name, employees, people, wide }: { q: Query<Run[]>; who:
   const employee = (r: Run) => (who ? undefined : employees.find((e) => e.id === r.employeeId));
   if (q.error && !q.data) return <ErrorCard title="Couldn't load runs" text={q.error} onRetry={q.reload} />;
   if (!q.data) return <RunsSkeleton />;
-  const nothing = !past.length && !needs.length;
+  const nothing = !past.length;
   return (
     <>
-      {needs.length ? (
-        <Section title="Needs you" count={needs.length} className="act-needs">
-          <NeedsList runs={needs} employee={employee} employees={employees} people={people} />
-        </Section>
-      ) : null}
       {wide ? null : <><LiveWork who={who} employees={employees} people={people} /><ComingUp who={who} employees={employees} people={people} waitingOnly /></>}
       <Waiting who={who} employees={employees} people={people} />
       {nothing ? (
@@ -452,7 +419,7 @@ function Runs({ q, who, name, employees, people, wide }: { q: Query<Run[]>; who:
             {runs.length === 0 ? (
               <div className="act-end">
                 <p className="act-end-title">Nothing here in the latest runs</p>
-                <p className="act-end-text">{filter === "failed" ? "Anything that still needs you is at the top. " : ""}To find older work, search with {MOD} K.</p>
+                <p className="act-end-text">To find older work, search with {MOD} K.</p>
               </div>
             ) : (
               <RunList groups={groups} handedOn={handedOn} employee={employee} employees={employees} people={people} filter={filter} />
@@ -462,21 +429,6 @@ function Runs({ q, who, name, employees, people, wide }: { q: Query<Run[]>; who:
         </section>
       )}
     </>
-  );
-}
-
-/** What needs you, in the run list's own rows; a row leaves (closing its space) once you have put it right. */
-function NeedsList({ runs, employee, employees, people }: { runs: Run[]; employee: (r: Run) => EmployeeView | undefined; employees: EmployeeView[]; people: PersonView[] }) {
-  const rows = useLeaving(runs, (r) => r.id, ms("--d-settle") + 40);
-  const flip = useMoveRows<HTMLDivElement>(runs.map((r) => r.id).join("|"));
-  return (
-    <div ref={flip} className="act-list runlist">
-      {rows.map(({ item: r, leaving }) => (
-        <div key={r.id} data-key={r.id} className="act-row collapse" data-open={!leaving}>
-          <div><RunRow run={r} employee={employee(r)} employees={employees} people={people} /></div>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -859,15 +811,11 @@ function SkelRow({ a, b }: { a: number; b: number }) {
   );
 }
 
-/** The runs as they load, in the order the page fills: what needs you, the folded line of who the team waits on, the
- *  filters, then the days. */
+/** The runs as they load, in the order the page fills: the folded line of who the team waits on, the filters, then the
+ *  days. */
 function RunsSkeleton() {
   return (
     <div className="act-skeleton" aria-busy aria-label="Loading">
-      <div className="psec">
-        <div className="psec-head"><Skeleton h={12} w={84} /></div>
-        <div className="act-list"><SkelRow a={52} b={74} /><SkelRow a={40} b={66} /></div>
-      </div>
       <div className="act-fold-head act-skel-fold"><Skeleton h={12} w={140} /><Skeleton h={20} w={60} r={10} /></div>
       <section className="act-runs">
         <div className="act-filters">{[34, 76, 54, 104, 80, 74].map((w, i) => <Skeleton key={i} h={26} w={w} r={13} />)}</div>
