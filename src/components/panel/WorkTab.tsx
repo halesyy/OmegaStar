@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
 import { call } from "../../api/client";
 import type { EmployeeView, Run, ScheduleDraft } from "../../api/types";
-import { dayHeading, firstName } from "../../lib/format";
+import { dayHeading, firstName, shortAge } from "../../lib/format";
 import { refreshOrg, useOrg, useQuery } from "../../lib/hooks";
-import { isLive } from "../../lib/threads";
+import { isLive, threadFocus } from "../../lib/threads";
 import { workTitle } from "../../lib/workTitle";
-import { RunRow } from "../RunRow";
-import { ErrorNote, Section, Skeleton } from "../ui";
+import { kindIcon, RunRow } from "../RunRow";
+import { ErrorNote, Section, Skeleton, StatePill } from "../ui";
+import { chatWord } from "../conversation/ConversationHeader";
+import { useRecentChats } from "../conversation/useStatuses";
 import { blankSchedule, ScheduleEditor, Schedules } from "./Schedules";
 import { Icon } from "../Icon";
 import { openChat, openRun } from "../../lib/router";
@@ -23,7 +25,7 @@ export function groupByDay(runs: Run[]): { day: string; runs: Run[] }[] {
 }
 
 /** What an employee does. A run that failed or was blocked leads, with what went wrong and where to act; then their
- *  schedules, then every run, live ones first. Someone with no schedules and no runs gets one next step instead. */
+ *  conversations, so what is going on is one click away; then their schedules, then every run, live ones first. Someone with no schedules and no runs gets one next step instead. */
 export function WorkTab({ e }: { e: EmployeeView }) {
   const { snap } = useOrg();
   const [editing, setEditing] = useState<ScheduleDraft | null>(null);
@@ -60,6 +62,7 @@ export function WorkTab({ e }: { e: EmployeeView }) {
   return (
     <div className="tab-scroll">
       {failed ? <NeedsALook e={e} run={failed} /> : null}
+      <Chats e={e} />
       <Schedules e={e} onEdit={setEditing} />
       <Section title="Runs">
         {q.error ? <ErrorNote text={q.error} onRetry={q.reload} /> : null}
@@ -83,6 +86,33 @@ export function WorkTab({ e }: { e: EmployeeView }) {
         </div>
       </Section>
     </div>
+  );
+}
+
+/** The employee's open conversations and the last three days', newest first, on the run list's grid: each with its
+ *  latest report line and where it stands. Nothing when there are none. */
+function Chats({ e }: { e: EmployeeView }) {
+  const chats = useRecentChats(e);
+  if (!chats?.length) return null;
+  return (
+    <Section title="Conversations">
+      <div className="work-runs">
+        {chats.map((c) => {
+          const w = chatWord(c);
+          return (
+            <button key={c.rootId} className="runrow" onClick={() => openChat(e.id, threadFocus(c.rootId))}>
+              <span className="runrow-lead runrow-icon"><Icon name={c.root ? kindIcon(c.root) : "chat"} size={14} /></span>
+              <span className="runrow-title"><span className="runrow-label">{c.title}</span></span>
+              <span className="runrow-detail">{c.line}</span>
+              <span className="runrow-status">
+                {w ? <span className="runrow-pill"><StatePill tone={w.state === "needsYou" ? "err" : w.state === "working" ? "accent" : w.state === "queued" ? "wait" : "neutral"}>{w.word}</StatePill></span> : null}
+              </span>
+              <span className="runrow-age num">{shortAge(c.at)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
 

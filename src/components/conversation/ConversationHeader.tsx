@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { call, errorMessage } from "../../api/client";
 import type { EmployeeView, Run, Thread } from "../../api/types";
 import { askComposer } from "../../lib/composer";
-import { firstName, threadTitle, whenInline } from "../../lib/format";
+import { firstName, shortAge, threadTitle, whenInline } from "../../lib/format";
 import { useOrg, useQuery } from "../../lib/hooks";
 import { setMark } from "../../lib/marks";
 import { openChat, openMember } from "../../lib/router";
@@ -16,7 +16,7 @@ import { isCut, Popover, tipWhenCut } from "../ui";
 import { LaterPreset } from "./LaterMenu";
 import { newConversationDraft, TEACH_PREFIX } from "./NewConversation";
 import { markDone, reopen, WHERE_ARE_WE } from "./ThreadView";
-import { employeeItems, useStatuses, type Item } from "./useStatuses";
+import { employeeItems, useRecentChats, useStatuses, type Chat, type Item } from "./useStatuses";
 
 /** Where a conversation stands, for its header and its actions: its runs, its state, and whether it can be archived. */
 export type ThreadState = {
@@ -84,19 +84,22 @@ export function QuietState({ s }: { s: ThreadState }) {
 /** A word for where a conversation stands, as the menu lists it. */
 const WORD: Partial<Record<Status["state"], string>> = { needsYou: "Needs you", working: "Working", queued: "Up next", snoozed: "Later" };
 
+/** Where a conversation stands in a list of them: its status word when it is open, else "Working" while work in it is
+ *  going on. Shared by the header's menu and the employee's page. */
+export function chatWord(c: Chat): { word: string; state: Status["state"] } | null {
+  const state = c.status?.state ?? (c.live ? "working" : null);
+  const word = state ? WORD[state] : undefined;
+  return state && word ? { word, state } : null;
+}
+
 /**
- * The conversation's title, which opens a menu of the employee's other conversations (each with where it stands) and
- * New conversation. `rootId` is the open conversation, or null for a new one.
+ * The conversation's title, which opens a menu of the employee's conversations (open ones and the last three days',
+ * newest first, each with where it stands) and New conversation. `rootId` is the open conversation, or null for a new
+ * one.
  */
 export function ConversationPicker({ e, rootId, title }: { e: EmployeeView; rootId: string | null; title: string }) {
-  const { items } = useStatuses();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const focus = rootId ? threadFocus(rootId) : null;
-  const list: { focus: string; title: string; icon: ReturnType<typeof kindIcon>; status: Status | null }[] = employeeItems(items ?? [], e.id)
-    .map((i) => ({ focus: threadFocus(i.thread.root.id), title: i.title, icon: kindIcon(i.thread.root), status: i.status }));
-  if (focus && !list.some((x) => x.focus === focus)) list.unshift({ focus, title, icon: "chat", status: null });
-  const go = (f: string | null) => { setOpen(false); openChat(e.id, f); };
   // A title too long for the header is cut with an ellipsis, so its whole text is the button's tooltip instead.
   const words = useRef<HTMLSpanElement>(null);
   const [cut, setCut] = useState(false);
@@ -118,24 +121,34 @@ export function ConversationPicker({ e, rootId, title }: { e: EmployeeView; root
         </button>
       </h1>
       <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} width={320} align="start">
-        <div className="menu convo-menu" role="menu" aria-label={`Conversations with ${firstName(e.name)}`}>
-          {list.map((x) => {
-            const word = x.status ? WORD[x.status.state] : undefined;
-            return (
-              <button key={x.focus} type="button" role="menuitemradio" aria-checked={x.focus === focus} className="menu-item" onClick={() => go(x.focus)}>
-                <Icon name={x.icon} size={14} />
-                <span className="grow trunc" onPointerEnter={tipWhenCut}>{x.title}</span>
-                {word ? <span className={`convo-menu-state ${x.status!.state === "needsYou" ? "status-attn" : x.status!.state === "working" ? "status-live" : ""}`}>{word}</span> : null}
-              </button>
-            );
-          })}
-          {list.length ? <div className="menu-sep" /> : null}
-          <button type="button" role="menuitemradio" aria-checked={focus === null} className="menu-item" onClick={() => go(null)}>
-            <Icon name="plus" size={14} /><span className="grow">New conversation</span>
-          </button>
-        </div>
+        <PickerMenu e={e} rootId={rootId} title={title} onGo={(f) => { setOpen(false); openChat(e.id, f); }} />
       </Popover>
     </>
+  );
+}
+
+/** The picker's menu, read when it opens. */
+function PickerMenu({ e, rootId, title, onGo }: { e: EmployeeView; rootId: string | null; title: string; onGo: (focus: string | null) => void }) {
+  const chats = useRecentChats(e) ?? [];
+  const list = rootId && !chats.some((c) => c.rootId === rootId) ? [{ rootId, root: null, title, status: null, live: false, line: "", at: "" }, ...chats] : chats;
+  return (
+    <div className="menu convo-menu" role="menu" aria-label={`Conversations with ${firstName(e.name)}`}>
+      {list.map((c) => {
+        const w = chatWord(c);
+        return (
+          <button key={c.rootId} type="button" role="menuitemradio" aria-checked={c.rootId === rootId} className="menu-item" onClick={() => onGo(threadFocus(c.rootId))}>
+            <Icon name={c.root ? kindIcon(c.root) : "chat"} size={14} />
+            <span className="grow trunc" onPointerEnter={tipWhenCut}>{c.title}</span>
+            {w ? <span className={`convo-menu-state ${w.state === "needsYou" ? "status-attn" : w.state === "working" ? "status-live" : ""}`}>{w.word}</span>
+              : c.at ? <span className="convo-menu-state num">{shortAge(c.at)}</span> : null}
+          </button>
+        );
+      })}
+      {list.length ? <div className="menu-sep" /> : null}
+      <button type="button" role="menuitemradio" aria-checked={rootId === null} className="menu-item" onClick={() => onGo(null)}>
+        <Icon name="plus" size={14} /><span className="grow">New conversation</span>
+      </button>
+    </div>
   );
 }
 

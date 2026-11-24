@@ -21,6 +21,10 @@ type Item = {
 };
 type Index = { schedules: Schedule[]; skills: { employeeId: string; skills: OwnSkill[] }[]; runs: Run[]; requests: HumanRequest[] };
 
+/** An employee from the palette: the conversation that matters now, else their page, where their recent conversations
+ *  lead, never an empty new one. */
+const openPerson = (id: string, focus: string | null) => (focus ? openChat(id, focus) : openMember(id, "work"));
+
 function score(q: string, text: string): number {
   if (!q) return 1;
   const t = text.toLowerCase();
@@ -123,7 +127,7 @@ export function CommandPalette({ onClose, api, leaving = false }: { onClose: () 
     );
     for (const e of employees) {
       out.push(
-        { id: `open-${e.id}`, group: "Team", label: e.name, hint: e.title, icon: <Avatar name={e.name} hue={e.hue} image={e.image} size={18} />, run: () => openChat(e.id, conversationFor(e, talks)), keywords: e.title },
+        { id: `open-${e.id}`, group: "Team", label: e.name, hint: e.title, icon: <Avatar name={e.name} hue={e.hue} image={e.image} size={18} />, run: () => openPerson(e.id, conversationFor(e, talks)), keywords: e.title },
         {
           id: `run-now-${e.id}`, group: "Run now", label: `Run ${e.name} now`, hint: e.presence === "working" ? "Working, will queue" : undefined, icon: <Icon name="play" size={16} />,
           run: () => call("run_now", { employeeId: e.id, instruction: null }).then(
