@@ -50,8 +50,8 @@ function dayStart(now: number, daysBack = 0): string {
   return d.toISOString();
 }
 
-/** Usage in US dollars at API list price, without its sign: "12.40", "<0.01", or "0" when no run recorded a cost. */
-const dollars = (n: number) => (n <= 0 ? "0" : n < 0.01 ? "<0.01" : n.toFixed(2));
+/** Usage in US dollars at API approximate price, without its sign: "1,747.31", "<0.01", or "0" when no run recorded a cost. */
+const dollars = (n: number) => (n <= 0 ? "0" : n < 0.01 ? "<0.01" : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 /** What the team used since the range began (the same days the chart shows), and each person's review of this week. */
 function useSpend(range: TeamRange): { usage: Query<RunUsage>; reviews: Map<string, Run> } {
