@@ -31,6 +31,8 @@ const INSTALLERS: [&str; 11] = ["dmg", "pkg", "exe", "msi", "AppImage", "deb", "
 const BULK_DIRS: [&str; 12] = ["node_modules", "target", ".gradle", "DerivedData", "Pods", "__pycache__", ".venv", ".cache", ".next", ".turbo", "build", "dist"];
 const LEFT_OUT_NOTE: &str = "App installers and bundles, Python environments, and dependency, build and cache folders (such as node_modules, target, build and dist) are not in this backup.";
 const GB: u64 = 1024 * 1024 * 1024;
+/// Free space a backup always leaves on its disk, well above the 2 GB at which runs pause.
+const KEEP_FREE: u64 = 5 * GB;
 pub const RESTORE_STEPS: &str = "Quit OmegaStar from the tray, replace the contents of the office folder with the contents \
 of this zip, then start OmegaStar.";
 
@@ -352,16 +354,16 @@ fn prunable(dir: &Path, keep: u32) -> Result<Vec<PathBuf>> {
     Ok(done.into_iter().take(excess).chain(partial).map(|name| dir.join(name)).collect())
 }
 
-/// Makes room in `dir` for a backup: it wants twice the size of the last one free (`last_bytes`), or a
-/// gigabyte before the first. When `free` reports less, the oldest backups go first, down to one fewer
-/// than `keep` (never the last one, see `prune`), but only when that frees enough on this disk (`on_disk`, the
-/// space each takes here): a backup a cloud service keeps only online frees nothing, so it is never deleted for
-/// nothing. When there is still not enough, no backup is written. A volume whose free space can't be read is let
-/// through.
+/// Makes room in `dir` for a backup: it wants twice the size of the last one (`last_bytes`), or a gigabyte before the
+/// first, on top of `KEEP_FREE`, so a backup never fills the disk. When `free` reports less, the oldest backups go
+/// first, down to one fewer than `keep` (never the last one, see `prune`), but only when that frees enough on this
+/// disk (`on_disk`, the space each takes here): a backup a cloud service keeps only online frees nothing, so it is
+/// never deleted for nothing. When there is still not enough, no backup is written. A volume whose free space can't be
+/// read is let through.
 pub fn make_room(dir: &Path, keep: u32, last_bytes: Option<u64>, free: impl Fn(&Path) -> Option<u64>, on_disk: impl Fn(&Path) -> u64) -> Result<()> {
-    let need = last_bytes.map_or(GB, |b| b.saturating_mul(2));
-    let short = || free(dir).is_some_and(|f| f < need);
-    if short() {
+    let size = last_bytes.map_or(GB, |b| b.saturating_mul(2));
+    let need = size.saturating_add(KEEP_FREE);
+    if free(dir).is_some_and(|f| f < need) {
         let doomed = prunable(dir, keep.saturating_sub(1))?;
         let freed: u64 = doomed.iter().map(|p| on_disk(p)).sum();
         if free(dir).is_some_and(|f| f.saturating_add(freed) >= need) {
@@ -370,10 +372,24 @@ pub fn make_room(dir: &Path, keep: u32, last_bytes: Option<u64>, free: impl Fn(&
             }
         }
     }
-    if short() {
-        return Err(AppError::invalid(format!("Not enough free disk space for a backup: it needs about {:.1} GB.", need as f64 / GB as f64)));
+    if let Some(f) = free(dir).filter(|f| *f < need) {
+        return Err(AppError::invalid(format!(
+            "Backup skipped: {} is free on this disk, and a backup needs about {} while leaving {} free. Free up space, or choose a backup folder on another disk.",
+            size_text(f),
+            size_text(size),
+            size_text(KEEP_FREE)
+        )));
     }
     Ok(())
+}
+
+/// A size for a message: "532 MB", "2.5 GB".
+pub fn size_text(bytes: u64) -> String {
+    if bytes < GB {
+        format!("{} MB", bytes / (1024 * 1024))
+    } else {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    }
 }
 
 /// The space a file takes on its disk: its allocated blocks, not its length, so a file a cloud service keeps only
@@ -501,33 +517,42 @@ mod tests {
             v.sort();
             v
         };
-        // A 6 GB disk where each file in the folder takes a gigabyte.
-        let free = |d: &Path| Some((6 - fs::read_dir(d).unwrap().count() as u64) * GB);
+        // A disk with 6 GB to spare beyond what backups leave free, where each file in the folder takes a gigabyte.
+        let free = |d: &Path| Some(KEEP_FREE + (6 - fs::read_dir(d).unwrap().count() as u64) * GB);
         let local = |_: &Path| GB;
 
         make_room(&dir, 3, Some(GB / 4), free, local).unwrap();
-        assert_eq!(left().len(), 5, "1 GB free is twice the last backup and more");
+        assert_eq!(left().len(), 5, "1 GB spare is twice the last backup and more");
         make_room(&dir, 3, None, |_| None, local).unwrap();
         assert_eq!(left().len(), 5, "free space that can't be read lets the backup go ahead");
 
         // Kept only online, the backups take no space here, so deleting them would make no room.
         let err = make_room(&dir, 3, Some(GB), free, |_| 0).unwrap_err();
-        assert_eq!(err.message, "Not enough free disk space for a backup: it needs about 2.0 GB.");
+        assert_eq!(
+            err.message,
+            "Backup skipped: 6.0 GB is free on this disk, and a backup needs about 2.0 GB while leaving 5.0 GB free. Free up space, or choose a backup folder on another disk."
+        );
         assert_eq!(left().len(), 5, "nothing is deleted for nothing");
 
         make_room(&dir, 3, Some(GB), free, local).unwrap();
         assert_eq!(left(), vec![backups[1], backups[2], "notes.txt"], "the oldest backup and the half-written one made room");
 
         let err = make_room(&dir, 2, Some(5 * GB / 2), free, local).unwrap_err();
-        assert_eq!(err.message, "Not enough free disk space for a backup: it needs about 5.0 GB.");
+        assert!(err.message.starts_with("Backup skipped: 8.0 GB is free on this disk, and a backup needs about 5.0 GB"), "{}", err.message);
         assert_eq!(left(), vec![backups[1], backups[2], "notes.txt"], "down to one fewer than keep would still be short, so nothing goes");
         make_room(&dir, 2, Some(2 * GB), free, local).unwrap();
         assert_eq!(left(), vec![backups[2], "notes.txt"], "down to one fewer than keep");
-        let err = make_room(&dir, 1, None, |_| Some(GB / 2), local).unwrap_err();
-        assert_eq!(err.message, "Not enough free disk space for a backup: it needs about 1.0 GB.");
+        let err = make_room(&dir, 1, None, |_| Some(KEEP_FREE), local).unwrap_err();
+        assert!(err.message.starts_with("Backup skipped: 5.0 GB is free on this disk, and a backup needs about 1.0 GB"), "{}", err.message);
         assert_eq!(left(), vec![backups[2], "notes.txt"], "the last backup always stays");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sizes_read_as_mb_then_gb() {
+        assert_eq!(size_text(532 * 1024 * 1024), "532 MB");
+        assert_eq!(size_text(5 * GB / 2), "2.5 GB");
     }
 
     #[cfg(unix)]
