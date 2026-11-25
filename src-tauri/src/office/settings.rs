@@ -214,6 +214,13 @@ impl Office {
         st.last_attempt_at = Some(at);
         match &result {
             Ok((file, sum, fingerprint)) => {
+                st.grew_from = st.last_bytes.filter(|last| backup::jumped(*last, sum.bytes));
+                if let Some(from) = st.grew_from {
+                    self.sink().notify(
+                        "Backup much bigger than the last",
+                        &format!("It is {}, up from {}. Something big may have landed in the office folder.", backup::size_text(sum.bytes), backup::size_text(from)),
+                    );
+                }
                 st.last_at = Some(at);
                 st.last_file = Some(file.clone());
                 st.last_bytes = Some(sum.bytes);

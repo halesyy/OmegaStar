@@ -35,6 +35,8 @@ const GB: u64 = 1024 * 1024 * 1024;
 const KEEP_FREE: u64 = 5 * GB;
 /// The newest backups the folder limit never deletes, so there is always more than one restore point.
 const ALWAYS_KEPT: usize = 3;
+/// The least growth from one backup to the next that counts as a jump.
+const JUMP_BYTES: u64 = 100 * 1024 * 1024;
 pub const RESTORE_STEPS: &str = "Quit OmegaStar from the tray, replace the contents of the office folder with the contents \
 of this zip, then start OmegaStar.";
 
@@ -415,6 +417,12 @@ pub fn size_text(bytes: u64) -> String {
     }
 }
 
+/// Whether a backup of `bytes` is a sudden jump from the last one (`last`): half as big again and at least
+/// `JUMP_BYTES` more, such as a big folder that landed in the office by mistake.
+pub fn jumped(last: u64, bytes: u64) -> bool {
+    bytes > last.saturating_add(last / 2) && bytes - last >= JUMP_BYTES
+}
+
 /// The space a file takes on its disk: its allocated blocks, not its length, so a file a cloud service keeps only
 /// online takes next to none. Nothing when it can't be read.
 #[cfg(unix)]
@@ -604,6 +612,15 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&online);
+    }
+
+    #[test]
+    fn a_jump_is_half_as_big_again_and_100_mb_more() {
+        let mb = |n: u64| n * 1024 * 1024;
+        assert!(jumped(mb(532), mb(1070)), "the folder that doubled the backups on 25 Nov 2026");
+        assert!(!jumped(mb(532), mb(700)), "under half as big again");
+        assert!(!jumped(mb(10), mb(50)), "a small office growing a little");
+        assert!(!jumped(mb(800), mb(500)), "smaller");
     }
 
     #[test]

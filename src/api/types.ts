@@ -374,6 +374,7 @@ export type BackupStatus = {
   fingerprint: string | null;     // the office at the last successful backup
   checkedAt: string | null;       // the last time a backup was due but nothing had changed
   leftOut: number;                // installers and build folders the last backup left out
+  grewFrom: number | null;        // the size before, when the last backup was a sudden jump
 };
 
 export type UsageWindow = { percent: number; resetsAt: string | null; resetsText: string | null };   // percent 0-100

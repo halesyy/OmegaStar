@@ -285,6 +285,8 @@ pub struct BackupStatus {
     pub checked_at: Option<Ts>,
     /// Installers and build folders the last successful backup left out.
     pub left_out: u32,
+    /// The size of the backup before the last one, when the last was a sudden jump from it (`backup::jumped`).
+    pub grew_from: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

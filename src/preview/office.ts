@@ -128,7 +128,7 @@ function emptyUsage(): UsageLimits {
 function backupStatus(): BackupStatus {
   return {
     running: false, lastAt: lastAt(3, 0), lastFile: `${HOME}/Backups/OmegaStar/omega-star-backup.zip`, lastBytes: 48_300_000,
-    skipped: 0, lastAttemptAt: lastAt(3, 0), lastError: null, nextAt: nextAt(3, 0), fingerprint: "c0ffee12", checkedAt: null, leftOut: 2,
+    skipped: 0, lastAttemptAt: lastAt(3, 0), lastError: null, nextAt: nextAt(3, 0), fingerprint: "c0ffee12", checkedAt: null, leftOut: 2, grewFrom: null,
   };
 }
 

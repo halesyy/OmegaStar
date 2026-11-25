@@ -46,6 +46,7 @@ function LastBackup({ st, frequency, hideFailure }: { st: BackupStatus; frequenc
   return (
     <>
       {st.lastAt ? <>{whenAt(st.lastAt)}{st.lastBytes != null ? `, ${size(st.lastBytes)}` : null}</> : "No backups yet."}
+      {st.grewFrom != null ? <span className="set-note set-warn">Up from {size(st.grewFrom)} the time before.</span> : null}
       {st.skipped > 0 ? <span className="set-note">{plural(st.skipped, "file")} couldn't be read and {st.skipped === 1 ? "was" : "were"} left out.</span> : null}
       {st.leftOut > 0 ? <span className="set-note">{st.leftOut} installers and build folders were left out.</span> : null}
       {st.lastAt && st.checkedAt && Date.parse(st.checkedAt) > Date.parse(st.lastAt) ? <span className="set-note">Nothing has changed since. Checked {relTime(st.checkedAt)}.</span> : null}
