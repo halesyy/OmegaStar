@@ -268,7 +268,9 @@ impl Office {
         let partial = PathBuf::from(format!("{}{}", file.display(), backup::PARTIAL));
         // Its own statement, so the store is free again before the zip goes to a folder that may hang.
         let snapped = self.db().snapshot_to(&snapshot);
-        let written = snapped.and_then(|_| backup::write_archive(self.data_dir(), &snapshot, &partial, manifest));
+        let written = snapped
+            .and_then(|_| backup::write_archive(self.data_dir(), &snapshot, &partial, manifest))
+            .and_then(|sum| backup::check_archive(&partial, self.data_dir()).map(|_| sum));
         let _ = fs::remove_file(&snapshot);
         let done = written.and_then(|sum| Ok(fs::rename(&partial, &file).map(|_| sum)?));
         if done.is_err() {

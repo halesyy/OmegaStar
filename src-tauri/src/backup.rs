@@ -1,6 +1,7 @@
 //! Office backups: one zip of the office folder per backup, with a consistent database snapshot in
-//! place of the live `office.db`, pruned to the newest few and a size limit. What can be rebuilt
-//! (dependencies, builds and app installers) is left out. File work only; the Office decides when.
+//! place of the live `office.db`, checked before it is kept, and pruned to the newest few and a size
+//! limit. What can be rebuilt (dependencies, builds and app installers) is left out. File work only;
+//! the Office decides when.
 
 use crate::model::*;
 use crate::office::RUNNING_MARKER;
@@ -37,6 +38,8 @@ const KEEP_FREE: u64 = 5 * GB;
 const ALWAYS_KEPT: usize = 3;
 /// The least growth from one backup to the next that counts as a jump.
 const JUMP_BYTES: u64 = 100 * 1024 * 1024;
+/// Each employee's folder (skills, notes, workspace), which every restorable backup holds.
+const EMPLOYEES: &str = "employees";
 pub const RESTORE_STEPS: &str = "Quit OmegaStar from the tray, replace the contents of the office folder with the contents \
 of this zip, then start OmegaStar.";
 
@@ -423,6 +426,28 @@ pub fn jumped(last: u64, bytes: u64) -> bool {
     bytes > last.saturating_add(last / 2) && bytes - last >= JUMP_BYTES
 }
 
+/// Checks a just-written backup restores: the zip opens, its `office.db` reads back whole (each entry's checksum is
+/// checked as it is read) and is a SQLite database, and it holds `employees/` when the office has that folder (a
+/// link to one is left out of backups, so it is not looked for).
+pub fn check_archive(zip_path: &Path, data_dir: &Path) -> Result<()> {
+    let bad = |why: &str| AppError::internal(format!("The new backup didn't check out ({why}), so it was not kept."));
+    let mut zip = zip::ZipArchive::new(std::io::BufReader::new(File::open(zip_path)?)).map_err(|e| bad(&format!("it would not open: {e}")))?;
+    {
+        let mut db = zip.by_name(DB_FILE).map_err(|_| bad("it has no office.db"))?;
+        let mut head = [0u8; 16];
+        db.read_exact(&mut head).map_err(|_| bad("its office.db is empty"))?;
+        if &head != b"SQLite format 3\0" {
+            return Err(bad("its office.db is not a database"));
+        }
+        std::io::copy(&mut db, &mut std::io::sink()).map_err(|e| bad(&format!("its office.db did not read back: {e}")))?;
+    }
+    let staff = format!("{EMPLOYEES}/");
+    if fs::symlink_metadata(data_dir.join(EMPLOYEES)).is_ok_and(|m| m.is_dir()) && !zip.file_names().any(|n| n.is_ok_and(|n| n.starts_with(&staff))) {
+        return Err(bad("it has no employees folder"));
+    }
+    Ok(())
+}
+
 /// The space a file takes on its disk: its allocated blocks, not its length, so a file a cloud service keeps only
 /// online takes next to none. Nothing when it can't be read.
 #[cfg(unix)]
@@ -627,6 +652,44 @@ mod tests {
     fn sizes_read_as_mb_then_gb() {
         assert_eq!(size_text(532 * 1024 * 1024), "532 MB");
         assert_eq!(size_text(5 * GB / 2), "2.5 GB");
+    }
+
+    #[test]
+    fn a_new_backup_is_checked_before_it_is_kept() {
+        let office = temp_office("check");
+        put(&office.join("employees/e1/notes.md"), "keep me");
+        let out = temp_office("check-out");
+        let snapshot = out.join("snapshot.db");
+        Connection::open(&snapshot).unwrap().execute_batch("CREATE TABLE t (x); INSERT INTO t VALUES (1);").unwrap();
+        let zip_of = |name: &str, office: &Path, snapshot: &Path| {
+            let dest = out.join(name);
+            write_archive(office, snapshot, &dest, serde_json::json!({})).unwrap();
+            dest
+        };
+
+        let good = zip_of("good.zip", &office, &snapshot);
+        check_archive(&good, &office).unwrap();
+
+        let text = out.join("text.db");
+        put(&text, "not sqlite at all");
+        let err = check_archive(&zip_of("text.zip", &office, &text), &office).unwrap_err();
+        assert!(err.message.contains("its office.db is not a database"), "{}", err.message);
+
+        let empty = temp_office("check-empty");
+        let no_staff = zip_of("no-staff.zip", &empty, &snapshot);
+        check_archive(&no_staff, &empty).unwrap();
+        let err = check_archive(&no_staff, &office).unwrap_err();
+        assert!(err.message.contains("it has no employees folder"), "{}", err.message);
+
+        let cut = out.join("cut.zip");
+        let bytes = fs::read(&good).unwrap();
+        fs::write(&cut, &bytes[..bytes.len() / 2]).unwrap();
+        let err = check_archive(&cut, &office).unwrap_err();
+        assert!(err.message.starts_with("The new backup didn't check out (it would not open"), "{}", err.message);
+
+        for d in [office, out, empty] {
+            let _ = fs::remove_dir_all(d);
+        }
     }
 
     #[cfg(unix)]
