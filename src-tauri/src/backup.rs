@@ -1,6 +1,6 @@
 //! Office backups: one zip of the office folder per backup, with a consistent database snapshot in
-//! place of the live `office.db`, pruned to the newest few. What can be rebuilt (dependencies,
-//! builds and app installers) is left out. File work only; the Office decides when.
+//! place of the live `office.db`, pruned to the newest few and a size limit. What can be rebuilt
+//! (dependencies, builds and app installers) is left out. File work only; the Office decides when.
 
 use crate::model::*;
 use crate::office::RUNNING_MARKER;
@@ -33,6 +33,8 @@ const LEFT_OUT_NOTE: &str = "App installers and bundles, Python environments, an
 const GB: u64 = 1024 * 1024 * 1024;
 /// Free space a backup always leaves on its disk, well above the 2 GB at which runs pause.
 const KEEP_FREE: u64 = 5 * GB;
+/// The newest backups the folder limit never deletes, so there is always more than one restore point.
+const ALWAYS_KEPT: usize = 3;
 pub const RESTORE_STEPS: &str = "Quit OmegaStar from the tray, replace the contents of the office folder with the contents \
 of this zip, then start OmegaStar.";
 
@@ -325,33 +327,54 @@ pub fn write_archive(data_dir: &Path, db_snapshot: &Path, dest: &Path, mut manif
     Ok(s)
 }
 
-/// Deletes all but the newest `keep` backups in `dir`, and any half-written ones. Files that aren't
-/// OmegaStar backups are never touched.
-pub fn prune(dir: &Path, keep: u32) -> Result<()> {
+/// Deletes all but the newest `keep` backups in `dir`, and any half-written ones. Then, with a limit (`max_gb`), the
+/// oldest go until the folder's backups take no more than that on this disk (`on_disk`), but never the newest
+/// `ALWAYS_KEPT`, nor one kept only online, which frees nothing here. Files that aren't OmegaStar backups are
+/// never touched.
+pub fn prune(dir: &Path, keep: u32, max_gb: Option<u32>, on_disk: impl Fn(&Path) -> u64) -> Result<()> {
     for path in prunable(dir, keep)? {
         fs::remove_file(path)?;
+    }
+    let Some(limit) = max_gb.map(|g| u64::from(g) * GB) else { return Ok(()) };
+    let sized: Vec<(u64, PathBuf)> = backups(dir)?.into_iter().map(|p| (on_disk(&p), p)).collect();
+    let mut total: u64 = sized.iter().map(|(n, _)| n).sum();
+    for (n, path) in &sized[..sized.len().saturating_sub(ALWAYS_KEPT)] {
+        if total <= limit {
+            break;
+        }
+        if *n > 0 {
+            fs::remove_file(path)?;
+            total -= n;
+        }
     }
     Ok(())
 }
 
-/// What `prune` deletes: the backups older than the newest `keep`, and any half-written ones.
-fn prunable(dir: &Path, keep: u32) -> Result<Vec<PathBuf>> {
+/// The finished backups in `dir`, oldest first.
+fn backups(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut done = Vec::new();
-    let mut partial = Vec::new();
     for e in fs::read_dir(dir)?.flatten() {
-        if !e.file_type().is_ok_and(|t| t.is_file()) {
-            continue;
-        }
         let name = e.file_name().to_string_lossy().into_owned();
-        if is_backup_name(&name) {
+        if e.file_type().is_ok_and(|t| t.is_file()) && is_backup_name(&name) {
             done.push(name);
-        } else if name.strip_suffix(PARTIAL).is_some_and(is_backup_name) {
-            partial.push(name);
         }
     }
     done.sort(); // the stamp sorts by time
+    Ok(done.into_iter().map(|name| dir.join(name)).collect())
+}
+
+/// What `prune` deletes first: the backups older than the newest `keep`, and any half-written ones.
+fn prunable(dir: &Path, keep: u32) -> Result<Vec<PathBuf>> {
+    let done = backups(dir)?;
+    let mut partial = Vec::new();
+    for e in fs::read_dir(dir)?.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if e.file_type().is_ok_and(|t| t.is_file()) && name.strip_suffix(PARTIAL).is_some_and(is_backup_name) {
+            partial.push(dir.join(name));
+        }
+    }
     let excess = done.len().saturating_sub(keep.max(1) as usize);
-    Ok(done.into_iter().take(excess).chain(partial).map(|name| dir.join(name)).collect())
+    Ok(done.into_iter().take(excess).chain(partial).collect())
 }
 
 /// Makes room in `dir` for a backup: it wants twice the size of the last one (`last_bytes`), or a gigabyte before the
@@ -512,11 +535,7 @@ mod tests {
         }
         put(&dir.join(format!("OmegaStar-backup-20260104-090000.zip{PARTIAL}")), "half");
         put(&dir.join("notes.txt"), "not a backup");
-        let left = || {
-            let mut v: Vec<String> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-            v.sort();
-            v
-        };
+        let left = || names_in(&dir);
         // A disk with 6 GB to spare beyond what backups leave free, where each file in the folder takes a gigabyte.
         let free = |d: &Path| Some(KEEP_FREE + (6 - fs::read_dir(d).unwrap().count() as u64) * GB);
         let local = |_: &Path| GB;
@@ -547,6 +566,44 @@ mod tests {
         assert_eq!(left(), vec![backups[2], "notes.txt"], "the last backup always stays");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn a_size_limit_drops_the_oldest_but_never_the_newest_three() {
+        let dir = temp_office("limit");
+        let backups: Vec<String> = (1..=6).map(|d| format!("OmegaStar-backup-2026010{d}-090000.zip")).collect();
+        for name in &backups {
+            put(&dir.join(name), "zip");
+        }
+        put(&dir.join("notes.txt"), "not a backup");
+        let local = |_: &Path| GB;
+
+        prune(&dir, 10, None, local).unwrap();
+        assert_eq!(names_in(&dir).len(), 7, "no limit, and fewer than keep: nothing goes");
+        prune(&dir, 10, Some(4), local).unwrap();
+        assert_eq!(names_in(&dir), [&backups[2..], &["notes.txt".to_string()]].concat(), "6 GB down to 4 GB, oldest first");
+        prune(&dir, 10, Some(1), local).unwrap();
+        assert_eq!(names_in(&dir), [&backups[3..], &["notes.txt".to_string()]].concat(), "over the limit, the newest three still stay");
+        prune(&dir, 2, Some(100), local).unwrap();
+        assert_eq!(names_in(&dir), [&backups[4..], &["notes.txt".to_string()]].concat(), "keep still counts first");
+
+        // The oldest two kept only online take no space here, so deleting them would free nothing.
+        let online = temp_office("limit-online");
+        for name in &backups {
+            put(&online.join(name), "zip");
+        }
+        let online_first = |p: &Path| if p.ends_with(&backups[0]) || p.ends_with(&backups[1]) { 0 } else { GB };
+        prune(&online, 10, Some(1), online_first).unwrap();
+        assert_eq!(names_in(&online), [&backups[..2], &backups[3..]].concat(), "only the oldest one here goes");
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&online);
     }
 
     #[test]

@@ -14,6 +14,13 @@ const FREQUENCIES: { value: BackupFrequency; label: string }[] = [
   { value: "weekly", label: "Weekly" },
 ];
 
+const LIMITS: { value: number | null; label: string }[] = [
+  { value: 5, label: "5 GB" },
+  { value: 20, label: "20 GB" },
+  { value: 50, label: "50 GB" },
+  { value: null, label: "No limit" },
+];
+
 const TRANSCRIPT_DAYS: { value: number | null; label: string }[] = [
   { value: null, label: "Forever" },
   { value: 365, label: "1 year" },
@@ -126,6 +133,13 @@ export function BackupsGroup({ s, change, saves, onOpenData }: { s: AppSettings;
           label="Backups to keep" value={b.keep} min={1} max={100} less="Fewer backups to keep" more="More backups to keep"
           onChange={(v) => setBackup("Backups to keep", { keep: v })}
         />
+      </Row>
+      <Row title="Space for backups" desc={<Swap on={String(b.maxGb)}>{b.maxGb == null ? "Backups can take any amount of space. A backup is skipped if it would leave the disk nearly full." : `Past ${b.maxGb} GB, older backups are deleted to make room, but never the newest 3. A backup is skipped if it would leave the disk nearly full.`}</Swap>}>
+        <div className="seg" role="group" aria-label="Space for backups">
+          {LIMITS.map((l) => (
+            <button key={l.label} aria-pressed={b.maxGb === l.value} onClick={() => setBackup("Space for backups", { maxGb: l.value })}>{l.label}</button>
+          ))}
+        </div>
       </Row>
       <Row title="Last backup" desc={<Swap on={lastKey}>{st ? <LastBackup st={st} frequency={b.frequency} hideFailure={lastFailed} /> : status.error ? <span className="set-err">{sentence(status.error)}</span> : "Checking…"}</Swap>}>
         <button className="btn" onClick={() => void backUpNow()} disabled={running}>

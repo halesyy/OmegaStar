@@ -244,6 +244,10 @@ pub struct BackupSettings {
     pub dir: String,
     /// How many backups to keep; older ones are deleted after each successful backup.
     pub keep: u32,
+    /// The most space, in GB, the backups may take; past it the oldest go (never the newest three). `None`: no limit,
+    /// as for settings saved before there was one, so an upgrade deletes nothing.
+    #[serde(default)]
+    pub max_gb: Option<u32>,
 }
 
 /// The backup folder in `base`: the one an older release made under the old name when it is there, else
@@ -256,7 +260,7 @@ fn default_backup_dir(base: &std::path::Path) -> std::path::PathBuf {
 impl Default for BackupSettings {
     fn default() -> Self {
         let dir = default_backup_dir(&dirs::document_dir().or_else(dirs::home_dir).unwrap_or_default());
-        BackupSettings { frequency: BackupFrequency::Off, dir: dir.to_string_lossy().into_owned(), keep: 7 }
+        BackupSettings { frequency: BackupFrequency::Off, dir: dir.to_string_lossy().into_owned(), keep: 7, max_gb: Some(20) }
     }
 }
 
@@ -362,6 +366,13 @@ mod tests {
         std::fs::create_dir(base.join("Omega Star Backups")).unwrap();
         assert_eq!(default_backup_dir(&base), base.join("Omega Star Backups"));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn backups_saved_before_the_size_limit_have_none_and_new_offices_get_20_gb() {
+        let old: BackupSettings = serde_json::from_str(r#"{ "frequency": "hourly", "dir": "/backups", "keep": 5 }"#).unwrap();
+        assert_eq!((old.keep, old.max_gb), (5, None));
+        assert_eq!(BackupSettings::default().max_gb, Some(20));
     }
 
     #[test]

@@ -268,7 +268,7 @@ impl Office {
             let _ = fs::remove_file(&partial);
         }
         let sum = done?;
-        if let Err(e) = backup::prune(&dir, settings.keep) {
+        if let Err(e) = backup::prune(&dir, settings.keep, settings.max_gb, backup::on_disk) {
             log!("could not prune old backups: {e}");
         }
         Ok((file.to_string_lossy().into_owned(), sum, fingerprint))
